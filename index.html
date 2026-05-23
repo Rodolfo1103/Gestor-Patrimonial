@@ -56,14 +56,14 @@ const CLASSES = [
 const ASSETS_BY_CLASS = {
   fii:       ["HGRU11","RBVA11","ALZR11","TRXF11","FIIB11","BTLG11","HGLG11","XPIN11","JFLL11","TEPP11","PVBI11","TGAR11","HSML11","XPML11","RECR11","KNHY11","KNUQ11","KNIP11","AFHI11"],
   acoes_br:  ["PSSA3","EGIE3","WEGE3","BBAS3","ITUB3","KLBN4","CXSE3","MULT3","CMIN3","FRAS3","TAEE11"],
-  acoes_ext: ["MSFT","APH","MU","AMAT","GOOGL","WM","O","BRK.B","DHR","PH","LIN","ECL","ADBE","PEP","XOM","AOS","PANW","CTVA","SIE","SAP","NSIS_B","HLMA","KOG","GMEXICOB","ASML","ABBN","TSE8058","TSE8031","NDIA","REA","HKG0700","HKG1299","J36","HKG0001","HKG0087","WES"],
+  acoes_ext: ["MSFT","APH","MU","AMAT","GOOGL","WM","O","BRKB","DHR","PH","LIN","ECL","ADBE","PEP","XOM","AOS","PANW","CTVA","SIE","SAP","NSIS_B","HLMA","KOG","GMEXICOB","ASML","ABBN","TSE8058","TSE8031","NDIA","REA","HKG0700","HKG1299","J36","HKG0001","HKG0087","WES"],
   selic:     ["SELIC2031"],
   ouro:      ["OURO_FISICO","AAAU"],
   bitcoin:   ["BTC"],
   infra:     ["BRZP11","AZIN11","KDIF11"],
 };
 const ASSET_LABELS = {
-  SELIC2031:"Tesouro Selic 2031", OURO_FISICO:"Ouro Físico (Ourominas)", AAAU:"ETF AAAU", BTC:"Bitcoin (Binance/Wallet)",
+  SELIC2031:"Tesouro Selic 2031", OURO_FISICO:"Ouro Físico (Ourominas)", AAAU:"ETF AAAU", BTC:"Bitcoin (Binance/Wallet)", BRKB:"Berkshire Hathaway (BRK.B)",
   NSIS_B:"Novozymes (NSIS-B)", HLMA:"Halma PLC (HLMA)", KOG:"Kongsberg Group (KOG)", GMEXICOB:"Grupo México (GMEXICOB)",
   TSE8058:"Mitsubishi Corp (TSE:8058)", TSE8031:"Mitsui & Co (TSE:8031)",
   REA:"REA Group (ASX:REA)", HKG0700:"Tencent Holdings (0700)", HKG1299:"AIA Group (1299)",
@@ -83,7 +83,7 @@ const ASSET_CURRENCY = {
   CXSE3:"BRL",MULT3:"BRL",CMIN3:"BRL",FRAS3:"BRL",TAEE11:"BRL",
   // Ações Exterior - USD (NYSE/NASDAQ)
   MSFT:"USD",APH:"USD",MU:"USD",AMAT:"USD",GOOGL:"USD",WM:"USD",O:"USD",
-  "BRK.B":"USD",DHR:"USD",PH:"USD",LIN:"USD",ECL:"USD",ADBE:"USD",PEP:"USD",
+  "BRKB":"USD",DHR:"USD",PH:"USD",LIN:"USD",ECL:"USD",ADBE:"USD",PEP:"USD",
   XOM:"USD",AOS:"USD",PANW:"USD",CTVA:"USD",NDIA:"USD",
   // Europa - EUR
   SIE:"EUR",SAP:"EUR",ABBN:"CHF",ASML:"EUR",
@@ -149,7 +149,7 @@ async function fetchPricesViaAI(tickers, apiKey) {
   const prompt = `Você é um sistema de dados de mercado em tempo real. Use web_search para buscar as cotações de FECHAMENTO DO ÚLTIMO PREGÃO (ou cotação atual se mercado aberto) de cada ativo listado abaixo.
 
 ATIVOS PARA BUSCAR:
-${tickers.map(t => `- ${t} (moeda: ${assetCurrency(t)})`).join("
+${tickers.map(t => "- " + t + " (moeda: " + assetCurrency(t) + ")").join("
 ")}
 
 INSTRUÇÕES:
