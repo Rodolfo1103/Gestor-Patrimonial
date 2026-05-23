@@ -141,17 +141,51 @@ function setApiKey(k){ try{localStorage.setItem("pat-apikey",k);}catch{} }
 
 // ─── AI: PRICES ───────────────────────────────────────────────────────────────
 async function fetchPricesViaAI(tickers, apiKey) {
-  const prompt = `Cotações aproximadas mai/2026. FIIs/ações BR → BRL. Internacionais → USD. Tesouro Selic 2031 → ~R$14500. Ouro físico → preço/grama BRL ~580. BTC → USD.
-Tickers: ${tickers.join(", ")}
-JSON sem markdown: {"prices":{"TICKER":{"price":123.45,"currency":"BRL","change1d":0.5}}}
-Inclua TODOS os tickers.`;
+  // Group tickers by exchange for targeted searches
+  const brTickers   = tickers.filter(t => ["BRL"].includes(assetCurrency(t)));
+  const usdTickers  = tickers.filter(t => ["USD"].includes(assetCurrency(t)));
+  const otherTickers= tickers.filter(t => !["BRL","USD"].includes(assetCurrency(t)));
+
+  const prompt = `Você é um sistema de dados de mercado em tempo real. Use web_search para buscar as cotações de FECHAMENTO DO ÚLTIMO PREGÃO (ou cotação atual se mercado aberto) de cada ativo listado abaixo.
+
+ATIVOS PARA BUSCAR:
+${tickers.map(t => `- ${t} (moeda: ${assetCurrency(t)})`).join("
+")}
+
+INSTRUÇÕES:
+- Para FIIs e ações brasileiras: busque cotação em BRL no último fechamento B3
+- Para ações NYSE/NASDAQ (MSFT, GOOGL etc): cotação em USD
+- Para ações europeias (SIE, SAP, ASML, ABBN): cotação em EUR/CHF respectivamente
+- Para ações asiáticas (TSE8058, TSE8031): cotação em JPY
+- Para Hong Kong (HKG0700 etc): cotação em HKD
+- Para Austrália (REA, WES): cotação em AUD
+- Para Noruega (KOG): cotação em NOK
+- Para Dinamarca (NSIS_B): cotação em DKK
+- Para Reino Unido (HLMA): cotação em GBP
+- Para México (GMEXICOB): cotação em MXN
+- Para Singapura (J36): cotação em SGD
+- Para Bitcoin (BTC): cotação atual em USD
+- Para Ouro físico (OURO_FISICO): preço por grama em BRL
+- Para Tesouro Selic 2031 (SELIC2031): valor unitário atual em BRL
+
+Use buscas reais para obter os preços. Não invente valores.
+
+Responda APENAS JSON sem markdown:
+{"prices":{"TICKER":{"price":123.45,"currency":"BRL","change1d":0.5}}}`;
+
   const r = await fetch("https://api.anthropic.com/v1/messages",{
-    method:"POST", headers:{"Content-Type":"application/json","x-api-key":apiKey,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
-    body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1000,messages:[{role:"user",content:prompt}]})
+    method:"POST",
+    headers:{"Content-Type":"application/json","x-api-key":apiKey,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
+    body:JSON.stringify({
+      model:"claude-sonnet-4-20250514",
+      max_tokens:2000,
+      tools:[{type:"web_search_20250305",name:"web_search"}],
+      messages:[{role:"user",content:prompt}]
+    })
   });
   const d = await r.json();
   if(d.error) throw new Error(d.error.message);
-  const txt = d.content.map(i=>i.text||"").join("").replace(/```json|```/g,"").trim();
+  const txt = d.content.filter(i=>i.type==="text").map(i=>i.text||"").join("").replace(/```json|```/g,"").trim();
   return JSON.parse(txt).prices||{};
 }
 
@@ -384,9 +418,9 @@ function App(){
               <h1 style={{margin:0,fontSize:22,fontWeight:400,color:"#F0EAD8",letterSpacing:-0.5}}>Portfólio Patrimonial</h1>
               {hasPos&&<div style={{fontSize:26,color:"#C8A96E",fontFamily:"monospace",marginTop:2,fontWeight:700}}>{fmtBRL(total)}</div>}
             </div>
-            {hasPos&&<button onClick={refreshPrices} disabled={loadingP} style={{background:"rgba(200,169,110,0.1)",border:"1px solid rgba(200,169,110,0.3)",borderRadius:6,padding:"6px 12px",color:"#C8A96E",fontSize:10,fontFamily:"monospace",letterSpacing:2,cursor:"pointer",textTransform:"uppercase"}}>{loadingP?"⟳ Atualizando...":"⟳ Cotações"}</button>}
+            {hasPos&&<button onClick={refreshPrices} disabled={loadingP} style={{background:"rgba(200,169,110,0.1)",border:"1px solid rgba(200,169,110,0.3)",borderRadius:6,padding:"6px 12px",color:"#C8A96E",fontSize:10,fontFamily:"monospace",letterSpacing:2,cursor:"pointer",textTransform:"uppercase"}}>{loadingP?"⟳ Buscando preços reais...":"⟳ Atualizar preços"}</button>}
           </div>
-          {lastPU&&<div style={{fontSize:9,color:"#5A5550",marginTop:4,fontFamily:"monospace"}}>Atualizado: {new Date(lastPU).toLocaleString("pt-BR")}{priceErr&&<span style={{color:"#E05252",marginLeft:8}}>⚠ {apiErr}</span>}</div>}
+          {lastPU&&<div style={{fontSize:9,color:"#5A5550",marginTop:4,fontFamily:"monospace"}}>Preços de mercado: {new Date(lastPU).toLocaleString("pt-BR")}{priceErr&&<span style={{color:"#E05252",marginLeft:8}}>⚠ {apiErr}</span>}</div>}
         </div>
       </div>
 
