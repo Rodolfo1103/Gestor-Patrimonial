@@ -5,45 +5,23 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
 <meta name="theme-color" content="#0D0F14"/>
 <meta name="apple-mobile-web-app-capable" content="yes"/>
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
-<meta name="apple-mobile-web-app-title" content="Patrimônio"/>
 <meta name="mobile-web-app-capable" content="yes"/>
 <title>Portfólio Patrimonial</title>
-<link rel="manifest" href="manifest.json"/>
 <style>
-  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
-  body{margin:0;padding:0;background:#0D0F14;color:#E8E2D5;font-family:'Georgia','Times New Roman',serif;overscroll-behavior:none;}
-  input{font-size:16px!important;} /* prevent iOS zoom */
-  ::-webkit-scrollbar{width:0;background:transparent;}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+body{margin:0;padding:0;background:#0D0F14;color:#E8E2D5;font-family:'Georgia','Times New Roman',serif;overscroll-behavior:none;}
+input{font-size:16px!important;}
+::-webkit-scrollbar{width:0;background:transparent;}
 </style>
 </head>
 <body>
 <div id="root"></div>
-
-<script>
-// ── Inline SW registration for PWA offline support
-if ('serviceWorker' in navigator) {
-  const swCode = `
-    const CACHE = 'patrimonio-v1';
-    const URLS  = [self.location.href];
-    self.addEventListener('install', e => e.waitUntil(caches.open(CACHE).then(c => c.addAll(URLS))));
-    self.addEventListener('fetch',   e => e.respondWith(caches.match(e.request).then(r => r || fetch(e.request))));
-  `;
-  const blob = new Blob([swCode], {type:'application/javascript'});
-  const url  = URL.createObjectURL(blob);
-  navigator.serviceWorker.register(url).catch(()=>{});
-}
-</script>
-
-<!-- React + Babel -->
 <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
-
 <script type="text/babel">
 const { useState, useEffect, useCallback } = React;
 
-// ─── MASTER DATA ──────────────────────────────────────────────────────────────
 const CLASSES = [
   { id:"fii",       name:"FIIs Brasil",    emoji:"🏢", min:28, max:30, color:"#C8A96E" },
   { id:"acoes_br",  name:"Ações Brasil",   emoji:"🇧🇷", min:13, max:15, color:"#4CAF82" },
@@ -53,6 +31,7 @@ const CLASSES = [
   { id:"bitcoin",   name:"Bitcoin",        emoji:"₿",  min:3,  max:5,  color:"#F7931A" },
   { id:"infra",     name:"Fundos Infra",   emoji:"⚡", min:5,  max:7,  color:"#A56FD4" },
 ];
+
 const ASSETS_BY_CLASS = {
   fii:       ["HGRU11","RBVA11","ALZR11","TRXF11","FIIB11","BTLG11","HGLG11","XPIN11","JFLL11","TEPP11","PVBI11","TGAR11","HSML11","XPML11","RECR11","KNHY11","KNUQ11","KNIP11","AFHI11"],
   acoes_br:  ["PSSA3","EGIE3","WEGE3","BBAS3","ITUB3","KLBN4","CXSE3","MULT3","CMIN3","FRAS3","TAEE11"],
@@ -62,118 +41,76 @@ const ASSETS_BY_CLASS = {
   bitcoin:   ["BTC"],
   infra:     ["BRZP11","AZIN11","KDIF11"],
 };
-const ASSET_LABELS = {
-  SELIC2031:"Tesouro Selic 2031", OURO_FISICO:"Ouro Físico (Ourominas)", AAAU:"ETF AAAU", BTC:"Bitcoin (Binance/Wallet)", BRKB:"Berkshire Hathaway (BRK.B)",
-  NSIS_B:"Novozymes (NSIS-B)", HLMA:"Halma PLC (HLMA)", KOG:"Kongsberg Group (KOG)", GMEXICOB:"Grupo México (GMEXICOB)",
-  TSE8058:"Mitsubishi Corp (TSE:8058)", TSE8031:"Mitsui & Co (TSE:8031)",
-  REA:"REA Group (ASX:REA)", HKG0700:"Tencent Holdings (0700)", HKG1299:"AIA Group (1299)",
-  J36:"Jardine Matheson (J36)", HKG0001:"CK Hutchison (0001)", HKG0087:"Swire Pacific (0087)", WES:"Wesfarmers (ASX:WES)",
-};
-const CLASS_OF = {};
-Object.entries(ASSETS_BY_CLASS).forEach(([cid,tickers])=>tickers.forEach(t=>{CLASS_OF[t]=cid;}));
 
-// Currency per asset based on exchange
-const ASSET_CURRENCY = {
-  // FIIs Brasil - BRL
+const ASSET_LABELS = {
+  SELIC2031:"Tesouro Selic 2031",
+  OURO_FISICO:"Ouro Físico (Ourominas)",
+  AAAU:"ETF AAAU",
+  BTC:"Bitcoin (Binance/Wallet)",
+  BRKB:"Berkshire Hathaway (BRK.B)",
+  NSIS_B:"Novozymes (NSIS-B)",
+  HLMA:"Halma PLC",
+  KOG:"Kongsberg Group",
+  GMEXICOB:"Grupo México",
+  TSE8058:"Mitsubishi Corp (TSE:8058)",
+  TSE8031:"Mitsui & Co (TSE:8031)",
+  REA:"REA Group (ASX:REA)",
+  HKG0700:"Tencent Holdings (0700)",
+  HKG1299:"AIA Group (1299)",
+  J36:"Jardine Matheson (J36)",
+  HKG0001:"CK Hutchison (0001)",
+  HKG0087:"Swire Pacific (0087)",
+  WES:"Wesfarmers (ASX:WES)",
+};
+
+const ASSET_CCY = {
   HGRU11:"BRL",RBVA11:"BRL",ALZR11:"BRL",TRXF11:"BRL",FIIB11:"BRL",BTLG11:"BRL",HGLG11:"BRL",
   XPIN11:"BRL",JFLL11:"BRL",TEPP11:"BRL",PVBI11:"BRL",TGAR11:"BRL",HSML11:"BRL",XPML11:"BRL",
   RECR11:"BRL",KNHY11:"BRL",KNUQ11:"BRL",KNIP11:"BRL",AFHI11:"BRL",
-  // Ações Brasil - BRL
   PSSA3:"BRL",EGIE3:"BRL",WEGE3:"BRL",BBAS3:"BRL",ITUB3:"BRL",KLBN4:"BRL",
   CXSE3:"BRL",MULT3:"BRL",CMIN3:"BRL",FRAS3:"BRL",TAEE11:"BRL",
-  // Ações Exterior - USD (NYSE/NASDAQ)
   MSFT:"USD",APH:"USD",MU:"USD",AMAT:"USD",GOOGL:"USD",WM:"USD",O:"USD",
-  "BRKB":"USD",DHR:"USD",PH:"USD",LIN:"USD",ECL:"USD",ADBE:"USD",PEP:"USD",
+  BRKB:"USD",DHR:"USD",PH:"USD",LIN:"USD",ECL:"USD",ADBE:"USD",PEP:"USD",
   XOM:"USD",AOS:"USD",PANW:"USD",CTVA:"USD",NDIA:"USD",
-  // Europa - EUR
-  SIE:"EUR",SAP:"EUR",ABBN:"CHF",ASML:"EUR",
-  // Escandinávia
+  SIE:"EUR",SAP:"EUR",ASML:"EUR",ABBN:"CHF",
   NSIS_B:"DKK",HLMA:"GBP",KOG:"NOK",
-  // México - MXN
   GMEXICOB:"MXN",
-  // Japão - JPY
   TSE8058:"JPY",TSE8031:"JPY",
-  // Austrália - AUD
   REA:"AUD",WES:"AUD",
-  // Hong Kong - HKD
-  HKG0700:"HKD",HKG1299:"HKD",J36:"SGD",HKG0001:"HKD",HKG0087:"HKD",
-  // Selic - BRL
-  SELIC2031:"BRL",
-  // Ouro
-  OURO_FISICO:"BRL",AAAU:"USD",
-  // Bitcoin
-  BTC:"USD",
-  // Infra - BRL
+  HKG0700:"HKD",HKG1299:"HKD",HKG0001:"HKD",HKG0087:"HKD",
+  J36:"SGD",
+  SELIC2031:"BRL",OURO_FISICO:"BRL",AAAU:"USD",BTC:"USD",
   BRZP11:"BRL",AZIN11:"BRL",KDIF11:"BRL",
 };
 
-// Exchange rate approximations to BRL (mai/2026)
-const FX_TO_BRL = {
-  BRL:1, USD:5.8, EUR:6.3, GBP:7.3, CHF:6.5,
-  JPY:0.038, AUD:3.7, HKD:0.74, SGD:4.3,
-  DKK:0.84, NOK:0.55, MXN:0.29,
-};
+const FX = { BRL:1,USD:5.8,EUR:6.3,GBP:7.3,CHF:6.5,JPY:0.038,AUD:3.7,HKD:0.74,SGD:4.3,DKK:0.84,NOK:0.55,MXN:0.29 };
 
-function assetCurrency(ticker) {
-  return ASSET_CURRENCY[ticker] || "BRL";
-}
-function toFX(ccy) {
-  return FX_TO_BRL[ccy] || 1;
-}
+const getCcy = (ticker) => ASSET_CCY[ticker] || "BRL";
+const toFX   = (ccy)    => FX[ccy] || 1;
+const toBRL  = (val, ticker) => val * toFX(getCcy(ticker));
+
+const CLASS_OF = {};
+Object.entries(ASSETS_BY_CLASS).forEach(([cid,ts]) => ts.forEach(t => { CLASS_OF[t] = cid; }));
 
 const fmtBRL = (v) => new Intl.NumberFormat("pt-BR",{style:"currency",currency:"BRL"}).format(v||0);
 const fmtNum = (v,d=2) => (v||0).toLocaleString("pt-BR",{minimumFractionDigits:d,maximumFractionDigits:d});
-const pct    = (v) => `${(v||0).toFixed(1)}%`;
+const pct    = (v) => (v||0).toFixed(1) + "%";
 const parseN = (s) => parseFloat(String(s).replace(",",".")) || 0;
 
-// ─── STORAGE (localStorage) ───────────────────────────────────────────────────
-const SK = "patrimonio-v3";
-function loadData() {
-  try { const s=localStorage.getItem(SK); return s?JSON.parse(s):null; } catch{return null;}
-}
-function saveData(data) {
-  try { localStorage.setItem(SK, JSON.stringify(data)); } catch{}
-}
-
-// ─── ANTHROPIC API KEY (stored locally) ──────────────────────────────────────
+// Storage
+const SK = "patrimonio-v4";
+function loadData() { try { const s=localStorage.getItem(SK); return s?JSON.parse(s):null; } catch{return null;} }
+function saveData(d) { try { localStorage.setItem(SK,JSON.stringify(d)); } catch{} }
 function getApiKey() { try{return localStorage.getItem("pat-apikey")||"";}catch{return "";} }
 function setApiKey(k){ try{localStorage.setItem("pat-apikey",k);}catch{} }
 
-// ─── AI: PRICES ───────────────────────────────────────────────────────────────
-async function fetchPricesViaAI(tickers, apiKey) {
-  // Group tickers by exchange for targeted searches
-  const brTickers   = tickers.filter(t => ["BRL"].includes(assetCurrency(t)));
-  const usdTickers  = tickers.filter(t => ["USD"].includes(assetCurrency(t)));
-  const otherTickers= tickers.filter(t => !["BRL","USD"].includes(assetCurrency(t)));
-
-  const prompt = `Você é um sistema de dados de mercado em tempo real. Use web_search para buscar as cotações de FECHAMENTO DO ÚLTIMO PREGÃO (ou cotação atual se mercado aberto) de cada ativo listado abaixo.
-
-ATIVOS PARA BUSCAR:
-${tickers.map(t => "- " + t + " (moeda: " + assetCurrency(t) + ")").join("
-")}
-
-INSTRUÇÕES:
-- Para FIIs e ações brasileiras: busque cotação em BRL no último fechamento B3
-- Para ações NYSE/NASDAQ (MSFT, GOOGL etc): cotação em USD
-- Para ações europeias (SIE, SAP, ASML, ABBN): cotação em EUR/CHF respectivamente
-- Para ações asiáticas (TSE8058, TSE8031): cotação em JPY
-- Para Hong Kong (HKG0700 etc): cotação em HKD
-- Para Austrália (REA, WES): cotação em AUD
-- Para Noruega (KOG): cotação em NOK
-- Para Dinamarca (NSIS_B): cotação em DKK
-- Para Reino Unido (HLMA): cotação em GBP
-- Para México (GMEXICOB): cotação em MXN
-- Para Singapura (J36): cotação em SGD
-- Para Bitcoin (BTC): cotação atual em USD
-- Para Ouro físico (OURO_FISICO): preço por grama em BRL
-- Para Tesouro Selic 2031 (SELIC2031): valor unitário atual em BRL
-
-Use buscas reais para obter os preços. Não invente valores.
-
-Responda APENAS JSON sem markdown:
-{"prices":{"TICKER":{"price":123.45,"currency":"BRL","change1d":0.5}}}`;
-
-  const r = await fetch("https://api.anthropic.com/v1/messages",{
+// AI: fetch real market prices via web search
+async function fetchPrices(tickers, apiKey) {
+  const list = tickers.map(t => t + " (" + getCcy(t) + ")").join(", ");
+  const prompt = "Você é um sistema de dados de mercado. Busque na web as cotações de fechamento do ÚLTIMO PREGÃO de cada ativo: " + list + ". " +
+    "Para BTC use cotação atual. Para OURO_FISICO use preco por grama em BRL. Para SELIC2031 use valor unitario BRL. " +
+    "Retorne APENAS JSON sem markdown: {\"prices\":{\"TICKER\":{\"price\":123.45,\"currency\":\"BRL\"}}}";
+  const r = await fetch("https://api.anthropic.com/v1/messages", {
     method:"POST",
     headers:{"Content-Type":"application/json","x-api-key":apiKey,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
     body:JSON.stringify({
@@ -185,195 +122,148 @@ Responda APENAS JSON sem markdown:
   });
   const d = await r.json();
   if(d.error) throw new Error(d.error.message);
-  const txt = d.content.filter(i=>i.type==="text").map(i=>i.text||"").join("").replace(/```json|```/g,"").trim();
-  return JSON.parse(txt).prices||{};
+  const txt = d.content.filter(i=>i.type==="text").map(i=>i.text).join("").replace(/```json|```/g,"").trim();
+  return JSON.parse(txt).prices || {};
 }
 
-// ─── AI: ALLOCATION ───────────────────────────────────────────────────────────
-async function fetchAllocation(aporteValue, portfolio, classWeights, apiKey) {
-  const classInfo = CLASSES.map(c=>({
+// AI: allocation analysis
+async function fetchAllocation(aporteValue, portfolio, cw, apiKey) {
+  const classInfo = CLASSES.map(c => ({
     id:c.id, name:c.name, targetMin:c.min, targetMax:c.max,
-    currentWeight:classWeights[c.id]||0,
-    desvio:(classWeights[c.id]||0)-((c.min+c.max)/2),
-    assets:(ASSETS_BY_CLASS[c.id]||[]).map(t=>{const p=portfolio[t];const ccy=assetCurrency(t);return p?{ticker:t,moeda:ccy,qtd:p.qty,precoLocal:p.price||0,valorBRL:(p.qty||0)*(p.price||0)*toFX(ccy)}:{ticker:t,moeda:ccy};}).slice(0,6)
+    currentWeight: cw[c.id]||0,
+    assets: (ASSETS_BY_CLASS[c.id]||[]).map(t => {
+      const p = portfolio[t];
+      return p ? {ticker:t, moeda:getCcy(t), qtd:p.qty, precoLocal:p.price||0, valorBRL:(p.qty||0)*(p.price||0)*toFX(getCcy(t))} : {ticker:t, moeda:getCcy(t)};
+    }).slice(0,6)
   }));
-  const prompt = `Você é um analista fundamentalista sênior especializado em construção patrimonial Buy & Hold de longo prazo para aposentadoria. Sua análise deve ser RIGOROSA, CONSERVADORA e orientada por MARGEM DE SEGURANÇA real.
-
-═══ PORTFÓLIO ATUAL ═══
-${JSON.stringify(classInfo)}
-
-═══ VALOR DO APORTE ═══
-R$ ${fmtNum(aporteValue,2)}
-
-═══ FILOSOFIA OBRIGATÓRIA ═══
-- Buy & Hold patrimonialista. ZERO intenção de venda ou giro de carteira.
-- Rebalanceamento EXCLUSIVAMENTE via novos aportes. Jamais via venda.
-- Cada ativo deve ser comprado como se fosse para carregar por décadas.
-- Margem de segurança é inegociável: só recomendar quando o preço oferece desconto real sobre valor intrínseco.
-- Preferir concentrar em ativos baratos do que diluir em ativos caros.
-- Se todos os ativos de uma classe estiverem esticados, redeclarar e redirecionar capital.
-
-═══ CRITÉRIOS RÍGIDOS DE VALUATION ═══
-
-FIIs BRASIL: P/VPA ≤ 0,97 obrigatório tijolo (>1,05 = EVITAR). DY ≥ 9,0% anualizado. Vacância ≤ 8%. Liquidez ≥ R$500k/dia.
-Score: COMPRA FORTE = P/VPA≤0,93 E DY≥9,5%. COMPRA = P/VPA≤0,97 E DY≥9,0%. NEUTRO = 0,97-1,03. EVITAR = >1,05 ou DY<8%.
-
-AÇÕES BRASIL: Cíclicas (BBAS3,KLBN4,CMIN3,TAEE11): P/L≤10x, EV/EBITDA≤5x. Compounders (WEGE3,EGIE3,PSSA3,MULT3,CXSE3): P/L≤18x SE ROE>20% por 5+anos. ROE mínimo 15%. Dívida/EBITDA≤2,5x.
-
-AÇÕES EXTERIOR: Compounders premium (MSFT,GOOGL,ASML,LIN,DHR,ADBE): P/L≤28x, P/FCF≤25x, receita+8%a.a. Value (XOM,PEP,WM,BRK.B,PH,ECL,AOS): P/L≤18x, FCFYield≥4%. Ásia/emergentes: P/L≤14x. Europa industriais: P/L≤22x.
-
-TESOURO SELIC: Sempre elegível. Selic real líquida ≥5,5%a.a. Sobrealocação tolerada como pólvora seca.
-
-OURO: Sem valuation convencional. ATH ou +30% em 12m → mínimo. Correção >10% → acumular.
-
-BITCOIN: ATH ou próximo → mínimo. >80% abaixo ATH → acumular. Autocustódia obrigatória.
-
-FUNDOS INFRA: DY líquido isento ≥9,5%. P/VPA≤1,00 preferencial (>1,10 = EVITAR). Concessões ≥10 anos, rating≥AA.
-
-═══ REGRAS ═══
-1. Todas 7 classes recebem aporte (mínimo 2%).
-2. Classes abaixo do alvo COM ativos atraentes = prioridade máxima.
-3. Classes abaixo do alvo SEM margem = apenas 2-4%, justificar.
-4. Nenhum ativo >5% do patrimônio total.
-5. Máximo 3 ativos por classe, ranqueados por atratividade.
-6. Cada ativo DEVE ter: score, métricas numéricas, margem de segurança, justificativa.
-
-JSON sem markdown, percentualAporte somando exatamente 100:
-{"resumo":"...","alertasValuation":["..."],"classes":[{"id":"fii","percentualAporte":25.0,"valorAporte":2500.00,"justificativa":"...","ativosRecomendados":[{"ticker":"HGLG11","score":"COMPRA FORTE","metricas":"P/VPA 0,91 · DY 9,6% · vacância 3,8%","margemSeguranca":"Desconto 9% sobre VPA. DY 0,6pp acima do threshold.","justificativa":"Melhor custo-benefício da classe."}]}]}`;
-
-  const r = await fetch("https://api.anthropic.com/v1/messages",{
-    method:"POST", headers:{"Content-Type":"application/json","x-api-key":apiKey,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
+  const prompt = "Você é analista fundamentalista Buy & Hold para aposentadoria. Análise RIGOROSA com MARGEM DE SEGURANÇA real.\n\nPORTFÓLIO: " + JSON.stringify(classInfo) + "\n\nAPORTE: R$ " + fmtNum(aporteValue,2) + "\n\nFILOSOFIA: Zero vendas, rebalanceamento só com aportes, margem de segurança obrigatória.\n\nCRITÉRIOS:\nFIIs: P/VPA<=0,97, DY>=9%, COMPRA FORTE se P/VPA<=0,93 e DY>=9,5%\nAções BR cíclicas: P/L<=10x. Compounders: P/L<=18x se ROE>20% por 5+anos.\nExterior compounders: P/L<=28x, P/FCF<=25x. Value: P/L<=18x. Ásia: P/L<=14x.\nInfra: DY líquido isento>=9,5%, P/VPA<=1,0.\nSelic: sempre elegível. Ouro/BTC: avaliar ciclo.\n\nJSON sem markdown, percentualAporte somando 100:\n{\"resumo\":\"...\",\"alertasValuation\":[\"...\"],\"classes\":[{\"id\":\"fii\",\"percentualAporte\":25.0,\"valorAporte\":2500.00,\"justificativa\":\"...\",\"ativosRecomendados\":[{\"ticker\":\"HGLG11\",\"score\":\"COMPRA FORTE\",\"metricas\":\"P/VPA 0,91 DY 9,6%\",\"margemSeguranca\":\"...\",\"justificativa\":\"...\"}]}]}";
+  const r = await fetch("https://api.anthropic.com/v1/messages", {
+    method:"POST",
+    headers:{"Content-Type":"application/json","x-api-key":apiKey,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
     body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:4000,messages:[{role:"user",content:prompt}]})
   });
   const d = await r.json();
   if(d.error) throw new Error(d.error.message);
-  const txt = d.content.filter(i=>i.type==="text").map(i=>i.text||"").join("").replace(/```json|```/g,"").trim();
+  const txt = d.content.filter(i=>i.type==="text").map(i=>i.text).join("").replace(/```json|```/g,"").trim();
   return JSON.parse(txt);
 }
 
-// ─── WEIGHTED AVG ─────────────────────────────────────────────────────────────
-function newAvgPrice(oldQty,oldAvg,addQty,addPrice){
-  const total=(oldQty||0)+addQty; if(!total) return 0;
-  return ((oldQty||0)*(oldAvg||0)+addQty*addPrice)/total;
-}
-
-// ─── SCORE BADGE ──────────────────────────────────────────────────────────────
-function ScoreBadge({score}){
+// Score badge
+function ScoreBadge({score}) {
   if(!score) return null;
-  const s=score.toUpperCase();
-  const cfg=s.includes("FORTE")?{bg:"#1A3A20",border:"#4CAF82",color:"#4CAF82"}:
-            s.includes("COMPRA")?{bg:"#1A3020",border:"#2E8B57",color:"#2E8B57"}:
-            s.includes("NEUTRO")?{bg:"#2A2A1A",border:"#C8A96E",color:"#C8A96E"}:
-            s.includes("AGUARD")?{bg:"#2A1A10",border:"#E8943A",color:"#E8943A"}:
-            s.includes("EVITAR")?{bg:"#2A1010",border:"#E05252",color:"#E05252"}:
-                                 {bg:"#1A2030",border:"#5B8FD4",color:"#5B8FD4"};
-  return <span style={{display:"inline-flex",alignItems:"center",gap:4,padding:"2px 8px",background:cfg.bg,border:`1px solid ${cfg.border}`,borderRadius:4,fontSize:9,fontFamily:"monospace",fontWeight:700,color:cfg.color,letterSpacing:1,textTransform:"uppercase",whiteSpace:"nowrap"}}>{score}</span>;
+  const s = score.toUpperCase();
+  const c = s.includes("FORTE") ? {bg:"#1A3A20",bc:"#4CAF82",fc:"#4CAF82"} :
+            s.includes("COMPRA") ? {bg:"#1A3020",bc:"#2E8B57",fc:"#2E8B57"} :
+            s.includes("NEUTRO") ? {bg:"#2A2A1A",bc:"#C8A96E",fc:"#C8A96E"} :
+            s.includes("EVITAR") ? {bg:"#2A1010",bc:"#E05252",fc:"#E05252"} :
+                                   {bg:"#1A2030",bc:"#5B8FD4",fc:"#5B8FD4"};
+  return <span style={{display:"inline-flex",alignItems:"center",padding:"2px 8px",background:c.bg,border:"1px solid "+c.bc,borderRadius:4,fontSize:9,fontFamily:"monospace",fontWeight:700,color:c.fc,letterSpacing:1,textTransform:"uppercase",whiteSpace:"nowrap"}}>{score}</span>;
 }
 
-// ─── API KEY SCREEN ───────────────────────────────────────────────────────────
-function ApiKeyScreen({onSave}){
-  const [val,setVal]=useState("");
+// API Key screen
+function ApiKeyScreen({onSave}) {
+  const [val,setVal] = useState("");
   return (
     <div style={{minHeight:"100vh",background:"#0D0F14",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:24}}>
       <div style={{fontSize:40,marginBottom:20}}>🔑</div>
-      <div style={{fontSize:11,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:8,textAlign:"center"}}>Configuração inicial</div>
+      <div style={{fontSize:10,letterSpacing:4,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:8,textAlign:"center"}}>Configuração inicial</div>
       <h2 style={{margin:"0 0 12px",fontSize:20,fontWeight:400,color:"#F0EAD8",textAlign:"center"}}>Chave da API Anthropic</h2>
-      <p style={{color:"#8A8070",fontSize:13,lineHeight:1.7,marginBottom:24,textAlign:"center",maxWidth:340}}>
-        Para usar a análise de IA, você precisa de uma chave da API Anthropic. Obtenha gratuitamente em <span style={{color:"#C8A96E"}}>console.anthropic.com</span>. A chave fica salva apenas neste dispositivo.
-      </p>
+      <p style={{color:"#8A8070",fontSize:13,lineHeight:1.7,marginBottom:24,textAlign:"center",maxWidth:340}}>Obtenha gratuitamente em <span style={{color:"#C8A96E"}}>console.anthropic.com</span>. A chave fica salva apenas neste dispositivo.</p>
       <input type="password" placeholder="sk-ant-..." value={val} onChange={e=>setVal(e.target.value)}
         style={{width:"100%",maxWidth:340,background:"rgba(200,169,110,0.05)",border:"1px solid rgba(200,169,110,0.3)",borderRadius:8,padding:"12px 14px",color:"#F0EAD8",fontSize:15,fontFamily:"monospace",outline:"none",marginBottom:12}}/>
       <button onClick={()=>{if(val.startsWith("sk-")){onSave(val);}else{alert("Chave inválida. Deve começar com sk-ant-...");}}}
         style={{width:"100%",maxWidth:340,padding:"13px",background:"linear-gradient(135deg,#C8A96E,#A8893E)",border:"none",borderRadius:8,color:"#0D0F14",fontSize:13,fontWeight:700,letterSpacing:2,textTransform:"uppercase",cursor:"pointer",fontFamily:"monospace"}}>
         Salvar e continuar →
       </button>
-      <p style={{color:"#3A3830",fontSize:10,marginTop:16,textAlign:"center",maxWidth:300,lineHeight:1.6}}>A chave é armazenada localmente no seu dispositivo e nunca é enviada a nenhum servidor além da API da Anthropic.</p>
+      <p style={{color:"#3A3830",fontSize:10,marginTop:16,textAlign:"center",maxWidth:300,lineHeight:1.6}}>Chave armazenada localmente. Nunca enviada a nenhum servidor além da API Anthropic.</p>
     </div>
   );
 }
 
-// ═════════════════════════════════════════════════════════════════════════════
-// MAIN APP
-// ═════════════════════════════════════════════════════════════════════════════
-function App(){
-  const [apiKey,setApiKeyState]  = useState(()=>getApiKey());
-  const [tab,setTab]             = useState("dashboard");
-  const [portfolio,setPortfolio] = useState({});
-  const [lastPU,setLastPU]       = useState(null);
-  const [loadingP,setLoadingP]   = useState(false);
-  const [priceErr,setPriceErr]   = useState(false);
-  const [editAsset,setEditAsset] = useState(null);
-  const [editQty,setEditQty]     = useState("");
-  const [editAvg,setEditAvg]     = useState("");
-  const [editCur,setEditCur]     = useState("");
-  const [editCcy,setEditCcy]     = useState("BRL");
-  const [aporteVal,setAporteVal] = useState("");
-  const [aporteRes,setAporteRes] = useState(null);
-  const [loadingA,setLoadingA]   = useState(false);
-  const [execEnt,setExecEnt]     = useState({});
-  const [step,setStep]           = useState("result");
-  const [history,setHistory]     = useState([]);
-  const [inited,setInited]       = useState(false);
-  const [apiErr,setApiErr]       = useState("");
+// Main App
+function App() {
+  const [apiKey,setApiKeyState] = useState(()=>getApiKey());
+  const [tab,setTab]            = useState("dashboard");
+  const [portfolio,setPort]     = useState({});
+  const [lastPU,setLastPU]      = useState(null);
+  const [loadingP,setLoadingP]  = useState(false);
+  const [priceErr,setPriceErr]  = useState("");
+  const [editAsset,setEditA]    = useState(null);
+  const [editQty,setEditQty]    = useState("");
+  const [editPrice,setEditPrice]= useState("");
+  const [aporteVal,setAporteVal]= useState("");
+  const [aporteRes,setAporteRes]= useState(null);
+  const [loadingA,setLoadingA]  = useState(false);
+  const [execEnt,setExecEnt]    = useState({});
+  const [step,setStep]          = useState("result");
+  const [history,setHistory]    = useState([]);
+  const [apiErr,setApiErr]      = useState("");
+  const [inited,setInited]      = useState(false);
 
   useEffect(()=>{
     const d=loadData();
-    if(d){setPortfolio(d.portfolio||{});setLastPU(d.lastPU||null);setHistory(d.history||[]);}
+    if(d){setPort(d.portfolio||{});setLastPU(d.lastPU||null);setHistory(d.history||[]);}
     setInited(true);
   },[]);
+
   useEffect(()=>{
     if(!inited) return;
     saveData({portfolio,lastPU,history});
   },[portfolio,lastPU,history,inited]);
 
-  const stats = useCallback(()=>{
+  const computeStats = useCallback(()=>{
     let total=0; const ct={};
     CLASSES.forEach(c=>{ct[c.id]=0;});
     Object.entries(portfolio).forEach(([t,p])=>{
       if(!p.qty||!p.price) return;
-      const v=p.qty*p.price*(p.currency==="USD"?(p.usdBrl||5.8):1);
-      total+=v; if(p.classId) ct[p.classId]=(ct[p.classId]||0)+v;
+      const v = p.qty * p.price * toFX(getCcy(t));
+      total+=v;
+      if(p.classId) ct[p.classId]=(ct[p.classId]||0)+v;
     });
     const cw={};
     CLASSES.forEach(c=>{cw[c.id]=total>0?(ct[c.id]/total)*100:0;});
     return {total,ct,cw};
   },[portfolio]);
 
-  const {total,ct,cw} = stats();
+  const {total,ct,cw} = computeStats();
 
   const refreshPrices = useCallback(async()=>{
     const tickers=Object.entries(portfolio).filter(([,p])=>p.qty>0).map(([t])=>t);
     if(!tickers.length) return;
-    setLoadingP(true); setPriceErr(false); setApiErr("");
-    try{
-      const prices=await fetchPricesViaAI(tickers,apiKey);
-      setPortfolio(prev=>{const n={...prev};Object.entries(prices).forEach(([t,d])=>{if(n[t])n[t]={...n[t],price:d.price,currency:d.currency||"BRL",change1d:d.change1d||0};});return n;});
+    setLoadingP(true); setPriceErr(""); setApiErr("");
+    try {
+      const prices = await fetchPrices(tickers, apiKey);
+      setPort(prev=>{
+        const n={...prev};
+        Object.entries(prices).forEach(([t,d])=>{
+          if(n[t]) n[t]={...n[t],price:d.price,currency:d.currency||getCcy(t)};
+        });
+        return n;
+      });
       setLastPU(new Date().toISOString());
-    }catch(e){setPriceErr(true);setApiErr(e.message||"Erro de API");}
+    } catch(e) { setPriceErr(e.message||"Erro"); }
     setLoadingP(false);
   },[portfolio,apiKey]);
 
   const openEdit=(ticker,classId)=>{
     const p=portfolio[ticker]||{};
-    setEditAsset({ticker,classId});
+    setEditA({ticker,classId});
     setEditQty(p.qty!=null?String(p.qty):"");
-    setEditAvg("");
-    setEditCur(p.price!=null?String(p.price):"");
-    setEditCcy(p.currency||assetCurrency(ticker));
+    setEditPrice(p.price!=null?String(p.price):"");
   };
+
   const saveEdit=()=>{
     if(!editAsset) return;
     const{ticker,classId}=editAsset;
-    const qty=parseN(editQty), price=parseN(editCur);
-    const ccy = assetCurrency(ticker);
-    setPortfolio(prev=>({...prev,[ticker]:{...prev[ticker],classId,qty,price,currency:ccy,lastUpdate:new Date().toISOString()}}));
-    setEditAsset(null);
+    const qty=parseN(editQty), price=parseN(editPrice);
+    setPort(prev=>({...prev,[ticker]:{...prev[ticker],classId,qty,price,lastUpdate:new Date().toISOString()}}));
+    setEditA(null);
   };
 
   const generateAlloc=async()=>{
     const v=parseN(aporteVal); if(v<=0) return;
     setLoadingA(true); setApiErr("");
-    try{
+    try {
       const res=await fetchAllocation(v,portfolio,cw,apiKey);
       setAporteRes({...res,aporteValue:v}); setStep("result");
       const ent={};
@@ -381,160 +271,176 @@ function App(){
         ent[a.ticker]={qty:"",price:portfolio[a.ticker]?.price?String(portfolio[a.ticker].price):"",executed:false};
       }));
       setExecEnt(ent);
-    }catch(e){setApiErr(e.message||"Erro ao gerar análise");}
+    } catch(e){setApiErr(e.message||"Erro ao gerar análise");}
     setLoadingA(false);
   };
 
   const applyExec=()=>{
-    const purchases=Object.entries(execEnt).filter(([,v])=>v.executed&&parseN(v.qty)>0&&parseN(v.price)>0);
-    if(!purchases.length) return;
-    setPortfolio(prev=>{
+    const buys=Object.entries(execEnt).filter(([,v])=>v.executed&&parseN(v.qty)>0&&parseN(v.price)>0);
+    if(!buys.length) return;
+    setPort(prev=>{
       const n={...prev};
-      purchases.forEach(([ticker,v])=>{
-        const aq=parseN(v.qty),ap=parseN(v.price),cid=CLASS_OF[ticker]||n[ticker]?.classId,old=n[ticker]||{};
-        n[ticker]={...old,classId:cid,qty:(old.qty||0)+aq,price:ap,currency:assetCurrency(ticker),lastUpdate:new Date().toISOString()};
+      buys.forEach(([t,v])=>{
+        const aq=parseN(v.qty),ap=parseN(v.price),cid=CLASS_OF[t]||n[t]?.classId,old=n[t]||{};
+        n[t]={...old,classId:cid,qty:(old.qty||0)+aq,price:ap,lastUpdate:new Date().toISOString()};
       });
       return n;
     });
-    const rec={date:new Date().toISOString(),aporteValue:aporteRes.aporteValue,purchases:purchases.map(([t,v])=>({ticker:t,qty:parseN(v.qty),price:parseN(v.price),total:parseN(v.qty)*parseN(v.price)})),totalExecuted:purchases.reduce((s,[,v])=>s+parseN(v.qty)*parseN(v.price),0)};
+    const rec={date:new Date().toISOString(),aporteValue:aporteRes.aporteValue,
+      purchases:buys.map(([t,v])=>({ticker:t,qty:parseN(v.qty),price:parseN(v.price),total:parseN(v.qty)*parseN(v.price)})),
+      totalExecuted:buys.reduce((s,[,v])=>s+parseN(v.qty)*parseN(v.price),0)};
     setHistory(prev=>[rec,...prev].slice(0,24));
     setStep("done");
   };
 
   if(!apiKey) return <ApiKeyScreen onSave={k=>{setApiKey(k);setApiKeyState(k);}}/>;
-  if(!inited) return <div style={{minHeight:"100vh",background:"#0D0F14",display:"flex",alignItems:"center",justifyContent:"center"}}><span style={{color:"#C8A96E",fontFamily:"monospace",letterSpacing:3,fontSize:12}}>CARREGANDO...</span></div>;
+  if(!inited) return <div style={{minHeight:"100vh",background:"#0D0F14",display:"flex",alignItems:"center",justifyContent:"center"}}><span style={{color:"#C8A96E",fontFamily:"monospace",fontSize:12,letterSpacing:3}}>CARREGANDO...</span></div>;
 
-  const hasPos=Object.values(portfolio).some(p=>p.qty>0);
+  const hasPos = Object.values(portfolio).some(p=>p.qty>0);
 
   return (
-    <div style={{minHeight:"100vh",background:"#0D0F14",color:"#E8E2D5",fontFamily:"'Georgia','Times New Roman',serif",paddingBottom:90}}>
+    <div style={{minHeight:"100vh",background:"#0D0F14",color:"#E8E2D5",fontFamily:"'Georgia','Times New Roman',serif",paddingBottom:80}}>
 
       {/* HEADER */}
-      <div style={{background:"linear-gradient(180deg,rgba(200,169,110,0.08) 0%,transparent 100%)",borderBottom:"1px solid rgba(200,169,110,0.15)",padding:"env(safe-area-inset-top,0) 0 0",}}>
-        <div style={{padding:"16px 20px 12px"}}>
-          <div style={{fontSize:9,letterSpacing:4,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:3}}>Planejamento Patrimonial · Buy & Hold</div>
-          <div style={{display:"flex",alignItems:"flex-end",justifyContent:"space-between",gap:8,flexWrap:"wrap"}}>
-            <div>
-              <h1 style={{margin:0,fontSize:22,fontWeight:400,color:"#F0EAD8",letterSpacing:-0.5}}>Portfólio Patrimonial</h1>
-              {hasPos&&<div style={{fontSize:26,color:"#C8A96E",fontFamily:"monospace",marginTop:2,fontWeight:700}}>{fmtBRL(total)}</div>}
-            </div>
-            {hasPos&&<button onClick={refreshPrices} disabled={loadingP} style={{background:"rgba(200,169,110,0.1)",border:"1px solid rgba(200,169,110,0.3)",borderRadius:6,padding:"6px 12px",color:"#C8A96E",fontSize:10,fontFamily:"monospace",letterSpacing:2,cursor:"pointer",textTransform:"uppercase"}}>{loadingP?"⟳ Buscando preços reais...":"⟳ Atualizar preços"}</button>}
+      <div style={{background:"linear-gradient(180deg,rgba(200,169,110,0.08) 0%,transparent 100%)",borderBottom:"1px solid rgba(200,169,110,0.15)",padding:"16px 20px 12px"}}>
+        <div style={{fontSize:9,letterSpacing:4,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:3}}>Planejamento Patrimonial · Buy & Hold</div>
+        <div style={{display:"flex",alignItems:"flex-end",justifyContent:"space-between",gap:8,flexWrap:"wrap"}}>
+          <div>
+            <h1 style={{margin:0,fontSize:22,fontWeight:400,color:"#F0EAD8",letterSpacing:-0.5}}>Portfólio Patrimonial</h1>
+            {hasPos && <div style={{fontSize:26,color:"#C8A96E",fontFamily:"monospace",marginTop:2,fontWeight:700}}>{fmtBRL(total)}</div>}
           </div>
-          {lastPU&&<div style={{fontSize:9,color:"#5A5550",marginTop:4,fontFamily:"monospace"}}>Preços de mercado: {new Date(lastPU).toLocaleString("pt-BR")}{priceErr&&<span style={{color:"#E05252",marginLeft:8}}>⚠ {apiErr}</span>}</div>}
+          {hasPos && <button onClick={refreshPrices} disabled={loadingP} style={{background:"rgba(200,169,110,0.1)",border:"1px solid rgba(200,169,110,0.3)",borderRadius:6,padding:"6px 12px",color:"#C8A96E",fontSize:10,fontFamily:"monospace",letterSpacing:2,cursor:"pointer",textTransform:"uppercase"}}>{loadingP?"⟳ Buscando...":"⟳ Atualizar preços"}</button>}
         </div>
+        {lastPU && <div style={{fontSize:9,color:"#5A5550",marginTop:4,fontFamily:"monospace"}}>Preços: {new Date(lastPU).toLocaleString("pt-BR")}{priceErr&&<span style={{color:"#E05252",marginLeft:8}}>⚠ {priceErr}</span>}</div>}
       </div>
 
       {/* TABS */}
       <div style={{padding:"0 20px"}}>
         <div style={{display:"flex",borderBottom:"1px solid rgba(255,255,255,0.06)",marginBottom:20,marginTop:12}}>
           {[{id:"dashboard",label:"Dashboard"},{id:"positions",label:"Posições"},{id:"aporte",label:"Aporte"},{id:"history",label:"Histórico"}].map(t=>(
-            <button key={t.id} onClick={()=>{setTab(t.id);if(t.id!=="aporte"){setAporteRes(null);setStep("result");}}} style={{background:"none",border:"none",borderBottom:tab===t.id?"2px solid #C8A96E":"2px solid transparent",color:tab===t.id?"#C8A96E":"#8A8070",padding:"7px 12px",cursor:"pointer",fontSize:12,fontFamily:"Georgia,serif",transition:"all 0.2s",marginBottom:-1,flexShrink:0}}>{t.label}</button>
+            <button key={t.id} onClick={()=>{setTab(t.id);if(t.id!=="aporte"){setAporteRes(null);setStep("result");}}}
+              style={{background:"none",border:"none",borderBottom:tab===t.id?"2px solid #C8A96E":"2px solid transparent",color:tab===t.id?"#C8A96E":"#8A8070",padding:"7px 12px",cursor:"pointer",fontSize:12,fontFamily:"Georgia,serif",transition:"all 0.2s",marginBottom:-1,flexShrink:0}}>{t.label}</button>
           ))}
-          <button onClick={()=>{if(confirm("Alterar chave de API?")){localStorage.removeItem("pat-apikey");setApiKeyState("");}}} style={{marginLeft:"auto",background:"none",border:"none",color:"#3A3830",fontSize:10,cursor:"pointer",padding:"7px 0",fontFamily:"monospace"}}>API</button>
+          <button onClick={()=>{if(window.confirm("Alterar chave de API?")){localStorage.removeItem("pat-apikey");setApiKeyState("");}}}
+            style={{marginLeft:"auto",background:"none",border:"none",color:"#3A3830",fontSize:10,cursor:"pointer",padding:"7px 0",fontFamily:"monospace"}}>API</button>
         </div>
 
-        {/* ══ DASHBOARD */}
+        {/* DASHBOARD */}
         {tab==="dashboard" && (!hasPos ? <EmptyState onGo={()=>setTab("positions")}/> : (
           <>
             <div style={{marginBottom:24}}>
               <div style={{fontSize:10,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:8}}>Composição atual</div>
               <div style={{display:"flex",height:8,borderRadius:4,overflow:"hidden",gap:1,marginBottom:10}}>
-                {CLASSES.map(c=><div key={c.id} style={{flex:cw[c.id]||0,background:c.color,minWidth:cw[c.id]>0?2:0}} title={`${c.name}: ${pct(cw[c.id])}`}/>)}
+                {CLASSES.map(c=><div key={c.id} style={{flex:cw[c.id]||0,background:c.color,minWidth:cw[c.id]>0?2:0}} title={c.name+": "+pct(cw[c.id])}/>)}
               </div>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
                 {CLASSES.map(c=>{
-                  const w=cw[c.id]||0,status=w<c.min?"under":w>c.max?"over":"ok",sc=status==="under"?"#E05252":status==="over"?"#E8C44A":"#4CAF82";
-                  return <div key={c.id} style={{background:`${c.color}0A`,border:`1px solid ${c.color}22`,borderRadius:7,padding:"9px 10px"}}>
-                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:3}}>
-                      <span style={{fontSize:10,color:c.color}}>{c.emoji} {c.name}</span>
-                      <span style={{fontFamily:"monospace",fontSize:13,color:sc,fontWeight:700}}>{pct(w)}</span>
+                  const w=cw[c.id]||0,st=w<c.min?"under":w>c.max?"over":"ok",sc=st==="under"?"#E05252":st==="over"?"#E8C44A":"#4CAF82";
+                  return (
+                    <div key={c.id} style={{background:c.color+"0A",border:"1px solid "+c.color+"22",borderRadius:7,padding:"9px 10px"}}>
+                      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:3}}>
+                        <span style={{fontSize:10,color:c.color}}>{c.emoji} {c.name}</span>
+                        <span style={{fontFamily:"monospace",fontSize:13,color:sc,fontWeight:700}}>{pct(w)}</span>
+                      </div>
+                      <div style={{display:"flex",justifyContent:"space-between"}}>
+                        <span style={{fontSize:9,color:"#5A5550",fontFamily:"monospace"}}>Alvo {c.min}–{c.max}%</span>
+                        <span style={{fontSize:10,color:"#8A8070",fontFamily:"monospace"}}>{fmtBRL(ct[c.id]||0)}</span>
+                      </div>
+                      <div style={{marginTop:5,height:2,background:"rgba(255,255,255,0.05)",borderRadius:1,overflow:"hidden"}}>
+                        <div style={{width:Math.min((w/c.max)*100,120)+"%",height:"100%",background:sc,borderRadius:1}}/>
+                      </div>
+                      <div style={{marginTop:3,fontSize:8,color:sc,fontFamily:"monospace"}}>
+                        {st==="under"?"▼ "+(c.min-w).toFixed(1)+"pp abaixo":st==="over"?"▲ "+(w-c.max).toFixed(1)+"pp acima":"✓ no alvo"}
+                      </div>
                     </div>
-                    <div style={{display:"flex",justifyContent:"space-between"}}>
-                      <span style={{fontSize:9,color:"#5A5550",fontFamily:"monospace"}}>Alvo {c.min}–{c.max}%</span>
-                      <span style={{fontSize:10,color:"#8A8070",fontFamily:"monospace"}}>{fmtBRL(ct[c.id]||0)}</span>
-                    </div>
-                    <div style={{marginTop:5,height:2,background:"rgba(255,255,255,0.05)",borderRadius:1,overflow:"hidden"}}>
-                      <div style={{width:`${Math.min((w/c.max)*100,120)}%`,height:"100%",background:sc,borderRadius:1}}/>
-                    </div>
-                    <div style={{marginTop:3,fontSize:8,color:sc,fontFamily:"monospace"}}>
-                      {status==="under"?`▼ ${(c.min-w).toFixed(1)}pp abaixo`:status==="over"?`▲ ${(w-c.max).toFixed(1)}pp acima`:"✓ no alvo"}
-                    </div>
-                  </div>;
+                  );
                 })}
               </div>
             </div>
             <div>
               <div style={{fontSize:10,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:10}}>Maiores posições</div>
-              {Object.entries(portfolio).filter(([,p])=>p.qty>0&&p.price).map(([t,p])=>({t,p,val:p.qty*p.price*toFX(p.currency||assetCurrency(t))})).sort((a,b)=>b.val-a.val).slice(0,8).map(({t,p,val})=>{
-                const pp=total>0?(val/total)*100:0,cl=CLASSES.find(c=>c.id===p.classId),gain=null;
-                return <div key={t} style={{display:"flex",alignItems:"center",padding:"7px 0",borderBottom:"1px solid rgba(255,255,255,0.04)"}}>
-                  <div style={{width:5,height:5,borderRadius:"50%",background:cl?.color||"#888",marginRight:8,flexShrink:0}}/>
-                  <div style={{flex:1,minWidth:0}}>
-                    <div style={{display:"flex",justifyContent:"space-between"}}>
-                      <span style={{fontFamily:"monospace",fontSize:12,color:"#F0EAD8",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1,marginRight:8}}>{ASSET_LABELS[t]||t}</span>
-                      <span style={{fontFamily:"monospace",fontSize:12,color:"#F0EAD8",flexShrink:0}}>{fmtBRL(val)}</span>
-                    </div>
-                    <div style={{display:"flex",justifyContent:"space-between",marginTop:1}}>
-                      <span style={{fontSize:9,color:"#5A5550"}}>{fmtNum(p.qty,p.qty<100?4:0)} × {p.currency==="USD"?"$":""}{fmtNum(p.price,2)}</span>
-                      <div style={{display:"flex",gap:8}}>
-                        {gain!==null&&<span style={{fontSize:9,color:gain>=0?"#4CAF82":"#E05252",fontFamily:"monospace"}}>{gain>=0?"+":""}{gain.toFixed(1)}%</span>}
-                        <span style={{fontSize:9,color:"#5A5550",fontFamily:"monospace"}}>{pct(pp)}</span>
+              {Object.entries(portfolio).filter(([,p])=>p.qty>0&&p.price)
+                .map(([t,p])=>({t,p,val:p.qty*p.price*toFX(getCcy(t))}))
+                .sort((a,b)=>b.val-a.val).slice(0,8)
+                .map(({t,p,val})=>{
+                  const pp=total>0?(val/total)*100:0,cl=CLASSES.find(c=>c.id===p.classId);
+                  return (
+                    <div key={t} style={{display:"flex",alignItems:"center",padding:"7px 0",borderBottom:"1px solid rgba(255,255,255,0.04)"}}>
+                      <div style={{width:5,height:5,borderRadius:"50%",background:cl?.color||"#888",marginRight:8,flexShrink:0}}/>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{display:"flex",justifyContent:"space-between"}}>
+                          <span style={{fontFamily:"monospace",fontSize:12,color:"#F0EAD8",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1,marginRight:8}}>{ASSET_LABELS[t]||t}</span>
+                          <span style={{fontFamily:"monospace",fontSize:12,color:"#F0EAD8",flexShrink:0}}>{fmtBRL(val)}</span>
+                        </div>
+                        <div style={{display:"flex",justifyContent:"space-between",marginTop:1}}>
+                          <span style={{fontSize:9,color:"#5A5550"}}>{fmtNum(p.qty,p.qty<100?4:0)} × {getCcy(t)!="BRL"?getCcy(t)+" ":"R$ "}{fmtNum(p.price,2)}</span>
+                          <span style={{fontSize:9,color:"#5A5550",fontFamily:"monospace"}}>{pct(pp)}</span>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                </div>;
-              })}
+                  );
+                })}
             </div>
           </>
         ))}
 
-        {/* ══ POSITIONS */}
+        {/* POSITIONS */}
         {tab==="positions" && (editAsset ? (
-          <EditPanel ticker={editAsset.ticker} classId={editAsset.classId} editQty={editQty} setEditQty={setEditQty} editAvg={editAvg} setEditAvg={setEditAvg} editCur={editCur} setEditCur={setEditCur} editCcy={editCcy} setEditCcy={setEditCcy} onSave={saveEdit} onCancel={()=>setEditAsset(null)} onRemove={()=>{setPortfolio(prev=>{const n={...prev};delete n[editAsset.ticker];return n;});setEditAsset(null);}}/>
+          <EditPanel ticker={editAsset.ticker} classId={editAsset.classId}
+            editQty={editQty} setEditQty={setEditQty}
+            editPrice={editPrice} setEditPrice={setEditPrice}
+            onSave={saveEdit} onCancel={()=>setEditA(null)}
+            onRemove={()=>{setPort(prev=>{const n={...prev};delete n[editAsset.ticker];return n;});setEditA(null);}}/>
         ) : (
           <>
             <div style={{fontSize:11,color:"#8A8070",marginBottom:14,lineHeight:1.6}}>Toque em qualquer ativo para cadastrar ou editar.</div>
             {CLASSES.map(c=>(
               <div key={c.id} style={{marginBottom:20}}>
-                <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:6,paddingBottom:5,borderBottom:`1px solid ${c.color}33`}}>
+                <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:6,paddingBottom:5,borderBottom:"1px solid "+c.color+"33"}}>
                   <span style={{fontSize:14}}>{c.emoji}</span>
                   <span style={{color:c.color,fontSize:12,fontWeight:600}}>{c.name}</span>
                   <span style={{marginLeft:"auto",fontSize:10,color:"#8A8070",fontFamily:"monospace"}}>{pct(cw[c.id]||0)} · {fmtBRL(ct[c.id]||0)}</span>
                 </div>
                 {(ASSETS_BY_CLASS[c.id]||[]).map(ticker=>{
                   const pos=portfolio[ticker],has=pos&&pos.qty>0;
-                  const val=has?(pos.qty*(pos.price||0)*toFX(pos.currency||assetCurrency(ticker))):0;
-                  return <div key={ticker} onClick={()=>openEdit(ticker,c.id)} style={{display:"flex",alignItems:"center",padding:"7px 9px",marginBottom:2,background:has?`${c.color}0A`:"rgba(255,255,255,0.02)",border:`1px solid ${has?c.color+"22":"rgba(255,255,255,0.04)"}`,borderRadius:6,cursor:"pointer",gap:8}}>
-                    <div style={{width:3,height:24,borderRadius:2,background:has?c.color:"rgba(255,255,255,0.08)",flexShrink:0}}/>
-                    <div style={{flex:1,minWidth:0}}>
-                      <div style={{fontSize:11,color:has?"#F0EAD8":"#5A5550",fontFamily:"monospace",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{ASSET_LABELS[ticker]||ticker}</div>
-                      {has?<div style={{fontSize:9,color:"#8A8070",marginTop:1}}>{fmtNum(pos.qty,pos.qty<100?4:0)} × {pos.currency==="USD"?"$":""}{fmtNum(pos.price||0,2)}</div>:<div style={{fontSize:9,color:"#3A3830"}}>Sem posição</div>}
+                  const val=has?(pos.qty*(pos.price||0)*toFX(getCcy(ticker))):0;
+                  const ccy=getCcy(ticker);
+                  return (
+                    <div key={ticker} onClick={()=>openEdit(ticker,c.id)}
+                      style={{display:"flex",alignItems:"center",padding:"7px 9px",marginBottom:2,background:has?c.color+"0A":"rgba(255,255,255,0.02)",border:"1px solid "+(has?c.color+"22":"rgba(255,255,255,0.04)"),borderRadius:6,cursor:"pointer",gap:8}}>
+                      <div style={{width:3,height:24,borderRadius:2,background:has?c.color:"rgba(255,255,255,0.08)",flexShrink:0}}/>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:11,color:has?"#F0EAD8":"#5A5550",fontFamily:"monospace",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{ASSET_LABELS[ticker]||ticker}</div>
+                        <div style={{fontSize:9,color:"#6A6050",marginTop:1,fontFamily:"monospace"}}>{ccy}</div>
+                        {has && <div style={{fontSize:9,color:"#8A8070",marginTop:1}}>{fmtNum(pos.qty,pos.qty<100?4:0)} × {ccy!="BRL"?ccy+" ":"R$ "}{fmtNum(pos.price||0,2)}</div>}
+                      </div>
+                      {has && <div style={{textAlign:"right",flexShrink:0}}>
+                        <div style={{fontSize:11,color:"#F0EAD8",fontFamily:"monospace"}}>{fmtBRL(val)}</div>
+                      </div>}
+                      <span style={{color:"#3A3830",fontSize:12}}>›</span>
                     </div>
-                    {has&&<div style={{textAlign:"right",flexShrink:0}}>
-                      <div style={{fontSize:11,color:"#F0EAD8",fontFamily:"monospace"}}>{fmtBRL(val)}</div>
-                      
-                    </div>}
-                    <span style={{color:"#3A3830",fontSize:12}}>›</span>
-                  </div>;
+                  );
                 })}
               </div>
             ))}
           </>
         ))}
 
-        {/* ══ APORTE */}
+        {/* APORTE */}
         {tab==="aporte" && (!hasPos ? <EmptyState onGo={()=>setTab("positions")} msg="Cadastre suas posições primeiro."/> :
-          step==="done" ? <AporteDone aporteRes={aporteRes} execEnt={execEnt} onNew={()=>{setAporteRes(null);setStep("result");setAporteVal("");setExecEnt({});}} onDash={()=>{setTab("dashboard");setAporteRes(null);setStep("result");setAporteVal("");setExecEnt({});}}/>:
+          step==="done" ? <AporteDone aporteRes={aporteRes} execEnt={execEnt}
+            onNew={()=>{setAporteRes(null);setStep("result");setAporteVal("");setExecEnt({});}}
+            onDash={()=>{setTab("dashboard");setAporteRes(null);setStep("result");setAporteVal("");setExecEnt({});}}/>:
           step==="confirm" ? <ConfirmExec aporteRes={aporteRes} execEnt={execEnt} setExecEnt={setExecEnt} portfolio={portfolio} onBack={()=>setStep("result")} onApply={applyExec}/>:
           aporteRes ? <AllocResult result={aporteRes} cw={cw} onReset={()=>{setAporteRes(null);setStep("result");}} onConfirm={()=>setStep("confirm")}/>:
           <AporteInput aporteVal={aporteVal} setAporteVal={setAporteVal} loadingA={loadingA} cw={cw} onGenerate={generateAlloc} apiErr={apiErr}/>
         )}
 
-        {/* ══ HISTORY */}
+        {/* HISTORY */}
         {tab==="history" && (
           <div>
             <div style={{fontSize:10,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:14}}>Aportes executados</div>
-            {history.length===0?<div style={{textAlign:"center",padding:"40px 0",color:"#5A5550",fontStyle:"italic",fontSize:13}}>Nenhum aporte registrado ainda.</div>:
+            {history.length===0 ? <div style={{textAlign:"center",padding:"40px 0",color:"#5A5550",fontStyle:"italic",fontSize:13}}>Nenhum aporte registrado ainda.</div> :
             history.map((rec,i)=>(
               <div key={i} style={{background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:8,padding:"12px 14px",marginBottom:8}}>
                 <div style={{display:"flex",justifyContent:"space-between",marginBottom:7}}>
@@ -543,12 +449,14 @@ function App(){
                 </div>
                 {rec.purchases.map((p,j)=>{
                   const cl=CLASSES.find(c=>c.id===CLASS_OF[p.ticker]);
-                  return <div key={j} style={{display:"flex",alignItems:"center",gap:7,padding:"3px 0",borderTop:"1px solid rgba(255,255,255,0.03)"}}>
-                    <div style={{width:4,height:4,borderRadius:"50%",background:cl?.color||"#888",flexShrink:0}}/>
-                    <span style={{fontFamily:"monospace",fontSize:11,color:"#F0EAD8",flex:1}}>{ASSET_LABELS[p.ticker]||p.ticker}</span>
-                    <span style={{fontSize:10,color:"#8A8070",fontFamily:"monospace"}}>{fmtNum(p.qty,p.qty<100?4:0)} × {fmtNum(p.price,2)}</span>
-                    <span style={{fontFamily:"monospace",fontSize:11,color:"#B0A890"}}>{fmtBRL(p.total)}</span>
-                  </div>;
+                  return (
+                    <div key={j} style={{display:"flex",alignItems:"center",gap:7,padding:"3px 0",borderTop:"1px solid rgba(255,255,255,0.03)"}}>
+                      <div style={{width:4,height:4,borderRadius:"50%",background:cl?.color||"#888",flexShrink:0}}/>
+                      <span style={{fontFamily:"monospace",fontSize:11,color:"#F0EAD8",flex:1}}>{ASSET_LABELS[p.ticker]||p.ticker}</span>
+                      <span style={{fontSize:10,color:"#8A8070",fontFamily:"monospace"}}>{fmtNum(p.qty,p.qty<100?4:0)} × {fmtNum(p.price,2)}</span>
+                      <span style={{fontFamily:"monospace",fontSize:11,color:"#B0A890"}}>{fmtBRL(p.total)}</span>
+                    </div>
+                  );
                 })}
               </div>
             ))}
@@ -559,93 +467,136 @@ function App(){
   );
 }
 
-// ─── APORTE INPUT ─────────────────────────────────────────────────────────────
-function AporteInput({aporteVal,setAporteVal,loadingA,cw,onGenerate,apiErr}){
-  return <div>
-    <div style={{fontSize:11,color:"#8A8070",marginBottom:16,lineHeight:1.7}}>A IA analisa sua composição real e faz busca fundamentalista para indicar onde alocar com margem de segurança.</div>
-    <div style={{marginBottom:16}}>
-      {CLASSES.map(c=>{const w=cw[c.id]||0,s=w<c.min?"under":w>c.max&&!c.flexOverAlloc?"over":"ok";if(s==="ok")return null;
-        return <div key={c.id} style={{display:"flex",alignItems:"center",gap:7,marginBottom:5,padding:"5px 9px",background:s==="under"?"rgba(224,82,82,0.06)":"rgba(232,196,74,0.06)",border:`1px solid ${s==="under"?"#E0525222":"#E8C44A22"}`,borderRadius:6}}>
-          <span style={{fontSize:11}}>{c.emoji}</span><span style={{fontSize:11,color:"#B0A890",flex:1}}>{c.name}</span>
-          <span style={{fontFamily:"monospace",fontSize:10,color:s==="under"?"#E05252":"#E8C44A"}}>{pct(w)} {s==="under"?"↓":"↑"}</span>
-        </div>;
-      })}
+function EditPanel({ticker,classId,editQty,setEditQty,editPrice,setEditPrice,onSave,onCancel,onRemove}) {
+  const label=ASSET_LABELS[ticker]||ticker;
+  const cl=CLASSES.find(c=>c.id===classId);
+  const ccy=getCcy(ticker);
+  const totalBRL=parseN(editQty)*parseN(editPrice)*toFX(ccy);
+  return (
+    <div>
+      <button onClick={onCancel} style={{background:"none",border:"none",color:"#8A8070",cursor:"pointer",fontSize:12,padding:0,marginBottom:14}}>← Voltar</button>
+      <div style={{display:"flex",alignItems:"center",gap:9,marginBottom:20}}>
+        <span style={{width:9,height:9,borderRadius:"50%",background:cl?.color||"#888",display:"inline-block"}}/>
+        <div>
+          <div style={{fontFamily:"monospace",fontSize:15,color:"#F0EAD8"}}>{label}</div>
+          <div style={{fontSize:10,color:cl?.color||"#888"}}>{cl?.name}</div>
+        </div>
+      </div>
+      <div style={{marginBottom:14,padding:"8px 12px",background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:6,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+        <span style={{fontSize:9,letterSpacing:2,color:"#8A8070",fontFamily:"monospace",textTransform:"uppercase"}}>Moeda de negociação</span>
+        <span style={{fontFamily:"monospace",fontSize:14,color:cl?.color||"#C8A96E",fontWeight:700}}>{ccy}</span>
+      </div>
+      <Fld label="Quantidade (cotas/ações/unidades)" value={<NIn value={editQty} onChange={setEditQty} placeholder="0" color={cl?.color}/>}/>
+      <Fld label={"Cotação atual em " + ccy} value={<NIn value={editPrice} onChange={setEditPrice} placeholder="0,00" color={cl?.color}/>} hint="Preço unitário na moeda de negociação do ativo"/>
+      {totalBRL>0 && (
+        <div style={{padding:"10px 12px",background:"rgba(200,169,110,0.05)",border:"1px solid rgba(200,169,110,0.15)",borderRadius:7,marginBottom:18}}>
+          <span style={{fontSize:11,color:"#8A8070"}}>Valor em BRL: </span>
+          <span style={{fontFamily:"monospace",fontSize:15,color:"#C8A96E"}}>{fmtBRL(totalBRL)}</span>
+        </div>
+      )}
+      <div style={{display:"flex",gap:8}}>
+        <button onClick={onSave} style={{flex:1,padding:"12px",background:"linear-gradient(135deg,"+(cl?.color||"#C8A96E")+","+(cl?.color||"#A8893E")+")",border:"none",borderRadius:7,color:"#0D0F14",fontSize:12,fontWeight:700,letterSpacing:2,textTransform:"uppercase",cursor:"pointer",fontFamily:"monospace"}}>Salvar</button>
+        <button onClick={onRemove} style={{padding:"12px 14px",background:"rgba(224,82,82,0.08)",border:"1px solid rgba(224,82,82,0.25)",borderRadius:7,color:"#E05252",fontSize:11,cursor:"pointer",fontFamily:"monospace"}}>Remover</button>
+      </div>
     </div>
-    <label style={{fontSize:10,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",display:"block",marginBottom:8}}>Valor do aporte</label>
-    <div style={{display:"flex",alignItems:"center",gap:8,background:"rgba(200,169,110,0.05)",border:"1px solid rgba(200,169,110,0.25)",borderRadius:10,padding:"12px 16px",marginBottom:14}}>
-      <span style={{color:"#C8A96E",fontFamily:"monospace",fontSize:15}}>R$</span>
-      <input type="text" placeholder="0,00" value={aporteVal} onChange={e=>setAporteVal(e.target.value.replace(/[^0-9,.]/g,""))}
-        style={{flex:1,background:"transparent",border:"none",outline:"none",color:"#F0EAD8",fontSize:28,fontFamily:"Georgia,serif"}}/>
-    </div>
-    {apiErr&&<div style={{color:"#E05252",fontSize:11,marginBottom:10,fontFamily:"monospace"}}>⚠ {apiErr}</div>}
-    <button onClick={onGenerate} disabled={loadingA} style={{width:"100%",padding:"14px",background:loadingA?"#2A2820":"linear-gradient(135deg,#C8A96E,#A8893E)",border:loadingA?"1px solid #C8A96E33":"none",borderRadius:10,color:loadingA?"#C8A96E":"#0D0F14",fontSize:12,fontWeight:700,letterSpacing:3,textTransform:"uppercase",cursor:loadingA?"not-allowed":"pointer",fontFamily:"monospace"}}>
-      {loadingA?"⟳ Buscando dados e analisando valuation...":"Gerar análise fundamentalista →"}
-    </button>
-    <p style={{fontSize:10,color:"#3A3830",marginTop:10,lineHeight:1.6,fontStyle:"italic"}}>A análise pode levar 20–40 segundos — a IA pesquisa dados de mercado em tempo real antes de recomendar.</p>
-  </div>;
+  );
 }
 
-// ─── ALLOC RESULT ─────────────────────────────────────────────────────────────
-function AllocResult({result,cw,onReset,onConfirm}){
-  return <div>
-    <button onClick={onReset} style={{background:"none",border:"none",color:"#8A8070",cursor:"pointer",fontSize:12,padding:0,marginBottom:14}}>← Novo aporte</button>
-    <div style={{background:"linear-gradient(135deg,rgba(200,169,110,0.08),rgba(200,169,110,0.02))",border:"1px solid rgba(200,169,110,0.2)",borderRadius:10,padding:"16px",marginBottom:14}}>
-      <div style={{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:6}}>Análise Fundamentalista · {new Date().toLocaleDateString("pt-BR",{month:"long",year:"numeric"})}</div>
-      <div style={{fontSize:24,color:"#F0EAD8",marginBottom:8}}>{fmtBRL(result.aporteValue)}</div>
-      <p style={{margin:0,fontSize:12,color:"#B0A890",fontStyle:"italic",lineHeight:1.7}}>{result.resumo}</p>
+function AporteInput({aporteVal,setAporteVal,loadingA,cw,onGenerate,apiErr}) {
+  return (
+    <div>
+      <div style={{fontSize:11,color:"#8A8070",marginBottom:16,lineHeight:1.7}}>A IA analisa composição real e valuation atual para indicar onde alocar com margem de segurança.</div>
+      <div style={{marginBottom:16}}>
+        {CLASSES.map(c=>{const w=cw[c.id]||0,s=w<c.min?"under":w>c.max&&!c.flexOverAlloc?"over":"ok";if(s==="ok")return null;
+          return <div key={c.id} style={{display:"flex",alignItems:"center",gap:7,marginBottom:5,padding:"5px 9px",background:s==="under"?"rgba(224,82,82,0.06)":"rgba(232,196,74,0.06)",border:"1px solid "+(s==="under"?"#E0525222":"#E8C44A22"),borderRadius:6}}>
+            <span style={{fontSize:11}}>{c.emoji}</span><span style={{fontSize:11,color:"#B0A890",flex:1}}>{c.name}</span>
+            <span style={{fontFamily:"monospace",fontSize:10,color:s==="under"?"#E05252":"#E8C44A"}}>{pct(w)} {s==="under"?"↓":"↑"}</span>
+          </div>;
+        })}
+      </div>
+      <label style={{fontSize:10,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",display:"block",marginBottom:8}}>Valor do aporte</label>
+      <div style={{display:"flex",alignItems:"center",gap:8,background:"rgba(200,169,110,0.05)",border:"1px solid rgba(200,169,110,0.25)",borderRadius:10,padding:"12px 16px",marginBottom:14}}>
+        <span style={{color:"#C8A96E",fontFamily:"monospace",fontSize:15}}>R$</span>
+        <input type="text" placeholder="0,00" value={aporteVal} onChange={e=>setAporteVal(e.target.value.replace(/[^0-9,.]/g,""))}
+          style={{flex:1,background:"transparent",border:"none",outline:"none",color:"#F0EAD8",fontSize:28,fontFamily:"Georgia,serif"}}/>
+      </div>
+      {apiErr && <div style={{color:"#E05252",fontSize:11,marginBottom:10,fontFamily:"monospace"}}>⚠ {apiErr}</div>}
+      <button onClick={onGenerate} disabled={loadingA}
+        style={{width:"100%",padding:"14px",background:loadingA?"#2A2820":"linear-gradient(135deg,#C8A96E,#A8893E)",border:loadingA?"1px solid #C8A96E33":"none",borderRadius:10,color:loadingA?"#C8A96E":"#0D0F14",fontSize:12,fontWeight:700,letterSpacing:3,textTransform:"uppercase",cursor:loadingA?"not-allowed":"pointer",fontFamily:"monospace"}}>
+        {loadingA?"⟳ Analisando portfólio...":"Gerar análise fundamentalista →"}
+      </button>
+      <p style={{fontSize:10,color:"#3A3830",marginTop:10,lineHeight:1.6,fontStyle:"italic"}}>A análise leva 20–40 segundos. Requer chave da API Anthropic.</p>
     </div>
-    {result.alertasValuation?.length>0&&<div style={{marginBottom:14,padding:"10px 12px",background:"rgba(232,196,74,0.05)",border:"1px solid rgba(232,196,74,0.2)",borderRadius:8}}>
-      <div style={{fontSize:8,letterSpacing:2,color:"#E8C44A",fontFamily:"monospace",textTransform:"uppercase",marginBottom:6}}>⚠ Alertas de valuation</div>
-      {result.alertasValuation.map((a,i)=><div key={i} style={{fontSize:11,color:"#B0A070",lineHeight:1.6,marginBottom:2}}>• {a}</div>)}
-    </div>}
-    <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:16}}>
-      {result.classes?.map(cls=>{
-        const meta=CLASSES.find(c=>c.id===cls.id); if(!meta) return null;
-        const w=cw[meta.id]||0,status=w<meta.min?"under":w>meta.max?"over":"ok",sc=status==="under"?"#E05252":status==="over"?"#E8C44A":"#4CAF82";
-        return <div key={cls.id} style={{background:`${meta.color}07`,border:`1px solid ${meta.color}2A`,borderRadius:9,overflow:"hidden"}}>
-          <div style={{padding:"11px 13px 9px",borderBottom:`1px solid ${meta.color}15`}}>
-            <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:7}}>
-              <div style={{display:"flex",alignItems:"center",gap:7}}>
-                <span style={{fontSize:16}}>{meta.emoji}</span>
-                <div>
-                  <div style={{fontSize:11,color:meta.color,fontWeight:600}}>{meta.name}</div>
-                  <div style={{fontSize:9,color:"#5A5550",fontFamily:"monospace",marginTop:1}}>Atual <span style={{color:sc}}>{pct(w)}</span> · Alvo {meta.min}–{meta.max}%</div>
+  );
+}
+
+function AllocResult({result,cw,onReset,onConfirm}) {
+  return (
+    <div>
+      <button onClick={onReset} style={{background:"none",border:"none",color:"#8A8070",cursor:"pointer",fontSize:12,padding:0,marginBottom:14}}>← Novo aporte</button>
+      <div style={{background:"linear-gradient(135deg,rgba(200,169,110,0.08),rgba(200,169,110,0.02))",border:"1px solid rgba(200,169,110,0.2)",borderRadius:10,padding:"16px",marginBottom:14}}>
+        <div style={{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:6}}>Análise Fundamentalista · {new Date().toLocaleDateString("pt-BR",{month:"long",year:"numeric"})}</div>
+        <div style={{fontSize:24,color:"#F0EAD8",marginBottom:8}}>{fmtBRL(result.aporteValue)}</div>
+        <p style={{margin:0,fontSize:12,color:"#B0A890",fontStyle:"italic",lineHeight:1.7}}>{result.resumo}</p>
+      </div>
+      {result.alertasValuation?.length>0 && (
+        <div style={{marginBottom:14,padding:"10px 12px",background:"rgba(232,196,74,0.05)",border:"1px solid rgba(232,196,74,0.2)",borderRadius:8}}>
+          <div style={{fontSize:8,letterSpacing:2,color:"#E8C44A",fontFamily:"monospace",textTransform:"uppercase",marginBottom:6}}>⚠ Alertas de valuation</div>
+          {result.alertasValuation.map((a,i)=><div key={i} style={{fontSize:11,color:"#B0A070",lineHeight:1.6,marginBottom:2}}>• {a}</div>)}
+        </div>
+      )}
+      <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:16}}>
+        {result.classes?.map(cls=>{
+          const meta=CLASSES.find(c=>c.id===cls.id); if(!meta) return null;
+          const w=cw[meta.id]||0,st=w<meta.min?"under":w>meta.max?"over":"ok",sc=st==="under"?"#E05252":st==="over"?"#E8C44A":"#4CAF82";
+          return (
+            <div key={cls.id} style={{background:meta.color+"07",border:"1px solid "+meta.color+"2A",borderRadius:9,overflow:"hidden"}}>
+              <div style={{padding:"11px 13px 9px",borderBottom:"1px solid "+meta.color+"15"}}>
+                <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:7}}>
+                  <div style={{display:"flex",alignItems:"center",gap:7}}>
+                    <span style={{fontSize:16}}>{meta.emoji}</span>
+                    <div>
+                      <div style={{fontSize:11,color:meta.color,fontWeight:600}}>{meta.name}</div>
+                      <div style={{fontSize:9,color:"#5A5550",fontFamily:"monospace",marginTop:1}}>Atual <span style={{color:sc}}>{pct(w)}</span> · Alvo {meta.min}–{meta.max}%</div>
+                    </div>
+                  </div>
+                  <div style={{textAlign:"right",flexShrink:0}}>
+                    <div style={{fontFamily:"monospace",fontSize:14,color:"#F0EAD8",fontWeight:700}}>{fmtBRL(cls.valorAporte)}</div>
+                    <div style={{fontSize:9,color:meta.color,fontFamily:"monospace"}}>{(cls.percentualAporte||0).toFixed(1)}% do aporte</div>
+                  </div>
                 </div>
+                <p style={{margin:"6px 0 0",fontSize:11,color:"#8A8070",fontStyle:"italic",lineHeight:1.5}}>{cls.justificativa}</p>
               </div>
-              <div style={{textAlign:"right",flexShrink:0}}>
-                <div style={{fontFamily:"monospace",fontSize:14,color:"#F0EAD8",fontWeight:700}}>{fmtBRL(cls.valorAporte)}</div>
-                <div style={{fontSize:9,color:meta.color,fontFamily:"monospace"}}>{cls.percentualAporte?.toFixed(1)}% do aporte</div>
+              <div style={{padding:"9px 13px 11px",display:"flex",flexDirection:"column",gap:8}}>
+                <div style={{fontSize:8,letterSpacing:2,color:meta.color+"77",fontFamily:"monospace",textTransform:"uppercase"}}>Ativos selecionados · valuation</div>
+                {cls.ativosRecomendados?.map((a,i)=>(
+                  <div key={i} style={{background:"rgba(0,0,0,0.2)",border:"1px solid rgba(255,255,255,0.05)",borderRadius:6,padding:"9px 10px"}}>
+                    <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:5,flexWrap:"wrap"}}>
+                      <span style={{background:meta.color,color:"#0D0F14",fontSize:9,fontWeight:700,padding:"2px 7px",borderRadius:3,fontFamily:"monospace"}}>{a.ticker}</span>
+                      {a.score && <ScoreBadge score={a.score}/>}
+                    </div>
+                    {a.metricas && <div style={{fontFamily:"monospace",fontSize:10,color:"#C8A96E",marginBottom:4,lineHeight:1.6}}>{a.metricas}</div>}
+                    {a.margemSeguranca && <div style={{fontSize:10,color:"#7A9A7A",lineHeight:1.5,marginBottom:3,borderLeft:"2px solid #4CAF8244",paddingLeft:7}}>{a.margemSeguranca}</div>}
+                    {a.justificativa && <div style={{fontSize:10,color:"#8A8070",lineHeight:1.5,fontStyle:"italic"}}>{a.justificativa}</div>}
+                  </div>
+                ))}
               </div>
             </div>
-            <p style={{margin:"6px 0 0",fontSize:11,color:"#8A8070",fontStyle:"italic",lineHeight:1.5}}>{cls.justificativa}</p>
-          </div>
-          <div style={{padding:"9px 13px 11px",display:"flex",flexDirection:"column",gap:8}}>
-            <div style={{fontSize:8,letterSpacing:2,color:`${meta.color}77`,fontFamily:"monospace",textTransform:"uppercase"}}>Ativos selecionados · valuation</div>
-            {cls.ativosRecomendados?.map((a,i)=><div key={i} style={{background:"rgba(0,0,0,0.2)",border:"1px solid rgba(255,255,255,0.05)",borderRadius:6,padding:"9px 10px"}}>
-              <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:5,flexWrap:"wrap"}}>
-                <span style={{background:meta.color,color:"#0D0F14",fontSize:9,fontWeight:700,padding:"2px 7px",borderRadius:3,fontFamily:"monospace"}}>{a.ticker}</span>
-                {a.score&&<ScoreBadge score={a.score}/>}
-              </div>
-              {a.metricas&&<div style={{fontFamily:"monospace",fontSize:10,color:"#C8A96E",marginBottom:4,lineHeight:1.6}}>{a.metricas}</div>}
-              {a.margemSeguranca&&<div style={{fontSize:10,color:"#7A9A7A",lineHeight:1.5,marginBottom:3,borderLeft:"2px solid #4CAF8244",paddingLeft:7}}>{a.margemSeguranca}</div>}
-              {a.justificativa&&<div style={{fontSize:10,color:"#8A8070",lineHeight:1.5,fontStyle:"italic"}}>{a.justificativa}</div>}
-            </div>)}
-          </div>
-        </div>;
-      })}
+          );
+        })}
+      </div>
+      <div style={{background:"rgba(200,169,110,0.04)",border:"1px solid rgba(200,169,110,0.2)",borderRadius:9,padding:"14px",marginBottom:12,textAlign:"center"}}>
+        <div style={{fontSize:11,color:"#B0A890",marginBottom:10,lineHeight:1.6}}>Executou o aporte? Registre as compras e o portfólio se atualiza automaticamente.</div>
+        <button onClick={onConfirm} style={{width:"100%",padding:"12px",background:"linear-gradient(135deg,#C8A96E,#A8893E)",border:"none",borderRadius:7,color:"#0D0F14",fontSize:12,fontWeight:700,letterSpacing:2,textTransform:"uppercase",cursor:"pointer",fontFamily:"monospace"}}>✓ Registrar compras executadas →</button>
+      </div>
+      <div style={{padding:"9px 12px",background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.05)",borderRadius:7}}>
+        <p style={{margin:0,fontSize:9,color:"#5A5550",lineHeight:1.6,fontStyle:"italic"}}>⚠️ Análise por IA com critérios fundamentalistas. Não é assessoria de investimentos regulada.</p>
+      </div>
     </div>
-    <div style={{background:"rgba(200,169,110,0.04)",border:"1px solid rgba(200,169,110,0.2)",borderRadius:9,padding:"14px",marginBottom:12,textAlign:"center"}}>
-      <div style={{fontSize:11,color:"#B0A890",marginBottom:10,lineHeight:1.6}}>Executou o aporte? Registre as compras e o portfólio se atualiza automaticamente.</div>
-      <button onClick={onConfirm} style={{width:"100%",padding:"12px",background:"linear-gradient(135deg,#C8A96E,#A8893E)",border:"none",borderRadius:7,color:"#0D0F14",fontSize:12,fontWeight:700,letterSpacing:2,textTransform:"uppercase",cursor:"pointer",fontFamily:"monospace"}}>✓ Registrar compras executadas →</button>
-    </div>
-    <div style={{padding:"9px 12px",background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.05)",borderRadius:7}}>
-      <p style={{margin:0,fontSize:9,color:"#5A5550",lineHeight:1.6,fontStyle:"italic"}}>⚠️ Análise gerada por IA com critérios fundamentalistas. Não é assessoria de investimentos regulada. Valide com seu assessor antes de operar.</p>
-    </div>
-  </div>;
+  );
 }
 
-// ─── CONFIRM EXEC ─────────────────────────────────────────────────────────────
-function ConfirmExec({aporteRes,execEnt,setExecEnt,portfolio,onBack,onApply}){
+function ConfirmExec({aporteRes,execEnt,setExecEnt,portfolio,onBack,onApply}) {
   const setField=(t,f,v)=>setExecEnt(prev=>({...prev,[t]:{...prev[t],[f]:v}}));
   const totalExec=Object.entries(execEnt).filter(([,v])=>v.executed).reduce((s,[,v])=>s+parseN(v.qty)*parseN(v.price),0);
   const anyExec=Object.values(execEnt).some(v=>v.executed&&parseN(v.qty)>0&&parseN(v.price)>0);
@@ -656,117 +607,123 @@ function ConfirmExec({aporteRes,execEnt,setExecEnt,portfolio,onBack,onApply}){
       byClass[cls.id].assets.push(a.ticker);
     });
   });
-  return <div>
-    <button onClick={onBack} style={{background:"none",border:"none",color:"#8A8070",cursor:"pointer",fontSize:12,padding:0,marginBottom:14}}>← Voltar para análise</button>
-    <div style={{background:"rgba(76,175,130,0.05)",border:"1px solid rgba(76,175,130,0.2)",borderRadius:9,padding:"12px 14px",marginBottom:18}}>
-      <div style={{fontSize:9,letterSpacing:3,color:"#4CAF82",fontFamily:"monospace",textTransform:"uppercase",marginBottom:5}}>Registrar compras executadas</div>
-      <p style={{margin:0,fontSize:12,color:"#B0A890",lineHeight:1.6}}>Marque os ativos que comprou, informe a quantidade e o preço pago. O preço médio será recalculado automaticamente.</p>
-    </div>
-    {Object.entries(byClass).map(([cid,{meta,assets,valorAporte}])=>(
-      <div key={cid} style={{marginBottom:18}}>
-        <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:8,padding:"7px 10px",background:`${meta.color}0A`,border:`1px solid ${meta.color}22`,borderRadius:7}}>
-          <span style={{fontSize:14}}>{meta.emoji}</span>
-          <span style={{color:meta.color,fontSize:12,fontWeight:600,flex:1}}>{meta.name}</span>
-          <span style={{fontFamily:"monospace",fontSize:11,color:"#8A8070"}}>{fmtBRL(valorAporte)}</span>
-        </div>
-        {assets.map(ticker=>{
-          const entry=execEnt[ticker]||{qty:"",price:"",executed:false};
-          const existing=portfolio[ticker];
-          const subtotal=parseN(entry.qty)*parseN(entry.price);
-          const cl=CLASSES.find(c=>c.id===cid);
-          return <div key={ticker} style={{marginBottom:6,padding:"10px 12px",background:entry.executed?"rgba(76,175,130,0.04)":"rgba(255,255,255,0.02)",border:`1px solid ${entry.executed?"rgba(76,175,130,0.2)":"rgba(255,255,255,0.06)"}`,borderRadius:7,transition:"all 0.2s"}}>
-            <div style={{display:"flex",alignItems:"center",gap:9,marginBottom:entry.executed?8:0}}>
-              <div onClick={()=>setField(ticker,"executed",!entry.executed)} style={{width:20,height:20,borderRadius:4,border:`2px solid ${entry.executed?"#4CAF82":"#3A3830"}`,background:entry.executed?"#4CAF82":"transparent",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0}}>
-                {entry.executed&&<span style={{color:"#0D0F14",fontSize:12,fontWeight:700,lineHeight:1}}>✓</span>}
-              </div>
-              <div style={{flex:1}}>
-                <span style={{fontFamily:"monospace",fontSize:12,color:entry.executed?"#F0EAD8":"#8A8070"}}>{ASSET_LABELS[ticker]||ticker}</span>
-                {existing?.qty>0&&<div style={{fontSize:9,color:"#5A5550",marginTop:1}}>Posição atual: {fmtNum(existing.qty,existing.qty<100?4:0)} × {fmtNum(existing.price||0,2)}</div>}
-              </div>
-              {subtotal>0&&<span style={{fontFamily:"monospace",fontSize:11,color:"#C8A96E"}}>{fmtBRL(subtotal)}</span>}
-            </div>
-            {entry.executed&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7}}>
-              <div>
-                <div style={{fontSize:8,letterSpacing:2,color:"#5A5570",fontFamily:"monospace",textTransform:"uppercase",marginBottom:3}}>Qtd comprada</div>
-                <input type="text" value={entry.qty} placeholder="0" onChange={e=>setField(ticker,"qty",e.target.value.replace(/[^0-9.,]/g,""))}
-                  style={{width:"100%",background:"rgba(0,0,0,0.4)",border:`1px solid ${cl?.color||"#C8A96E"}44`,borderRadius:5,padding:"7px 9px",color:"#F0EAD8",fontSize:15,fontFamily:"monospace",outline:"none",boxSizing:"border-box"}}/>
-              </div>
-              <div>
-                <div style={{fontSize:8,letterSpacing:2,color:"#5A5570",fontFamily:"monospace",textTransform:"uppercase",marginBottom:3}}>Preço pago</div>
-                <input type="text" value={entry.price} placeholder="0,00" onChange={e=>setField(ticker,"price",e.target.value.replace(/[^0-9.,]/g,""))}
-                  style={{width:"100%",background:"rgba(0,0,0,0.4)",border:`1px solid ${cl?.color||"#C8A96E"}44`,borderRadius:5,padding:"7px 9px",color:"#F0EAD8",fontSize:15,fontFamily:"monospace",outline:"none",boxSizing:"border-box"}}/>
-              </div>
-            </div>}
-          </div>;
-        })}
+  return (
+    <div>
+      <button onClick={onBack} style={{background:"none",border:"none",color:"#8A8070",cursor:"pointer",fontSize:12,padding:0,marginBottom:14}}>← Voltar para análise</button>
+      <div style={{background:"rgba(76,175,130,0.05)",border:"1px solid rgba(76,175,130,0.2)",borderRadius:9,padding:"12px 14px",marginBottom:18}}>
+        <div style={{fontSize:9,letterSpacing:3,color:"#4CAF82",fontFamily:"monospace",textTransform:"uppercase",marginBottom:5}}>Registrar compras executadas</div>
+        <p style={{margin:0,fontSize:12,color:"#B0A890",lineHeight:1.6}}>Marque os ativos comprados, informe quantidade e preço pago. O portfólio se atualiza automaticamente.</p>
       </div>
-    ))}
-    <div style={{position:"sticky",bottom:0,background:"#0D0F14",borderTop:"1px solid rgba(200,169,110,0.15)",paddingTop:12,paddingBottom:8}}>
-      {totalExec>0&&<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,padding:"7px 10px",background:"rgba(200,169,110,0.06)",border:"1px solid rgba(200,169,110,0.15)",borderRadius:7}}>
-        <span style={{fontSize:11,color:"#8A8070"}}>Total a registrar</span>
-        <span style={{fontFamily:"monospace",fontSize:16,color:"#C8A96E",fontWeight:700}}>{fmtBRL(totalExec)}</span>
-      </div>}
-      <button onClick={onApply} disabled={!anyExec} style={{width:"100%",padding:"13px",background:anyExec?"linear-gradient(135deg,#4CAF82,#2A8F62)":"#1A2018",border:anyExec?"none":"1px solid rgba(76,175,130,0.15)",borderRadius:9,color:anyExec?"#0D0F14":"#3A5040",fontSize:12,fontWeight:700,letterSpacing:2,textTransform:"uppercase",cursor:anyExec?"pointer":"not-allowed",fontFamily:"monospace"}}>
-        {anyExec?"✓ Aplicar ao portfólio →":"Marque ao menos uma compra"}
-      </button>
+      {Object.entries(byClass).map(([cid,{meta,assets,valorAporte}])=>(
+        <div key={cid} style={{marginBottom:18}}>
+          <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:8,padding:"7px 10px",background:meta.color+"0A",border:"1px solid "+meta.color+"22",borderRadius:7}}>
+            <span style={{fontSize:14}}>{meta.emoji}</span>
+            <span style={{color:meta.color,fontSize:12,fontWeight:600,flex:1}}>{meta.name}</span>
+            <span style={{fontFamily:"monospace",fontSize:11,color:"#8A8070"}}>{fmtBRL(valorAporte)}</span>
+          </div>
+          {assets.map(ticker=>{
+            const entry=execEnt[ticker]||{qty:"",price:"",executed:false};
+            const existing=portfolio[ticker];
+            const subtotal=parseN(entry.qty)*parseN(entry.price);
+            const ccy=getCcy(ticker);
+            return (
+              <div key={ticker} style={{marginBottom:6,padding:"10px 12px",background:entry.executed?"rgba(76,175,130,0.04)":"rgba(255,255,255,0.02)",border:"1px solid "+(entry.executed?"rgba(76,175,130,0.2)":"rgba(255,255,255,0.06)"),borderRadius:7}}>
+                <div style={{display:"flex",alignItems:"center",gap:9,marginBottom:entry.executed?8:0}}>
+                  <div onClick={()=>setField(ticker,"executed",!entry.executed)}
+                    style={{width:20,height:20,borderRadius:4,border:"2px solid "+(entry.executed?"#4CAF82":"#3A3830"),background:entry.executed?"#4CAF82":"transparent",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0}}>
+                    {entry.executed && <span style={{color:"#0D0F14",fontSize:12,fontWeight:700,lineHeight:1}}>✓</span>}
+                  </div>
+                  <div style={{flex:1}}>
+                    <span style={{fontFamily:"monospace",fontSize:12,color:entry.executed?"#F0EAD8":"#8A8070"}}>{ASSET_LABELS[ticker]||ticker}</span>
+                    <div style={{fontSize:9,color:"#5A5550",fontFamily:"monospace"}}>{ccy}</div>
+                    {existing?.qty>0 && <div style={{fontSize:9,color:"#5A5550",marginTop:1}}>Atual: {fmtNum(existing.qty,existing.qty<100?4:0)} × {fmtNum(existing.price||0,2)}</div>}
+                  </div>
+                  {subtotal>0 && <span style={{fontFamily:"monospace",fontSize:11,color:"#C8A96E"}}>{fmtBRL(subtotal*toFX(ccy))}</span>}
+                </div>
+                {entry.executed && (
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7}}>
+                    <div>
+                      <div style={{fontSize:8,letterSpacing:2,color:"#5A5570",fontFamily:"monospace",textTransform:"uppercase",marginBottom:3}}>Qtd comprada</div>
+                      <input type="text" value={entry.qty} placeholder="0" onChange={e=>setField(ticker,"qty",e.target.value.replace(/[^0-9.,]/g,""))}
+                        style={{width:"100%",background:"rgba(0,0,0,0.4)",border:"1px solid "+meta.color+"44",borderRadius:5,padding:"7px 9px",color:"#F0EAD8",fontSize:15,fontFamily:"monospace",outline:"none",boxSizing:"border-box"}}/>
+                    </div>
+                    <div>
+                      <div style={{fontSize:8,letterSpacing:2,color:"#5A5570",fontFamily:"monospace",textTransform:"uppercase",marginBottom:3}}>Preço ({ccy})</div>
+                      <input type="text" value={entry.price} placeholder="0,00" onChange={e=>setField(ticker,"price",e.target.value.replace(/[^0-9.,]/g,""))}
+                        style={{width:"100%",background:"rgba(0,0,0,0.4)",border:"1px solid "+meta.color+"44",borderRadius:5,padding:"7px 9px",color:"#F0EAD8",fontSize:15,fontFamily:"monospace",outline:"none",boxSizing:"border-box"}}/>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      ))}
+      <div style={{position:"sticky",bottom:0,background:"#0D0F14",borderTop:"1px solid rgba(200,169,110,0.15)",paddingTop:12,paddingBottom:8}}>
+        {totalExec>0 && (
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,padding:"7px 10px",background:"rgba(200,169,110,0.06)",border:"1px solid rgba(200,169,110,0.15)",borderRadius:7}}>
+            <span style={{fontSize:11,color:"#8A8070"}}>Total a registrar</span>
+            <span style={{fontFamily:"monospace",fontSize:16,color:"#C8A96E",fontWeight:700}}>{fmtBRL(totalExec)}</span>
+          </div>
+        )}
+        <button onClick={onApply} disabled={!anyExec}
+          style={{width:"100%",padding:"13px",background:anyExec?"linear-gradient(135deg,#4CAF82,#2A8F62)":"#1A2018",border:anyExec?"none":"1px solid rgba(76,175,130,0.15)",borderRadius:9,color:anyExec?"#0D0F14":"#3A5040",fontSize:12,fontWeight:700,letterSpacing:2,textTransform:"uppercase",cursor:anyExec?"pointer":"not-allowed",fontFamily:"monospace"}}>
+          {anyExec?"✓ Aplicar ao portfólio →":"Marque ao menos uma compra"}
+        </button>
+      </div>
     </div>
-  </div>;
+  );
 }
 
-// ─── APORTE DONE ──────────────────────────────────────────────────────────────
-function AporteDone({aporteRes,execEnt,onNew,onDash}){
+function AporteDone({aporteRes,execEnt,onNew,onDash}) {
   const exec=Object.entries(execEnt).filter(([,v])=>v.executed&&parseN(v.qty)>0&&parseN(v.price)>0);
   const total=exec.reduce((s,[,v])=>s+parseN(v.qty)*parseN(v.price),0);
-  return <div style={{textAlign:"center",padding:"20px 0"}}>
-    <div style={{fontSize:44,marginBottom:14}}>✅</div>
-    <div style={{fontSize:10,letterSpacing:3,color:"#4CAF82",fontFamily:"monospace",textTransform:"uppercase",marginBottom:6}}>Aporte registrado</div>
-    <div style={{fontSize:26,color:"#F0EAD8",fontFamily:"monospace",fontWeight:700,marginBottom:4}}>{fmtBRL(total)}</div>
-    <p style={{color:"#8A8070",fontSize:12,fontStyle:"italic",marginBottom:20}}>{exec.length} ativo{exec.length!==1?"s":""} atualizado{exec.length!==1?"s":""} com novo preço médio ponderado.</p>
-    <div style={{background:"rgba(76,175,130,0.05)",border:"1px solid rgba(76,175,130,0.15)",borderRadius:9,padding:"10px 14px",marginBottom:20,textAlign:"left"}}>
-      {exec.map(([ticker,v])=>{const cl=CLASSES.find(c=>c.id===CLASS_OF[ticker]);return(
-        <div key={ticker} style={{display:"flex",alignItems:"center",gap:7,padding:"4px 0",borderBottom:"1px solid rgba(255,255,255,0.04)"}}>
-          <div style={{width:4,height:4,borderRadius:"50%",background:cl?.color||"#4CAF82",flexShrink:0}}/>
-          <span style={{fontFamily:"monospace",fontSize:11,color:"#F0EAD8",flex:1}}>{ASSET_LABELS[ticker]||ticker}</span>
-          <span style={{fontSize:10,color:"#8A8070",fontFamily:"monospace"}}>{fmtNum(parseN(v.qty),parseN(v.qty)<100?4:0)} × {fmtNum(parseN(v.price),2)}</span>
-          <span style={{fontFamily:"monospace",fontSize:11,color:"#C8A96E"}}>{fmtBRL(parseN(v.qty)*parseN(v.price))}</span>
-        </div>
-      );})}
+  return (
+    <div style={{textAlign:"center",padding:"20px 0"}}>
+      <div style={{fontSize:44,marginBottom:14}}>✅</div>
+      <div style={{fontSize:10,letterSpacing:3,color:"#4CAF82",fontFamily:"monospace",textTransform:"uppercase",marginBottom:6}}>Aporte registrado</div>
+      <div style={{fontSize:26,color:"#F0EAD8",fontFamily:"monospace",fontWeight:700,marginBottom:4}}>{fmtBRL(total)}</div>
+      <p style={{color:"#8A8070",fontSize:12,fontStyle:"italic",marginBottom:20}}>{exec.length} ativo{exec.length!==1?"s":""} atualizado{exec.length!==1?"s":""} com nova cotação.</p>
+      <div style={{background:"rgba(76,175,130,0.05)",border:"1px solid rgba(76,175,130,0.15)",borderRadius:9,padding:"10px 14px",marginBottom:20,textAlign:"left"}}>
+        {exec.map(([ticker,v])=>{const cl=CLASSES.find(c=>c.id===CLASS_OF[ticker]);return(
+          <div key={ticker} style={{display:"flex",alignItems:"center",gap:7,padding:"4px 0",borderBottom:"1px solid rgba(255,255,255,0.04)"}}>
+            <div style={{width:4,height:4,borderRadius:"50%",background:cl?.color||"#4CAF82",flexShrink:0}}/>
+            <span style={{fontFamily:"monospace",fontSize:11,color:"#F0EAD8",flex:1}}>{ASSET_LABELS[ticker]||ticker}</span>
+            <span style={{fontSize:10,color:"#8A8070",fontFamily:"monospace"}}>{fmtNum(parseN(v.qty),parseN(v.qty)<100?4:0)} × {fmtNum(parseN(v.price),2)}</span>
+            <span style={{fontFamily:"monospace",fontSize:11,color:"#C8A96E"}}>{fmtBRL(parseN(v.qty)*parseN(v.price)*toFX(getCcy(ticker)))}</span>
+          </div>
+        );})}
+      </div>
+      <div style={{display:"flex",gap:8}}>
+        <button onClick={onDash} style={{flex:1,padding:"12px",background:"linear-gradient(135deg,#C8A96E,#A8893E)",border:"none",borderRadius:7,color:"#0D0F14",fontSize:12,fontWeight:700,letterSpacing:2,textTransform:"uppercase",cursor:"pointer",fontFamily:"monospace"}}>Dashboard</button>
+        <button onClick={onNew} style={{flex:1,padding:"12px",background:"transparent",border:"1px solid rgba(200,169,110,0.3)",borderRadius:7,color:"#C8A96E",fontSize:12,letterSpacing:2,textTransform:"uppercase",cursor:"pointer",fontFamily:"monospace"}}>Novo aporte</button>
+      </div>
     </div>
-    <div style={{display:"flex",gap:8}}>
-      <button onClick={onDash} style={{flex:1,padding:"12px",background:"linear-gradient(135deg,#C8A96E,#A8893E)",border:"none",borderRadius:7,color:"#0D0F14",fontSize:12,fontWeight:700,letterSpacing:2,textTransform:"uppercase",cursor:"pointer",fontFamily:"monospace"}}>Dashboard</button>
-      <button onClick={onNew} style={{flex:1,padding:"12px",background:"transparent",border:"1px solid rgba(200,169,110,0.3)",borderRadius:7,color:"#C8A96E",fontSize:12,letterSpacing:2,textTransform:"uppercase",cursor:"pointer",fontFamily:"monospace"}}>Novo aporte</button>
-    </div>
-  </div>;
+  );
 }
 
-// ─── EDIT PANEL ───────────────────────────────────────────────────────────────
-function EditPanel({ticker,classId,editQty,setEditQty,editAvg,setEditAvg,editCur,setEditCur,editCcy,setEditCcy,onSave,onCancel,onRemove}){
-  const label=ASSET_LABELS[ticker]||ticker,cl=CLASSES.find(c=>c.id===classId);
-  const totalVal=parseN(editQty)*parseN(editCur);
-  return <div>
-    <button onClick={onCancel} style={{background:"none",border:"none",color:"#8A8070",cursor:"pointer",fontSize:12,padding:0,marginBottom:14}}>← Voltar</button>
-    <div style={{display:"flex",alignItems:"center",gap:9,marginBottom:20}}>
-      <span style={{width:9,height:9,borderRadius:"50%",background:cl?.color||"#888",display:"inline-block"}}/>
-      <div><div style={{fontFamily:"monospace",fontSize:15,color:"#F0EAD8"}}>{label}</div><div style={{fontSize:10,color:cl?.color||"#888"}}>{cl?.name}</div></div>
+function Fld({label,value,hint}) {
+  return (
+    <div style={{marginBottom:14}}>
+      <label style={{fontSize:9,letterSpacing:2,color:"#8A8070",fontFamily:"monospace",textTransform:"uppercase",display:"block",marginBottom:5}}>{label}</label>
+      {value}
+      {hint && <div style={{fontSize:9,color:"#3A3830",marginTop:3,fontStyle:"italic"}}>{hint}</div>}
     </div>
-    <div style={{marginBottom:14,padding:"8px 12px",background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:6,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-      <span style={{fontSize:9,letterSpacing:2,color:"#8A8070",fontFamily:"monospace",textTransform:"uppercase"}}>Moeda de negociação</span>
-      <span style={{fontFamily:"monospace",fontSize:14,color:cl?.color||"#C8A96E",fontWeight:700}}>{assetCurrency(ticker)}</span>
-    </div>
-    <Fld label="Quantidade (cotas/ações/unidades)" value={<NIn value={editQty} onChange={setEditQty} placeholder="0" color={cl?.color}/>}/>
-    <Fld label={`Cotação atual em ${assetCurrency(ticker)}`} value={<NIn value={editCur} onChange={setEditCur} placeholder="0,00" color={cl?.color}/>} hint="Preço unitário na moeda de negociação do ativo"/>
-    {totalVal>0&&<div style={{padding:"10px 12px",background:"rgba(200,169,110,0.05)",border:"1px solid rgba(200,169,110,0.15)",borderRadius:7,marginBottom:18}}>
-      <span style={{fontSize:11,color:"#8A8070"}}>Valor em BRL: </span><span style={{fontFamily:"monospace",fontSize:15,color:"#C8A96E"}}>{fmtBRL(parseN(editQty)*parseN(editCur)*toFX(assetCurrency(ticker)))}</span>
-    </div>}
-    <div style={{display:"flex",gap:8}}>
-      <button onClick={onSave} style={{flex:1,padding:"12px",background:`linear-gradient(135deg,${cl?.color||"#C8A96E"},${cl?.color||"#A8893E"})`,border:"none",borderRadius:7,color:"#0D0F14",fontSize:12,fontWeight:700,letterSpacing:2,textTransform:"uppercase",cursor:"pointer",fontFamily:"monospace"}}>Salvar</button>
-      <button onClick={onRemove} style={{padding:"12px 14px",background:"rgba(224,82,82,0.08)",border:"1px solid rgba(224,82,82,0.25)",borderRadius:7,color:"#E05252",fontSize:11,cursor:"pointer",fontFamily:"monospace"}}>Remover</button>
-    </div>
-  </div>;
+  );
 }
-function Fld({label,value,hint}){return <div style={{marginBottom:14}}><label style={{fontSize:9,letterSpacing:2,color:"#8A8070",fontFamily:"monospace",textTransform:"uppercase",display:"block",marginBottom:5}}>{label}</label>{value}{hint&&<div style={{fontSize:9,color:"#3A3830",marginTop:3,fontStyle:"italic"}}>{hint}</div>}</div>;}
-function NIn({value,onChange,placeholder,color}){return <input type="text" value={value} onChange={e=>onChange(e.target.value.replace(/[^0-9.,]/g,""))} placeholder={placeholder} style={{width:"100%",background:"rgba(0,0,0,0.3)",border:`1px solid ${color||"#C8A96E"}44`,borderRadius:6,padding:"9px 11px",color:"#F0EAD8",fontSize:15,fontFamily:"monospace",outline:"none",boxSizing:"border-box"}}/>;}
-function EmptyState({onGo,msg}){return <div style={{textAlign:"center",padding:"50px 16px"}}><div style={{fontSize:36,marginBottom:14}}>📋</div><p style={{color:"#8A8070",fontSize:13,lineHeight:1.7,marginBottom:18,fontStyle:"italic"}}>{msg||"Nenhuma posição cadastrada. Vá em Posições para adicionar seus ativos."}</p><button onClick={onGo} style={{background:"linear-gradient(135deg,#C8A96E,#A8893E)",border:"none",borderRadius:7,padding:"11px 24px",color:"#0D0F14",fontSize:12,fontWeight:700,letterSpacing:2,textTransform:"uppercase",cursor:"pointer",fontFamily:"monospace"}}>Cadastrar posições →</button></div>;}
+function NIn({value,onChange,placeholder,color}) {
+  return <input type="text" value={value} onChange={e=>onChange(e.target.value.replace(/[^0-9.,]/g,""))} placeholder={placeholder}
+    style={{width:"100%",background:"rgba(0,0,0,0.3)",border:"1px solid "+(color||"#C8A96E")+"44",borderRadius:6,padding:"9px 11px",color:"#F0EAD8",fontSize:15,fontFamily:"monospace",outline:"none",boxSizing:"border-box"}}/>;
+}
+function EmptyState({onGo,msg}) {
+  return (
+    <div style={{textAlign:"center",padding:"50px 16px"}}>
+      <div style={{fontSize:36,marginBottom:14}}>📋</div>
+      <p style={{color:"#8A8070",fontSize:13,lineHeight:1.7,marginBottom:18,fontStyle:"italic"}}>{msg||"Nenhuma posição cadastrada. Vá em Posições para adicionar seus ativos."}</p>
+      <button onClick={onGo} style={{background:"linear-gradient(135deg,#C8A96E,#A8893E)",border:"none",borderRadius:7,padding:"11px 24px",color:"#0D0F14",fontSize:12,fontWeight:700,letterSpacing:2,textTransform:"uppercase",cursor:"pointer",fontFamily:"monospace"}}>Cadastrar posições →</button>
+    </div>
+  );
+}
 
 ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
 </script>
