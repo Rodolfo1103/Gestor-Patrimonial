@@ -19,12 +19,9 @@ input{font-size:16px!important;}
 <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/recharts/2.12.7/Recharts.min.js"></script>
 <script type="text/babel">
 const { useState, useEffect, useCallback } = React;
-const { RadarChart, Radar, PolarGrid, PolarAngleAxis, ResponsiveContainer,
-        BarChart, Bar, XAxis, YAxis, Tooltip, Legend, Cell, ReferenceLine,
-        ScatterChart, Scatter, ZAxis } = Recharts;
+
 
 // ── CLASSES
 const CLASSES = [
@@ -203,154 +200,138 @@ function ApiKeyScreen({onSave}) {
 }
 
 
-// ── CHART: Risk x Return scatter
-function RiskReturnChart({cw}) {
-  const data = CLASSES.map(c=>{
-    const p=CLASS_PROFILE[c.id];
-    const w=cw[c.id]||0;
-    return { id:c.id, name:p.label, risk:p.risk, ret:p.ret, peso:w, color:c.color, size: Math.max(w*3,8) };
-  }).filter(d=>d.peso>0);
-
-  const CustomDot = (props) => {
-    const {cx,cy,payload} = props;
-    const r = Math.max(Math.sqrt(payload.peso)*4, 10);
-    return (
-      <g>
-        <circle cx={cx} cy={cy} r={r} fill={payload.color} fillOpacity={0.85} stroke={payload.color} strokeWidth={1.5}/>
-        <text x={cx} y={cy-r-4} textAnchor="middle" fill="#E8E2D5" fontSize={9} fontFamily="monospace">{payload.name}</text>
-        <text x={cx} y={cy+4} textAnchor="middle" fill="#0D0F14" fontSize={8} fontFamily="monospace" fontWeight="bold">{payload.peso.toFixed(1)}%</text>
-      </g>
-    );
-  };
-
-  return (
-    <div style={{marginBottom:28}}>
-      <div style={{fontSize:10,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:6}}>Risco × Retorno esperado</div>
-      <div style={{fontSize:9,color:"#5A5550",marginBottom:10,fontStyle:"italic"}}>Tamanho do círculo = peso no portfólio. Eixos: volatilidade estimada × retorno esperado de longo prazo.</div>
-      <ResponsiveContainer width="100%" height={220}>
-        <ScatterChart margin={{top:10,right:10,bottom:20,left:0}}>
-          <PolarGrid stroke="rgba(255,255,255,0.04)"/>
-          <XAxis type="number" dataKey="risk" domain={[0,10]} name="Risco"
-            label={{value:"← Menor risco   Maior risco →",position:"insideBottom",offset:-10,fill:"#5A5550",fontSize:8}}
-            tick={{fill:"#5A5550",fontSize:8}} tickLine={false} axisLine={{stroke:"rgba(255,255,255,0.06)"}}/>
-          <YAxis type="number" dataKey="ret" domain={[0,10]} name="Retorno"
-            label={{value:"Retorno →",angle:-90,position:"insideLeft",fill:"#5A5550",fontSize:8}}
-            tick={{fill:"#5A5550",fontSize:8}} tickLine={false} axisLine={{stroke:"rgba(255,255,255,0.06)"}}/>
-          <ZAxis range={[60,400]}/>
-          <Tooltip cursor={{strokeDasharray:"3 3",stroke:"rgba(255,255,255,0.1)"}}
-            content={({active,payload})=>{
-              if(!active||!payload?.length) return null;
-              const d=payload[0].payload;
-              return <div style={{background:"#1A1C20",border:"1px solid "+d.color+"44",borderRadius:6,padding:"8px 10px"}}>
-                <div style={{color:d.color,fontFamily:"monospace",fontSize:11,fontWeight:700,marginBottom:3}}>{d.name}</div>
-                <div style={{fontSize:10,color:"#B0A890"}}>Peso: {d.peso.toFixed(1)}%</div>
-                <div style={{fontSize:10,color:"#8A8070"}}>Risco: {d.risk}/10 · Retorno: {d.ret}/10</div>
-              </div>;
-            }}/>
-          <Scatter data={data} shape={<CustomDot/>}/>
-        </ScatterChart>
-      </ResponsiveContainer>
-    </div>
-  );
-}
-
-// ── CHART: Current vs Target allocation
+// ── CHART: Allocation bars (SVG)
 function AllocationChart({cw}) {
-  const data = CLASSES.map(c=>({
-    name: c.emoji+" "+c.name.split(" ")[0],
-    atual: parseFloat((cw[c.id]||0).toFixed(1)),
-    alvoMin: c.min,
-    alvoMax: c.max,
-    alvoMid: (c.min+c.max)/2,
-    color: c.color,
-    status: (cw[c.id]||0)<c.min?"under":(cw[c.id]||0)>c.max?"over":"ok"
-  }));
-
-  const CustomBar = (props) => {
-    const {x,y,width,height,color,status} = props;
-    const fc = status=="under"?"#E05252":status=="over"?"#E8C44A":color;
-    return <rect x={x} y={y} width={width} height={height} fill={fc} fillOpacity={0.9} rx={2}/>;
-  };
-
+  const W=320,H=165,pL=32,pB=42,pT=16,pR=10;
+  const cW=W-pL-pR, cH=H-pB-pT, maxY=35;
+  const bW=Math.floor(cW/CLASSES.length)-4;
   return (
-    <div style={{marginBottom:28}}>
-      <div style={{fontSize:10,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:6}}>Alocação atual vs alvo</div>
-      <div style={{fontSize:9,color:"#5A5550",marginBottom:10,fontStyle:"italic"}}>Barras coloridas = posição atual. Vermelho = abaixo do alvo, amarelo = acima.</div>
-      <ResponsiveContainer width="100%" height={200}>
-        <BarChart data={data} margin={{top:5,right:5,bottom:45,left:-15}}>
-          <XAxis dataKey="name" tick={{fill:"#8A8070",fontSize:8}} tickLine={false}
-            axisLine={{stroke:"rgba(255,255,255,0.06)"}} angle={-35} textAnchor="end" interval={0}/>
-          <YAxis tick={{fill:"#5A5550",fontSize:8}} tickLine={false}
-            axisLine={{stroke:"rgba(255,255,255,0.06)"}} tickFormatter={v=>v+"%"} domain={[0,35]}/>
-          <Tooltip
-            content={({active,payload,label})=>{
-              if(!active||!payload?.length) return null;
-              const d=data.find(x=>x.name===label);
-              return <div style={{background:"#1A1C20",border:"1px solid rgba(255,255,255,0.08)",borderRadius:6,padding:"8px 10px"}}>
-                <div style={{color:d?.color||"#C8A96E",fontFamily:"monospace",fontSize:11,marginBottom:3}}>{label}</div>
-                <div style={{fontSize:10,color:"#B0A890"}}>Atual: {payload[0]?.value}%</div>
-                <div style={{fontSize:10,color:"#8A8070"}}>Alvo: {d?.alvoMin}–{d?.alvoMax}%</div>
-              </div>;
-            }}/>
-          <Bar dataKey="atual" shape={(props)=>{
-            const d=data[props.index];
-            return <CustomBar {...props} color={d?.color} status={d?.status}/>;
-          }}>
-            {data.map((d,i)=><Cell key={i} fill={d.color}/>)}
-          </Bar>
-          {data.map((d,i)=>(
-            <ReferenceLine key={i} x={d.name} stroke={d.color} strokeOpacity={0.3}
-              label={{value:d.alvoMin+"-"+d.alvoMax, position:"top", fontSize:7, fill:d.color+"88"}}/>
-          ))}
-        </BarChart>
-      </ResponsiveContainer>
+    <div style={{marginBottom:24}}>
+      <div style={{fontSize:10,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:4}}>Alocação atual vs alvo</div>
+      <div style={{fontSize:9,color:"#5A5550",marginBottom:8,fontStyle:"italic"}}>Vermelho = abaixo do mínimo · Amarelo = acima · Colorido = dentro do alvo</div>
+      <svg viewBox={"0 0 "+W+" "+H} style={{width:"100%",height:"auto",overflow:"visible"}}>
+        {[0,10,20,30].map(v=>{
+          const y=pT+cH-(v/maxY)*cH;
+          return <g key={v}>
+            <line x1={pL} y1={y} x2={W-pR} y2={y} stroke="rgba(255,255,255,0.05)" strokeWidth="1"/>
+            <text x={pL-3} y={y+3} textAnchor="end" fill="#5A5550" fontSize="7">{v}%</text>
+          </g>;
+        })}
+        {CLASSES.map((c,i)=>{
+          const w=cw[c.id]||0;
+          const slotW=cW/CLASSES.length;
+          const x=pL+i*slotW+(slotW-bW)/2;
+          const bH=Math.max((w/maxY)*cH,1);
+          const y=pT+cH-bH;
+          const st=w<c.min?"under":w>c.max?"over":"ok";
+          const fill=st==="under"?"#E05252":st==="over"?"#E8C44A":c.color;
+          const xMid=x+bW/2;
+          const yMin=pT+cH-(c.min/maxY)*cH;
+          const yMax=pT+cH-(c.max/maxY)*cH;
+          return <g key={c.id}>
+            <line x1={xMid-bW*0.55} y1={yMin} x2={xMid+bW*0.55} y2={yMin} stroke={c.color} strokeWidth="1" strokeOpacity="0.4" strokeDasharray="2,2"/>
+            <line x1={xMid-bW*0.55} y1={yMax} x2={xMid+bW*0.55} y2={yMax} stroke={c.color} strokeWidth="1" strokeOpacity="0.2" strokeDasharray="2,2"/>
+            <rect x={x} y={y} width={bW} height={bH} fill={fill} fillOpacity="0.85" rx="2"/>
+            <text x={xMid} y={y-3} textAnchor="middle" fill={fill} fontSize="7" fontFamily="monospace">{w.toFixed(1)}</text>
+            <text x={xMid} y={H-pB+13} textAnchor="middle" fill={c.color} fontSize="10">{c.emoji}</text>
+            <text x={xMid} y={H-pB+26} textAnchor="middle" fill="#6A6050" fontSize="6.5" fontFamily="monospace">{c.name.split(" ")[0]}</text>
+          </g>;
+        })}
+        <line x1={pL} y1={pT+cH} x2={W-pR} y2={pT+cH} stroke="rgba(255,255,255,0.08)" strokeWidth="1"/>
+      </svg>
     </div>
   );
 }
 
-// ── CHART: Portfolio evolution per aporte
+// ── CHART: Risk x Return scatter (SVG)
+function RiskReturnChart({cw}) {
+  const W=320,H=200,pL=28,pB=28,pT=16,pR=16;
+  const cW=W-pL-pR, cH=H-pB-pT;
+  const PROF={
+    fii:      {risk:3.5,ret:7.5},
+    acoes_br: {risk:6.5,ret:8.5},
+    acoes_ext:{risk:5.5,ret:8.0},
+    selic:    {risk:1.0,ret:4.5},
+    ouro:     {risk:4.0,ret:5.5},
+    bitcoin:  {risk:9.5,ret:9.0},
+    infra:    {risk:2.5,ret:7.0},
+  };
+  return (
+    <div style={{marginBottom:24}}>
+      <div style={{fontSize:10,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:4}}>Risco x Retorno esperado</div>
+      <div style={{fontSize:9,color:"#5A5550",marginBottom:8,fontStyle:"italic"}}>Tamanho do círculo = peso atual no portfólio</div>
+      <svg viewBox={"0 0 "+W+" "+H} style={{width:"100%",height:"auto"}}>
+        {[0,2,4,6,8,10].map(v=>{
+          const x=pL+(v/10)*cW, y=pT+cH-(v/10)*cH;
+          return <g key={v}>
+            <line x1={x} y1={pT} x2={x} y2={pT+cH} stroke="rgba(255,255,255,0.04)" strokeWidth="1"/>
+            <line x1={pL} y1={y} x2={pL+cW} y2={y} stroke="rgba(255,255,255,0.04)" strokeWidth="1"/>
+          </g>;
+        })}
+        <text x={pL+cW/2} y={H-4} textAnchor="middle" fill="#4A4840" fontSize="7">menor risco ← → maior risco</text>
+        <text x={9} y={pT+cH/2} textAnchor="middle" fill="#4A4840" fontSize="7" transform={"rotate(-90,9,"+(pT+cH/2)+")"}>retorno →</text>
+        {CLASSES.map(c=>{
+          const p=PROF[c.id]; if(!p) return null;
+          const w=cw[c.id]||0;
+          const cx=pL+(p.risk/10)*cW, cy=pT+cH-(p.ret/10)*cH;
+          const r=w>0?Math.max(Math.sqrt(w)*3.5,8):5;
+          const op=w>0?0.9:0.18;
+          return <g key={c.id}>
+            <circle cx={cx} cy={cy} r={r} fill={c.color} fillOpacity={op} stroke={c.color} strokeWidth="1.5" strokeOpacity={op}/>
+            {w>0 && <>
+              <text x={cx} y={cy+3} textAnchor="middle" fill="#0D0F14" fontSize="7" fontWeight="bold">{w.toFixed(0)}%</text>
+              <text x={cx} y={cy-r-3} textAnchor="middle" fill={c.color} fontSize="8">{c.emoji}</text>
+            </>}
+          </g>;
+        })}
+        <line x1={pL} y1={pT+cH} x2={pL+cW} y2={pT+cH} stroke="rgba(255,255,255,0.1)" strokeWidth="1"/>
+        <line x1={pL} y1={pT} x2={pL} y2={pT+cH} stroke="rgba(255,255,255,0.1)" strokeWidth="1"/>
+      </svg>
+    </div>
+  );
+}
+
+// ── CHART: Evolution bars (SVG)
 function EvolutionChart({hist}) {
   if(!hist||hist.length<2) return (
-    <div style={{marginBottom:28}}>
-      <div style={{fontSize:10,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:6}}>Evolução do patrimônio</div>
-      <div style={{padding:"20px",textAlign:"center",color:"#5A5550",fontSize:12,fontStyle:"italic",border:"1px solid rgba(255,255,255,0.05)",borderRadius:8}}>
-        Disponível após 2+ aportes registrados
-      </div>
+    <div style={{marginBottom:24}}>
+      <div style={{fontSize:10,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:4}}>Evolução dos aportes</div>
+      <div style={{padding:"16px",textAlign:"center",color:"#5A5550",fontSize:11,fontStyle:"italic",border:"1px solid rgba(255,255,255,0.05)",borderRadius:8}}>Disponível após 2+ aportes registrados</div>
     </div>
   );
-
-  let acum=0;
-  const data = [...hist].reverse().map((r,i)=>({
-    label: new Date(r.date).toLocaleDateString("pt-BR",{day:"2-digit",month:"short"}),
-    aporte: r.totalExecuted,
-    acumulado: (acum+=r.totalExecuted),
-    n: i+1
-  }));
-
+  const data=[...hist].reverse();
+  const maxVal=Math.max(...data.map(r=>r.totalExecuted));
+  const W=320,H=140,pL=40,pB=36,pT=12,pR=10;
+  const cW=W-pL-pR, cH=H-pB-pT;
+  const bW=Math.max(Math.floor(cW/data.length)-4,4);
   return (
-    <div style={{marginBottom:28}}>
-      <div style={{fontSize:10,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:6}}>Evolução dos aportes</div>
-      <ResponsiveContainer width="100%" height={180}>
-        <BarChart data={data} margin={{top:5,right:5,bottom:30,left:-10}}>
-          <XAxis dataKey="label" tick={{fill:"#8A8070",fontSize:8}} tickLine={false}
-            axisLine={{stroke:"rgba(255,255,255,0.06)"}} angle={-30} textAnchor="end" interval={0}/>
-          <YAxis tick={{fill:"#5A5550",fontSize:8}} tickLine={false}
-            axisLine={{stroke:"rgba(255,255,255,0.06)"}}
-            tickFormatter={v=>v>=1000?"R$"+(v/1000).toFixed(0)+"k":"R$"+v}/>
-          <Tooltip
-            content={({active,payload,label})=>{
-              if(!active||!payload?.length) return null;
-              return <div style={{background:"#1A1C20",border:"1px solid rgba(200,169,110,0.2)",borderRadius:6,padding:"8px 10px"}}>
-                <div style={{color:"#C8A96E",fontFamily:"monospace",fontSize:10,marginBottom:3}}>{label}</div>
-                <div style={{fontSize:10,color:"#B0A890"}}>Aporte: {new Intl.NumberFormat("pt-BR",{style:"currency",currency:"BRL"}).format(payload[0]?.value||0)}</div>
-              </div>;
-            }}/>
-          <Bar dataKey="aporte" fill="#C8A96E" fillOpacity={0.8} radius={[3,3,0,0]}/>
-        </BarChart>
-      </ResponsiveContainer>
+    <div style={{marginBottom:24}}>
+      <div style={{fontSize:10,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:4}}>Evolução dos aportes</div>
+      <svg viewBox={"0 0 "+W+" "+H} style={{width:"100%",height:"auto"}}>
+        {[0,0.5,1].map(f=>{
+          const y=pT+cH-(f*cH), v=maxVal*f;
+          return <g key={f}>
+            <line x1={pL} y1={y} x2={W-pR} y2={y} stroke="rgba(255,255,255,0.05)" strokeWidth="1"/>
+            <text x={pL-3} y={y+3} textAnchor="end" fill="#5A5550" fontSize="7">{v>=1000?"R$"+(v/1000).toFixed(0)+"k":"R$"+v.toFixed(0)}</text>
+          </g>;
+        })}
+        {data.map((r,i)=>{
+          const slotW=cW/data.length;
+          const x=pL+i*slotW+(slotW-bW)/2;
+          const bh=Math.max((r.totalExecuted/maxVal)*cH,2);
+          const y=pT+cH-bh;
+          const lbl=new Date(r.date).toLocaleDateString("pt-BR",{day:"2-digit",month:"short"});
+          return <g key={i}>
+            <rect x={x} y={y} width={bW} height={bh} fill="#C8A96E" fillOpacity="0.8" rx="2"/>
+            <text x={x+bW/2} y={H-pB+14} textAnchor="end" fill="#8A8070" fontSize="7" transform={"rotate(-35,"+(x+bW/2)+","+(H-pB+12)+")"}>{lbl}</text>
+          </g>;
+        })}
+        <line x1={pL} y1={pT+cH} x2={W-pR} y2={pT+cH} stroke="rgba(255,255,255,0.08)" strokeWidth="1"/>
+      </svg>
     </div>
   );
 }
+
 
 // ── MAIN APP
 function App() {
@@ -690,7 +671,7 @@ function App() {
             onDash={()=>{setTab("dashboard");setAporteR(null);setStep("result");setAporteV("");setExecEnt({});}}/>:
           step==="confirm" ? <ConfirmExec aporteR={aporteR} execEnt={execEnt} setExecEnt={setExecEnt}
             port={port} ccy={ccy} labels={labels} onBack={()=>setStep("result")} onApply={applyExec}/>:
-          aporteR ? <AllocResult result={aporteR} cw={cw} onReset={()=>{setAporteR(null);setStep("result");}} onConfirm={()=>setStep("confirm")}/>:
+          aporteR ? <AllocResult result={aporteR} cw={cw} apiKey={apiKey} onReset={()=>{setAporteR(null);setStep("result");}} onConfirm={()=>setStep("confirm")}/>:
           <AporteInput aporteV={aporteV} setAporteV={setAporteV} loadA={loadA} cw={cw} onGen={genAlloc} aErr={aErr}/>
         )}
 
@@ -805,8 +786,155 @@ function AporteInput({aporteV,setAporteV,loadA,cw,onGen,aErr}) {
   );
 }
 
+
+// ── ASSET CHAT
+function AssetChat({asset,result,apiKey,onClose}) {
+  const [messages,setMessages] = React.useState([]);
+  const [input,setInput]       = React.useState("");
+  const [loading,setLoading]   = React.useState(false);
+  const bottomRef = React.useRef(null);
+
+  // Build system context from the asset and portfolio data
+  const systemContext = "Você é um analista fundamentalista sênior especializado em Buy & Hold patrimonialista de longo prazo. " +
+    "O investidor está debatendo a indicação do ativo " + asset.ticker + " (" + asset.className + "). " +
+    "Dados da análise já realizada: " +
+    "Score: " + (asset.score||"N/A") + ". " +
+    "Métricas: " + (asset.metricas||"N/A") + ". " +
+    "Margem de segurança: " + (asset.margem||"N/A") + ". " +
+    "Observação: " + (asset.obs||"N/A") + ". " +
+    "Contexto do portfólio: " + (result.resumo||"") + ". " +
+    "Responda de forma direta, técnica e fundamentalista. Sempre relacione com a filosofia Buy & Hold patrimonialista e margem de segurança. " +
+    "Seja conciso (máximo 4 parágrafos). Use linguagem clara mas precisa.";
+
+  React.useEffect(()=>{
+    // Initial message contextualizing the asset
+    const intro = "Estou analisando " + asset.ticker + " com score **" + (asset.score||"") + "**.
+
+" +
+      "📊 **Métricas:** " + (asset.metricas||"N/A") + "
+
+" +
+      "🛡 **Margem de segurança:** " + (asset.margem||"N/A") + "
+
+" +
+      "O que você gostaria de debater? Pode perguntar sobre valuation, riscos, comparação com pares, perspectivas de longo prazo, etc.";
+    setMessages([{role:"assistant",content:intro}]);
+  },[]);
+
+  React.useEffect(()=>{
+    bottomRef.current?.scrollIntoView({behavior:"smooth"});
+  },[messages]);
+
+  const send = async() => {
+    const txt = input.trim();
+    if(!txt||loading) return;
+    setInput("");
+    const newMsgs = [...messages,{role:"user",content:txt}];
+    setMessages(newMsgs);
+    setLoading(true);
+    try {
+      const apiMsgs = [{role:"user",content:systemContext+" HISTÓRICO DA CONVERSA: "+
+        newMsgs.slice(0,-1).map(m=>m.role.toUpperCase()+": "+m.content).join(" | ")+
+        " PERGUNTA ATUAL: "+txt}];
+      const r = await fetch("https://api.anthropic.com/v1/messages",{
+        method:"POST",
+        headers:{"Content-Type":"application/json","x-api-key":apiKey,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
+        body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:800,messages:apiMsgs})
+      });
+      const d = await r.json();
+      if(d.error) throw new Error(d.error.message);
+      const reply = d.content.filter(i=>i.type==="text").map(i=>i.text).join("");
+      setMessages(prev=>[...prev,{role:"assistant",content:reply}]);
+    } catch(e) {
+      setMessages(prev=>[...prev,{role:"assistant",content:"Erro: "+e.message}]);
+    }
+    setLoading(false);
+  };
+
+  // Simple markdown bold renderer
+  const renderText = (txt) => {
+    const parts = txt.split(/\*\*(.*?)\*\*/g);
+    return parts.map((p,i)=>i%2===1?<strong key={i} style={{color:"#F0EAD8"}}>{p}</strong>:<span key={i}>{p}</span>);
+  };
+
+  return (
+    <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 140px)"}}>
+      {/* Header */}
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14,paddingBottom:12,borderBottom:"1px solid rgba(91,143,212,0.2)"}}>
+        <button onClick={onClose} style={{background:"none",border:"none",color:"#8A8070",cursor:"pointer",fontSize:12,padding:0,flexShrink:0}}>← Voltar</button>
+        <div style={{flex:1}}>
+          <div style={{display:"flex",alignItems:"center",gap:7}}>
+            <span style={{background:asset.classColor||"#5B8FD4",color:"#0D0F14",fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:4,fontFamily:"monospace"}}>{asset.ticker}</span>
+            <span style={{fontSize:10,color:asset.classColor||"#5B8FD4"}}>{asset.classEmoji} {asset.className}</span>
+          </div>
+          <div style={{fontSize:9,color:"#5A5550",fontFamily:"monospace",marginTop:2}}>{asset.metricas}</div>
+        </div>
+      </div>
+
+      {/* Messages */}
+      <div style={{flex:1,overflowY:"auto",display:"flex",flexDirection:"column",gap:12,paddingBottom:8}}>
+        {messages.map((m,i)=>(
+          <div key={i} style={{display:"flex",flexDirection:"column",alignItems:m.role==="user"?"flex-end":"flex-start"}}>
+            <div style={{
+              maxWidth:"88%",padding:"10px 13px",borderRadius:10,lineHeight:1.65,fontSize:13,
+              background:m.role==="user"?"rgba(91,143,212,0.12)":"rgba(255,255,255,0.03)",
+              border:"1px solid "+(m.role==="user"?"rgba(91,143,212,0.25)":"rgba(255,255,255,0.06)"),
+              color:"#C8C0B0",
+              borderBottomRightRadius:m.role==="user"?2:10,
+              borderBottomLeftRadius:m.role==="assistant"?2:10,
+            }}>
+              {m.content.split("
+").map((line,j)=>(
+                <div key={j} style={{marginBottom:line===""?6:0}}>{renderText(line)}</div>
+              ))}
+            </div>
+            <div style={{fontSize:9,color:"#4A4840",marginTop:3,fontFamily:"monospace"}}>
+              {m.role==="user"?"você":"analista IA"}
+            </div>
+          </div>
+        ))}
+        {loading && (
+          <div style={{display:"flex",alignItems:"flex-start"}}>
+            <div style={{padding:"10px 14px",background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:10,borderBottomLeftRadius:2}}>
+              <span style={{color:"#5A5550",fontSize:12,fontFamily:"monospace",letterSpacing:2}}>analisando...</span>
+            </div>
+          </div>
+        )}
+        <div ref={bottomRef}/>
+      </div>
+
+      {/* Input */}
+      <div style={{paddingTop:10,borderTop:"1px solid rgba(255,255,255,0.06)"}}>
+        <div style={{display:"flex",gap:8,alignItems:"flex-end"}}>
+          <textarea
+            value={input}
+            onChange={e=>setInput(e.target.value)}
+            onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();send();}}}
+            placeholder={"Pergunte sobre " + asset.ticker + "... (Enter para enviar)"}
+            rows={2}
+            style={{flex:1,background:"rgba(255,255,255,0.04)",border:"1px solid rgba(91,143,212,0.25)",borderRadius:8,padding:"9px 12px",color:"#F0EAD8",fontSize:13,fontFamily:"Georgia,serif",outline:"none",resize:"none",lineHeight:1.5}}/>
+          <button onClick={send} disabled={loading||!input.trim()}
+            style={{padding:"10px 14px",background:loading||!input.trim()?"rgba(91,143,212,0.08)":"linear-gradient(135deg,#5B8FD4,#3A6FB4)",border:"none",borderRadius:8,color:loading||!input.trim()?"#3A5070":"#F0EAD8",fontSize:18,cursor:loading||!input.trim()?"not-allowed":"pointer",flexShrink:0,lineHeight:1}}>
+            ↑
+          </button>
+        </div>
+        <div style={{fontSize:9,color:"#3A3830",marginTop:6,textAlign:"center",fontStyle:"italic"}}>Shift+Enter para nova linha · Enter para enviar</div>
+      </div>
+    </div>
+  );
+}
+
 // ── ALLOC RESULT
-function AllocResult({result,cw,onReset,onConfirm}) {
+function AllocResult({result,cw,onReset,onConfirm,apiKey}) {
+  const [chatAsset,setChatAsset] = React.useState(null);
+  // chatAsset: { ticker, score, metricas, margem, obs, classId }
+  if(chatAsset) return (
+    <AssetChat
+      asset={chatAsset}
+      result={result}
+      apiKey={apiKey}
+      onClose={()=>setChatAsset(null)}/>
+  );
   return (
     <div>
       <button onClick={onReset} style={{background:"none",border:"none",color:"#8A8070",cursor:"pointer",fontSize:12,padding:0,marginBottom:14}}>← Novo aporte</button>
@@ -851,6 +979,10 @@ function AllocResult({result,cw,onReset,onConfirm}) {
                     {a.metricas && <div style={{fontFamily:"monospace",fontSize:10,color:"#C8A96E",marginBottom:4,lineHeight:1.6}}>{a.metricas}</div>}
                     {a.margem && <div style={{fontSize:10,color:"#7A9A7A",lineHeight:1.5,marginBottom:3,borderLeft:"2px solid #4CAF8244",paddingLeft:7}}>{a.margem}</div>}
                     {a.obs && <div style={{fontSize:10,color:"#8A8070",lineHeight:1.5,fontStyle:"italic"}}>{a.obs}</div>}
+                    <button onClick={()=>setChatAsset({...a,classId:cl.id,className:meta.name,classColor:meta.color,classEmoji:meta.emoji})}
+                      style={{marginTop:8,width:"100%",padding:"7px",background:"rgba(91,143,212,0.08)",border:"1px solid rgba(91,143,212,0.25)",borderRadius:6,color:"#5B8FD4",fontSize:11,cursor:"pointer",fontFamily:"monospace",letterSpacing:1,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+                      <span style={{fontSize:13}}>💬</span> Debater este ativo
+                    </button>
                   </div>
                 ))}
               </div>
