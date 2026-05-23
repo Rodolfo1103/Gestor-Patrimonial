@@ -101,7 +101,7 @@ const pct    = (v) => (v||0).toFixed(1) + "%";
 const parseN = (s) => parseFloat(String(s).replace(",",".")) || 0;
 
 // Storage
-const SK = "patrimonio-v4";
+const SK = "patrimonio-v5";
 function loadData() { try { const s=localStorage.getItem(SK); return s?JSON.parse(s):null; } catch{return null;} }
 function saveData(d) { try { localStorage.setItem(SK,JSON.stringify(d)); } catch{} }
 function getApiKey() { try{return localStorage.getItem("pat-apikey")||"";}catch{return "";} }
@@ -132,14 +132,21 @@ async function fetchPrices(tickers, apiKey) {
 }
 
 // AI: allocation analysis
-async function fetchAllocation(aporteValue, portfolio, cw, apiKey) {
+async function fetchAllocation(aporteValue, portfolio, cw, apiKey, customAssets, getAnyCcy) {
+  const allTickers = (classId) => {
+    const base = ASSETS_BY_CLASS[classId] || [];
+    const custom = (customAssets[classId] || []).map(a => a.ticker);
+    return [...base, ...custom];
+  };
   const classInfo = CLASSES.map(c => ({
     id:c.id, name:c.name, targetMin:c.min, targetMax:c.max,
     currentWeight: cw[c.id]||0,
-    assets: (ASSETS_BY_CLASS[c.id]||[]).map(t => {
+    assets: allTickers(c.id).map(t => {
       const p = portfolio[t];
-      return p ? {ticker:t, moeda:getCcy(t), qtd:p.qty, precoLocal:p.price||0, valorBRL:(p.qty||0)*(p.price||0)*toFX(getCcy(t))} : {ticker:t, moeda:getCcy(t)};
-    }).slice(0,6)
+      const ccy = getAnyCcy(t);
+      if(VALUE_BASED.includes(t)) return {ticker:t, moeda:"BRL", valorBRL:p?.totalBRL||0};
+      return p ? {ticker:t, moeda:ccy, qtd:p.qty, precoLocal:p.price||0, valorBRL:(p.qty||0)*(p.price||0)*toFX(ccy)} : {ticker:t, moeda:ccy};
+    }).slice(0,8)
   }));
   const prompt = "Você é analista fundamentalista Buy & Hold para aposentadoria. Análise RIGOROSA com MARGEM DE SEGURANÇA real.\n\nPORTFÓLIO: " + JSON.stringify(classInfo) + "\n\nAPORTE: R$ " + fmtNum(aporteValue,2) + "\n\nFILOSOFIA: Zero vendas, rebalanceamento só com aportes, margem de segurança obrigatória.\n\nCRITÉRIOS:\nFIIs: P/VPA<=0,97, DY>=9%, COMPRA FORTE se P/VPA<=0,93 e DY>=9,5%\nAções BR cíclicas: P/L<=10x. Compounders: P/L<=18x se ROE>20% por 5+anos.\nExterior compounders: P/L<=28x, P/FCF<=25x. Value: P/L<=18x. Ásia: P/L<=14x.\nInfra: DY líquido isento>=9,5%, P/VPA<=1,0.\nSelic: sempre elegível. Ouro/BTC: avaliar ciclo.\n\nJSON sem markdown, percentualAporte somando 100:\n{\"resumo\":\"...\",\"alertasValuation\":[\"...\"],\"classes\":[{\"id\":\"fii\",\"percentualAporte\":25.0,\"valorAporte\":2500.00,\"justificativa\":\"...\",\"ativosRecomendados\":[{\"ticker\":\"HGLG11\",\"score\":\"COMPRA FORTE\",\"metricas\":\"P/VPA 0,91 DY 9,6%\",\"margemSeguranca\":\"...\",\"justificativa\":\"...\"}]}]}";
   const r = await fetch("https://api.anthropic.com/v1/messages", {
@@ -204,17 +211,33 @@ function App() {
   const [history,setHistory]    = useState([]);
   const [apiErr,setApiErr]      = useState("");
   const [inited,setInited]      = useState(false);
+  // customAssets: { classId: [{ticker, label, ccy}] }
+  const [customAssets,setCustomAssets] = useState({});
+  const [addingTo,setAddingTo]  = useState(null); // classId being added to
+  const [newTicker,setNewTicker]= useState("");
+  const [newLabel,setNewLabel]  = useState("");
+  const [newCcy,setNewCcy]      = useState("BRL");
 
   useEffect(()=>{
     const d=loadData();
-    if(d){setPort(d.portfolio||{});setLastPU(d.lastPU||null);setHistory(d.history||[]);}
+    if(d){
+      setPort(d.portfolio||{});
+      setLastPU(d.lastPU||null);
+      setHistory(d.history||[]);
+      const ca = d.customAssets||{};
+      setCustomAssets(ca);
+      // Re-register custom asset currencies and class mappings
+      Object.entries(ca).forEach(([cid,list])=>{
+        (list||[]).forEach(a=>{ ASSET_CCY[a.ticker]=a.ccy||"BRL"; CLASS_OF[a.ticker]=cid; });
+      });
+    }
     setInited(true);
   },[]);
 
   useEffect(()=>{
     if(!inited) return;
-    saveData({portfolio,lastPU,history});
-  },[portfolio,lastPU,history,inited]);
+    saveData({portfolio,lastPU,history,customAssets});
+  },[portfolio,lastPU,history,customAssets,inited]);
 
   const computeStats = useCallback(()=>{
     let total=0; const ct={};
@@ -240,7 +263,7 @@ function App() {
   const {total,ct,cw} = computeStats();
 
   const refreshPrices = useCallback(async()=>{
-    const tickers=Object.entries(portfolio).filter(([,p])=>p.qty>0).map(([t])=>t);
+    const tickers=Object.entries(portfolio).filter(([t,p])=>VALUE_BASED.includes(t)?(p.totalBRL>0):(p.qty>0)).map(([t])=>t);
     if(!tickers.length) return;
     setLoadingP(true); setPriceErr(""); setApiErr("");
     try {
@@ -287,11 +310,64 @@ function App() {
     setEditA(null);
   };
 
+  // Get all tickers for a class including custom ones
+  const getClassTickers = (classId) => {
+    const base = ASSETS_BY_CLASS[classId] || [];
+    const custom = (customAssets[classId] || []).map(a => a.ticker);
+    return [...base, ...custom];
+  };
+
+  // Get label for any ticker (built-in or custom)
+  const getLabel = (ticker) => {
+    if(ASSET_LABELS[ticker]) return ASSET_LABELS[ticker];
+    for(const list of Object.values(customAssets)) {
+      const found = list.find(a => a.ticker === ticker);
+      if(found) return found.label || ticker;
+    }
+    return ticker;
+  };
+
+  // Get currency for any ticker (built-in or custom)
+  const getAnyCcy = (ticker) => {
+    if(ASSET_CCY[ticker]) return ASSET_CCY[ticker];
+    for(const list of Object.values(customAssets)) {
+      const found = list.find(a => a.ticker === ticker);
+      if(found) return found.ccy || "BRL";
+    }
+    return "BRL";
+  };
+
+  const addCustomAsset = (classId) => {
+    const ticker = newTicker.trim().toUpperCase();
+    const label  = newLabel.trim() || ticker;
+    if(!ticker) return;
+    // Check not duplicate
+    if(getClassTickers(classId).includes(ticker)) { alert("Ativo já existe na lista."); return; }
+    setCustomAssets(prev => ({
+      ...prev,
+      [classId]: [...(prev[classId]||[]), {ticker, label, ccy: newCcy}]
+    }));
+    // Also register currency
+    ASSET_CCY[ticker] = newCcy;
+    CLASS_OF[ticker]  = classId;
+    setAddingTo(null);
+    setNewTicker(""); setNewLabel(""); setNewCcy("BRL");
+  };
+
+  const removeCustomAsset = (classId, ticker) => {
+    setCustomAssets(prev => ({
+      ...prev,
+      [classId]: (prev[classId]||[]).filter(a => a.ticker !== ticker)
+    }));
+    // Remove from portfolio too
+    setPort(prev => { const n={...prev}; delete n[ticker]; return n; });
+  };
+
   const generateAlloc=async()=>{
     const v=parseN(aporteVal); if(v<=0) return;
     setLoadingA(true); setApiErr("");
     try {
-      const res=await fetchAllocation(v,portfolio,cw,apiKey);
+      const res=await fetchAllocation(v,portfolio,cw,apiKey,customAssets,getAnyCcy);
       setAporteRes({...res,aporteValue:v}); setStep("result");
       const ent={};
       res.classes?.forEach(cls=>cls.ativosRecomendados?.forEach(a=>{
