@@ -92,6 +92,9 @@ const toBRL  = (val, ticker) => val * toFX(getCcy(ticker));
 const CLASS_OF = {};
 Object.entries(ASSETS_BY_CLASS).forEach(([cid,ts]) => ts.forEach(t => { CLASS_OF[t] = cid; }));
 
+// Assets stored as total BRL value (not qty x price)
+const VALUE_BASED = ["SELIC2031", "OURO_FISICO"];
+
 const fmtBRL = (v) => new Intl.NumberFormat("pt-BR",{style:"currency",currency:"BRL"}).format(v||0);
 const fmtNum = (v,d=2) => (v||0).toLocaleString("pt-BR",{minimumFractionDigits:d,maximumFractionDigits:d});
 const pct    = (v) => (v||0).toFixed(1) + "%";
@@ -104,12 +107,13 @@ function saveData(d) { try { localStorage.setItem(SK,JSON.stringify(d)); } catch
 function getApiKey() { try{return localStorage.getItem("pat-apikey")||"";}catch{return "";} }
 function setApiKey(k){ try{localStorage.setItem("pat-apikey",k);}catch{} }
 
-// AI: fetch real market prices via web search
+// AI: fetch real market prices + live FX rates via web search
 async function fetchPrices(tickers, apiKey) {
   const list = tickers.map(t => t + " (" + getCcy(t) + ")").join(", ");
-  const prompt = "Você é um sistema de dados de mercado. Busque na web as cotações de fechamento do ÚLTIMO PREGÃO de cada ativo: " + list + ". " +
-    "Para BTC use cotação atual. Para OURO_FISICO use preco por grama em BRL. Para SELIC2031 use valor unitario BRL. " +
-    "Retorne APENAS JSON sem markdown: {\"prices\":{\"TICKER\":{\"price\":123.45,\"currency\":\"BRL\"}}}";
+  const prompt = "Você é um sistema de dados de mercado. Use web_search para buscar: " +
+    "1) Cotações de fechamento do ULTIMO PREGAO de cada ativo: " + list + ". Para BTC use cotacao atual. Para OURO_FISICO use preco por grama em BRL. Para SELIC2031 use valor unitario BRL atual. " +
+    "2) Taxas de cambio ATUAIS para BRL: USD/BRL, EUR/BRL, GBP/BRL, CHF/BRL, JPY/BRL, AUD/BRL, HKD/BRL, SGD/BRL, NOK/BRL, DKK/BRL, MXN/BRL. " +
+    "Retorne APENAS JSON sem markdown no formato: {"fx":{"USD":5.8,"EUR":6.3,"GBP":7.3,"CHF":6.5,"JPY":0.038,"AUD":3.7,"HKD":0.74,"SGD":4.3,"NOK":0.55,"DKK":0.84,"MXN":0.29},"prices":{"TICKER":{"price":123.45,"currency":"BRL"}}}";
   const r = await fetch("https://api.anthropic.com/v1/messages", {
     method:"POST",
     headers:{"Content-Type":"application/json","x-api-key":apiKey,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
@@ -123,7 +127,8 @@ async function fetchPrices(tickers, apiKey) {
   const d = await r.json();
   if(d.error) throw new Error(d.error.message);
   const txt = d.content.filter(i=>i.type==="text").map(i=>i.text).join("").replace(/```json|```/g,"").trim();
-  return JSON.parse(txt).prices || {};
+  const parsed = JSON.parse(txt);
+  return { prices: parsed.prices || {}, fx: parsed.fx || {} };
 }
 
 // AI: allocation analysis
@@ -215,8 +220,15 @@ function App() {
     let total=0; const ct={};
     CLASSES.forEach(c=>{ct[c.id]=0;});
     Object.entries(portfolio).forEach(([t,p])=>{
-      if(!p.qty||!p.price) return;
-      const v = p.qty * p.price * toFX(getCcy(t));
+      let v = 0;
+      if(VALUE_BASED.includes(t)) {
+        // stored as total BRL value directly
+        v = p.totalBRL || 0;
+      } else {
+        if(!p.qty||!p.price) return;
+        v = p.qty * p.price * toFX(getCcy(t));
+      }
+      if(!v) return;
       total+=v;
       if(p.classId) ct[p.classId]=(ct[p.classId]||0)+v;
     });
@@ -232,7 +244,12 @@ function App() {
     if(!tickers.length) return;
     setLoadingP(true); setPriceErr(""); setApiErr("");
     try {
-      const prices = await fetchPrices(tickers, apiKey);
+      const result = await fetchPrices(tickers, apiKey);
+      const { prices, fx } = result;
+      // Update live FX rates
+      if(fx && Object.keys(fx).length > 0) {
+        Object.entries(fx).forEach(([ccy,rate]) => { if(rate>0) FX[ccy]=rate; });
+      }
       setPort(prev=>{
         const n={...prev};
         Object.entries(prices).forEach(([t,d])=>{
@@ -248,15 +265,25 @@ function App() {
   const openEdit=(ticker,classId)=>{
     const p=portfolio[ticker]||{};
     setEditA({ticker,classId});
-    setEditQty(p.qty!=null?String(p.qty):"");
-    setEditPrice(p.price!=null?String(p.price):"");
+    if(VALUE_BASED.includes(ticker)) {
+      setEditQty(p.totalBRL!=null?String(p.totalBRL):"");
+      setEditPrice("");
+    } else {
+      setEditQty(p.qty!=null?String(p.qty):"");
+      setEditPrice(p.price!=null?String(p.price):"");
+    }
   };
 
   const saveEdit=()=>{
     if(!editAsset) return;
     const{ticker,classId}=editAsset;
-    const qty=parseN(editQty), price=parseN(editPrice);
-    setPort(prev=>({...prev,[ticker]:{...prev[ticker],classId,qty,price,lastUpdate:new Date().toISOString()}}));
+    if(VALUE_BASED.includes(ticker)) {
+      const totalBRL=parseN(editQty);
+      setPort(prev=>({...prev,[ticker]:{...prev[ticker],classId,totalBRL,qty:1,price:totalBRL,lastUpdate:new Date().toISOString()}}));
+    } else {
+      const qty=parseN(editQty), price=parseN(editPrice);
+      setPort(prev=>({...prev,[ticker]:{...prev[ticker],classId,qty,price,lastUpdate:new Date().toISOString()}}));
+    }
     setEditA(null);
   };
 
@@ -296,7 +323,7 @@ function App() {
   if(!apiKey) return <ApiKeyScreen onSave={k=>{setApiKey(k);setApiKeyState(k);}}/>;
   if(!inited) return <div style={{minHeight:"100vh",background:"#0D0F14",display:"flex",alignItems:"center",justifyContent:"center"}}><span style={{color:"#C8A96E",fontFamily:"monospace",fontSize:12,letterSpacing:3}}>CARREGANDO...</span></div>;
 
-  const hasPos = Object.values(portfolio).some(p=>p.qty>0);
+  const hasPos = Object.entries(portfolio).some(([t,p])=>VALUE_BASED.includes(t)?(p.totalBRL>0):(p.qty>0));
 
   return (
     <div style={{minHeight:"100vh",background:"#0D0F14",color:"#E8E2D5",fontFamily:"'Georgia','Times New Roman',serif",paddingBottom:80}}>
@@ -311,7 +338,10 @@ function App() {
           </div>
           {hasPos && <button onClick={refreshPrices} disabled={loadingP} style={{background:"rgba(200,169,110,0.1)",border:"1px solid rgba(200,169,110,0.3)",borderRadius:6,padding:"6px 12px",color:"#C8A96E",fontSize:10,fontFamily:"monospace",letterSpacing:2,cursor:"pointer",textTransform:"uppercase"}}>{loadingP?"⟳ Buscando...":"⟳ Atualizar preços"}</button>}
         </div>
-        {lastPU && <div style={{fontSize:9,color:"#5A5550",marginTop:4,fontFamily:"monospace"}}>Preços: {new Date(lastPU).toLocaleString("pt-BR")}{priceErr&&<span style={{color:"#E05252",marginLeft:8}}>⚠ {priceErr}</span>}</div>}
+        {lastPU && <div style={{fontSize:9,color:"#5A5550",marginTop:4,fontFamily:"monospace"}}>
+          Preços: {new Date(lastPU).toLocaleString("pt-BR")} · USD {FX.USD.toFixed(2)} · EUR {FX.EUR.toFixed(2)} · GBP {FX.GBP.toFixed(2)}
+          {priceErr&&<span style={{color:"#E05252",marginLeft:8}}>⚠ {priceErr}</span>}
+        </div>}
       </div>
 
       {/* TABS */}
@@ -360,7 +390,7 @@ function App() {
             <div>
               <div style={{fontSize:10,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:10}}>Maiores posições</div>
               {Object.entries(portfolio).filter(([,p])=>p.qty>0&&p.price)
-                .map(([t,p])=>({t,p,val:p.qty*p.price*toFX(getCcy(t))}))
+                .map(([t,p])=>({t,p,val:VALUE_BASED.includes(t)?(p.totalBRL||0):p.qty*p.price*toFX(getCcy(t))}))
                 .sort((a,b)=>b.val-a.val).slice(0,8)
                 .map(({t,p,val})=>{
                   const pp=total>0?(val/total)*100:0,cl=CLASSES.find(c=>c.id===p.classId);
@@ -373,7 +403,7 @@ function App() {
                           <span style={{fontFamily:"monospace",fontSize:12,color:"#F0EAD8",flexShrink:0}}>{fmtBRL(val)}</span>
                         </div>
                         <div style={{display:"flex",justifyContent:"space-between",marginTop:1}}>
-                          <span style={{fontSize:9,color:"#5A5550"}}>{fmtNum(p.qty,p.qty<100?4:0)} × {getCcy(t)!="BRL"?getCcy(t)+" ":"R$ "}{fmtNum(p.price,2)}</span>
+                          <span style={{fontSize:9,color:"#5A5550"}}>{VALUE_BASED.includes(t)?"Valor total":fmtNum(p.qty,p.qty<100?4:0)+" × "+(getCcy(t)!="BRL"?getCcy(t)+" ":"R$ ")+fmtNum(p.price,2)}</span>
                           <span style={{fontSize:9,color:"#5A5550",fontFamily:"monospace"}}>{pct(pp)}</span>
                         </div>
                       </div>
@@ -411,8 +441,8 @@ function App() {
                       <div style={{width:3,height:24,borderRadius:2,background:has?c.color:"rgba(255,255,255,0.08)",flexShrink:0}}/>
                       <div style={{flex:1,minWidth:0}}>
                         <div style={{fontSize:11,color:has?"#F0EAD8":"#5A5550",fontFamily:"monospace",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{ASSET_LABELS[ticker]||ticker}</div>
-                        <div style={{fontSize:9,color:"#6A6050",marginTop:1,fontFamily:"monospace"}}>{ccy}</div>
-                        {has && <div style={{fontSize:9,color:"#8A8070",marginTop:1}}>{fmtNum(pos.qty,pos.qty<100?4:0)} × {ccy!="BRL"?ccy+" ":"R$ "}{fmtNum(pos.price||0,2)}</div>}
+                        <div style={{fontSize:9,color:"#6A6050",marginTop:1,fontFamily:"monospace"}}>{VALUE_BASED.includes(ticker)?"Valor total BRL":ccy}</div>
+                        {has && <div style={{fontSize:9,color:"#8A8070",marginTop:1}}>{VALUE_BASED.includes(ticker)?fmtBRL(pos.totalBRL||0):(fmtNum(pos.qty,pos.qty<100?4:0)+" × "+(ccy!="BRL"?ccy+" ":"R$ ")+fmtNum(pos.price||0,2))}</div>}
                       </div>
                       {has && <div style={{textAlign:"right",flexShrink:0}}>
                         <div style={{fontSize:11,color:"#F0EAD8",fontFamily:"monospace"}}>{fmtBRL(val)}</div>
@@ -471,7 +501,8 @@ function EditPanel({ticker,classId,editQty,setEditQty,editPrice,setEditPrice,onS
   const label=ASSET_LABELS[ticker]||ticker;
   const cl=CLASSES.find(c=>c.id===classId);
   const ccy=getCcy(ticker);
-  const totalBRL=parseN(editQty)*parseN(editPrice)*toFX(ccy);
+  const isValueBased=VALUE_BASED.includes(ticker);
+  const totalBRL=isValueBased?parseN(editQty):parseN(editQty)*parseN(editPrice)*toFX(ccy);
   return (
     <div>
       <button onClick={onCancel} style={{background:"none",border:"none",color:"#8A8070",cursor:"pointer",fontSize:12,padding:0,marginBottom:14}}>← Voltar</button>
@@ -482,15 +513,21 @@ function EditPanel({ticker,classId,editQty,setEditQty,editPrice,setEditPrice,onS
           <div style={{fontSize:10,color:cl?.color||"#888"}}>{cl?.name}</div>
         </div>
       </div>
-      <div style={{marginBottom:14,padding:"8px 12px",background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:6,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+      {!isValueBased && <div style={{marginBottom:14,padding:"8px 12px",background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:6,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
         <span style={{fontSize:9,letterSpacing:2,color:"#8A8070",fontFamily:"monospace",textTransform:"uppercase"}}>Moeda de negociação</span>
         <span style={{fontFamily:"monospace",fontSize:14,color:cl?.color||"#C8A96E",fontWeight:700}}>{ccy}</span>
-      </div>
-      <Fld label="Quantidade (cotas/ações/unidades)" value={<NIn value={editQty} onChange={setEditQty} placeholder="0" color={cl?.color}/>}/>
-      <Fld label={"Cotação atual em " + ccy} value={<NIn value={editPrice} onChange={setEditPrice} placeholder="0,00" color={cl?.color}/>} hint="Preço unitário na moeda de negociação do ativo"/>
+      </div>}
+      {isValueBased ? (
+        <Fld label="Valor total aplicado (R$)" value={<NIn value={editQty} onChange={setEditQty} placeholder="0,00" color={cl?.color}/>} hint="Informe o saldo total atual da aplicação em reais. Atualize manualmente a cada aporte."/>
+      ) : (
+        <>
+          <Fld label="Quantidade (cotas/ações/unidades)" value={<NIn value={editQty} onChange={setEditQty} placeholder="0" color={cl?.color}/>}/>
+          <Fld label={"Cotação atual em " + ccy} value={<NIn value={editPrice} onChange={setEditPrice} placeholder="0,00" color={cl?.color}/>} hint="Preço unitário na moeda de negociação do ativo"/>
+        </>
+      )}
       {totalBRL>0 && (
         <div style={{padding:"10px 12px",background:"rgba(200,169,110,0.05)",border:"1px solid rgba(200,169,110,0.15)",borderRadius:7,marginBottom:18}}>
-          <span style={{fontSize:11,color:"#8A8070"}}>Valor em BRL: </span>
+          <span style={{fontSize:11,color:"#8A8070"}}>{isValueBased?"Valor cadastrado:":"Valor em BRL:"} </span>
           <span style={{fontFamily:"monospace",fontSize:15,color:"#C8A96E"}}>{fmtBRL(totalBRL)}</span>
         </div>
       )}
