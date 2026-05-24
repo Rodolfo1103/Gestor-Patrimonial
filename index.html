@@ -400,6 +400,21 @@ function App(){
         return await r.json();
       }finally{clearTimeout(timer);}
     };
+    // Helper que tenta varios proxies CORS em cascata ate algum funcionar
+    const fetchViaProxy=async(targetUrl,ms)=>{
+      const proxies=[
+        u=>"https://corsproxy.io/?url="+encodeURIComponent(u),
+        u=>"https://api.allorigins.win/raw?url="+encodeURIComponent(u),
+        u=>"https://api.codetabs.com/v1/proxy/?quest="+encodeURIComponent(u),
+        u=>"https://proxy.cors.sh/"+u,
+      ];
+      let lastErr;
+      for(const mk of proxies){
+        try{return await fetchJSON(mk(targetUrl),ms);}
+        catch(e){lastErr=e;}
+      }
+      throw lastErr||new Error("todos proxies falharam");
+    };
     const dbg=[];
     try{
       const allPrices={};
@@ -461,16 +476,14 @@ function App(){
           dbg.push("BR-erro:"+e.message);
         }
       }
-      // Yahoo Finance - estrangeiros (em paralelo, com proxy CORS)
+      // Yahoo Finance - estrangeiros (em paralelo, com cascata de proxies CORS)
       if(fgnTickers.length){
         let yhN=0;
         await Promise.all(fgnTickers.map(async t=>{
           try{
             const sym=YH[t];
-            // Usa proxy CORS pois Yahoo bloqueia requisicoes diretas do navegador
             const target="https://query1.finance.yahoo.com/v8/finance/chart/"+encodeURIComponent(sym)+"?interval=1d&range=5d";
-            const url="https://corsproxy.io/?url="+encodeURIComponent(target);
-            const d=await fetchJSON(url,15000);
+            const d=await fetchViaProxy(target,15000);
             const res=d&&d.chart&&d.chart.result&&d.chart.result[0];
             const p=res&&res.meta&&(res.meta.regularMarketPrice||res.meta.previousClose);
             if(typeof p==="number"&&p>0){allPrices[t]=p;yhN++;}
@@ -493,8 +506,7 @@ function App(){
         await Promise.all(stqMissing.map(async t=>{
           try{
             const target="https://stooq.com/q/l/?s="+STQ[t]+"&f=sd2t2ohlcv&h&e=json";
-            const url="https://corsproxy.io/?url="+encodeURIComponent(target);
-            const d=await fetchJSON(url,12000);
+            const d=await fetchViaProxy(target,12000);
             const sym=d&&d.symbols&&d.symbols[0];
             const p=sym&&parseFloat(sym.close);
             if(p>0){allPrices[t]=p;sqN++;}
