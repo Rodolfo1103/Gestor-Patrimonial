@@ -390,138 +390,114 @@ function App(){
     const tickers=Object.keys(port).filter(t=>hq(t,port[t])&&!VB.includes(t));
     if(!tickers.length){setPErr("Nenhum ativo com quantidade cadastrada");return;}
     setLoadP(true);setPErr("");
+    // Helper de fetch com timeout manual (compativel com todos os navegadores)
+    const fetchJSON=async(url,ms)=>{
+      const ctrl=new AbortController();
+      const timer=setTimeout(()=>ctrl.abort(),ms||10000);
+      try{
+        const r=await fetch(url,{signal:ctrl.signal});
+        if(!r.ok)throw new Error("HTTP "+r.status);
+        return await r.json();
+      }finally{clearTimeout(timer);}
+    };
+    const dbg=[];
     try{
       const allPrices={};
       const failed=[];
-      // FX rates via exchangerate.host (gratuito, sem chave, CORS aberto)
+      // Cambio - open.er-api.com (confirmado funcionando)
       try{
-        const r=await fetch("https://api.exchangerate.host/latest?base=BRL",{signal:AbortSignal.timeout(8000)});
-        const d=await r.json();
-        if(d&&d.rates){["USD","EUR","GBP","CHF","JPY","AUD","HKD","SGD","NOK","DKK","MXN"].forEach(k=>{if(d.rates[k]>0)FX[k]=1/d.rates[k];});}
-      }catch{
-        // Fallback: open.er-api.com (tambem gratuito, sem chave)
-        try{
-          const r=await fetch("https://open.er-api.com/v6/latest/BRL",{signal:AbortSignal.timeout(8000)});
-          const d=await r.json();
-          if(d&&d.rates){["USD","EUR","GBP","CHF","JPY","AUD","HKD","SGD","NOK","DKK","MXN"].forEach(k=>{if(d.rates[k]>0)FX[k]=1/d.rates[k];});}
-        }catch{}
-      }
+        const d=await fetchJSON("https://open.er-api.com/v6/latest/BRL",8000);
+        if(d&&d.rates){
+          let n=0;
+          ["USD","EUR","GBP","CHF","JPY","AUD","HKD","SGD","NOK","DKK","MXN"].forEach(k=>{if(d.rates[k]>0){FX[k]=1/d.rates[k];n++;}});
+          dbg.push("FX:"+n);
+        }else dbg.push("FX:semrates");
+      }catch(e){dbg.push("FX-erro:"+e.message);}
       // Ouro via Coinbase
       if(tickers.includes("OURO_FISICO")){
         try{
-          const r=await fetch("https://api.coinbase.com/v2/prices/XAU-USD/spot",{signal:AbortSignal.timeout(8000)});
-          const d=await r.json();
+          const d=await fetchJSON("https://api.coinbase.com/v2/prices/XAU-USD/spot",8000);
           const g=parseFloat(d&&d.data&&d.data.amount);
-          if(g>0)allPrices["OURO_FISICO"]=(g/31.1035)*FX.USD;
-          else failed.push("OURO_FISICO");
-        }catch{failed.push("OURO_FISICO");}
+          if(g>0){allPrices["OURO_FISICO"]=(g/31.1035)*FX.USD;dbg.push("Ouro:ok");}
+          else{failed.push("OURO_FISICO");dbg.push("Ouro:semvalor");}
+        }catch(e){failed.push("OURO_FISICO");dbg.push("Ouro-erro:"+e.message);}
       }
       // Bitcoin via CoinGecko
       if(tickers.includes("BTC")){
         try{
-          const r=await fetch("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd",{signal:AbortSignal.timeout(8000)});
-          const d=await r.json();
-          if(d.bitcoin&&d.bitcoin.usd>0)allPrices["BTC"]=d.bitcoin.usd;
-          else failed.push("BTC");
-        }catch{failed.push("BTC");}
+          const d=await fetchJSON("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd",8000);
+          if(d.bitcoin&&d.bitcoin.usd>0){allPrices["BTC"]=d.bitcoin.usd;dbg.push("BTC:ok");}
+          else{failed.push("BTC");dbg.push("BTC:semvalor");}
+        }catch(e){failed.push("BTC");dbg.push("BTC-erro:"+e.message);}
       }
-      // Mapeamento de tickers para Yahoo Finance (acoes estrangeiras)
+      // Mapeamento de tickers para Yahoo Finance
       const YH={
-        // EUA - sem sufixo
         MSFT:"MSFT",APH:"APH",MU:"MU",AMAT:"AMAT",GOOGL:"GOOGL",WM:"WM",O:"O",BRKB:"BRK-B",
         DHR:"DHR",PH:"PH",LIN:"LIN",ECL:"ECL",ADBE:"ADBE",PEP:"PEP",XOM:"XOM",AOS:"AOS",
         PANW:"PANW",CTVA:"CTVA",NDIA:"NDIA",AAAU:"AAAU",
-        // Alemanha .DE
-        SIE:"SIE.DE",SAP:"SAP.DE",
-        // Holanda .AS
-        ASML:"ASML.AS",
-        // Suica .SW
-        ABBN:"ABBN.SW",
-        // Dinamarca .CO
-        NSIS_B:"NOVO-B.CO",
-        // Reino Unido .L
-        HLMA:"HLMA.L",
-        // Noruega .OL
-        KOG:"KOG.OL",
-        // Mexico .MX
-        GMEXICOB:"GMEXICOB.MX",
-        // Japao .T (codigo numerico)
-        TSE8058:"8058.T",TSE8031:"8031.T",
-        // Australia .AX
-        REA:"REA.AX",WES:"WES.AX",
-        // Hong Kong .HK (4 digitos)
-        HKG0700:"0700.HK",HKG1299:"1299.HK",HKG0001:"0001.HK",HKG0087:"0087.HK",
-        // Singapura .SI
-        J36:"J36.SI",
+        SIE:"SIE.DE",SAP:"SAP.DE",ASML:"ASML.AS",ABBN:"ABBN.SW",NSIS_B:"NOVO-B.CO",
+        HLMA:"HLMA.L",KOG:"KOG.OL",GMEXICOB:"GMEXICOB.MX",
+        TSE8058:"8058.T",TSE8031:"8031.T",REA:"REA.AX",WES:"WES.AX",
+        HKG0700:"0700.HK",HKG1299:"1299.HK",HKG0001:"0001.HK",HKG0087:"0087.HK",J36:"J36.SI",
       };
-      // Separa BR (Brapi) vs estrangeiros (Yahoo)
       const isBR=t=>BCCY[t]==="BRL"&&!["OURO_FISICO","BTC","SELIC2031"].includes(t);
       const brTickers=tickers.filter(isBR);
       const fgnTickers=tickers.filter(t=>YH[t]);
-      // Brapi - ativos brasileiros (FIIs e acoes) - aceita ate 100 tickers separados por virgula
+      // Brapi - ativos brasileiros
       if(brTickers.length){
         try{
-          const r=await fetch("https://brapi.dev/api/quote/"+brTickers.join(",")+"?range=1d&interval=1d",{signal:AbortSignal.timeout(10000)});
-          const d=await r.json();
+          const d=await fetchJSON("https://brapi.dev/api/quote/"+brTickers.join(",")+"?range=1d&interval=1d",12000);
+          let n=0;
           if(d&&d.results){
             d.results.forEach(item=>{
               const p=item.regularMarketPrice;
-              if(typeof p==="number"&&p>0)allPrices[item.symbol]=p;
+              if(typeof p==="number"&&p>0){allPrices[item.symbol]=p;n++;}
             });
           }
+          dbg.push("BR:"+n+"/"+brTickers.length);
           brTickers.forEach(t=>{if(!allPrices[t])failed.push(t);});
-        }catch(e){brTickers.forEach(t=>failed.push(t));}
+        }catch(e){
+          brTickers.forEach(t=>failed.push(t));
+          dbg.push("BR-erro:"+e.message);
+        }
       }
       // Yahoo Finance - estrangeiros (em paralelo)
       if(fgnTickers.length){
+        let yhN=0;
         await Promise.all(fgnTickers.map(async t=>{
           try{
             const sym=YH[t];
-            const url="https://query1.finance.yahoo.com/v8/finance/chart/"+encodeURIComponent(sym)+"?interval=1d&range=5d";
-            const r=await fetch(url,{signal:AbortSignal.timeout(10000)});
-            const d=await r.json();
+            const d=await fetchJSON("https://query1.finance.yahoo.com/v8/finance/chart/"+encodeURIComponent(sym)+"?interval=1d&range=5d",12000);
             const res=d&&d.chart&&d.chart.result&&d.chart.result[0];
             const p=res&&res.meta&&(res.meta.regularMarketPrice||res.meta.previousClose);
-            if(typeof p==="number"&&p>0)allPrices[t]=p;
+            if(typeof p==="number"&&p>0){allPrices[t]=p;yhN++;}
           }catch{}
         }));
+        dbg.push("YH:"+yhN+"/"+fgnTickers.length);
       }
-      // Stooq - fallback para o que Yahoo nao retornou (CORS aberto, cobre EUA/Europa/Asia)
+      // Stooq fallback
       const STQ={
-        // EUA - sufixo .us
         MSFT:"msft.us",APH:"aph.us",MU:"mu.us",AMAT:"amat.us",GOOGL:"googl.us",WM:"wm.us",
         O:"o.us",BRKB:"brk-b.us",DHR:"dhr.us",PH:"ph.us",LIN:"lin.us",ECL:"ecl.us",
         ADBE:"adbe.us",PEP:"pep.us",XOM:"xom.us",AOS:"aos.us",PANW:"panw.us",CTVA:"ctva.us",
         NDIA:"ndia.us",AAAU:"aaau.us",
-        // Europa
         SIE:"sie.de",SAP:"sap.de",ASML:"asml.nl",ABBN:"abbn.ch",HLMA:"hlma.uk",KOG:"kog.no",
-        // Outros
         GMEXICOB:"gmexicob.mx",
       };
       const stqMissing=fgnTickers.filter(t=>!allPrices[t]&&STQ[t]);
       if(stqMissing.length){
+        let sqN=0;
         await Promise.all(stqMissing.map(async t=>{
           try{
-            const url="https://stooq.com/q/l/?s="+STQ[t]+"&f=sd2t2ohlcv&h&e=json";
-            const r=await fetch(url,{signal:AbortSignal.timeout(10000)});
-            const d=await r.json();
+            const d=await fetchJSON("https://stooq.com/q/l/?s="+STQ[t]+"&f=sd2t2ohlcv&h&e=json",10000);
             const sym=d&&d.symbols&&d.symbols[0];
             const p=sym&&parseFloat(sym.close);
-            if(p>0)allPrices[t]=p;
+            if(p>0){allPrices[t]=p;sqN++;}
           }catch{}
         }));
+        dbg.push("STQ:"+sqN+"/"+stqMissing.length);
       }
-      // Marca como falha tudo que nao conseguiu via nenhuma fonte
       fgnTickers.forEach(t=>{if(!allPrices[t])failed.push(t);});
-      // Tickers nao mapeados
-      tickers.forEach(t=>{
-        if(allPrices[t])return;
-        if(["OURO_FISICO","BTC"].includes(t))return;
-        if(isBR(t))return; // ja foi tentado via Brapi
-        if(YH[t])return; // ja foi tentado via Yahoo
-        failed.push(t);
-      });
-      // Alguns FIIs vem em escala 1/10 em certos provedores
       const SCALE10=["ALZR11","RBVA11","TEPP11"];
       SCALE10.forEach(t=>{if(allPrices[t]&&allPrices[t]>500)allPrices[t]=allPrices[t]/10;});
       const n=Object.keys(allPrices).length;
@@ -530,10 +506,10 @@ function App(){
         setLastPU(new Date().toISOString());
         if(n<tickers.length){
           const uniq=[...new Set(failed)].filter(t=>!allPrices[t]);
-          setPErr("Parcial: "+n+"/"+tickers.length+(uniq.length?" - falhou: "+uniq.slice(0,5).join(", ")+(uniq.length>5?"...":""):""));
+          setPErr("Parcial: "+n+"/"+tickers.length+" ["+dbg.join(" ")+"]"+(uniq.length?" falhou: "+uniq.slice(0,5).join(","):""));
         }
-      } else {setPErr("Nao foi possivel obter cotacoes. Tente novamente em alguns minutos.");}
-    }catch(e){setPErr("Erro: "+e.message);}
+      } else {setPErr("Sem cotacoes ["+dbg.join(" ")+"]");}
+    }catch(e){setPErr("Erro: "+e.message+" ["+dbg.join(" ")+"]");}
     setLoadP(false);
   },[port]);
 
