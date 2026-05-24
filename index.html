@@ -150,44 +150,84 @@ function AllocChart({cw}){
   );
 }
 
-function DonutChart({cw}){
-  const W=300,H=195,R=58,r=36;
-  function slices(data,cx,cy){
-    let angle=-Math.PI/2;
-    return data.map(({pct,color},i)=>{
-      const a=pct/100*2*Math.PI;
-      if(pct<0.3)return null;
-      const x1=cx+R*Math.cos(angle),y1=cy+R*Math.sin(angle);
-      const x2=cx+R*Math.cos(angle+a),y2=cy+R*Math.sin(angle+a);
-      const x3=cx+r*Math.cos(angle+a),y3=cy+r*Math.sin(angle+a);
-      const x4=cx+r*Math.cos(angle),y4=cy+r*Math.sin(angle);
-      const lg=a>Math.PI?1:0;
-      const path="M "+x1+" "+y1+" A "+R+" "+R+" 0 "+lg+" 1 "+x2+" "+y2+" L "+x3+" "+y3+" A "+r+" "+r+" 0 "+lg+" 0 "+x4+" "+y4+" Z";
-      angle+=a;
-      return h("path",{key:i,d:path,fill:color,fillOpacity:0.88});
-    });
+function CompareChart({cw}){
+  // Radar/polygon chart: actual vs target for each class
+  const W=300,H=220,cx=150,cy=105,maxR=80;
+  const n=CL.length;
+  // Points on the polygon for each class
+  function polarPt(i,r){
+    const angle=(i/n)*2*Math.PI - Math.PI/2;
+    return {x:cx+r*Math.cos(angle), y:cy+r*Math.sin(angle)};
   }
-  const actual=CL.map(c=>({pct:cw[c.id]||0,color:c.color}));
-  const target=CL.map(c=>({pct:(c.min+c.max)/2,color:c.color}));
+  // Grid circles
+  const grids=[0.25,0.5,0.75,1.0];
+  // Actual values (normalized to max range)
+  const maxPct=Math.max(35,...CL.map(c=>cw[c.id]||0));
+  const actualPts=CL.map((c,i)=>{
+    const pct=cw[c.id]||0;
+    return polarPt(i,(pct/maxPct)*maxR);
+  });
+  const targetPts=CL.map((c,i)=>{
+    const pct=(c.min+c.max)/2;
+    return polarPt(i,(pct/maxPct)*maxR);
+  });
+  const toPath=pts=>pts.map((p,i)=>(i===0?"M":"L")+p.x.toFixed(1)+" "+p.y.toFixed(1)).join(" ")+"Z";
+  // Label positions (slightly outside the grid)
+  const labelPts=CL.map((c,i)=>polarPt(i,maxR+16));
+
   return h("div",{style:{marginBottom:20,paddingTop:14,borderTop:"1px solid rgba(255,255,255,0.05)"}},
-    h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:6}},"Atual vs Alvo"),
+    h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:4}},"Dispersao: Atual vs Meta"),
+    h("div",{style:{fontSize:9,color:"#5A5550",marginBottom:6,fontStyle:"italic"}},"Linha dourada = seu portfolio atual. Linha tracejada = alvo."),
     h("svg",{viewBox:"0 0 "+W+" "+H,style:{width:"100%",height:"auto"}},
-      ...slices(actual,75,88),
-      h("text",{x:75,y:82,textAnchor:"middle",fill:"#C8A96E",fontSize:"8",fontFamily:"monospace"},"ATUAL"),
-      h("text",{x:75,y:96,textAnchor:"middle",fill:"#F0EAD8",fontSize:"9",fontFamily:"monospace",fontWeight:"bold"},"atual"),
-      ...slices(target,225,88),
-      h("text",{x:225,y:82,textAnchor:"middle",fill:"#C8A96E",fontSize:"8",fontFamily:"monospace"},"ALVO"),
-      h("text",{x:225,y:96,textAnchor:"middle",fill:"#F0EAD8",fontSize:"9",fontFamily:"monospace",fontWeight:"bold"},"meta"),
+      // Grid polygons
+      ...grids.map(g=>{
+        const pts=CL.map((c,i)=>polarPt(i,g*maxR));
+        return h("polygon",{key:g,points:pts.map(p=>p.x.toFixed(1)+","+p.y.toFixed(1)).join(" "),fill:"none",stroke:"rgba(255,255,255,0.06)",strokeWidth:"1"});
+      }),
+      // Axis lines
       ...CL.map((c,i)=>{
-        const lx=10+(i%4)*72,ly=H-30+Math.floor(i/4)*14;
-        return h(Fragment,{key:c.id},
-          h("rect",{x:lx,y:ly,width:7,height:7,fill:c.color,rx:"1"}),
-          h("text",{x:lx+10,y:ly+6,fill:"#7A7060",fontSize:"6.5",fontFamily:"monospace"},c.tag+" "+pc(cw[c.id]||0))
+        const pt=polarPt(i,maxR);
+        return h("line",{key:i,x1:cx,y1:cy,x2:pt.x.toFixed(1),y2:pt.y.toFixed(1),stroke:"rgba(255,255,255,0.06)",strokeWidth:"1"});
+      }),
+      // Target polygon (dashed)
+      h("polygon",{points:targetPts.map(p=>p.x.toFixed(1)+","+p.y.toFixed(1)).join(" "),fill:"rgba(91,143,212,0.08)",stroke:"#5B8FD4",strokeWidth:"1.5",strokeDasharray:"4,3"}),
+      // Actual polygon (solid)
+      h("polygon",{points:actualPts.map(p=>p.x.toFixed(1)+","+p.y.toFixed(1)).join(" "),fill:"rgba(200,169,110,0.12)",stroke:"#C8A96E",strokeWidth:"2"}),
+      // Dots on actual
+      ...actualPts.map((p,i)=>{
+        const w=cw[CL[i].id]||0;
+        const st=w<CL[i].min?"#E05252":w>CL[i].max?"#E8C44A":CL[i].color;
+        return h("circle",{key:i,cx:p.x.toFixed(1),cy:p.y.toFixed(1),r:"4",fill:st,stroke:"#0D0F14",strokeWidth:"1.5"});
+      }),
+      // Labels
+      ...CL.map((c,i)=>{
+        const p=labelPts[i];
+        const w=cw[c.id]||0;
+        const st=w<c.min?"#E05252":w>c.max?"#E8C44A":c.color;
+        const anchor=p.x<cx-5?"end":p.x>cx+5?"start":"middle";
+        return h("g",{key:i},
+          h("text",{x:p.x.toFixed(1),y:(p.y-4).toFixed(1),textAnchor:anchor,fill:c.color,fontSize:"7.5",fontFamily:"monospace"},c.tag),
+          h("text",{x:p.x.toFixed(1),y:(p.y+6).toFixed(1),textAnchor:anchor,fill:st,fontSize:"7",fontFamily:"monospace"},pc(w))
         );
-      })
+      }),
+      // Center point
+      h("circle",{cx:cx,cy:cy,r:"2",fill:"rgba(255,255,255,0.2)"}),
+      // Legend
+      h("g",{},
+        h("line",{x1:10,y1:H-14,x2:26,y2:H-14,stroke:"#C8A96E",strokeWidth:"2"}),
+        h("circle",{cx:18,cy:H-14,r:"3",fill:"#C8A96E",stroke:"#0D0F14",strokeWidth:"1"}),
+        h("text",{x:30,y:H-10,fill:"#8A8070",fontSize:"7.5",fontFamily:"monospace"},"Atual"),
+        h("line",{x1:70,y1:H-14,x2:86,y2:H-14,stroke:"#5B8FD4",strokeWidth:"1.5",strokeDasharray:"4,3"}),
+        h("text",{x:90,y:H-10,fill:"#8A8070",fontSize:"7.5",fontFamily:"monospace"},"Alvo"),
+        h("circle",{cx:130,cy:H-14,r:"4",fill:"#E05252"}),
+        h("text",{x:138,y:H-10,fill:"#8A8070",fontSize:"7.5",fontFamily:"monospace"},"abaixo"),
+        h("circle",{cx:185,cy:H-14,r:"4",fill:"#E8C44A"}),
+        h("text",{x:193,y:H-10,fill:"#8A8070",fontSize:"7.5",fontFamily:"monospace"},"acima")
+      )
     )
   );
 }
+
 
 function RiskChart({cw}){
   const W=300,H=170,pL=22,pB=20,pT=12,pR=12,cW=W-pL-pR,cH=H-pB-pT;
@@ -200,6 +240,7 @@ function RiskChart({cw}){
         return h(Fragment,{key:v},h("line",{x1:x,y1:pT,x2:x,y2:pT+cH,stroke:"rgba(255,255,255,0.04)",strokeWidth:"1"}),h("line",{x1:pL,y1:y,x2:pL+cW,y2:y,stroke:"rgba(255,255,255,0.04)",strokeWidth:"1"}));
       }),
       h("text",{x:pL+cW/2,y:H-3,textAnchor:"middle",fill:"#4A4840",fontSize:"7"},"risco ->"),
+      h("text",{x:8,y:pT+cH/2,textAnchor:"middle",fill:"#4A4840",fontSize:"7",transform:"rotate(-90,8,"+(pT+cH/2)+")"},"retorno ->"),
       ...CL.map(c=>{
         const p=RR[c.id];if(!p)return null;
         const w=cw[c.id]||0,cx=pL+(p.r/10)*cW,cy=pT+cH-(p.e/10)*cH;
@@ -371,6 +412,9 @@ function App(){
           }
         }catch(e){setPErr("IA: "+e.message);}
       }
+      // Some B3 assets trade at 1/10 scale on some data providers
+      const SCALE10=["ALZR11","RBVA11","TEPP11"];
+      SCALE10.forEach(t=>{if(allPrices[t]&&allPrices[t]>500)allPrices[t]=allPrices[t]/10;});
       const n=Object.keys(allPrices).length;
       if(n>0){
         setPort(prev=>{const np={...prev};Object.entries(allPrices).forEach(([t,v])=>{if(np[t])np[t]={...np[t],price:v};});return np;});
@@ -527,7 +571,7 @@ function App(){
         })
       );
 
-      content=h("div",{},cards,h(AllocChart,{cw}),h(DonutChart,{cw}),h(RiskChart,{cw}),h(EvolChart,{hist,showUSD,setShowUSD}),topPos);
+      content=h("div",{},cards,h(AllocChart,{cw}),h(CompareChart,{cw}),h(RiskChart,{cw}),h(EvolChart,{hist,showUSD,setShowUSD}),topPos);
     }
   }  // POSITIONS
   if(tab==="positions"){
