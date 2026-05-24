@@ -117,7 +117,7 @@ const pc=v=>(v||0).toFixed(1)+"%";
 const pN=s=>parseFloat(String(s).replace(",","."))||0;
 
 async function callAPI(messages,key){
-  const body={model:"claude-sonnet-4-5",max_tokens:1500,messages};
+  const body={model:"claude-sonnet-4-5-20250929",max_tokens:1500,messages};
   const r=await fetch("https://api.anthropic.com/v1/messages",{
     method:"POST",
     headers:{"Content-Type":"application/json","x-api-key":key,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
