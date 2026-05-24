@@ -351,7 +351,7 @@ function RiskChart({cw}){
   );
 }
 
-function EvolChart({hist,showUSD,setShowUSD}){
+function EvolChart({hist,showUSD,setShowUSD,hideVal}){
   // Filtra snapshots que tem composicao e patrimonio
   const data=hist.filter(r=>r.composicao&&r.totalPatrimBRL>0).slice().reverse(); // antigo -> recente
   const empty=h("div",{style:{padding:"14px",textAlign:"center",color:"#5A5550",fontSize:11,fontStyle:"italic",border:"1px solid rgba(255,255,255,0.05)",borderRadius:8}},"Disponivel apos 2+ atualizacoes de preco");
@@ -381,6 +381,7 @@ function EvolChart({hist,showUSD,setShowUSD}){
   const xScale=i=>pL+(i/(data.length-1||1))*cW;
   const yScale=v=>pT+cH-((v-minV)/rng)*cH;
   const fmtY=(v)=>{
+    if(hideVal)return "----";
     if(v>=1000000)return (showUSD?"$":"R$")+(v/1000000).toFixed(1)+"M";
     if(v>=1000)return (showUSD?"$":"R$")+(v/1000).toFixed(0)+"k";
     return (showUSD?"$":"R$")+v.toFixed(0);
@@ -1223,7 +1224,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         ),
         notifStatus==="granted"&&h("div",{style:{marginTop:6,fontSize:9,color:"#4CAF82",fontFamily:"monospace",letterSpacing:1}},"notificacoes ativas")
       ):null;
-      content=h("div",{},cards,aporteCard,insightCard,h(AllocChart,{cw}),h(CompareChart,{cw}),h(RiskChart,{cw}),h(EvolChart,{hist,showUSD,setShowUSD}),h(HeatmapChart,{hist}),h(CurrencyChart,{port,cls,hideVal}),topPos);
+      content=h("div",{},cards,aporteCard,insightCard,h(AllocChart,{cw}),h(CompareChart,{cw}),h(RiskChart,{cw}),h(EvolChart,{hist,showUSD,setShowUSD,hideVal}),h(HeatmapChart,{hist}),h(CurrencyChart,{port,cls,hideVal}),topPos);
     }
   }  // POSITIONS
   if(tab==="positions"){
