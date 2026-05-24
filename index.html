@@ -508,6 +508,72 @@ function HeatmapChart({hist}){
   );
 }
 
+// Heatmap de bandas: evolucao da posicao de cada classe em relacao ao alvo
+function BandHeatmap({hist,cw}){
+  // Junta o estado atual (cw) com o historico
+  const data=hist.filter(r=>r.composicao).slice().reverse(); // antigo -> recente
+  const nowSnap={date:new Date().toISOString(),composicao:{}};
+  CL.forEach(c=>{nowSnap.composicao[c.id]=cw[c.id]||0;});
+  const allSnaps=[...data,nowSnap];
+  if(allSnaps.length<2)return h("div",{style:{marginBottom:14,padding:"11px 13px",background:"rgba(255,255,255,0.02)",border:"1px dashed rgba(255,255,255,0.08)",borderRadius:8,textAlign:"center"}},
+    h("div",{style:{fontSize:9,letterSpacing:3,color:"#7A7570",fontFamily:"monospace",textTransform:"uppercase",marginBottom:4}},"Evolucao vs Banda"),
+    h("div",{style:{fontSize:10,color:"#5A5550",fontStyle:"italic"}},"Disponivel apos 1+ aporte registrado ou atualizacao de precos")
+  );
+  // Cor por distancia em pontos percentuais (pp) da banda alvo
+  // Verde escuro = dentro, verde claro = perto, amarelo = acima, vermelho = abaixo
+  const colorFor=(pct,c)=>{
+    if(pct>=c.min&&pct<=c.max)return"#3D9F6A"; // dentro da banda - verde
+    if(pct<c.min){
+      const diff=c.min-pct;
+      if(diff<=2)return"#C49A55"; // proximo - laranja claro
+      if(diff<=5)return"#C46045"; // moderado - laranja
+      return"#A03030"; // distante - vermelho
+    }
+    // acima do max
+    if(c.flex)return"#5DBF82"; // selic flex
+    const diff=pct-c.max;
+    if(diff<=2)return"#D9C455"; // proximo - amarelo
+    if(diff<=5)return"#D99A55"; // moderado - amarelo escuro
+    return"#A05050"; // muito acima
+  };
+  // Limita a ultimas 12 colunas para caber na tela
+  const snaps=allSnaps.slice(-12);
+  return h("div",{style:{marginBottom:14,padding:"11px 13px",background:"rgba(76,175,130,0.04)",border:"1px solid rgba(76,175,130,0.2)",borderRadius:8}},
+    h("div",{style:{fontSize:9,letterSpacing:3,color:"#4CAF82",fontFamily:"monospace",textTransform:"uppercase",marginBottom:4}},"Evolucao vs Banda Alvo"),
+    h("div",{style:{fontSize:9,color:"#7A9A7A",marginBottom:9,fontStyle:"italic"}},"Como cada classe se aproxima ou afasta do alvo a cada aporte / atualizacao"),
+    // Tabela
+    h("div",{style:{overflowX:"auto"}},
+      h("div",{style:{display:"flex",alignItems:"center",gap:2,marginBottom:3}},
+        h("div",{style:{width:40,flexShrink:0,fontSize:8,color:"#5A5550",fontFamily:"monospace"}}),
+        ...snaps.map((s,i)=>{
+          const d=new Date(s.date);
+          const lb=d.toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"});
+          return h("div",{key:i,style:{flex:1,minWidth:24,textAlign:"center",fontSize:7,color:i===snaps.length-1?"#C8A96E":"#5A5550",fontFamily:"monospace",fontWeight:i===snaps.length-1?"bold":"normal"}},lb);
+        })
+      ),
+      ...CL.map(c=>h("div",{key:c.id,style:{display:"flex",alignItems:"center",gap:2,marginBottom:2}},
+        h("div",{style:{width:40,flexShrink:0,fontSize:9,color:c.color,fontFamily:"monospace",fontWeight:"bold"}},c.tag),
+        ...snaps.map((s,i)=>{
+          const pct=s.composicao[c.id]||0;
+          const inBand=pct>=c.min&&pct<=c.max;
+          return h("div",{key:i,title:c.name+": "+pct.toFixed(1)+"% (alvo "+c.min+"-"+c.max+"%)",style:{flex:1,minWidth:24,height:22,background:colorFor(pct,c),borderRadius:3,display:"flex",alignItems:"center",justifyContent:"center",fontSize:7.5,color:"#0D0F14",fontFamily:"monospace",fontWeight:"bold",border:i===snaps.length-1?"1.5px solid #F0EAD8":"none"}},pct.toFixed(0));
+        })
+      ))
+    ),
+    // Legenda
+    h("div",{style:{display:"flex",flexWrap:"wrap",alignItems:"center",gap:8,marginTop:10,justifyContent:"center"}},
+      ...[{c:"#A03030",l:"distante (abaixo)"},
+          {c:"#C46045",l:"abaixo"},
+          {c:"#3D9F6A",l:"dentro"},
+          {c:"#D9C455",l:"acima"},
+          {c:"#A05050",l:"muito acima"}].map((it,i)=>h("div",{key:i,style:{display:"flex",alignItems:"center",gap:3}},
+        h("div",{style:{width:12,height:10,background:it.c,borderRadius:2}}),
+        h("span",{style:{fontSize:7.5,color:"#7A7570",fontFamily:"monospace"}},it.l)
+      ))
+    )
+  );
+}
+
 function KeyScreen({onSave}){
   const tryPrompt=()=>{
     const k=window.prompt("Cole aqui sua chave da API Anthropic:\n(obtenha em console.anthropic.com)");
@@ -759,7 +825,7 @@ function App(){
           return p?{ticker:t,moeda:cc,qtd:p.qty,preco:p.price||0,valorBRL:(p.qty||0)*(p.price||0)*(FX[cc]||1)}:{ticker:t,moeda:cc};
         }).slice(0,7)
       }));
-      const msg="Analista Buy&Hold aposentadoria rigoroso. PORTFOLIO:"+JSON.stringify(ci)+"\\nAPORTE:R$"+v+"\\nRegras: zero vendas, todas 7 classes recebem min 2%, priorizar classes abaixo do alvo. FIIs: P/VPA<=0.97 DY>=9%. Ciclicas: P/L<=10x. Compounders: P/L<=18x. Exterior value: P/L<=18x. Infra: DY>=9.5%.\\nJSON sem markdown: {resumo:...,alertas:[],classes:[{id:fii,pct:25,valor:2500,ativos:[{ticker:HGLG11,score:COMPRA FORTE,metricas:P/VPA 0.91}]}]}";
+      const msg="Analista Buy&Hold aposentadoria rigoroso. PORTFOLIO:"+JSON.stringify(ci)+"\\nAPORTE:R$"+v+"\\nPATRIMONIO_TOTAL:R$"+Math.round(total)+"\\nRegras: zero vendas, todas 7 classes recebem min 2%, priorizar classes abaixo do alvo. NENHUM ativo individual pode passar de 5% do patrimonio total apos o aporte. FIIs: P/VPA<=0.97 DY>=9%. Ciclicas: P/L<=10x. Compounders: P/L<=18x. Exterior value: P/L<=18x. Infra: DY>=9.5%.\\nApos sugerir, AVALIE CRITICAMENTE o proprio aporte em 3 dimensoes: (1) eficiencia_rebalanceamento (o aporte realmente aproxima classes do alvo?), (2) margem_seguranca_valuation (os tickers escolhidos tem precos atrativos?), (3) limite_5pct (nenhum ticker passa de 5% do patrimonio?).\\nJSON sem markdown: {resumo:...,alertas:[],classes:[{id:fii,pct:25,valor:2500,ativos:[{ticker:HGLG11,score:COMPRA FORTE,metricas:P/VPA 0.91}]}],veredito:{eficiencia:{nota:OTIMO|BOM|REGULAR|RUIM,texto:explicacao curta},valuation:{nota:OTIMO|BOM|REGULAR|RUIM,texto:explicacao},limite5pct:{ok:true|false,texto:explicacao}}}";
       const txt=await callAPI([{role:"user",content:msg}],apiKey);
       const res=JSON.parse(txt);
       setApR({...res,apValue:v});setStep("r");
@@ -776,13 +842,38 @@ function App(){
     buys.forEach(([t,v])=>{const aq=pN(v.qty),ap=pN(v.price),cid=cls[t]||newPort[t]&&newPort[t].classId,old=newPort[t]||{};newPort[t]={...old,classId:cid,qty:(old.qty||0)+aq,price:ap};});
     setPort(newPort);
     const totalBRL=Object.entries(newPort).reduce((s,[t,p])=>s+pv(t,p,ccy),0);
+    // Calcula composicao percentual por classe no momento
+    const compPct={};
+    CL.forEach(c=>{compPct[c.id]=0;});
+    Object.entries(newPort).forEach(([t,p])=>{
+      const v=pv(t,p,ccy);if(!v)return;
+      const cid=p.classId||cls[t];if(cid)compPct[cid]=(compPct[cid]||0)+v;
+    });
+    CL.forEach(c=>{compPct[c.id]=totalBRL>0?(compPct[c.id]/totalBRL)*100:0;});
     setHist(prev=>[{date:new Date().toISOString(),apValue:apR.apValue,
       purchases:buys.map(([t,v])=>({ticker:t,qty:pN(v.qty),price:pN(v.price),total:pN(v.qty)*pN(v.price)})),
       totalExecuted:buys.reduce((s,[,v])=>s+pN(v.qty)*pN(v.price),0),
-      totalPatrimBRL:totalBRL,totalPatrimUSD:totalBRL/(FX.USD||5.8)
+      totalPatrimBRL:totalBRL,totalPatrimUSD:totalBRL/(FX.USD||5.8),
+      composicao:compPct
     },...prev].slice(0,24));
     setStep("done");
   };
+
+  // Tambem grava snapshot quando atualiza precos (para o heatmap mostrar evolucao)
+  const gravaSnapshot=useCallback(()=>{
+    if(!hasPos||total<=0)return;
+    const compPct={};
+    CL.forEach(c=>{compPct[c.id]=cw[c.id]||0;});
+    setHist(prev=>{
+      const last=prev[0];
+      // Evita duplicar: so grava se ultimo registro tem >1h ou nao tem composicao
+      if(last&&last.composicao&&new Date()-new Date(last.date)<3600000)return prev;
+      return [{date:new Date().toISOString(),apValue:0,totalExecuted:0,
+        totalPatrimBRL:total,totalPatrimUSD:total/(FX.USD||5.8),
+        composicao:compPct,snapshot:true
+      },...prev].slice(0,48);
+    });
+  },[hasPos,total,cw]);
 
   const sendChat=async msg=>{
     if(!msg.trim())return;
@@ -849,6 +940,12 @@ function App(){
       genInsight();
     }
   },[inited,apiKey,hasPos,lastPU]);
+
+  // Grava snapshot da composicao quando atualiza precos (para heatmap)
+  useEffect(()=>{
+    if(!inited||!hasPos||!lastPU)return;
+    gravaSnapshot();
+  },[lastPU,inited]);
 
   // Chave de API nao e mais necessaria - cotacoes vem de APIs publicas
   // if(!apiKey)return h(KeyScreen,{onSave:k=>{sk2(k);setApiKeyS(k);}});
@@ -971,7 +1068,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
       };
       const insightCard=hasPos?(apiKey?h("div",{style:{marginBottom:18,padding:"14px",background:"linear-gradient(135deg,rgba(200,169,110,0.08),rgba(91,143,212,0.04))",border:"1px solid "+(insightErr?"rgba(224,82,82,0.35)":"rgba(200,169,110,0.25)"),borderRadius:10}},
         h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8,gap:6,flexWrap:"wrap"}},
-          h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase"}},"Insight da IA"),
+          h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase"}},"Insight Claude IA"),
           h("div",{style:{display:"flex",gap:5}},
             h("button",{onClick:trocarChave,style:{background:"none",border:"1px solid rgba(255,255,255,0.15)",borderRadius:4,color:"#8A8070",fontSize:9,padding:"3px 9px",cursor:"pointer",fontFamily:"monospace"}},"chave"),
             h("button",{onClick:()=>genInsight(true),disabled:insightLoad,style:{background:"none",border:"1px solid rgba(200,169,110,0.3)",borderRadius:4,color:insightLoad?"#5A5550":"#C8A96E",fontSize:9,padding:"3px 9px",cursor:insightLoad?"not-allowed":"pointer",fontFamily:"monospace"}},insightLoad?"...":"atualizar")
@@ -1105,6 +1202,23 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         )
       );
     } else if(apR){
+      // Verificacao matematica da regra dos 5% (apos o aporte)
+      const totalApos=(total||0)+(apR.apValue||0);
+      const violacoes5pct=[];
+      const proposto={}; // valor total proposto por ticker apos aporte
+      (apR.classes||[]).forEach(cl2=>(cl2.ativos||[]).forEach(a=>{
+        if(!a.ticker||!a.valor)return;
+        // estima quanto cada ativo recebe (divide o valor da classe igualmente entre seus ativos se nao especificado)
+        const valorAtivo=a.valor||(cl2.valor/(cl2.ativos.length||1));
+        const valorAtual=pv(a.ticker,port[a.ticker],ccy)||0;
+        proposto[a.ticker]=(proposto[a.ticker]||valorAtual)+valorAtivo;
+      }));
+      Object.entries(proposto).forEach(([t,v])=>{
+        const pct=totalApos>0?(v/totalApos)*100:0;
+        if(pct>5)violacoes5pct.push({ticker:t,pct});
+      });
+      const ver=apR.veredito||{};
+      const notaColor=n=>{n=(n||"").toUpperCase();if(n==="OTIMO")return"#4CAF82";if(n==="BOM")return"#7AC4A0";if(n==="REGULAR")return"#E8C44A";return"#E05252";};
       content=h("div",{},
         h("button",{onClick:()=>{setApR(null);setStep("r");},style:{background:"none",border:"none",color:"#8A8070",cursor:"pointer",fontSize:12,padding:0,marginBottom:12}},"<- Novo aporte"),
         h("div",{style:{background:"linear-gradient(135deg,rgba(200,169,110,0.08),rgba(200,169,110,0.02))",border:"1px solid rgba(200,169,110,0.2)",borderRadius:9,padding:"14px",marginBottom:12}},h("div",{style:{fontSize:8,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:5}},"Analise Fundamentalista"),h("div",{style:{fontSize:22,color:"#F0EAD8",marginBottom:7}},fB(apR.apValue)),h("p",{style:{margin:0,fontSize:11,color:"#B0A890",fontStyle:"italic",lineHeight:1.7}},apR.resumo)),
@@ -1128,6 +1242,38 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             )))
           );
         })),
+        // Veredito do Aporte
+        h("div",{style:{marginBottom:14,padding:"13px 15px",background:"linear-gradient(135deg,rgba(91,143,212,0.06),rgba(200,169,110,0.04))",border:"1px solid rgba(91,143,212,0.25)",borderRadius:10}},
+          h("div",{style:{fontSize:9,letterSpacing:3,color:"#5B8FD4",fontFamily:"monospace",textTransform:"uppercase",marginBottom:10}},"Veredito do Aporte"),
+          // 1. Eficiencia de rebalanceamento
+          h("div",{style:{marginBottom:9,paddingBottom:9,borderBottom:"1px solid rgba(255,255,255,0.05)"}},
+            h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:3,gap:6}},
+              h("div",{style:{fontSize:10,color:"#B0A890",fontWeight:"bold"}},"1. Eficiencia de rebalanceamento"),
+              h("span",{style:{fontSize:9,color:notaColor(ver.eficiencia&&ver.eficiencia.nota),fontFamily:"monospace",fontWeight:"bold",padding:"1px 7px",border:"1px solid "+notaColor(ver.eficiencia&&ver.eficiencia.nota)+"55",borderRadius:3}},(ver.eficiencia&&ver.eficiencia.nota)||"-")
+            ),
+            h("div",{style:{fontSize:10,color:"#8A8070",lineHeight:1.6}},(ver.eficiencia&&ver.eficiencia.texto)||"Sem avaliacao.")
+          ),
+          // 2. Margem de seguranca no valuation
+          h("div",{style:{marginBottom:9,paddingBottom:9,borderBottom:"1px solid rgba(255,255,255,0.05)"}},
+            h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:3,gap:6}},
+              h("div",{style:{fontSize:10,color:"#B0A890",fontWeight:"bold"}},"2. Margem de seguranca (valuation)"),
+              h("span",{style:{fontSize:9,color:notaColor(ver.valuation&&ver.valuation.nota),fontFamily:"monospace",fontWeight:"bold",padding:"1px 7px",border:"1px solid "+notaColor(ver.valuation&&ver.valuation.nota)+"55",borderRadius:3}},(ver.valuation&&ver.valuation.nota)||"-")
+            ),
+            h("div",{style:{fontSize:10,color:"#8A8070",lineHeight:1.6}},(ver.valuation&&ver.valuation.texto)||"Sem avaliacao.")
+          ),
+          // 3. Limite 5% por ativo (verificacao matematica)
+          h("div",{},
+            h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:3,gap:6}},
+              h("div",{style:{fontSize:10,color:"#B0A890",fontWeight:"bold"}},"3. Limite de 5% por ativo"),
+              h("span",{style:{fontSize:9,color:violacoes5pct.length===0?"#4CAF82":"#E05252",fontFamily:"monospace",fontWeight:"bold",padding:"1px 7px",border:"1px solid "+(violacoes5pct.length===0?"#4CAF8255":"#E0525255"),borderRadius:3}},violacoes5pct.length===0?"OK":"VIOLACAO")
+            ),
+            violacoes5pct.length===0?h("div",{style:{fontSize:10,color:"#7A9A7A",lineHeight:1.6}},"Nenhum ativo individual ultrapassa 5% do patrimonio total apos o aporte."):
+            h("div",{},
+              h("div",{style:{fontSize:10,color:"#E05252",lineHeight:1.6,marginBottom:4}},"Ativo(s) excedendo o limite de 5%:"),
+              ...violacoes5pct.map((v,i)=>h("div",{key:i,style:{fontSize:9,color:"#E05252",fontFamily:"monospace",marginLeft:8}},"- "+v.ticker+": "+v.pct.toFixed(2)+"%"))
+            )
+          )
+        ),
         h("div",{style:{background:"rgba(200,169,110,0.04)",border:"1px solid rgba(200,169,110,0.2)",borderRadius:8,padding:"12px",marginBottom:10,textAlign:"center"}},h("div",{style:{fontSize:11,color:"#B0A890",marginBottom:9,lineHeight:1.6}},"Executou o aporte? Registre as compras e o portfolio se atualiza."),h("button",{onClick:()=>setStep("confirm"),style:{width:"100%",padding:"11px",background:"linear-gradient(135deg,#C8A96E,#A8893E)",border:"none",borderRadius:6,color:"#0D0F14",fontSize:12,fontWeight:700,letterSpacing:2,textTransform:"uppercase",cursor:"pointer"}},"Registrar compras executadas"))
       );
     } else {
@@ -1165,6 +1311,8 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
       }).filter(s=>s.valorAporte>0.5);
       content=h("div",{},
         h("div",{style:{fontSize:11,color:"#8A8070",marginBottom:12,lineHeight:1.7}},"A IA analisa composicao e valuation atual com margem de seguranca rigorosa. Todas as classes recebem aporte; os volumes refletem balanceamento e valuation."),
+        // Heatmap de evolucao das bandas
+        h(BandHeatmap,{hist,cw}),
         // Bloco de sugestao de rebalanceamento - TODAS as classes
         sugestoes.length>0&&totalAtual>0&&h("div",{style:{marginBottom:14,background:"rgba(76,175,130,0.04)",border:"1px solid rgba(76,175,130,0.2)",borderRadius:9,padding:"11px 13px"}},
           h("div",{style:{fontSize:9,letterSpacing:3,color:"#4CAF82",fontFamily:"monospace",textTransform:"uppercase",marginBottom:4}},"Sugestao de Distribuicao"),
