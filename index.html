@@ -350,7 +350,7 @@ function App(){
   const hasPos=Object.entries(port).some(([t,p])=>posVal(t,p,ccy)>0);
 
   const refresh=useCallback(async()=>{
-    const tickers=Object.keys(port).filter(t=>posVal(t,port[t],ccy)>0);
+    const tickers=Object.keys(port).filter(t=>{const p=port[t];if(!p)return false;if(VALUE_BASED.includes(t))return(p.totalBRL||0)>0;if(GRAM_BASED.includes(t))return(p.qty||0)>0;return(p.qty||0)>0;});
     if(!tickers.length)return;
     setLoadP(true);setPErr("");
     try{
