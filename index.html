@@ -333,6 +333,138 @@ function EvolutionChart({hist}) {
 }
 
 
+
+// ── CHAT TAB
+function ChatTab({msgs, input, setInput, loading, onSend, hasAlloc, onClear}) {
+  const endRef = React.useRef(null);
+  useEffect(()=>{ endRef.current?.scrollIntoView({behavior:"smooth"}); },[msgs,loading]);
+
+  const SUGGESTIONS = hasAlloc ? [
+    "Por que esse ativo e não outro da mesma classe?",
+    "Qual o principal risco desta alocação?",
+    "O valuation do ativo mais recomendado é realmente atrativo?",
+    "Existe algum ativo da lista com melhor margem de segurança agora?",
+  ] : [
+    "Como está o valuation dos FIIs brasileiros hoje?",
+    "Qual a perspectiva para ações brasileiras neste ciclo?",
+    "Como avalio se um FII de papel tem boa margem de segurança?",
+    "Quando vale alocar mais em Bitcoin dentro de um portfólio patrimonial?",
+  ];
+
+  return (
+    <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 160px)"}}>
+      {/* Header */}
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+        <div>
+          <div style={{fontSize:10,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase"}}>Debate de Valuation</div>
+          <div style={{fontSize:11,color:"#5A5550",marginTop:2}}>
+            {hasAlloc ? "Contexto: última análise de aporte carregada" : "Contexto: portfólio atual"}
+          </div>
+        </div>
+        {msgs.length>0 && <button onClick={onClear} style={{background:"none",border:"1px solid rgba(255,255,255,0.08)",borderRadius:5,color:"#5A5550",fontSize:10,padding:"4px 8px",cursor:"pointer",fontFamily:"monospace"}}>limpar</button>}
+      </div>
+
+      {/* Messages */}
+      <div style={{flex:1,overflowY:"auto",paddingRight:4,marginBottom:12}}>
+        {msgs.length===0 && (
+          <div>
+            <div style={{padding:"14px",background:"rgba(200,169,110,0.05)",border:"1px solid rgba(200,169,110,0.15)",borderRadius:10,marginBottom:16}}>
+              <div style={{fontSize:12,color:"#B0A890",lineHeight:1.7}}>
+                Olá. Sou seu analista de Buy & Hold. Posso debater qualquer recomendação de alocação, discutir valuation de ativos específicos, analisar riscos ou responder dúvidas sobre a estratégia patrimonial.
+                {hasAlloc && <span style={{color:"#C8A96E"}}> A última análise de aporte está carregada como contexto.</span>}
+              </div>
+            </div>
+            <div style={{fontSize:10,color:"#5A5550",fontFamily:"monospace",textTransform:"uppercase",letterSpacing:2,marginBottom:8}}>Sugestões</div>
+            {SUGGESTIONS.map((s,i)=>(
+              <button key={i} onClick={()=>onSend(s)} style={{
+                display:"block",width:"100%",textAlign:"left",background:"rgba(255,255,255,0.02)",
+                border:"1px solid rgba(255,255,255,0.06)",borderRadius:8,padding:"10px 12px",
+                color:"#9A9080",fontSize:12,cursor:"pointer",fontFamily:"Georgia,serif",
+                marginBottom:6,lineHeight:1.5
+              }}>
+                {s}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {msgs.map((m,i)=>(
+          <div key={i} style={{
+            display:"flex",flexDirection:"column",
+            alignItems:m.role==="user"?"flex-end":"flex-start",
+            marginBottom:12
+          }}>
+            <div style={{
+              maxWidth:"88%",padding:"10px 14px",
+              background:m.role==="user"
+                ?"linear-gradient(135deg,rgba(200,169,110,0.15),rgba(200,169,110,0.08))"
+                :"rgba(255,255,255,0.04)",
+              border:"1px solid "+(m.role==="user"?"rgba(200,169,110,0.25)":"rgba(255,255,255,0.07)"),
+              borderRadius:m.role==="user"?"12px 12px 4px 12px":"12px 12px 12px 4px",
+            }}>
+              <div style={{
+                fontSize:12,color:m.role==="user"?"#F0EAD8":"#C8C0B0",
+                lineHeight:1.7,whiteSpace:"pre-wrap",fontFamily:m.role==="user"?"Georgia,serif":"Georgia,serif"
+              }}>{m.content}</div>
+            </div>
+            <div style={{fontSize:9,color:"#3A3830",marginTop:3,fontFamily:"monospace"}}>
+              {m.role==="user"?"você":"analista"}
+            </div>
+          </div>
+        ))}
+
+        {loading && (
+          <div style={{display:"flex",alignItems:"flex-start",marginBottom:12}}>
+            <div style={{padding:"10px 14px",background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:"12px 12px 12px 4px"}}>
+              <div style={{display:"flex",gap:5,alignItems:"center"}}>
+                {[0,1,2].map(i=>(
+                  <div key={i} style={{
+                    width:6,height:6,borderRadius:"50%",background:"#C8A96E",
+                    animation:"pulse 1.2s ease-in-out "+i*0.2+"s infinite"
+                  }}/>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+        <div ref={endRef}/>
+      </div>
+
+      {/* Input */}
+      <div style={{
+        display:"flex",gap:8,alignItems:"flex-end",
+        background:"rgba(0,0,0,0.3)",border:"1px solid rgba(200,169,110,0.2)",
+        borderRadius:12,padding:"8px 10px",
+      }}>
+        <textarea
+          value={input}
+          onChange={e=>setInput(e.target.value)}
+          onKeyDown={e=>{ if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();if(input.trim())onSend(input);} }}
+          placeholder="Questione uma recomendação, peça análise de valuation..."
+          rows={2}
+          style={{
+            flex:1,background:"transparent",border:"none",outline:"none",
+            color:"#F0EAD8",fontSize:13,fontFamily:"Georgia,serif",
+            resize:"none",lineHeight:1.5,maxHeight:80,
+          }}
+        />
+        <button
+          onClick={()=>{ if(input.trim()) onSend(input); }}
+          disabled={loading||!input.trim()}
+          style={{
+            flexShrink:0,width:36,height:36,
+            background:loading||!input.trim()?"rgba(200,169,110,0.1)":"linear-gradient(135deg,#C8A96E,#A8893E)",
+            border:"none",borderRadius:8,cursor:loading||!input.trim()?"not-allowed":"pointer",
+            display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,
+          }}>
+          {loading?"⟳":"↑"}
+        </button>
+      </div>
+      <style>{`@keyframes pulse{0%,100%{opacity:0.3;transform:scale(0.8)}50%{opacity:1;transform:scale(1)}}`}</style>
+    </div>
+  );
+}
+
 // ── MAIN APP
 function App() {
   const [apiKey,setApiKeyS] = useState(()=>getKey());
@@ -358,6 +490,10 @@ function App() {
   const [step,setStep]        = useState("result");
   const [hist,setHist]        = useState([]);
   const [aErr,setAErr]        = useState("");
+  // Chat state
+  const [chatMsgs,setChatMsgs]  = useState([]);
+  const [chatInput,setChatInput]= useState("");
+  const [chatLoading,setChatL]  = useState(false);
   const [inited,setInited]    = useState(false);
 
   useEffect(()=>{
@@ -477,6 +613,80 @@ function App() {
     setStep("done");
   };
 
+  const sendChat = async(userMsg) => {
+    if(!userMsg.trim()) return;
+    const newMsg = {role:"user", content:userMsg};
+    setChatMsgs(prev=>[...prev, newMsg]);
+    setChatInput("");
+    setChatL(true);
+
+    // Build context about current portfolio and last allocation
+    const portfolioCtx = Object.entries(port)
+      .filter(([t,p])=>posVal(t,p,ccy)>0)
+      .map(([t,p])=>({ticker:t, classe:cls[t], valorBRL:Math.round(posVal(t,p,ccy))}))
+      .sort((a,b)=>b.valorBRL-a.valorBRL).slice(0,15);
+
+    const allocationCtx = aporteR ? {
+      aporteValue: aporteR.aporteValue,
+      resumo: aporteR.resumo,
+      classes: (aporteR.classes||[]).map(c=>({
+        id:c.id, pct:c.pct, valor:c.valor,
+        ativos:(c.ativos||[]).map(a=>({ticker:a.ticker,score:a.score,metricas:a.metricas,margem:a.margem}))
+      }))
+    } : null;
+
+    const systemPrompt = "Você é um analista patrimonial sênior especializado em Buy & Hold de longo prazo para aposentadoria. " +
+      "Você está debatendo as recomendações de alocação com o investidor. " +
+      "CONTEXTO DO PORTFÓLIO ATUAL: " + JSON.stringify(portfolioCtx) + ". " +
+      (allocationCtx ? "ÚLTIMA ANÁLISE DE APORTE GERADA: " + JSON.stringify(allocationCtx) + ". " : "") +
+      "FILOSOFIA: Buy & Hold patrimonialista, zero vendas, rebalanceamento só por aportes, margem de segurança obrigatória. " +
+      "Responda de forma direta e objetiva. Use dados e múltiplos quando relevante. " +
+      "Se o investidor questionar uma indicação, defenda ou revise com base em fundamentos reais. " +
+      "Máximo 4 parágrafos por resposta. Use linguagem clara, sem jargão desnecessário.";
+
+    const messages = [
+      {role:"user", content: systemPrompt + "
+
+Primeira mensagem do investidor: " + userMsg},
+      ...chatMsgs.filter(m=>m.role!=="system").slice(-8).map(m=>({
+        role:m.role, content:m.content
+      })),
+    ];
+
+    // For subsequent messages use conversation history properly
+    const apiMessages = chatMsgs.length === 0
+      ? [{role:"user", content: systemPrompt + "
+
+" + userMsg}]
+      : [
+          {role:"user", content: systemPrompt + "
+
+Histórico da conversa:
+" +
+            chatMsgs.map(m=>(m.role==="user"?"Investidor: ":"Analista: ")+m.content).join("
+") +
+            "
+
+Nova mensagem do investidor: " + userMsg
+          }
+        ];
+
+    try {
+      const r = await fetch("https://api.anthropic.com/v1/messages", {
+        method:"POST",
+        headers:{"Content-Type":"application/json","x-api-key":apiKey,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
+        body: JSON.stringify({model:"claude-sonnet-4-20250514", max_tokens:1000, messages:apiMessages})
+      });
+      const d = await r.json();
+      if(d.error) throw new Error(d.error.message);
+      const reply = d.content.filter(i=>i.type==="text").map(i=>i.text).join("");
+      setChatMsgs(prev=>[...prev, {role:"assistant", content:reply}]);
+    } catch(e) {
+      setChatMsgs(prev=>[...prev, {role:"assistant", content:"Erro: "+e.message}]);
+    }
+    setChatL(false);
+  };
+
   if(!apiKey) return <ApiKeyScreen onSave={k=>{setKey(k);setApiKeyS(k);}}/>;
   if(!inited) return <div style={{minHeight:"100vh",background:"#0D0F14",display:"flex",alignItems:"center",justifyContent:"center"}}><span style={{color:"#C8A96E",fontFamily:"monospace",fontSize:12,letterSpacing:3}}>CARREGANDO...</span></div>;
 
@@ -502,7 +712,7 @@ function App() {
       <div style={{padding:"0 20px"}}>
         {/* TABS */}
         <div style={{display:"flex",borderBottom:"1px solid rgba(255,255,255,0.06)",marginBottom:20,marginTop:12}}>
-          {[{id:"dashboard",label:"Dashboard"},{id:"positions",label:"Posições"},{id:"aporte",label:"Aporte"},{id:"history",label:"Histórico"}].map(t=>(
+          {[{id:"dashboard",label:"Dashboard"},{id:"positions",label:"Posições"},{id:"aporte",label:"Aporte"},{id:"history",label:"Histórico"},{id:"chat",label:"Análise"}].map(t=>(
             <button key={t.id} onClick={()=>{setTab(t.id);if(t.id!=="aporte"){setAporteR(null);setStep("result");}}}
               style={{background:"none",border:"none",borderBottom:tab===t.id?"2px solid #C8A96E":"2px solid transparent",color:tab===t.id?"#C8A96E":"#8A8070",padding:"7px 12px",cursor:"pointer",fontSize:12,fontFamily:"Georgia,serif",marginBottom:-1,flexShrink:0}}>{t.label}</button>
           ))}
@@ -673,6 +883,14 @@ function App() {
             port={port} ccy={ccy} labels={labels} onBack={()=>setStep("result")} onApply={applyExec}/>:
           aporteR ? <AllocResult result={aporteR} cw={cw} apiKey={apiKey} onReset={()=>{setAporteR(null);setStep("result");}} onConfirm={()=>setStep("confirm")}/>:
           <AporteInput aporteV={aporteV} setAporteV={setAporteV} loadA={loadA} cw={cw} onGen={genAlloc} aErr={aErr}/>
+        )}
+
+        {/* ── CHAT */}
+        {tab==="chat" && (
+          <ChatTab
+            msgs={chatMsgs} input={chatInput} setInput={setChatInput}
+            loading={chatLoading} onSend={sendChat}
+            hasAlloc={!!aporteR} onClear={()=>setChatMsgs([])}/>
         )}
 
         {/* ── HISTORY */}
