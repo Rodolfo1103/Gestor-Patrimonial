@@ -124,6 +124,7 @@ function App(){
   const [chatIn,setChatIn]=useState("");
   const [chatL,setChatL]=useState(false);
   const [inited,setInited]=useState(false);
+  const [hideVal,setHideVal]=useState(false);
 
   useEffect(()=>{
     const dd=ld();
@@ -155,75 +156,52 @@ function App(){
       const allPrices={};
 
       // TradingView symbol mapping
-      function tvSymbol(t){
-        const map={
-          // FIIs e ações BR -> BMFBOVESPA:
-          HGRU11:"BMFBOVESPA:HGRU11",RBVA11:"BMFBOVESPA:RBVA11",ALZR11:"BMFBOVESPA:ALZR11",
-          TRXF11:"BMFBOVESPA:TRXF11",FIIB11:"BMFBOVESPA:FIIB11",BTLG11:"BMFBOVESPA:BTLG11",
-          HGLG11:"BMFBOVESPA:HGLG11",XPIN11:"BMFBOVESPA:XPIN11",JFLL11:"BMFBOVESPA:JFLL11",
-          TEPP11:"BMFBOVESPA:TEPP11",PVBI11:"BMFBOVESPA:PVBI11",TGAR11:"BMFBOVESPA:TGAR11",
-          HSML11:"BMFBOVESPA:HSML11",XPML11:"BMFBOVESPA:XPML11",RECR11:"BMFBOVESPA:RECR11",
-          KNHY11:"BMFBOVESPA:KNHY11",KNUQ11:"BMFBOVESPA:KNUQ11",KNIP11:"BMFBOVESPA:KNIP11",
-          AFHI11:"BMFBOVESPA:AFHI11",BRZP11:"BMFBOVESPA:BRZP11",AZIN11:"BMFBOVESPA:AZIN11",
-          KDIF11:"BMFBOVESPA:KDIF11",
-          PSSA3:"BMFBOVESPA:PSSA3",EGIE3:"BMFBOVESPA:EGIE3",WEGE3:"BMFBOVESPA:WEGE3",
-          BBAS3:"BMFBOVESPA:BBAS3",ITUB3:"BMFBOVESPA:ITUB3",KLBN4:"BMFBOVESPA:KLBN4",
-          CXSE3:"BMFBOVESPA:CXSE3",MULT3:"BMFBOVESPA:MULT3",CMIN3:"BMFBOVESPA:CMIN3",
-          FRAS3:"BMFBOVESPA:FRAS3",TAEE11:"BMFBOVESPA:TAEE11",
-          // US stocks
-          MSFT:"NASDAQ:MSFT",APH:"NYSE:APH",MU:"NASDAQ:MU",AMAT:"NASDAQ:AMAT",
-          GOOGL:"NASDAQ:GOOGL",WM:"NYSE:WM",O:"NYSE:O",BRKB:"NYSE:BRK.B",
-          DHR:"NYSE:DHR",PH:"NYSE:PH",LIN:"NYSE:LIN",ECL:"NYSE:ECL",
-          ADBE:"NASDAQ:ADBE",PEP:"NASDAQ:PEP",XOM:"NYSE:XOM",AOS:"NYSE:AOS",
-          PANW:"NASDAQ:PANW",CTVA:"NYSE:CTVA",NDIA:"AMEX:NDIA",
-          // Europe
-          SIE:"XETR:SIE",SAP:"XETR:SAP",ASML:"NASDAQ:ASML",ABBN:"SIX:ABBN",
-          NSIS_B:"OMXCOP:NSIS_B",HLMA:"LSE:HLMA",KOG:"OSL:KOG",
-          GMEXICOB:"BMV:GMEXICOB",
-          // Asia/Pacific
-          TSE8058:"TSE:8058",TSE8031:"TSE:8031",
-          REA:"ASX:REA",WES:"ASX:WES",
-          HKG0700:"HKEX:700",HKG1299:"HKEX:1299",HKG0001:"HKEX:1",
-          HKG0087:"HKEX:87",J36:"SGX:J36",
-          // Crypto/Gold
-          BTC:"BITSTAMP:BTCUSD",
-          AAAU:"AMEX:AAAU",
-        };
-        return map[t]||null;
-      }
+      const tvMap={
+        HGRU11:"BMFBOVESPA:HGRU11",RBVA11:"BMFBOVESPA:RBVA11",ALZR11:"BMFBOVESPA:ALZR11",
+        TRXF11:"BMFBOVESPA:TRXF11",FIIB11:"BMFBOVESPA:FIIB11",BTLG11:"BMFBOVESPA:BTLG11",
+        HGLG11:"BMFBOVESPA:HGLG11",XPIN11:"BMFBOVESPA:XPIN11",JFLL11:"BMFBOVESPA:JFLL11",
+        TEPP11:"BMFBOVESPA:TEPP11",PVBI11:"BMFBOVESPA:PVBI11",TGAR11:"BMFBOVESPA:TGAR11",
+        HSML11:"BMFBOVESPA:HSML11",XPML11:"BMFBOVESPA:XPML11",RECR11:"BMFBOVESPA:RECR11",
+        KNHY11:"BMFBOVESPA:KNHY11",KNUQ11:"BMFBOVESPA:KNUQ11",KNIP11:"BMFBOVESPA:KNIP11",
+        AFHI11:"BMFBOVESPA:AFHI11",BRZP11:"BMFBOVESPA:BRZP11",AZIN11:"BMFBOVESPA:AZIN11",
+        KDIF11:"BMFBOVESPA:KDIF11",PSSA3:"BMFBOVESPA:PSSA3",EGIE3:"BMFBOVESPA:EGIE3",
+        WEGE3:"BMFBOVESPA:WEGE3",BBAS3:"BMFBOVESPA:BBAS3",ITUB3:"BMFBOVESPA:ITUB3",
+        KLBN4:"BMFBOVESPA:KLBN4",CXSE3:"BMFBOVESPA:CXSE3",MULT3:"BMFBOVESPA:MULT3",
+        CMIN3:"BMFBOVESPA:CMIN3",FRAS3:"BMFBOVESPA:FRAS3",TAEE11:"BMFBOVESPA:TAEE11",
+        MSFT:"NASDAQ:MSFT",APH:"NYSE:APH",MU:"NASDAQ:MU",AMAT:"NASDAQ:AMAT",
+        GOOGL:"NASDAQ:GOOGL",WM:"NYSE:WM",O:"NYSE:O",BRKB:"NYSE:BRK.B",
+        DHR:"NYSE:DHR",PH:"NYSE:PH",LIN:"NYSE:LIN",ECL:"NYSE:ECL",
+        ADBE:"NASDAQ:ADBE",PEP:"NASDAQ:PEP",XOM:"NYSE:XOM",AOS:"NYSE:AOS",
+        PANW:"NASDAQ:PANW",CTVA:"NYSE:CTVA",NDIA:"AMEX:NDIA",
+        SIE:"XETR:SIE",SAP:"XETR:SAP",ASML:"NASDAQ:ASML",ABBN:"SIX:ABBN",
+        NSIS_B:"OMXCOP:NSIS_B",HLMA:"LSE:HLMA",KOG:"OSL:KOG",GMEXICOB:"BMV:GMEXICOB",
+        TSE8058:"TSE:8058",TSE8031:"TSE:8031",REA:"ASX:REA",WES:"ASX:WES",
+        HKG0700:"HKEX:700",HKG1299:"HKEX:1299",HKG0001:"HKEX:1",HKG0087:"HKEX:87",J36:"SGX:J36",
+        BTC:"BITSTAMP:BTCUSD",AAAU:"AMEX:AAAU",
+      };
 
-      // TradingView scanner API - no CORS issues
-      const brlT=tickers.filter(t=>(BCCY[t]||"BRL")==="BRL"&&!GB.includes(t));
-      const intlT=tickers.filter(t=>BCCY[t]&&BCCY[t]!=="BRL"&&!GB.includes(t)&&t!=="BTC");
-      const cryptoT=tickers.filter(t=>t==="BTC"||t==="AAAU");
-
-      async function fetchTV(syms){
-        const symbols=syms.map(t=>tvSymbol(t)).filter(Boolean);
-        if(!symbols.length)return;
+      const tvTickers=tickers.filter(t=>tvMap[t]&&!GB.includes(t));
+      if(tvTickers.length){
+        // Build payload for TradingView scanner
+        const symbols=tvTickers.map(t=>({s:tvMap[t]}));
         try{
           const r=await fetch("https://scanner.tradingview.com/global/scan",{
             method:"POST",
-            headers:{"Content-Type":"application/json"},
-            body:JSON.stringify({
-              symbols:{tickers:symbols,query:{types:[]}},
-              columns:["close","currency"]
-            }),
-            signal:AbortSignal.timeout(10000)
+            headers:{"Content-Type":"application/json","Origin":"https://www.tradingview.com","Referer":"https://www.tradingview.com/"},
+            body:JSON.stringify({symbols:{tickers:tvTickers.map(t=>tvMap[t]),query:{types:[]}},columns:["close"]}),
+            signal:AbortSignal.timeout(12000)
           });
           const d=await r.json();
           (d.data||[]).forEach((item,i)=>{
-            const origTicker=syms.find(t=>tvSymbol(t)===symbols[i]);
-            if(origTicker&&item.d&&item.d[0]>0)allPrices[origTicker]=item.d[0];
+            if(item.d&&item.d[0]>0)allPrices[tvTickers[i]]=item.d[0];
           });
-        }catch{}
+        }catch(e){
+          // fallback: try with no-cors mode just to test
+          setPErr("TradingView: "+e.message);
+        }
       }
 
-      // Fetch in batches of 20
-      for(let i=0;i<brlT.length;i+=20)await fetchTV(brlT.slice(i,i+20));
-      for(let i=0;i<intlT.length;i+=20)await fetchTV(intlT.slice(i,i+20));
-      if(cryptoT.length)await fetchTV(cryptoT);
-
-      // FX rates via exchangerate-api
+      // FX rates
       try{
         const r=await fetch("https://api.exchangerate-api.com/v4/latest/BRL",{signal:AbortSignal.timeout(6000)});
         const d=await r.json();
@@ -234,7 +212,7 @@ function App(){
         }
       }catch{}
 
-      // Gold via Coinbase
+      // Gold
       if(tickers.includes("OURO_FISICO")){
         try{
           const r=await fetch("https://api.coinbase.com/v2/prices/XAU-USD/spot",{signal:AbortSignal.timeout(6000)});
@@ -244,7 +222,7 @@ function App(){
         }catch{}
       }
 
-      // Bitcoin via CoinGecko fallback
+      // Bitcoin fallback via CoinGecko
       if(tickers.includes("BTC")&&!allPrices["BTC"]){
         try{
           const r=await fetch("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd",{signal:AbortSignal.timeout(6000)});
@@ -257,9 +235,9 @@ function App(){
       if(n>0){
         setPort(prev=>{const np={...prev};Object.entries(allPrices).forEach(([t,v])=>{if(np[t])np[t]={...np[t],price:v};});return np;});
         setLastPU(new Date().toISOString());
-        setPErr(n<tickers.length?"Parcial: "+n+"/"+tickers.length+" atualizados":"");
+        setPErr(n<tickers.length?"Parcial: "+n+"/"+tickers.length+" ativos":"");
       } else {
-        setPErr("Sem precos retornados. Tente novamente.");
+        setPErr("Sem precos. Erro: verifique console do navegador.");
       }
     }catch(e){setPErr(e.message||"Erro");}
     setLoadP(false);
@@ -338,7 +316,10 @@ function App(){
     S({display:"flex",alignItems:"flex-end",justifyContent:"space-between",gap:8,flexWrap:"wrap"},
       S({},
         h("h1",{style:{margin:0,fontSize:20,fontWeight:400,color:"#F0EAD8"}},"Portfolio Patrimonial"),
-        hasPos&&S({fontSize:24,color:"#C8A96E",fontFamily:"monospace",marginTop:2,fontWeight:700},fB(total))
+        hasPos&&S({display:"flex",alignItems:"center",gap:10,marginTop:2},
+          S({fontSize:24,color:"#C8A96E",fontFamily:"monospace",fontWeight:700},hideVal?"R$ ••••••••":fB(total)),
+          h("button",{onClick:()=>setHideVal(v=>!v),style:{background:"none",border:"none",cursor:"pointer",padding:0,fontSize:20,lineHeight:1,color:"#C8A96E",opacity:0.7}},hideVal?"👁":"🙈")
+        )
       ),
       hasPos&&h("button",{onClick:refresh,disabled:loadP,style:{background:"rgba(200,169,110,0.1)",border:"1px solid rgba(200,169,110,0.3)",borderRadius:6,padding:"6px 12px",color:"#C8A96E",fontSize:10,fontFamily:"monospace",letterSpacing:2,cursor:"pointer",textTransform:"uppercase"}},loadP?"Buscando cotacoes...":"Atualizar precos")
     ),
@@ -376,7 +357,7 @@ function App(){
               ),
               S({textAlign:"right"},
                 S({fontFamily:"monospace",fontSize:14,color:sc,fontWeight:700},pc(w)),
-                S({fontSize:9,color:"#8A8070",fontFamily:"monospace",marginTop:1},fB(ct[c.id]||0))
+                S({fontSize:9,color:"#8A8070",fontFamily:"monospace",marginTop:1},hideVal?"••••":fB(ct[c.id]||0))
               )
             ),
             S({height:3,background:"rgba(255,255,255,0.06)",borderRadius:2,overflow:"hidden"},
@@ -459,7 +440,7 @@ function App(){
           return S({display:"flex",alignItems:"center",padding:"6px 0",borderBottom:"1px solid rgba(255,255,255,0.04)"},
             S({width:5,height:5,borderRadius:"50%",background:cl?.color||"#888",marginRight:7,flexShrink:0}),
             S({flex:1,minWidth:0},
-              S({display:"flex",justifyContent:"space-between"},S({fontFamily:"monospace",fontSize:11,color:"#F0EAD8",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1,marginRight:7},lbl[t]||t),S({fontFamily:"monospace",fontSize:11,color:"#F0EAD8",flexShrink:0},fB(val))),
+              S({display:"flex",justifyContent:"space-between"},S({fontFamily:"monospace",fontSize:11,color:"#F0EAD8",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1,marginRight:7},lbl[t]||t),S({fontFamily:"monospace",fontSize:11,color:"#F0EAD8",flexShrink:0},hideVal?"••••":fB(val))),
               S({display:"flex",justifyContent:"space-between",marginTop:1},S({fontSize:8,color:"#5A5550"},VB.includes(t)?"Valor total":GB.includes(t)?fN(p.qty,3)+" g":(fN(p.qty,p.qty<100?4:0)+" x "+(cc!="BRL"?cc+" ":"R$ ")+fN(p.price,2))),S({fontSize:8,color:"#5A5550",fontFamily:"monospace"},pc(pp)))
             )
           );
@@ -509,7 +490,7 @@ function App(){
               S({fontSize:8,color:"#6A6050",fontFamily:"monospace"},VB.includes(ticker)?"valor BRL":GB.includes(ticker)?"gramas/BRL":cc),
               has&&pos&&S({fontSize:8,color:"#8A8070"},VB.includes(ticker)?fB(pos.totalBRL||0):GB.includes(ticker)?(fN(pos.qty,3)+" g x R$ "+fN(pos.price||0,2)):(fN(pos.qty,pos.qty<100?4:0)+" x "+(cc!="BRL"?cc+" ":"R$ ")+fN(pos.price||0,2)))
             ),
-            val>0&&S({textAlign:"right",flexShrink:0},S({fontSize:10,color:"#F0EAD8",fontFamily:"monospace"},fB(val))),
+            val>0&&S({textAlign:"right",flexShrink:0},S({fontSize:10,color:"#F0EAD8",fontFamily:"monospace"},hideVal?"••••":fB(val))),
             isCustom?h("button",{onClick:()=>removeCustom(c.id,ticker),style:{background:"none",border:"none",color:"#E05252",fontSize:15,cursor:"pointer",padding:"0 2px",flexShrink:0}},"x"):S({color:"#3A3830",fontSize:12},"›")
           );
         });
