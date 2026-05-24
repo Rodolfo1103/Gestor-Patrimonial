@@ -363,62 +363,16 @@ function EvolChart({hist,showUSD,setShowUSD}){
     toggler,empty
   );
   const vals=data.map(r=>showUSD?(r.totalPatrimUSD||r.totalPatrimBRL/FX.USD):r.totalPatrimBRL);
-  // Calcular rentabilidade do portfolio (TWR aproximado):
-  // Patrimonio final - aportes acumulados = ganho
-  // ganho / capital medio investido = rentabilidade
-  const aportesAcum=data.map((r,i)=>data.slice(0,i+1).reduce((s,x)=>s+(x.totalExecuted||x.apValue||0),0));
-  const ganhos=vals.map((v,i)=>v-aportesAcum[i]);
-  const rentPort=aportesAcum[aportesAcum.length-1]>0?((vals[vals.length-1]-aportesAcum[aportesAcum.length-1])/aportesAcum[aportesAcum.length-1])*100:0;
-  // Benchmarks (taxas anualizadas tipicas no Brasil em 2026)
-  const CDI_ANUAL=0.105,IPCA_ANUAL=0.045,IBOV_ANUAL=0.12; // 10,5% / 4,5% / 12% a.a.
-  const t0=new Date(data[0].date).getTime();
-  const tF=new Date(data[data.length-1].date).getTime();
-  const anosTot=(tF-t0)/(365.25*24*3600*1000);
-  const rentCDI=anosTot>0?(Math.pow(1+CDI_ANUAL,anosTot)-1)*100:0;
-  const rentIPCA=anosTot>0?(Math.pow(1+IPCA_ANUAL,anosTot)-1)*100:0;
-  const rentIBOV=anosTot>0?(Math.pow(1+IBOV_ANUAL,anosTot)-1)*100:0;
   // Grafico
-  const minV=Math.min(...vals,...aportesAcum)*0.95,maxV=Math.max(...vals)*1.02,rng=maxV-minV||1;
+  const minV=Math.min(...vals)*0.95,maxV=Math.max(...vals)*1.02,rng=maxV-minV||1;
   const W=300,H=155,pL=44,pB=26,pT=12,pR=10,cW=W-pL-pR,cH=H-pB-pT;
   const pts=vals.map((v,i)=>({x:pL+(i/(vals.length-1))*cW,y:pT+cH-((v-minV)/rng)*cH,v}));
-  const ptsAp=aportesAcum.map((v,i)=>({x:pL+(i/(aportesAcum.length-1))*cW,y:pT+cH-((v-minV)/rng)*cH,v}));
   const lineD=pts.map((p,i)=>(i===0?"M":"L")+p.x.toFixed(1)+" "+p.y.toFixed(1)).join(" ");
-  const lineApD=ptsAp.map((p,i)=>(i===0?"M":"L")+p.x.toFixed(1)+" "+p.y.toFixed(1)).join(" ");
   const areaD=lineD+" L"+pts[pts.length-1].x.toFixed(1)+" "+(pT+cH)+" L"+pts[0].x.toFixed(1)+" "+(pT+cH)+" Z";
   const lc=showUSD?"#5B8FD4":"#C8A96E";
-  // Indicadores
-  const indicadores=h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:10}},
-    h("div",{style:{padding:"7px 9px",background:rentPort>=0?"rgba(76,175,130,0.06)":"rgba(224,82,82,0.06)",border:"1px solid "+(rentPort>=0?"rgba(76,175,130,0.25)":"rgba(224,82,82,0.25)"),borderRadius:6}},
-      h("div",{style:{fontSize:8,color:"#7A7570",fontFamily:"monospace",letterSpacing:1,textTransform:"uppercase"}},"Rentabilidade"),
-      h("div",{style:{fontSize:15,color:rentPort>=0?"#4CAF82":"#E05252",fontFamily:"monospace",fontWeight:"bold"}},(rentPort>=0?"+":"")+rentPort.toFixed(2)+"%")
-    ),
-    h("div",{style:{padding:"7px 9px",background:"rgba(200,169,110,0.04)",border:"1px solid rgba(200,169,110,0.18)",borderRadius:6}},
-      h("div",{style:{fontSize:8,color:"#7A7570",fontFamily:"monospace",letterSpacing:1,textTransform:"uppercase"}},"Aportes total"),
-      h("div",{style:{fontSize:13,color:"#C8A96E",fontFamily:"monospace",fontWeight:"bold"}},fB(aportesAcum[aportesAcum.length-1]))
-    )
-  );
-  // Comparativo com indices
-  const compIndices=h("div",{style:{marginBottom:10,padding:"9px 11px",background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:7}},
-    h("div",{style:{fontSize:8,color:"#7A7570",fontFamily:"monospace",letterSpacing:2,textTransform:"uppercase",marginBottom:6}},"Vs Indices ("+anosTot.toFixed(1)+" anos)"),
-    ...[{n:"Portfolio",v:rentPort,c:lc,bold:true},
-        {n:"CDI",v:rentCDI,c:"#7A9AC4"},
-        {n:"IPCA",v:rentIPCA,c:"#C49A7A"},
-        {n:"Ibovespa",v:rentIBOV,c:"#9AC47A"}].map((b,i)=>{
-      const delta=b.n==="Portfolio"?null:rentPort-b.v;
-      return h("div",{key:i,style:{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"3px 0",borderTop:i>0?"1px solid rgba(255,255,255,0.04)":"none"}},
-        h("span",{style:{fontSize:10,color:b.c,fontWeight:b.bold?"bold":"normal"}},b.n),
-        h("div",{style:{display:"flex",gap:8,alignItems:"center"}},
-          h("span",{style:{fontFamily:"monospace",fontSize:11,color:b.v>=0?"#9AC4A0":"#C49A9A",fontWeight:b.bold?"bold":"normal"}},(b.v>=0?"+":"")+b.v.toFixed(1)+"%"),
-          delta!==null&&h("span",{style:{fontFamily:"monospace",fontSize:9,color:delta>=0?"#4CAF82":"#E05252",minWidth:50,textAlign:"right"}},(delta>=0?"+":"")+delta.toFixed(1)+"pp")
-        )
-      );
-    })
-  );
   return h("div",{style:{marginBottom:20,paddingTop:14,borderTop:"1px solid rgba(255,255,255,0.05)"}},
     h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:8}},"Evolucao do patrimonio"),
     toggler,
-    indicadores,
-    compIndices,
     h("svg",{viewBox:"0 0 "+W+" "+H,style:{width:"100%",height:"auto"}},
       h("defs",{},h("linearGradient",{id:"lg1",x1:"0",y1:"0",x2:"0",y2:"1"},
         h("stop",{offset:"0%",stopColor:lc,stopOpacity:"0.2"}),
@@ -430,8 +384,6 @@ function EvolChart({hist,showUSD,setShowUSD}){
         const label=showUSD?"$"+(v/1000).toFixed(0)+"k":"R$"+(v/1000).toFixed(0)+"k";
         return h(Fragment,{key:f},h("line",{x1:pL,y1:y,x2:W-pR,y2:y,stroke:"rgba(255,255,255,0.05)",strokeWidth:"1"}),h("text",{x:pL-3,y:y+3,textAnchor:"end",fill:"#5A5550",fontSize:"7"},label));
       }),
-      // Linha de aportes acumulados (referencia, tracejada)
-      h("path",{d:lineApD,fill:"none",stroke:"#8A8070",strokeWidth:"1.2",strokeDasharray:"3 3",strokeLinejoin:"round"}),
       // Linha do patrimonio
       h("path",{d:lineD,fill:"none",stroke:lc,strokeWidth:"2",strokeLinejoin:"round"}),
       ...pts.map((p,i)=>h("circle",{key:i,cx:p.x.toFixed(1),cy:p.y.toFixed(1),r:"3",fill:lc,stroke:"#0D0F14",strokeWidth:"1.5"})),
@@ -443,11 +395,6 @@ function EvolChart({hist,showUSD,setShowUSD}){
       h("text",{x:pts[pts.length-1].x.toFixed(1),y:(pts[pts.length-1].y-8).toFixed(1),textAnchor:"middle",fill:lc,fontSize:"8",fontFamily:"monospace",fontWeight:"bold"},
         showUSD?("$"+(vals[vals.length-1]/1000).toFixed(1)+"k"):("R$"+(vals[vals.length-1]/1000).toFixed(0)+"k")
       )
-    ),
-    // Legenda
-    h("div",{style:{display:"flex",gap:14,marginTop:8,fontSize:9,fontFamily:"monospace"}},
-      h("div",{style:{display:"flex",alignItems:"center",gap:5}},h("span",{style:{width:14,height:2,background:lc}}),h("span",{style:{color:"#8A8070"}},"Patrimonio")),
-      h("div",{style:{display:"flex",alignItems:"center",gap:5}},h("span",{style:{width:14,height:0,borderTop:"1.5px dashed #8A8070"}}),h("span",{style:{color:"#8A8070"}},"Aportes"))
     )
   );
 }
