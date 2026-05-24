@@ -1270,6 +1270,14 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             )
           )
         ),
+        // Botao para debater o aporte na aba Analise
+        h("button",{onClick:()=>{
+          setTab("analysis");
+          // Injeta uma pergunta inicial com contexto do aporte
+          const ticks=(apR.classes||[]).flatMap(c=>(c.ativos||[]).map(a=>a.ticker)).filter(Boolean).slice(0,8);
+          const pergunta="Acabei de gerar uma analise de aporte de "+fB(apR.apValue)+". Os ativos sugeridos foram: "+ticks.join(", ")+". Gostaria de debater alguns pontos: voce sustenta as escolhas frente ao cenario macro atual? Algum ticker poderia ser substituido por outro com melhor margem de seguranca?";
+          setChatIn(pergunta);
+        },style:{width:"100%",padding:"11px",background:"linear-gradient(135deg,rgba(91,143,212,0.15),rgba(91,143,212,0.05))",border:"1px solid rgba(91,143,212,0.4)",borderRadius:7,color:"#5B8FD4",fontSize:11,fontWeight:700,letterSpacing:2,textTransform:"uppercase",cursor:"pointer",marginBottom:10,fontFamily:"monospace"}},"Debater este aporte com a IA"),
         h("div",{style:{background:"rgba(200,169,110,0.04)",border:"1px solid rgba(200,169,110,0.2)",borderRadius:8,padding:"12px",marginBottom:10,textAlign:"center"}},h("div",{style:{fontSize:11,color:"#B0A890",marginBottom:9,lineHeight:1.6}},"Executou o aporte? Registre as compras e o portfolio se atualiza."),h("button",{onClick:()=>setStep("confirm"),style:{width:"100%",padding:"11px",background:"linear-gradient(135deg,#C8A96E,#A8893E)",border:"none",borderRadius:6,color:"#0D0F14",fontSize:12,fontWeight:700,letterSpacing:2,textTransform:"uppercase",cursor:"pointer"}},"Registrar compras executadas"))
       );
     } else {
