@@ -572,6 +572,20 @@ function App(){
   const [insightErr,setInsightErr]=useState("");
   const [editBands,setEditBands]=useState(false);
   const [bandsVer,setBandsVer]=useState(0); // forca re-render quando bandas mudam
+  const [editAporte,setEditAporte]=useState(false);
+  // Programacao do proximo aporte
+  const [aporteProg,setAporteProg]=useState(()=>{
+    try{
+      const s=localStorage.getItem("pat-aporte-prog");
+      if(s)return JSON.parse(s);
+    }catch{}
+    // Default: dia 5 do mes, faixa de 3 dias (5 a 8)
+    return {dia:5,faixaDias:3,ativo:true,ultimaNotif:""};
+  });
+  // Salva sempre que muda
+  useEffect(()=>{
+    try{localStorage.setItem("pat-aporte-prog",JSON.stringify(aporteProg));}catch{}
+  },[aporteProg]);
 
   // Carrega bandas customizadas do localStorage (executa uma unica vez)
   useEffect(()=>{
@@ -607,6 +621,54 @@ function App(){
     CL.forEach(c=>{if(original[c.id]){c.min=original[c.id][0];c.max=original[c.id][1];}});
     salvarBandas();
   };
+
+  // Calcula proxima janela de aporte
+  const calcProxAporte=()=>{
+    if(!aporteProg.ativo)return null;
+    const hoje=new Date();hoje.setHours(0,0,0,0);
+    const dia=Math.max(1,Math.min(28,aporteProg.dia||5));
+    const faixa=Math.max(0,Math.min(15,aporteProg.faixaDias||3));
+    let inicio=new Date(hoje.getFullYear(),hoje.getMonth(),dia);
+    inicio.setHours(0,0,0,0);
+    let fim=new Date(inicio);fim.setDate(fim.getDate()+faixa);
+    // Se a janela ja passou no mes atual, vai para o proximo mes
+    if(hoje>fim){
+      inicio=new Date(hoje.getFullYear(),hoje.getMonth()+1,dia);
+      inicio.setHours(0,0,0,0);
+      fim=new Date(inicio);fim.setDate(fim.getDate()+faixa);
+    }
+    const diasAteInicio=Math.ceil((inicio-hoje)/(24*3600*1000));
+    const naJanela=hoje>=inicio&&hoje<=fim;
+    return {inicio,fim,diasAteInicio,naJanela};
+  };
+
+  // Pedir permissao de notificacao + verificar vespera
+  const [notifStatus,setNotifStatus]=useState(()=>{
+    try{return("Notification"in window)?Notification.permission:"unsupported";}catch{return "unsupported";}
+  });
+  const pedirNotif=async()=>{
+    if(!("Notification"in window))return;
+    try{
+      const r=await Notification.requestPermission();
+      setNotifStatus(r);
+    }catch{}
+  };
+  // Verifica vespera e dispara notif (executa em todo render relevante)
+  useEffect(()=>{
+    if(notifStatus!=="granted"||!aporteProg.ativo)return;
+    const px=calcProxAporte();if(!px)return;
+    const chave=px.inicio.toISOString().slice(0,10);
+    // Notifica se faltam <=1 dia E ainda nao notificou para essa data
+    if(px.diasAteInicio<=1&&px.diasAteInicio>=0&&aporteProg.ultimaNotif!==chave){
+      try{
+        new Notification("Janela de aporte se aproxima",{
+          body:px.diasAteInicio===0?"Hoje comeca sua janela mensal de aporte.":"Sua janela de aporte comeca amanha ("+px.inicio.toLocaleDateString("pt-BR")+").",
+          icon:"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='64'%3E%3Ctext y='50' font-size='50'%3E%F0%9F%92%B0%3C/text%3E%3C/svg%3E"
+        });
+        setAporteProg(p=>({...p,ultimaNotif:chave}));
+      }catch{}
+    }
+  },[notifStatus,aporteProg.ativo,aporteProg.dia,aporteProg.faixaDias]);
 
   useEffect(()=>{
     const dd=ld();
@@ -673,14 +735,27 @@ function App(){
           dbg.push("FX:"+n);
         }else dbg.push("FX:semrates");
       }catch(e){dbg.push("FX-erro:"+e.message);}
-      // Ouro via Coinbase
+      // Ouro: tenta BCB (Ouro BM&F grama, R$/g) primeiro, fallback Coinbase XAU spot
       if(tickers.includes("OURO_FISICO")){
+        let okOuro=false;
+        // 1) BCB serie 4 = Ouro BM&F grama (oficial, ja em BRL/g)
         try{
-          const d=await fetchJSON("https://api.coinbase.com/v2/prices/XAU-USD/spot",8000);
-          const g=parseFloat(d&&d.data&&d.data.amount);
-          if(g>0){allPrices["OURO_FISICO"]=(g/31.1035)*FX.USD;dbg.push("Ouro:ok");}
-          else{failed.push("OURO_FISICO");dbg.push("Ouro:semvalor");}
-        }catch(e){failed.push("OURO_FISICO");dbg.push("Ouro-erro:"+e.message);}
+          const d=await fetchViaProxy("https://api.bcb.gov.br/dados/serie/bcdata.sgs.4/dados/ultimos/1?formato=json",8000);
+          if(d&&d.length>0){
+            const v=parseFloat(String(d[0].valor).replace(",","."));
+            if(v>0){allPrices["OURO_FISICO"]=v;dbg.push("Ouro-BCB:ok");okOuro=true;}
+          }
+        }catch(e){dbg.push("Ouro-BCB-err:"+e.message);}
+        // 2) Fallback: Coinbase XAU/USD spot internacional
+        if(!okOuro){
+          try{
+            const d=await fetchJSON("https://api.coinbase.com/v2/prices/XAU-USD/spot",8000);
+            const g=parseFloat(d&&d.data&&d.data.amount);
+            if(g>0){allPrices["OURO_FISICO"]=(g/31.1035)*FX.USD;dbg.push("Ouro-spot:ok");okOuro=true;}
+            else{dbg.push("Ouro-spot:semvalor");}
+          }catch(e){dbg.push("Ouro-spot-err:"+e.message);}
+        }
+        if(!okOuro)failed.push("OURO_FISICO");
       }
       // Bitcoin via CoinGecko
       if(tickers.includes("BTC")){
@@ -1080,7 +1155,33 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         h("div",{style:{fontSize:11,color:"#8A8070",marginBottom:8,lineHeight:1.6}},"Configure sua chave API para insights automaticos da IA sobre seu portfolio."),
         h("button",{onClick:trocarChave,style:{background:"none",border:"1px solid rgba(200,169,110,0.4)",borderRadius:5,color:"#C8A96E",fontSize:10,padding:"5px 12px",cursor:"pointer",fontFamily:"monospace"}},"Configurar chave API")
       )):null;
-      content=h("div",{},cards,insightCard,h(AllocChart,{cw}),h(CompareChart,{cw}),h(RiskChart,{cw}),h(EvolChart,{hist,showUSD,setShowUSD}),h(HeatmapChart,{hist}),h(CurrencyChart,{port,cls}),topPos);
+      // Card de proxima janela de aporte
+      const proxAp=calcProxAporte();
+      const aporteCard=proxAp&&hasPos?h("div",{style:{marginBottom:14,padding:"12px 14px",background:proxAp.naJanela?"linear-gradient(135deg,rgba(76,175,130,0.1),rgba(76,175,130,0.03))":proxAp.diasAteInicio<=3?"linear-gradient(135deg,rgba(232,196,74,0.08),rgba(232,196,74,0.02))":"rgba(255,255,255,0.02)",border:"1px solid "+(proxAp.naJanela?"rgba(76,175,130,0.35)":proxAp.diasAteInicio<=3?"rgba(232,196,74,0.3)":"rgba(255,255,255,0.07)"),borderRadius:10}},
+        h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:6}},
+          h("div",{style:{fontSize:9,letterSpacing:3,color:proxAp.naJanela?"#4CAF82":proxAp.diasAteInicio<=3?"#E8C44A":"#8A8070",fontFamily:"monospace",textTransform:"uppercase"}},"Proximo Aporte"),
+          proxAp.naJanela?h("span",{style:{fontSize:8,color:"#4CAF82",fontFamily:"monospace",padding:"2px 7px",border:"1px solid #4CAF8255",borderRadius:3,fontWeight:"bold",letterSpacing:1}},"NA JANELA"):
+          proxAp.diasAteInicio<=3?h("span",{style:{fontSize:8,color:"#E8C44A",fontFamily:"monospace",padding:"2px 7px",border:"1px solid #E8C44A55",borderRadius:3,fontWeight:"bold",letterSpacing:1}},"PROXIMO"):null
+        ),
+        h("div",{style:{display:"flex",alignItems:"baseline",gap:10,flexWrap:"wrap"}},
+          h("div",{style:{fontSize:18,color:"#F0EAD8",fontFamily:"monospace",fontWeight:600,letterSpacing:1}},
+            proxAp.inicio.toLocaleDateString("pt-BR",{day:"2-digit",month:"short"})+(aporteProg.faixaDias>0?" - "+proxAp.fim.toLocaleDateString("pt-BR",{day:"2-digit",month:"short"}):"")
+          ),
+          h("div",{style:{fontSize:11,color:"#8A8070",fontFamily:"monospace"}},
+            proxAp.naJanela?"voce esta na janela ideal":
+            proxAp.diasAteInicio===0?"comeca hoje":
+            proxAp.diasAteInicio===1?"comeca amanha":
+            "em "+proxAp.diasAteInicio+" dias"
+          )
+        ),
+        // Status notificacoes
+        notifStatus!=="granted"&&notifStatus!=="unsupported"&&h("div",{style:{marginTop:8,paddingTop:8,borderTop:"1px solid rgba(255,255,255,0.06)",display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}},
+          h("span",{style:{fontSize:9,color:"#7A7570",flex:1,minWidth:140,fontStyle:"italic"}},"Receba aviso na vespera do aporte"),
+          h("button",{onClick:pedirNotif,style:{background:"rgba(91,143,212,0.1)",border:"1px solid rgba(91,143,212,0.35)",borderRadius:5,color:"#5B8FD4",fontSize:9,padding:"4px 10px",cursor:"pointer",fontFamily:"monospace",letterSpacing:1}},"ativar notificacoes")
+        ),
+        notifStatus==="granted"&&h("div",{style:{marginTop:6,fontSize:9,color:"#4CAF82",fontFamily:"monospace",letterSpacing:1}},"notificacoes ativas")
+      ):null;
+      content=h("div",{},cards,aporteCard,insightCard,h(AllocChart,{cw}),h(CompareChart,{cw}),h(RiskChart,{cw}),h(EvolChart,{hist,showUSD,setShowUSD}),h(HeatmapChart,{hist}),h(CurrencyChart,{port,cls}),topPos);
     }
   }  // POSITIONS
   if(tab==="positions"){
@@ -1178,6 +1279,34 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           h("div",{style:{fontSize:9,color:"#7A7570",fontStyle:"italic",marginTop:4,lineHeight:1.5}},"Soma dos maximos atual: ",h("span",{style:{color:Math.abs(bandsTotal-100)<=5?"#4CAF82":"#E8C44A",fontWeight:"bold",fontFamily:"monospace"}},bandsTotal+"%"),Math.abs(bandsTotal-100)>5?" (recomendado ficar perto de 100%)":"")
         )
       );
+      // Bloco de programacao de aporte
+      const aporteConfBlock=h("div",{style:{marginBottom:14,padding:"11px 13px",background:"rgba(200,169,110,0.04)",border:"1px solid rgba(200,169,110,0.2)",borderRadius:8}},
+        h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:editAporte?10:0,gap:6}},
+          h("div",{},
+            h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase"}},"Aporte Programado"),
+            !editAporte&&h("div",{style:{fontSize:9,color:"#5A5550",marginTop:2,fontStyle:"italic"}},aporteProg.ativo?("Dia "+aporteProg.dia+(aporteProg.faixaDias>0?" - "+(aporteProg.dia+aporteProg.faixaDias):"")+" de cada mes"):"Desativado")
+          ),
+          h("button",{onClick:()=>setEditAporte(!editAporte),style:{background:editAporte?"rgba(200,169,110,0.15)":"none",border:"1px solid "+(editAporte?"#C8A96E":"rgba(255,255,255,0.15)"),borderRadius:4,color:editAporte?"#C8A96E":"#8A8070",fontSize:9,padding:"3px 9px",cursor:"pointer",fontFamily:"monospace"}},editAporte?"concluir":"editar")
+        ),
+        editAporte&&h("div",{style:{display:"flex",flexDirection:"column",gap:9}},
+          h("div",{style:{display:"flex",alignItems:"center",gap:8,padding:"6px 8px",background:"rgba(0,0,0,0.2)",borderRadius:5}},
+            h("input",{type:"checkbox",checked:!!aporteProg.ativo,onChange:e=>setAporteProg(p=>({...p,ativo:e.target.checked})),style:{cursor:"pointer"}}),
+            h("span",{style:{fontSize:10,color:"#B0A890"}},"Ativar lembrete de aporte mensal")
+          ),
+          h("div",{style:{display:"flex",alignItems:"center",gap:8,padding:"6px 8px",background:"rgba(0,0,0,0.2)",borderRadius:5,opacity:aporteProg.ativo?1:0.4}},
+            h("span",{style:{fontSize:10,color:"#B0A890",minWidth:90}},"Dia do mes:"),
+            h("input",{type:"number",min:"1",max:"28",value:aporteProg.dia||5,onChange:e=>setAporteProg(p=>({...p,dia:Math.max(1,Math.min(28,parseInt(e.target.value)||1))})),disabled:!aporteProg.ativo,style:{width:60,background:"rgba(0,0,0,0.4)",border:"1px solid rgba(200,169,110,0.3)",borderRadius:3,padding:"4px 6px",color:"#F0EAD8",fontSize:11,fontFamily:"monospace",outline:"none",textAlign:"center"}})
+          ),
+          h("div",{style:{display:"flex",alignItems:"center",gap:8,padding:"6px 8px",background:"rgba(0,0,0,0.2)",borderRadius:5,opacity:aporteProg.ativo?1:0.4}},
+            h("span",{style:{fontSize:10,color:"#B0A890",minWidth:90}},"Faixa (+dias):"),
+            h("input",{type:"number",min:"0",max:"15",value:aporteProg.faixaDias||0,onChange:e=>setAporteProg(p=>({...p,faixaDias:Math.max(0,Math.min(15,parseInt(e.target.value)||0))})),disabled:!aporteProg.ativo,style:{width:60,background:"rgba(0,0,0,0.4)",border:"1px solid rgba(200,169,110,0.3)",borderRadius:3,padding:"4px 6px",color:"#F0EAD8",fontSize:11,fontFamily:"monospace",outline:"none",textAlign:"center"}}),
+            h("span",{style:{fontSize:9,color:"#7A7570",fontStyle:"italic"}},aporteProg.faixaDias>0?"janela: dia "+aporteProg.dia+" ao "+(aporteProg.dia+aporteProg.faixaDias):"data unica")
+          ),
+          notifStatus!=="granted"&&notifStatus!=="unsupported"&&h("button",{onClick:pedirNotif,style:{padding:"6px",background:"rgba(91,143,212,0.1)",border:"1px solid rgba(91,143,212,0.35)",borderRadius:5,color:"#5B8FD4",fontSize:10,cursor:"pointer",fontFamily:"monospace",letterSpacing:1}},"Ativar notificacoes do navegador"),
+          notifStatus==="granted"&&h("div",{style:{fontSize:9,color:"#4CAF82",fontFamily:"monospace",textAlign:"center",padding:"4px"}},"Notificacoes ativas. Voce sera avisado na vespera."),
+          notifStatus==="denied"&&h("div",{style:{fontSize:9,color:"#E05252",fontFamily:"monospace",textAlign:"center",padding:"4px"}},"Notificacoes bloqueadas no navegador. Habilite nas configuracoes do site.")
+        )
+      );
       // Bloco de manutencao
       const histLen=hist.filter(r=>r.composicao||r.totalPatrimBRL).length;
       const manutencaoBlock=h("div",{style:{marginBottom:14,padding:"10px 13px",background:"rgba(232,196,74,0.03)",border:"1px solid rgba(232,196,74,0.2)",borderRadius:8}},
@@ -1193,6 +1322,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
       );
       content=h("div",{},
         bandsBlock,
+        aporteConfBlock,
         manutencaoBlock,
         h("div",{style:{fontSize:11,color:"#8A8070",marginBottom:12,lineHeight:1.6}},"Toque em qualquer ativo para editar."),
         hidden.length>0&&h("button",{onClick:()=>setShowHid(s=>!s),style:{background:"none",border:"1px solid rgba(255,255,255,0.08)",borderRadius:6,color:"#8A8070",fontSize:10,padding:"4px 10px",cursor:"pointer",fontFamily:"monospace",marginBottom:12}},showHid?"Ocultar escondidos":"Mostrar "+hidden.length+" oculto(s)"),
