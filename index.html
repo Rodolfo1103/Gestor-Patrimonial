@@ -508,10 +508,9 @@ function HeatmapChart({hist}){
   );
 }
 
-// Heatmap de bandas: evolucao da posicao de cada classe em relacao ao alvo
+// Evolucao por classe: mini-graficos de linha mostrando % real vs banda alvo
 function BandHeatmap({hist,cw}){
-  // Junta o estado atual (cw) com o historico
-  const data=hist.filter(r=>r.composicao).slice().reverse(); // antigo -> recente
+  const data=hist.filter(r=>r.composicao).slice().reverse();
   const nowSnap={date:new Date().toISOString(),composicao:{}};
   CL.forEach(c=>{nowSnap.composicao[c.id]=cw[c.id]||0;});
   const allSnaps=[...data,nowSnap];
@@ -519,58 +518,55 @@ function BandHeatmap({hist,cw}){
     h("div",{style:{fontSize:9,letterSpacing:3,color:"#7A7570",fontFamily:"monospace",textTransform:"uppercase",marginBottom:4}},"Evolucao vs Banda"),
     h("div",{style:{fontSize:10,color:"#5A5550",fontStyle:"italic"}},"Disponivel apos 1+ aporte registrado ou atualizacao de precos")
   );
-  // Cor por distancia em pontos percentuais (pp) da banda alvo
-  // Verde escuro = dentro, verde claro = perto, amarelo = acima, vermelho = abaixo
-  const colorFor=(pct,c)=>{
-    if(pct>=c.min&&pct<=c.max)return"#3D9F6A"; // dentro da banda - verde
-    if(pct<c.min){
-      const diff=c.min-pct;
-      if(diff<=2)return"#C49A55"; // proximo - laranja claro
-      if(diff<=5)return"#C46045"; // moderado - laranja
-      return"#A03030"; // distante - vermelho
-    }
-    // acima do max
-    if(c.flex)return"#5DBF82"; // selic flex
-    const diff=pct-c.max;
-    if(diff<=2)return"#D9C455"; // proximo - amarelo
-    if(diff<=5)return"#D99A55"; // moderado - amarelo escuro
-    return"#A05050"; // muito acima
-  };
-  // Limita a ultimas 12 colunas para caber na tela
-  const snaps=allSnaps.slice(-12);
-  return h("div",{style:{marginBottom:14,padding:"11px 13px",background:"rgba(76,175,130,0.04)",border:"1px solid rgba(76,175,130,0.2)",borderRadius:8}},
+  // Limita aos ultimos 50 snapshots (mostra ate ~ultimas 12h de oscilacao se atualizar com freq)
+  const snaps=allSnaps.slice(-50);
+  // Mini-grafico SVG por classe
+  const W=300,H=44,pL=8,pR=42,pT=4,pB=4,cW=W-pL-pR,cH=H-pT-pB;
+  return h("div",{style:{marginBottom:14,padding:"11px 13px",background:"rgba(76,175,130,0.03)",border:"1px solid rgba(76,175,130,0.2)",borderRadius:8}},
     h("div",{style:{fontSize:9,letterSpacing:3,color:"#4CAF82",fontFamily:"monospace",textTransform:"uppercase",marginBottom:4}},"Evolucao vs Banda Alvo"),
-    h("div",{style:{fontSize:9,color:"#7A9A7A",marginBottom:9,fontStyle:"italic"}},"Como cada classe se aproxima ou afasta do alvo a cada aporte / atualizacao"),
-    // Tabela
-    h("div",{style:{overflowX:"auto"}},
-      h("div",{style:{display:"flex",alignItems:"center",gap:2,marginBottom:3}},
-        h("div",{style:{width:40,flexShrink:0,fontSize:8,color:"#5A5550",fontFamily:"monospace"}}),
-        ...snaps.map((s,i)=>{
-          const d=new Date(s.date);
-          const lb=d.toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"});
-          return h("div",{key:i,style:{flex:1,minWidth:24,textAlign:"center",fontSize:7,color:i===snaps.length-1?"#C8A96E":"#5A5550",fontFamily:"monospace",fontWeight:i===snaps.length-1?"bold":"normal"}},lb);
-        })
-      ),
-      ...CL.map(c=>h("div",{key:c.id,style:{display:"flex",alignItems:"center",gap:2,marginBottom:2}},
-        h("div",{style:{width:40,flexShrink:0,fontSize:9,color:c.color,fontFamily:"monospace",fontWeight:"bold"}},c.tag),
-        ...snaps.map((s,i)=>{
-          const pct=s.composicao[c.id]||0;
-          const inBand=pct>=c.min&&pct<=c.max;
-          return h("div",{key:i,title:c.name+": "+pct.toFixed(1)+"% (alvo "+c.min+"-"+c.max+"%)",style:{flex:1,minWidth:24,height:22,background:colorFor(pct,c),borderRadius:3,display:"flex",alignItems:"center",justifyContent:"center",fontSize:7.5,color:"#0D0F14",fontFamily:"monospace",fontWeight:"bold",border:i===snaps.length-1?"1.5px solid #F0EAD8":"none"}},pct.toFixed(0));
-        })
-      ))
-    ),
-    // Legenda
-    h("div",{style:{display:"flex",flexWrap:"wrap",alignItems:"center",gap:8,marginTop:10,justifyContent:"center"}},
-      ...[{c:"#A03030",l:"distante (abaixo)"},
-          {c:"#C46045",l:"abaixo"},
-          {c:"#3D9F6A",l:"dentro"},
-          {c:"#D9C455",l:"acima"},
-          {c:"#A05050",l:"muito acima"}].map((it,i)=>h("div",{key:i,style:{display:"flex",alignItems:"center",gap:3}},
-        h("div",{style:{width:12,height:10,background:it.c,borderRadius:2}}),
-        h("span",{style:{fontSize:7.5,color:"#7A7570",fontFamily:"monospace"}},it.l)
-      ))
-    )
+    h("div",{style:{fontSize:9,color:"#7A9A7A",marginBottom:10,fontStyle:"italic"}},"Linha colorida = % atual da classe. Faixa sombreada = banda alvo."),
+    ...CL.map(c=>{
+      const vals=snaps.map(s=>s.composicao[c.id]||0);
+      const curPct=vals[vals.length-1]||0;
+      const inBand=curPct>=c.min&&curPct<=c.max;
+      const status=curPct<c.min?"abaixo":curPct>c.max&&!c.flex?"acima":"ok";
+      // Escala Y: do 0 ate o maior valor entre c.max+5 e max dos vals
+      const yMax=Math.max(c.max+4,...vals,c.max*1.3);
+      const yMin=0;
+      const yScale=v=>pT+cH-((v-yMin)/(yMax-yMin))*cH;
+      const xScale=i=>pL+(i/(snaps.length-1||1))*cW;
+      // Linha do portfolio
+      const lineD=vals.map((v,i)=>(i===0?"M":"L")+xScale(i).toFixed(1)+" "+yScale(v).toFixed(1)).join(" ");
+      // Faixa da banda alvo (retangulo sombreado)
+      const yMaxBand=yScale(c.max),yMinBand=yScale(c.min);
+      // Status color
+      const sc=status==="abaixo"?"#E05252":status==="acima"?"#E8C44A":"#4CAF82";
+      // Indicador de tendencia
+      const tendencia=vals.length>=2?vals[vals.length-1]-vals[0]:0;
+      const seta=Math.abs(tendencia)<0.2?"":tendencia>0?"^":"v";
+      return h("div",{key:c.id,style:{display:"flex",alignItems:"center",gap:6,marginBottom:6,padding:"5px 6px",background:"rgba(0,0,0,0.18)",borderRadius:5,borderLeft:"3px solid "+c.color}},
+        h("div",{style:{width:34,flexShrink:0}},
+          h("div",{style:{fontSize:10,color:c.color,fontFamily:"monospace",fontWeight:"bold"}},c.tag),
+          h("div",{style:{fontSize:7,color:"#5A5550",fontFamily:"monospace"}},c.min+"-"+c.max+"%")
+        ),
+        h("div",{style:{flex:1,position:"relative"}},
+          h("svg",{viewBox:"0 0 "+W+" "+H,preserveAspectRatio:"none",style:{width:"100%",height:H,display:"block"}},
+            // Faixa da banda alvo (sombreada)
+            h("rect",{x:pL,y:yMaxBand.toFixed(1),width:cW,height:(yMinBand-yMaxBand).toFixed(1),fill:c.color,fillOpacity:"0.18"}),
+            // Linhas guia min e max
+            h("line",{x1:pL,y1:yMaxBand.toFixed(1),x2:pL+cW,y2:yMaxBand.toFixed(1),stroke:c.color,strokeWidth:"0.7",strokeOpacity:"0.6",strokeDasharray:"3,2"}),
+            h("line",{x1:pL,y1:yMinBand.toFixed(1),x2:pL+cW,y2:yMinBand.toFixed(1),stroke:c.color,strokeWidth:"0.7",strokeOpacity:"0.6",strokeDasharray:"3,2"}),
+            // Linha do portfolio
+            h("path",{d:lineD,fill:"none",stroke:sc,strokeWidth:"1.8",strokeLinejoin:"round",strokeLinecap:"round"}),
+            // Pontos
+            ...vals.map((v,i)=>h("circle",{key:i,cx:xScale(i).toFixed(1),cy:yScale(v).toFixed(1),r:i===vals.length-1?"2.6":"1.4",fill:sc,stroke:"#0D0F14",strokeWidth:i===vals.length-1?"1":"0"})),
+            // Valor atual no canto direito
+            h("text",{x:W-pR+4,y:yScale(curPct).toFixed(1),fill:sc,fontSize:"9",fontFamily:"monospace",fontWeight:"bold",dominantBaseline:"middle"},curPct.toFixed(1)+"%")
+          )
+        ),
+        h("div",{style:{width:14,flexShrink:0,textAlign:"center",fontSize:11,color:tendencia>0?"#4CAF82":tendencia<0?"#E05252":"#5A5550",fontFamily:"monospace",fontWeight:"bold"}},seta)
+      );
+    })
   );
 }
 
@@ -859,19 +855,19 @@ function App(){
     setStep("done");
   };
 
-  // Tambem grava snapshot quando atualiza precos (para o heatmap mostrar evolucao)
+  // Grava snapshot da composicao quando precos sao atualizados (evolucao oscilante)
   const gravaSnapshot=useCallback(()=>{
     if(!hasPos||total<=0)return;
     const compPct={};
     CL.forEach(c=>{compPct[c.id]=cw[c.id]||0;});
     setHist(prev=>{
       const last=prev[0];
-      // Evita duplicar: so grava se ultimo registro tem >1h ou nao tem composicao
-      if(last&&last.composicao&&new Date()-new Date(last.date)<3600000)return prev;
+      // Evita duplicar excessiva: so grava se ultimo registro tem >15 min OU nao tem composicao
+      if(last&&last.composicao&&new Date()-new Date(last.date)<900000)return prev;
       return [{date:new Date().toISOString(),apValue:0,totalExecuted:0,
         totalPatrimBRL:total,totalPatrimUSD:total/(FX.USD||5.8),
         composicao:compPct,snapshot:true
-      },...prev].slice(0,48);
+      },...prev].slice(0,100);
     });
   },[hasPos,total,cw]);
 
@@ -1313,36 +1309,6 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         h("div",{style:{fontSize:11,color:"#8A8070",marginBottom:12,lineHeight:1.7}},"A IA analisa composicao e valuation atual com margem de seguranca rigorosa. Todas as classes recebem aporte; os volumes refletem balanceamento e valuation."),
         // Heatmap de evolucao das bandas
         h(BandHeatmap,{hist,cw}),
-        // Bloco de sugestao de rebalanceamento - TODAS as classes
-        sugestoes.length>0&&totalAtual>0&&h("div",{style:{marginBottom:14,background:"rgba(76,175,130,0.04)",border:"1px solid rgba(76,175,130,0.2)",borderRadius:9,padding:"11px 13px"}},
-          h("div",{style:{fontSize:9,letterSpacing:3,color:"#4CAF82",fontFamily:"monospace",textTransform:"uppercase",marginBottom:4}},"Sugestao de Distribuicao"),
-          h("div",{style:{fontSize:10,color:"#7A9A7A",marginBottom:9,fontStyle:"italic",lineHeight:1.5}},"Volume sugerido por classe. Aporte total: ",h("span",{style:{color:"#4CAF82",fontWeight:"bold",fontFamily:"monospace"}},fB(totalSugerido)),h("span",{style:{display:"block",fontSize:9,color:"#5A7A5A",marginTop:3}},"A IA refinara os tickers especificos e ajustara volumes por valuation.")),
-          ...sugestoes.sort((a,b)=>b.valorAporte-a.valorAporte).map(s=>{
-            const status=s.abaixoMin?"abaixo":s.acimaMax?"acima":"ok";
-            const statusColor=status==="abaixo"?"#E05252":status==="acima"?"#E8C44A":"#4CAF82";
-            const statusLabel=status==="abaixo"?"PRIORIDADE":status==="acima"?"REDUZIDO":"MANTER";
-            return h("div",{key:s.id,style:{marginBottom:7,padding:"8px 10px",background:"rgba(0,0,0,0.2)",borderRadius:6,borderLeft:"3px solid "+s.color}},
-              h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:4,gap:6}},
-                h("div",{style:{flex:1,minWidth:0}},
-                  h("div",{style:{display:"flex",alignItems:"center",gap:6,marginBottom:2}},
-                    h("span",{style:{fontSize:9,color:s.color,fontWeight:"bold",fontFamily:"monospace"}},s.tag),
-                    h("span",{style:{fontSize:10,color:"#B0A890"}},s.name),
-                    h("span",{style:{fontSize:7,color:statusColor,fontFamily:"monospace",fontWeight:"bold",letterSpacing:1,padding:"1px 5px",border:"1px solid "+statusColor+"44",borderRadius:3}},statusLabel)
-                  ),
-                  h("div",{style:{fontSize:8,color:"#7A7570",fontFamily:"monospace"}},"atual "+pc(s.w)+" - alvo "+s.min+"-"+s.max+"%")
-                ),
-                h("div",{style:{textAlign:"right",flexShrink:0}},
-                  h("div",{style:{fontFamily:"monospace",fontSize:13,color:s.color,fontWeight:"bold"}},"+ "+fB(s.valorAporte)),
-                  h("div",{style:{fontSize:8,color:"#5A5550",fontFamily:"monospace"}},s.pctAporte.toFixed(1)+"% do aporte")
-                )
-              ),
-              // Barra de progresso visual
-              h("div",{style:{height:3,background:"rgba(255,255,255,0.05)",borderRadius:2,overflow:"hidden",marginTop:5}},
-                h("div",{style:{height:"100%",width:Math.min(s.pctAporte,100).toFixed(1)+"%",background:s.color,opacity:0.7,borderRadius:2}})
-              )
-            );
-          })
-        ),
         h("div",{style:{marginBottom:12}},...CL.map(c=>{const w=cw[c.id]||0,s=w<c.min?"u":w>c.max&&!c.flex?"o":"k";if(s==="k")return null;return h("div",{key:c.id,style:{display:"flex",alignItems:"center",gap:6,marginBottom:4,padding:"4px 8px",background:s==="u"?"rgba(224,82,82,0.06)":"rgba(232,196,74,0.06)",border:"1px solid "+(s==="u"?"#E0525222":"#E8C44A22"),borderRadius:5}},h("span",{style:{fontSize:10,color:s==="u"?"#E05252":"#E8C44A"}},c.tag),h("span",{style:{fontSize:10,color:"#B0A890",flex:1}},c.name),h("span",{style:{fontFamily:"monospace",fontSize:9,color:s==="u"?"#E05252":"#E8C44A"}},pc(w)+" "+(s==="u"?"abaixo":"acima")));})),
         h("div",{style:{display:"flex",alignItems:"center",gap:7,background:"rgba(200,169,110,0.05)",border:"1px solid rgba(200,169,110,0.25)",borderRadius:9,padding:"11px 14px",marginBottom:10}},h("span",{style:{color:"#C8A96E",fontFamily:"monospace",fontSize:14}},"R$"),h("input",{type:"text",placeholder:"0,00",value:apV,onChange:e=>setApV(e.target.value.replace(/[^0-9,.]/g,"")),style:{flex:1,background:"transparent",border:"none",outline:"none",color:"#F0EAD8",fontSize:26}})),
         totalSugerido>0&&h("button",{onClick:()=>setApV(totalSugerido.toFixed(2).replace(".",",")),style:{width:"100%",padding:"8px",background:"rgba(76,175,130,0.08)",border:"1px solid rgba(76,175,130,0.3)",borderRadius:6,color:"#4CAF82",fontSize:10,fontFamily:"monospace",cursor:"pointer",marginBottom:9,letterSpacing:1}},"USAR VALOR SUGERIDO: "+fB(totalSugerido)),
