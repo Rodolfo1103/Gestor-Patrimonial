@@ -238,6 +238,70 @@ function CompareChart({cw}){
 }
 
 
+function CurrencyChart({port,cls}){
+  // Calcula exposicao por moeda (em BRL)
+  const byCcy={};
+  Object.entries(port||{}).forEach(([t,p])=>{
+    if(!p)return;
+    const v=pv(t,p,(()=>{const c={};Object.keys(BCCY).forEach(k=>c[k]=BCCY[k]);return c;})());
+    if(!v)return;
+    // Ouro fisico e Bitcoin viram USD na pratica (cotados em USD)
+    let ccy=BCCY[t]||"BRL";
+    if(GB.includes(t))ccy="BRL"; // ouro fisico comprado em reais
+    byCcy[ccy]=(byCcy[ccy]||0)+v;
+  });
+  const total=Object.values(byCcy).reduce((a,b)=>a+b,0);
+  if(total<=0)return null;
+  // Ordena por valor desc
+  const entries=Object.entries(byCcy).sort((a,b)=>b[1]-a[1]);
+  // Cores por moeda
+  const COL={BRL:"#4CAF82",USD:"#5B8FD4",EUR:"#C8A96E",GBP:"#9B7EBD",CHF:"#E05252",
+    JPY:"#E8C44A",AUD:"#FF9F40",HKD:"#FF6B9D",SGD:"#4DD0E1",NOK:"#8DA9C4",DKK:"#A8C4A2",MXN:"#D17A22"};
+  const NAME={BRL:"Real",USD:"Dolar EUA",EUR:"Euro",GBP:"Libra",CHF:"Franco Suico",
+    JPY:"Iene",AUD:"Dolar Australiano",HKD:"Dolar HK",SGD:"Dolar Singapura",
+    NOK:"Coroa Norueguesa",DKK:"Coroa Dinamarquesa",MXN:"Peso Mexicano"};
+  // Donut SVG
+  const W=300,H=180,cx=W/2,cy=H/2,rOut=62,rIn=38;
+  let acc=0;
+  const slices=entries.map(([ccy,v])=>{
+    const frac=v/total,a0=acc*2*Math.PI-Math.PI/2;
+    acc+=frac;
+    const a1=acc*2*Math.PI-Math.PI/2;
+    const large=frac>0.5?1:0;
+    const x0=cx+rOut*Math.cos(a0),y0=cy+rOut*Math.sin(a0);
+    const x1=cx+rOut*Math.cos(a1),y1=cy+rOut*Math.sin(a1);
+    const x2=cx+rIn*Math.cos(a1),y2=cy+rIn*Math.sin(a1);
+    const x3=cx+rIn*Math.cos(a0),y3=cy+rIn*Math.sin(a0);
+    const d="M"+x0.toFixed(1)+" "+y0.toFixed(1)+" A"+rOut+" "+rOut+" 0 "+large+" 1 "+x1.toFixed(1)+" "+y1.toFixed(1)+" L"+x2.toFixed(1)+" "+y2.toFixed(1)+" A"+rIn+" "+rIn+" 0 "+large+" 0 "+x3.toFixed(1)+" "+y3.toFixed(1)+" Z";
+    return {d,ccy,v,frac,color:COL[ccy]||"#8A8070"};
+  });
+  return h("div",{style:{marginBottom:20,paddingTop:14,borderTop:"1px solid rgba(255,255,255,0.05)"}},
+    h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:4}},"Exposicao Cambial"),
+    h("div",{style:{fontSize:9,color:"#5A5550",marginBottom:10,fontStyle:"italic"}},"Distribuicao do patrimonio por moeda"),
+    // Donut
+    h("svg",{viewBox:"0 0 "+W+" "+H,style:{width:"100%",height:"auto",maxWidth:280,display:"block",margin:"0 auto"}},
+      ...slices.map((s,i)=>h("path",{key:i,d:s.d,fill:s.color,fillOpacity:0.85,stroke:"#0D0F14",strokeWidth:"1.5"})),
+      h("text",{x:cx,y:cy-3,textAnchor:"middle",fill:"#8A8070",fontSize:"8",fontFamily:"monospace"},entries.length+" moeda"+(entries.length>1?"s":"")),
+      h("text",{x:cx,y:cy+9,textAnchor:"middle",fill:"#C8A96E",fontSize:"10",fontFamily:"monospace",fontWeight:"bold"},fB(total).replace("R$ ",""))
+    ),
+    // Barras horizontais
+    h("div",{style:{marginTop:14}},
+      ...entries.map(([ccy,v])=>{
+        const pct=(v/total)*100,color=COL[ccy]||"#8A8070";
+        return h("div",{key:ccy,style:{marginBottom:10}},
+          h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:3,fontSize:10,fontFamily:"monospace"}},
+            h("span",{style:{color:color,fontWeight:"bold"}},ccy+" "+(NAME[ccy]||"")),
+            h("span",{style:{color:"#8A8070"}},pc(pct)+"  "+fB(v))
+          ),
+          h("div",{style:{height:6,background:"rgba(255,255,255,0.05)",borderRadius:3,overflow:"hidden"}},
+            h("div",{style:{height:"100%",width:pct.toFixed(1)+"%",background:color,opacity:0.85,borderRadius:3}})
+          )
+        );
+      })
+    )
+  );
+}
+
 function RiskChart({cw}){
   const W=300,H=170,pL=22,pB=20,pT=12,pR=12,cW=W-pL-pR,cH=H-pB-pT;
   // Calcula posicao do portfolio agregado (media ponderada de risco e retorno)
@@ -722,7 +786,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         })
       );
 
-      content=h("div",{},cards,h(AllocChart,{cw}),h(CompareChart,{cw}),h(RiskChart,{cw}),h(EvolChart,{hist,showUSD,setShowUSD}),topPos);
+      content=h("div",{},cards,h(AllocChart,{cw}),h(CompareChart,{cw}),h(RiskChart,{cw}),h(EvolChart,{hist,showUSD,setShowUSD}),h(CurrencyChart,{port,cls}),topPos);
     }
   }  // POSITIONS
   if(tab==="positions"){
