@@ -952,18 +952,41 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
       );
 
       // Card de insight da IA
-      const insightCard=hasPos?(apiKey?h("div",{style:{marginBottom:18,padding:"14px",background:"linear-gradient(135deg,rgba(200,169,110,0.08),rgba(91,143,212,0.04))",border:"1px solid rgba(200,169,110,0.25)",borderRadius:10}},
-        h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}},
+      const trocarChave=()=>{
+        const k=window.prompt("Cole sua chave da API Anthropic (sk-ant-...):\n\nObtenha em: console.anthropic.com -> API Keys -> Create Key\n\nPara remover a chave atual, deixe em branco e clique OK.");
+        if(k===null)return;
+        if(k.trim()===""){
+          try{localStorage.removeItem("pat-key");localStorage.removeItem("pat-insight");localStorage.removeItem("pat-insight-ts");}catch{}
+          setApiKeyS("");setInsight("");setInsightErr("");
+          return;
+        }
+        if(k.length>20){
+          sk2(k);setApiKeyS(k);
+          // Limpa erro e insight antigo, forcando regeneracao
+          setInsightErr("");setInsight("");
+          try{localStorage.removeItem("pat-insight");localStorage.removeItem("pat-insight-ts");}catch{}
+        }else{
+          alert("Chave invalida. A chave deve comecar com sk-ant-...");
+        }
+      };
+      const insightCard=hasPos?(apiKey?h("div",{style:{marginBottom:18,padding:"14px",background:"linear-gradient(135deg,rgba(200,169,110,0.08),rgba(91,143,212,0.04))",border:"1px solid "+(insightErr?"rgba(224,82,82,0.35)":"rgba(200,169,110,0.25)"),borderRadius:10}},
+        h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8,gap:6,flexWrap:"wrap"}},
           h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase"}},"Insight da IA"),
-          h("button",{onClick:()=>genInsight(true),disabled:insightLoad,style:{background:"none",border:"1px solid rgba(200,169,110,0.3)",borderRadius:4,color:insightLoad?"#5A5550":"#C8A96E",fontSize:9,padding:"3px 9px",cursor:insightLoad?"not-allowed":"pointer",fontFamily:"monospace"}},insightLoad?"...":"atualizar")
+          h("div",{style:{display:"flex",gap:5}},
+            h("button",{onClick:trocarChave,style:{background:"none",border:"1px solid rgba(255,255,255,0.15)",borderRadius:4,color:"#8A8070",fontSize:9,padding:"3px 9px",cursor:"pointer",fontFamily:"monospace"}},"chave"),
+            h("button",{onClick:()=>genInsight(true),disabled:insightLoad,style:{background:"none",border:"1px solid rgba(200,169,110,0.3)",borderRadius:4,color:insightLoad?"#5A5550":"#C8A96E",fontSize:9,padding:"3px 9px",cursor:insightLoad?"not-allowed":"pointer",fontFamily:"monospace"}},insightLoad?"...":"atualizar")
+          )
         ),
         insightLoad&&!insight?h("div",{style:{padding:"12px 0",color:"#8A8070",fontSize:11,fontStyle:"italic",textAlign:"center"}},"Analisando portfolio..."):
-        insightErr?h("div",{style:{padding:"8px 0",color:"#E05252",fontSize:10,fontFamily:"monospace"}},"Erro: "+insightErr):
+        insightErr?h("div",{},
+          h("div",{style:{padding:"6px 0",color:"#E05252",fontSize:10,fontFamily:"monospace",marginBottom:6}},"Erro: "+insightErr),
+          insightErr.toLowerCase().includes("api")||insightErr.toLowerCase().includes("key")?h("div",{style:{fontSize:10,color:"#8A8070",lineHeight:1.5,padding:"6px 0"}},"A chave parece invalida ou expirada. Clique em ",h("b",{style:{color:"#C8A96E"}},"chave")," acima para inserir uma nova."):null
+        ):
         insight?h("div",{style:{fontSize:12,color:"#C8C0B0",lineHeight:1.7,whiteSpace:"pre-wrap"}},insight):
         h("div",{style:{fontSize:10,color:"#5A5550",fontStyle:"italic"}},"Sera gerado automaticamente.")
       ):h("div",{style:{marginBottom:18,padding:"12px 14px",background:"rgba(200,169,110,0.04)",border:"1px dashed rgba(200,169,110,0.25)",borderRadius:10,textAlign:"center"}},
         h("div",{style:{fontSize:11,color:"#8A8070",marginBottom:8,lineHeight:1.6}},"Configure sua chave API para insights automaticos da IA sobre seu portfolio."),
-        h("button",{onClick:()=>{const k=window.prompt("Cole sua chave da API Anthropic (sk-ant-...):");if(k&&k.length>20){sk2(k);setApiKeyS(k);}},style:{background:"none",border:"1px solid rgba(200,169,110,0.4)",borderRadius:5,color:"#C8A96E",fontSize:10,padding:"5px 12px",cursor:"pointer",fontFamily:"monospace"}},"Configurar chave API")
+        h("button",{onClick:trocarChave,style:{background:"none",border:"1px solid rgba(200,169,110,0.4)",borderRadius:5,color:"#C8A96E",fontSize:10,padding:"5px 12px",cursor:"pointer",fontFamily:"monospace"}},"Configurar chave API")
       )):null;
       content=h("div",{},cards,insightCard,h(AllocChart,{cw}),h(CompareChart,{cw}),h(RiskChart,{cw}),h(EvolChart,{hist,showUSD,setShowUSD}),h(HeatmapChart,{hist}),h(CurrencyChart,{port,cls}),topPos);
     }
