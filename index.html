@@ -987,20 +987,35 @@ function App(){
   const MV=v=>hideVal?"----":v;
 
   // HEADER
+  // Calcular valor em BRL nativo vs convertido (de moedas estrangeiras)
+  let valorBRLnativo=0,valorEstrangeiroBRL=0;
+  Object.entries(port||{}).forEach(([t,p])=>{
+    if(!p)return;
+    const v=pv(t,p,ccy);if(!v)return;
+    let c=BCCY[t]||"BRL";if(GB.includes(t))c="BRL";
+    if(c==="BRL")valorBRLnativo+=v;else valorEstrangeiroBRL+=v;
+  });
+  // Idade do cambio
+  const fxIdadeMin=lastPU?Math.floor((Date.now()-new Date(lastPU).getTime())/60000):null;
+  const fxAntigo=fxIdadeMin!==null&&fxIdadeMin>60;
   const header=h("div",{style:{background:"linear-gradient(180deg,rgba(200,169,110,0.08) 0%,transparent 100%)",borderBottom:"1px solid rgba(200,169,110,0.15)",padding:"14px 18px 10px"}},
     h("div",{style:{fontSize:9,letterSpacing:4,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:2}},"Planejamento Patrimonial - Buy & Hold"),
     h("div",{style:{display:"flex",alignItems:"flex-end",justifyContent:"space-between",gap:8,flexWrap:"wrap"}},
-      h("div",{},
+      h("div",{style:{flex:1,minWidth:0}},
         h("h1",{style:{margin:0,fontSize:20,fontWeight:400,color:"#F0EAD8"}},"Portfolio Patrimonial"),
         hasPos&&h("div",{style:{display:"flex",alignItems:"center",gap:10,marginTop:2}},
           h("div",{style:{fontSize:24,color:"#C8A96E",fontFamily:"monospace",fontWeight:700}},MV(fB(total))),
-          h("button",{onClick:()=>setHideVal(v=>!v),style:{background:"none",border:"none",cursor:"pointer",padding:0,fontSize:18,color:"#C8A96E",opacity:0.7,lineHeight:1}},hideVal?"\u{1F441}":"\u{1F648}")
+          h("button",{onClick:()=>setHideVal(v=>!v),style:{background:"none",border:"none",cursor:"pointer",padding:0,fontSize:18,color:"#C8A96E",opacity:0.7,lineHeight:1}},hideVal?"\u{1F441}":"\u{1F648}"),
+          !hideVal&&h("button",{onClick:()=>{try{navigator.clipboard.writeText(String(total.toFixed(2)));}catch{}},title:"Copiar valor exato",style:{background:"none",border:"1px solid rgba(200,169,110,0.2)",borderRadius:3,cursor:"pointer",padding:"1px 5px",fontSize:8,color:"#8A8070",fontFamily:"monospace",lineHeight:1.4}},"copiar")
+        ),
+        hasPos&&!hideVal&&valorEstrangeiroBRL>0&&h("div",{style:{fontSize:9,color:"#7A7570",fontFamily:"monospace",marginTop:3,lineHeight:1.4}},
+          "BRL nativo: ",h("span",{style:{color:"#4CAF82"}},fB(valorBRLnativo))," + Convertido: ",h("span",{style:{color:"#5B8FD4"}},fB(valorEstrangeiroBRL))
         )
       ),
       hasPos&&h("button",{onClick:refresh,disabled:loadP,style:{background:"rgba(200,169,110,0.1)",border:"1px solid rgba(200,169,110,0.3)",borderRadius:6,padding:"6px 12px",color:"#C8A96E",fontSize:10,fontFamily:"monospace",letterSpacing:2,cursor:"pointer",textTransform:"uppercase"}},loadP?"Buscando...":"Atualizar precos")
     ),
-    (lastPU||pErr)&&h("div",{style:{fontSize:9,color:"#5A5550",marginTop:3,fontFamily:"monospace"}},
-      lastPU&&("Atualizado: "+new Date(lastPU).toLocaleString("pt-BR")+" - USD "+FX.USD.toFixed(2)),
+    (lastPU||pErr)&&h("div",{style:{fontSize:9,color:fxAntigo?"#E8C44A":"#5A5550",marginTop:3,fontFamily:"monospace"}},
+      lastPU&&("Atualizado: "+new Date(lastPU).toLocaleString("pt-BR")+" - USD "+FX.USD.toFixed(4)+(fxAntigo?" (cambio com "+fxIdadeMin+" min)":"")),
       pErr&&h("span",{style:{color:"#E05252",marginLeft:8}},"Erro: "+pErr)
     )
   );
