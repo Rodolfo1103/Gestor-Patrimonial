@@ -87,6 +87,15 @@ const sv=(d)=>{try{localStorage.setItem(SK,JSON.stringify(d));}catch{}};
 const gk=()=>{try{return localStorage.getItem("pat-key")||"";}catch{return "";}};
 const sk2=(k)=>{try{localStorage.setItem("pat-key",k);}catch{}};
 
+function exportData(data){
+  const json=JSON.stringify(data,null,2);
+  const blob=new Blob([json],{type:"application/json"});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement("a");
+  a.href=url;a.download="portfolio_backup_"+new Date().toISOString().slice(0,10)+".json";
+  a.click();URL.revokeObjectURL(url);
+}
+
 function mkL(cu){
   const ccy={...BCCY},cls={},lbl={...NAMES};
   Object.entries(BASE).forEach(([cid,ts])=>ts.forEach(t=>{cls[t]=cid;}));
@@ -525,7 +534,32 @@ function App(){
     ...[{id:"dashboard",label:"Dashboard"},{id:"positions",label:"Posicoes"},{id:"aporte",label:"Aporte"},{id:"chat",label:"Analise"},{id:"history",label:"Historico"}].map(t=>
       h("button",{key:t.id,onClick:()=>{setTab(t.id);if(t.id!=="aporte"){setApR(null);setStep("r");}},style:{background:"none",border:"none",borderBottom:tab===t.id?"2px solid #C8A96E":"2px solid transparent",color:tab===t.id?"#C8A96E":"#8A8070",padding:"6px 10px",cursor:"pointer",fontSize:12,marginBottom:-1,flexShrink:0,whiteSpace:"nowrap"}},t.label)
     ),
-    h("button",{onClick:()=>{if(window.confirm("Alterar chave?")){{localStorage.removeItem("pat-key");setApiKeyS("");}}},style:{marginLeft:"auto",background:"none",border:"none",color:"#3A3830",fontSize:10,cursor:"pointer",padding:"6px 0",fontFamily:"monospace",flexShrink:0}},"API")
+    h("button",{onClick:()=>{
+    const d={port,custom,hidden,lastPU,hist};
+    exportData(d);
+  },style:{background:"none",border:"none",color:"#3A3830",fontSize:10,cursor:"pointer",padding:"6px 4px",fontFamily:"monospace",flexShrink:0}},"EXP"),
+h("button",{onClick:()=>{
+    const inp=document.createElement("input");
+    inp.type="file";inp.accept=".json";
+    inp.onchange=e=>{
+      const file=e.target.files[0];if(!file)return;
+      const reader=new FileReader();
+      reader.onload=ev=>{
+        try{
+          const d=JSON.parse(ev.target.result);
+          if(d.port){setPort(d.port);}
+          if(d.custom){setCustom(d.custom);}
+          if(d.hidden){setHidden(d.hidden);}
+          if(d.lastPU){setLastPU(d.lastPU);}
+          if(d.hist){setHist(d.hist);}
+          alert("Backup restaurado com sucesso!");
+        }catch(err){alert("Erro ao importar: "+err.message);}
+      };
+      reader.readAsText(file);
+    };
+    inp.click();
+  },style:{background:"none",border:"none",color:"#3A3830",fontSize:10,cursor:"pointer",padding:"6px 4px",fontFamily:"monospace",flexShrink:0}},"IMP"),
+h("button",{onClick:()=>{if(window.confirm("Alterar chave?")){localStorage.removeItem("pat-key");setApiKeyS("");}},style:{marginLeft:"auto",background:"none",border:"none",color:"#3A3830",fontSize:10,cursor:"pointer",padding:"6px 0",fontFamily:"monospace",flexShrink:0}},"API")
   );
 
   let content=null;
