@@ -81,7 +81,7 @@ const GB=["OURO_FISICO"];
 const FX={BRL:1,USD:5.8,EUR:6.3,GBP:7.3,CHF:6.5,JPY:0.038,AUD:3.7,HKD:0.74,SGD:4.3,DKK:0.84,NOK:0.55,MXN:0.29};
 const RR={fii:{r:3.5,e:7.5},acoes_br:{r:6.5,e:8.5},acoes_ext:{r:5.5,e:8.0},selic:{r:1.0,e:4.5},ouro:{r:4.0,e:5.5},bitcoin:{r:9.5,e:9.0},infra:{r:2.5,e:7.0}};
 
-const SK="pat-v10";
+const SK="pat-v9";
 const ld=()=>{try{return JSON.parse(localStorage.getItem(SK)||"null");}catch{return null;}};
 const sv=(d)=>{try{localStorage.setItem(SK,JSON.stringify(d));}catch{}};
 const gk=()=>{try{return localStorage.getItem("pat-key")||"";}catch{return "";}};
@@ -265,7 +265,7 @@ function EvolChart({hist,showUSD,setShowUSD}){
 function KeyScreen({onSave}){
   const [v,sv]=useState("");
   return h("div",{style:{minHeight:"100vh",background:"#0D0F14",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:24}},
-    h("div",{style:{fontSize:32,marginBottom:16}},"[KEY]"),
+    h("div",{style:{fontSize:32,marginBottom:16}},"\u{1F511}"),
     h("h2",{style:{margin:"0 0 10px",fontSize:20,fontWeight:400,color:"#F0EAD8",textAlign:"center"}},"Chave da API Anthropic"),
     h("p",{style:{color:"#8A8070",fontSize:13,lineHeight:1.7,marginBottom:20,textAlign:"center",maxWidth:320}},
       "Obtenha em ",h("span",{style:{color:"#C8A96E"}},"console.anthropic.com"),". Salva so neste dispositivo."
@@ -465,7 +465,7 @@ function App(){
         h("h1",{style:{margin:0,fontSize:20,fontWeight:400,color:"#F0EAD8"}},"Portfolio Patrimonial"),
         hasPos&&h("div",{style:{display:"flex",alignItems:"center",gap:10,marginTop:2}},
           h("div",{style:{fontSize:24,color:"#C8A96E",fontFamily:"monospace",fontWeight:700}},MV(fB(total))),
-          h("button",{onClick:()=>setHideVal(v=>!v),style:{background:"none",border:"none",cursor:"pointer",padding:0,fontSize:18,color:"#C8A96E",opacity:0.7,lineHeight:1}},hideVal?"[VER]":"[OCU]")
+          h("button",{onClick:()=>setHideVal(v=>!v),style:{background:"none",border:"none",cursor:"pointer",padding:0,fontSize:18,color:"#C8A96E",opacity:0.7,lineHeight:1}},hideVal?"\u{1F441}":"\u{1F648}")
         )
       ),
       hasPos&&h("button",{onClick:refresh,disabled:loadP,style:{background:"rgba(200,169,110,0.1)",border:"1px solid rgba(200,169,110,0.3)",borderRadius:6,padding:"6px 12px",color:"#C8A96E",fontSize:10,fontFamily:"monospace",letterSpacing:2,cursor:"pointer",textTransform:"uppercase"}},loadP?"Buscando...":"Atualizar precos")
@@ -489,7 +489,7 @@ function App(){
   // DASHBOARD
   if(tab==="dashboard"){
     if(!hasPos){
-      content=h("div",{style:{textAlign:"center",padding:"46px 14px"}},h("div",{style:{fontSize:34,marginBottom:12}},"[LIST]"),h("p",{style:{color:"#8A8070",fontSize:12,lineHeight:1.7,marginBottom:16,fontStyle:"italic"}},"Nenhuma posicao cadastrada."),h("button",{onClick:()=>setTab("positions"),style:{background:"linear-gradient(135deg,#C8A96E,#A8893E)",border:"none",borderRadius:6,padding:"10px 22px",color:"#0D0F14",fontSize:12,fontWeight:700,cursor:"pointer"}},"Cadastrar posicoes"));
+      content=h("div",{style:{textAlign:"center",padding:"46px 14px"}},h("div",{style:{fontSize:34,marginBottom:12}},"\u{1F4CB}"),h("p",{style:{color:"#8A8070",fontSize:12,lineHeight:1.7,marginBottom:16,fontStyle:"italic"}},"Nenhuma posicao cadastrada."),h("button",{onClick:()=>setTab("positions"),style:{background:"linear-gradient(135deg,#C8A96E,#A8893E)",border:"none",borderRadius:6,padding:"10px 22px",color:"#0D0F14",fontSize:12,fontWeight:700,cursor:"pointer"}},"Cadastrar posicoes"));
     } else {
       const cards=h("div",{style:{marginBottom:18}},
         h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:7}},"Composicao atual"),
@@ -606,11 +606,11 @@ function App(){
   // APORTE
   if(tab==="aporte"){
     if(!hasPos){
-      content=h("div",{style:{textAlign:"center",padding:"46px 14px"}},h("div",{style:{fontSize:34,marginBottom:12}},"[LIST]"),h("p",{style:{color:"#8A8070",fontSize:12,lineHeight:1.7,marginBottom:16,fontStyle:"italic"}},"Cadastre posicoes primeiro."),h("button",{onClick:()=>setTab("positions"),style:{background:"linear-gradient(135deg,#C8A96E,#A8893E)",border:"none",borderRadius:6,padding:"10px 22px",color:"#0D0F14",fontSize:12,fontWeight:700,cursor:"pointer"}},"Cadastrar posicoes"));
+      content=h("div",{style:{textAlign:"center",padding:"46px 14px"}},h("div",{style:{fontSize:34,marginBottom:12}},"\u{1F4CB}"),h("p",{style:{color:"#8A8070",fontSize:12,lineHeight:1.7,marginBottom:16,fontStyle:"italic"}},"Cadastre posicoes primeiro."),h("button",{onClick:()=>setTab("positions"),style:{background:"linear-gradient(135deg,#C8A96E,#A8893E)",border:"none",borderRadius:6,padding:"10px 22px",color:"#0D0F14",fontSize:12,fontWeight:700,cursor:"pointer"}},"Cadastrar posicoes"));
     } else if(step==="done"){
       const done=Object.entries(execE).filter(([,v])=>v.done&&pN(v.qty)>0&&pN(v.price)>0);
       const tot=done.reduce((s,[,v])=>s+pN(v.qty)*pN(v.price),0);
-      content=h("div",{style:{textAlign:"center",padding:"18px 0"}},h("div",{style:{fontSize:42,marginBottom:12}},"[OK]"),h("div",{style:{fontSize:9,letterSpacing:3,color:"#4CAF82",fontFamily:"monospace",textTransform:"uppercase",marginBottom:5}},"Aporte registrado"),h("div",{style:{fontSize:24,color:"#F0EAD8",fontFamily:"monospace",fontWeight:700,marginBottom:4}},fB(tot)),h("p",{style:{color:"#8A8070",fontSize:11,fontStyle:"italic",marginBottom:18}},done.length+" ativo(s) atualizado(s)."),h("div",{style:{display:"flex",gap:7}},h("button",{onClick:()=>{setTab("dashboard");setApR(null);setStep("r");setApV("");setExecE({});},style:{flex:1,padding:"11px",background:"linear-gradient(135deg,#C8A96E,#A8893E)",border:"none",borderRadius:6,color:"#0D0F14",fontSize:12,fontWeight:700,cursor:"pointer"}},"Dashboard"),h("button",{onClick:()=>{setApR(null);setStep("r");setApV("");setExecE({});},style:{flex:1,padding:"11px",background:"transparent",border:"1px solid rgba(200,169,110,0.3)",borderRadius:6,color:"#C8A96E",fontSize:12,cursor:"pointer"}},"Novo aporte")));
+      content=h("div",{style:{textAlign:"center",padding:"18px 0"}},h("div",{style:{fontSize:42,marginBottom:12}},"\u2705"),h("div",{style:{fontSize:9,letterSpacing:3,color:"#4CAF82",fontFamily:"monospace",textTransform:"uppercase",marginBottom:5}},"Aporte registrado"),h("div",{style:{fontSize:24,color:"#F0EAD8",fontFamily:"monospace",fontWeight:700,marginBottom:4}},fB(tot)),h("p",{style:{color:"#8A8070",fontSize:11,fontStyle:"italic",marginBottom:18}},done.length+" ativo(s) atualizado(s)."),h("div",{style:{display:"flex",gap:7}},h("button",{onClick:()=>{setTab("dashboard");setApR(null);setStep("r");setApV("");setExecE({});},style:{flex:1,padding:"11px",background:"linear-gradient(135deg,#C8A96E,#A8893E)",border:"none",borderRadius:6,color:"#0D0F14",fontSize:12,fontWeight:700,cursor:"pointer"}},"Dashboard"),h("button",{onClick:()=>{setApR(null);setStep("r");setApV("");setExecE({});},style:{flex:1,padding:"11px",background:"transparent",border:"1px solid rgba(200,169,110,0.3)",borderRadius:6,color:"#C8A96E",fontSize:12,cursor:"pointer"}},"Novo aporte")));
     } else if(step==="confirm"&&apR){
       const byClass={};
       (apR.classes||[]).forEach(cl2=>{(cl2.ativos||[]).forEach(a=>{if(!byClass[cl2.id])byClass[cl2.id]={meta:CL.find(c=>c.id===cl2.id),ativos:[],valor:cl2.valor};byClass[cl2.id].ativos.push(a.ticker);});});
