@@ -352,49 +352,80 @@ function RiskChart({cw}){
 }
 
 function EvolChart({hist,showUSD,setShowUSD}){
-  const data=hist.filter(r=>r.totalPatrimBRL>0).slice().reverse(); // mais antigo -> recente
-  const empty=h("div",{style:{padding:"14px",textAlign:"center",color:"#5A5550",fontSize:11,fontStyle:"italic",border:"1px solid rgba(255,255,255,0.05)",borderRadius:8}},"Disponivel apos 2+ aportes registrados");
+  // Filtra snapshots que tem composicao e patrimonio
+  const data=hist.filter(r=>r.composicao&&r.totalPatrimBRL>0).slice().reverse(); // antigo -> recente
+  const empty=h("div",{style:{padding:"14px",textAlign:"center",color:"#5A5550",fontSize:11,fontStyle:"italic",border:"1px solid rgba(255,255,255,0.05)",borderRadius:8}},"Disponivel apos 2+ atualizacoes de preco");
   const toggler=h("div",{style:{display:"flex",alignItems:"center",gap:8,marginBottom:8}},
     h("button",{onClick:()=>setShowUSD(false),style:{fontSize:9,padding:"3px 10px",borderRadius:4,fontFamily:"monospace",background:!showUSD?"#C8A96E":"transparent",border:"1px solid rgba(200,169,110,0.4)",color:!showUSD?"#0D0F14":"#8A8070",cursor:"pointer"}},"BRL"),
     h("button",{onClick:()=>setShowUSD(true),style:{fontSize:9,padding:"3px 10px",borderRadius:4,fontFamily:"monospace",background:showUSD?"#5B8FD4":"transparent",border:"1px solid rgba(91,143,212,0.4)",color:showUSD?"#0D0F14":"#8A8070",cursor:"pointer"}},"USD")
   );
   if(data.length<2)return h("div",{style:{marginBottom:20,paddingTop:14,borderTop:"1px solid rgba(255,255,255,0.05)"}},
-    h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:8}},"Evolucao do patrimonio"),
+    h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:8}},"Evolucao por classe"),
     toggler,empty
   );
-  const vals=data.map(r=>showUSD?(r.totalPatrimUSD||r.totalPatrimBRL/FX.USD):r.totalPatrimBRL);
-  // Grafico
-  const minV=Math.min(...vals)*0.95,maxV=Math.max(...vals)*1.02,rng=maxV-minV||1;
-  const W=300,H=155,pL=44,pB=26,pT=12,pR=10,cW=W-pL-pR,cH=H-pB-pT;
-  const pts=vals.map((v,i)=>({x:pL+(i/(vals.length-1))*cW,y:pT+cH-((v-minV)/rng)*cH,v}));
-  const lineD=pts.map((p,i)=>(i===0?"M":"L")+p.x.toFixed(1)+" "+p.y.toFixed(1)).join(" ");
-  const areaD=lineD+" L"+pts[pts.length-1].x.toFixed(1)+" "+(pT+cH)+" L"+pts[0].x.toFixed(1)+" "+(pT+cH)+" Z";
-  const lc=showUSD?"#5B8FD4":"#C8A96E";
+  // Calcula valor R$ (ou USD) de cada classe em cada snapshot
+  const serie={};
+  CL.forEach(c=>{serie[c.id]=data.map(r=>{
+    const totalBRL=r.totalPatrimBRL||0;
+    const pct=(r.composicao[c.id]||0)/100;
+    const valBRL=totalBRL*pct;
+    return showUSD?valBRL/(FX.USD||5):valBRL;
+  });});
+  // Range Y: do menor ao maior valor entre todas as classes
+  const allVals=Object.values(serie).flat().filter(v=>v>0);
+  const minV=Math.min(...allVals)*0.9;
+  const maxV=Math.max(...allVals)*1.05;
+  const rng=maxV-minV||1;
+  // SVG
+  const W=320,H=180,pL=46,pB=20,pT=10,pR=14,cW=W-pL-pR,cH=H-pB-pT;
+  const xScale=i=>pL+(i/(data.length-1||1))*cW;
+  const yScale=v=>pT+cH-((v-minV)/rng)*cH;
+  const fmtY=(v)=>{
+    if(v>=1000000)return (showUSD?"$":"R$")+(v/1000000).toFixed(1)+"M";
+    if(v>=1000)return (showUSD?"$":"R$")+(v/1000).toFixed(0)+"k";
+    return (showUSD?"$":"R$")+v.toFixed(0);
+  };
   return h("div",{style:{marginBottom:20,paddingTop:14,borderTop:"1px solid rgba(255,255,255,0.05)"}},
-    h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:8}},"Evolucao do patrimonio"),
+    h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:8}},"Evolucao por classe"),
     toggler,
-    h("svg",{viewBox:"0 0 "+W+" "+H,style:{width:"100%",height:"auto"}},
-      h("defs",{},h("linearGradient",{id:"lg1",x1:"0",y1:"0",x2:"0",y2:"1"},
-        h("stop",{offset:"0%",stopColor:lc,stopOpacity:"0.2"}),
-        h("stop",{offset:"100%",stopColor:lc,stopOpacity:"0.02"})
-      )),
-      h("path",{d:areaD,fill:"url(#lg1)"}),
-      ...[0,0.5,1].map(f=>{
+    h("svg",{viewBox:"0 0 "+W+" "+H,style:{width:"100%",height:"auto",display:"block"}},
+      // Linhas guia horizontais
+      ...[0,0.25,0.5,0.75,1].map(f=>{
         const y=pT+cH-(f*cH),v=minV+f*rng;
-        const label=showUSD?"$"+(v/1000).toFixed(0)+"k":"R$"+(v/1000).toFixed(0)+"k";
-        return h(Fragment,{key:f},h("line",{x1:pL,y1:y,x2:W-pR,y2:y,stroke:"rgba(255,255,255,0.05)",strokeWidth:"1"}),h("text",{x:pL-3,y:y+3,textAnchor:"end",fill:"#5A5550",fontSize:"7"},label));
+        return h(Fragment,{key:f},
+          h("line",{x1:pL,y1:y,x2:W-pR,y2:y,stroke:"rgba(255,255,255,0.04)",strokeWidth:"1"}),
+          h("text",{x:pL-3,y:y+3,textAnchor:"end",fill:"#5A5550",fontSize:"7",fontFamily:"monospace"},fmtY(v))
+        );
       }),
-      // Linha do patrimonio
-      h("path",{d:lineD,fill:"none",stroke:lc,strokeWidth:"2",strokeLinejoin:"round"}),
-      ...pts.map((p,i)=>h("circle",{key:i,cx:p.x.toFixed(1),cy:p.y.toFixed(1),r:"3",fill:lc,stroke:"#0D0F14",strokeWidth:"1.5"})),
-      ...data.map((r,i)=>{
-        const x=pL+(i/(data.length-1))*cW;
-        const lb=new Date(r.date).toLocaleDateString("pt-BR",{day:"2-digit",month:"short"});
-        return h("text",{key:i,x:x.toFixed(1),y:H-pB+12,textAnchor:"middle",fill:"#5A5550",fontSize:"6.5"},lb);
+      // 7 linhas, uma por classe
+      ...CL.map(c=>{
+        const vals=serie[c.id];
+        const pts=vals.map((v,i)=>({x:xScale(i),y:yScale(v)}));
+        const lineD=pts.map((p,i)=>(i===0?"M":"L")+p.x.toFixed(1)+" "+p.y.toFixed(1)).join(" ");
+        const ultimo=pts[pts.length-1];
+        return h(Fragment,{key:c.id},
+          h("path",{d:lineD,fill:"none",stroke:c.color,strokeWidth:"1.6",strokeLinejoin:"round",strokeLinecap:"round",opacity:"0.9"}),
+          // Ponto final destacado
+          h("circle",{cx:ultimo.x.toFixed(1),cy:ultimo.y.toFixed(1),r:"2.2",fill:c.color,stroke:"#0D0F14",strokeWidth:"1"})
+        );
       }),
-      h("text",{x:pts[pts.length-1].x.toFixed(1),y:(pts[pts.length-1].y-8).toFixed(1),textAnchor:"middle",fill:lc,fontSize:"8",fontFamily:"monospace",fontWeight:"bold"},
-        showUSD?("$"+(vals[vals.length-1]/1000).toFixed(1)+"k"):("R$"+(vals[vals.length-1]/1000).toFixed(0)+"k")
-      )
+      // Labels de data no eixo X (so 3 marcas: inicio, meio, fim para evitar poluicao)
+      ...[0,Math.floor((data.length-1)/2),data.length-1].filter((v,i,a)=>a.indexOf(v)===i).map((i)=>{
+        const r=data[i];if(!r)return null;
+        const x=xScale(i);
+        const lb=new Date(r.date).toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"});
+        return h("text",{key:i,x:x.toFixed(1),y:H-pB+12,textAnchor:"middle",fill:"#5A5550",fontSize:"7",fontFamily:"monospace"},lb);
+      })
+    ),
+    // Legenda compacta com valores atuais
+    h("div",{style:{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:4,marginTop:10}},
+      ...CL.map(c=>{
+        const ult=serie[c.id][serie[c.id].length-1];
+        return h("div",{key:c.id,style:{display:"flex",alignItems:"center",gap:6,padding:"3px 6px",background:"rgba(0,0,0,0.15)",borderRadius:4,borderLeft:"3px solid "+c.color}},
+          h("span",{style:{fontSize:8,color:c.color,fontFamily:"monospace",fontWeight:"bold",minWidth:22}},c.tag),
+          h("span",{style:{fontSize:9,color:"#8A8070",fontFamily:"monospace",flex:1,textAlign:"right"}},fmtY(ult))
+        );
+      })
     )
   );
 }
