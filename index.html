@@ -147,24 +147,69 @@ function App(){
   const {total,ct,cw}=stats();
   const hasPos=Object.entries(port).some(([t,p])=>hq(t,p));
 
+  // Map internal tickers to Yahoo Finance symbols
+  const toYahoo=(t)=>{
+    const map={BRKB:"BRK-B",NSIS_B:"NSIS-B.CO",HLMA:"HLMA.L",KOG:"KOG.OL",GMEXICOB:"GMEXICOB.MX",
+      TSE8058:"8058.T",TSE8031:"8031.T",REA:"REA.AX",WES:"WES.AX",
+      HKG0700:"0700.HK",HKG1299:"1299.HK",HKG0001:"0001.HK",HKG0087:"0087.HK",J36:"J36.SI",
+      OURO_FISICO:"GC=F",AAAU:"AAAU",BTC:"BTC-USD",SELIC2031:"SELIC2031"
+    };
+    if(map[t])return map[t];
+    // B3 stocks/FIIs
+    if(BCCY[t]==="BRL"&&t!=="SELIC2031")return t+".SA";
+    return t;
+  };
+
   const refresh=useCallback(async()=>{
-    const tickers=Object.keys(port).filter(t=>hq(t,port[t]));
+    const tickers=Object.keys(port).filter(t=>hq(t,port[t])&&!VB.includes(t));
     if(!tickers.length){setPErr("Nenhum ativo com quantidade cadastrada");return;}
     setLoadP(true);setPErr("");
     try{
       const allPrices={};
-      for(let i=0;i<tickers.length;i+=3){
-        const batch=tickers.slice(i,i+3);
-        const msg="Busque o preco de fechamento mais recente de cada ativo: "+batch.join(",")+" . Responda SOMENTE um objeto JSON assim: {\"HGRU11\":127.50,\"BTLG11\":105.30} sem texto adicional.";
-        const txt=await callAI([{role:"user",content:msg}],apiKey,true);
-        const m=txt.match(/\{[^{}]+\}/);
-        if(m){try{const p=JSON.parse(m[0]);Object.entries(p).forEach(([t,v])=>{if(typeof v==="number"&&v>0)allPrices[t]=v;});}catch{}}
-        // Pause 15 seconds between batches to avoid rate limits
-        if(i+3<tickers.length)await new Promise(r=>setTimeout(r,15000));
+      // Fetch in batches of 10 using Yahoo Finance v8 API (free, no auth needed)
+      for(let i=0;i<tickers.length;i+=10){
+        const batch=tickers.slice(i,i+10);
+        const yahooSymbols=batch.map(toYahoo);
+        const url="https://query1.finance.yahoo.com/v7/finance/quote?symbols="+encodeURIComponent(yahooSymbols.join(","))+"&fields=regularMarketPrice,currency";
+        try{
+          const r=await fetch(url,{headers:{"User-Agent":"Mozilla/5.0"}});
+          const data=await r.json();
+          const quotes=data?.quoteResponse?.result||[];
+          quotes.forEach(q=>{
+            // Find original ticker from yahoo symbol
+            const origTicker=batch.find(t=>toYahoo(t)===q.symbol);
+            if(origTicker&&q.regularMarketPrice>0){
+              allPrices[origTicker]=q.regularMarketPrice;
+            }
+          });
+        }catch{}
+        if(i+10<tickers.length)await new Promise(r=>setTimeout(r,500));
       }
+      // Fetch USD/BRL rate
+      try{
+        const fxR=await fetch("https://query1.finance.yahoo.com/v7/finance/quote?symbols=USDBRL%3DX");
+        const fxD=await fxR.json();
+        const rate=fxD?.quoteResponse?.result?.[0]?.regularMarketPrice;
+        if(rate>0)FX.USD=rate;
+        // Also fetch other FX rates
+        const fxSymbols=["EURBRL=X","GBPBRL=X","CHFBRL=X","AUDBRL=X","JPYBRL=X","HKDBRL=X"];
+        const fxKeys=["EUR","GBP","CHF","AUD","JPY","HKD"];
+        const fxR2=await fetch("https://query1.finance.yahoo.com/v7/finance/quote?symbols="+encodeURIComponent(fxSymbols.join(",")));
+        const fxD2=await fxR2.json();
+        (fxD2?.quoteResponse?.result||[]).forEach(q=>{
+          const idx=fxSymbols.indexOf(q.symbol);
+          if(idx>=0&&q.regularMarketPrice>0)FX[fxKeys[idx]]=q.regularMarketPrice;
+        });
+      }catch{}
       const n=Object.keys(allPrices).length;
-      if(n>0){setPort(prev=>{const np={...prev};Object.entries(allPrices).forEach(([t,v])=>{if(np[t])np[t]={...np[t],price:v};});return np;});setLastPU(new Date().toISOString());}
-      else setPErr("API nao retornou precos. Tente novamente.");
+      if(n>0){
+        setPort(prev=>{const np={...prev};Object.entries(allPrices).forEach(([t,v])=>{if(np[t])np[t]={...np[t],price:v};});return np;});
+        setLastPU(new Date().toISOString());
+        setPErr("");
+      } else {
+        // Fallback to AI if Yahoo fails
+        setPErr("Yahoo Finance indisponivel. Tente novamente.");
+      }
     }catch(e){setPErr(e.message||"Erro");}
     setLoadP(false);
   },[port,apiKey]);
@@ -244,7 +289,7 @@ function App(){
         h("h1",{style:{margin:0,fontSize:20,fontWeight:400,color:"#F0EAD8"}},"Portfolio Patrimonial"),
         hasPos&&S({fontSize:24,color:"#C8A96E",fontFamily:"monospace",marginTop:2,fontWeight:700},fB(total))
       ),
-      hasPos&&h("button",{onClick:refresh,disabled:loadP,style:{background:"rgba(200,169,110,0.1)",border:"1px solid rgba(200,169,110,0.3)",borderRadius:6,padding:"6px 12px",color:"#C8A96E",fontSize:10,fontFamily:"monospace",letterSpacing:2,cursor:"pointer",textTransform:"uppercase"}},loadP?"Buscando... (pode levar alguns minutos)":"Atualizar precos")
+      hasPos&&h("button",{onClick:refresh,disabled:loadP,style:{background:"rgba(200,169,110,0.1)",border:"1px solid rgba(200,169,110,0.3)",borderRadius:6,padding:"6px 12px",color:"#C8A96E",fontSize:10,fontFamily:"monospace",letterSpacing:2,cursor:"pointer",textTransform:"uppercase"}},loadP?"Buscando cotacoes...":"Atualizar precos")
     ),
     (lastPU||pErr)&&S({fontSize:9,color:"#5A5550",marginTop:3,fontFamily:"monospace"},
       lastPU&&("Atualizado: "+new Date(lastPU).toLocaleString("pt-BR")+" · USD "+FX.USD.toFixed(2)),
