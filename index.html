@@ -2,7 +2,7 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover"/>
 <meta name="theme-color" content="#0D0F14"/>
 <meta name="apple-mobile-web-app-capable" content="yes"/>
 <meta name="mobile-web-app-capable" content="yes"/>
@@ -10,8 +10,10 @@
 <style>
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
 body{margin:0;padding:0;background:#0D0F14;color:#E8E2D5;font-family:'Georgia','Times New Roman',serif;overscroll-behavior:none;}
-input{font-size:16px!important;}
+input,textarea{font-size:16px!important;}
 ::-webkit-scrollbar{width:0;background:transparent;}
+@keyframes pulse{0%,100%{opacity:.3;transform:scale(.8)}50%{opacity:1;transform:scale(1)}}
+@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
 </style>
 </head>
 <body>
@@ -20,42 +22,36 @@ input{font-size:16px!important;}
 <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
 <script type="text/babel">
-const { useState, useEffect, useCallback } = React;
+const {useState,useEffect,useCallback,useRef} = React;
 
-
-// ── CLASSES
 const CLASSES = [
-  { id:"fii",       name:"FIIs Brasil",    emoji:"🏢", min:28, max:30, color:"#C8A96E" },
-  { id:"acoes_br",  name:"Ações Brasil",   emoji:"🇧🇷", min:13, max:15, color:"#4CAF82" },
-  { id:"acoes_ext", name:"Ações Exterior", emoji:"🌍", min:28, max:30, color:"#5B8FD4" },
-  { id:"selic",     name:"Tesouro Selic",  emoji:"🏦", min:5,  max:8,  color:"#9B9B9B", flex:true },
-  { id:"ouro",      name:"Ouro",           emoji:"✨", min:3,  max:5,  color:"#E8C44A" },
-  { id:"bitcoin",   name:"Bitcoin",        emoji:"₿",  min:3,  max:5,  color:"#F7931A" },
-  { id:"infra",     name:"Fundos Infra",   emoji:"⚡", min:5,  max:7,  color:"#A56FD4" },
+  {id:"fii",      name:"FIIs Brasil",    emoji:"🏢",min:28,max:30,color:"#C8A96E"},
+  {id:"acoes_br", name:"Ações Brasil",   emoji:"🇧🇷",min:13,max:15,color:"#4CAF82"},
+  {id:"acoes_ext",name:"Ações Exterior", emoji:"🌍",min:28,max:30,color:"#5B8FD4"},
+  {id:"selic",    name:"Tesouro Selic",  emoji:"🏦",min:5, max:8, color:"#9B9B9B",flex:true},
+  {id:"ouro",     name:"Ouro",           emoji:"✨",min:3, max:5, color:"#E8C44A"},
+  {id:"bitcoin",  name:"Bitcoin",        emoji:"₿", min:3, max:5, color:"#F7931A"},
+  {id:"infra",    name:"Fundos Infra",   emoji:"⚡",min:5, max:7, color:"#A56FD4"},
 ];
-
-// ── BUILT-IN ASSETS
 const BASE = {
-  fii:       ["HGRU11","RBVA11","ALZR11","TRXF11","FIIB11","BTLG11","HGLG11","XPIN11","JFLL11","TEPP11","PVBI11","TGAR11","HSML11","XPML11","RECR11","KNHY11","KNUQ11","KNIP11","AFHI11"],
-  acoes_br:  ["PSSA3","EGIE3","WEGE3","BBAS3","ITUB3","KLBN4","CXSE3","MULT3","CMIN3","FRAS3","TAEE11"],
-  acoes_ext: ["MSFT","APH","MU","AMAT","GOOGL","WM","O","BRKB","DHR","PH","LIN","ECL","ADBE","PEP","XOM","AOS","PANW","CTVA","SIE","SAP","NSIS_B","HLMA","KOG","GMEXICOB","ASML","ABBN","TSE8058","TSE8031","NDIA","REA","HKG0700","HKG1299","J36","HKG0001","HKG0087","WES"],
-  selic:     ["SELIC2031"],
-  ouro:      ["OURO_FISICO","AAAU"],
-  bitcoin:   ["BTC"],
-  infra:     ["BRZP11","AZIN11","KDIF11"],
+  fii:      ["HGRU11","RBVA11","ALZR11","TRXF11","FIIB11","BTLG11","HGLG11","XPIN11","JFLL11","TEPP11","PVBI11","TGAR11","HSML11","XPML11","RECR11","KNHY11","KNUQ11","KNIP11","AFHI11"],
+  acoes_br: ["PSSA3","EGIE3","WEGE3","BBAS3","ITUB3","KLBN4","CXSE3","MULT3","CMIN3","FRAS3","TAEE11"],
+  acoes_ext:["MSFT","APH","MU","AMAT","GOOGL","WM","O","BRKB","DHR","PH","LIN","ECL","ADBE","PEP","XOM","AOS","PANW","CTVA","SIE","SAP","NSIS_B","HLMA","KOG","GMEXICOB","ASML","ABBN","TSE8058","TSE8031","NDIA","REA","HKG0700","HKG1299","J36","HKG0001","HKG0087","WES"],
+  selic:    ["SELIC2031"],
+  ouro:     ["OURO_FISICO","AAAU"],
+  bitcoin:  ["BTC"],
+  infra:    ["BRZP11","AZIN11","KDIF11"],
 };
-
-const LABELS = {
-  SELIC2031:"Tesouro Selic 2031", OURO_FISICO:"Ouro Físico Ourominas (g)", AAAU:"ETF AAAU",
-  BTC:"Bitcoin (Binance/Wallet)", BRKB:"Berkshire Hathaway (BRK.B)", NSIS_B:"Novozymes (NSIS-B)",
-  HLMA:"Halma PLC", KOG:"Kongsberg Group", GMEXICOB:"Grupo México",
-  TSE8058:"Mitsubishi Corp (TSE:8058)", TSE8031:"Mitsui & Co (TSE:8031)",
-  REA:"REA Group (ASX)", HKG0700:"Tencent Holdings (0700)", HKG1299:"AIA Group (1299)",
-  J36:"Jardine Matheson (J36)", HKG0001:"CK Hutchison (0001)", HKG0087:"Swire Pacific (0087)",
+const BLABELS = {
+  SELIC2031:"Tesouro Selic 2031",OURO_FISICO:"Ouro Físico Ourominas (g)",AAAU:"ETF AAAU",
+  BTC:"Bitcoin (Binance/Wallet)",BRKB:"Berkshire Hathaway (BRK.B)",NSIS_B:"Novozymes (NSIS-B)",
+  HLMA:"Halma PLC",KOG:"Kongsberg Group",GMEXICOB:"Grupo México",
+  TSE8058:"Mitsubishi Corp (TSE:8058)",TSE8031:"Mitsui & Co (TSE:8031)",
+  REA:"REA Group (ASX)",HKG0700:"Tencent Holdings (0700)",HKG1299:"AIA Group (1299)",
+  J36:"Jardine Matheson (J36)",HKG0001:"CK Hutchison (0001)",HKG0087:"Swire Pacific (0087)",
   WES:"Wesfarmers (ASX)",
 };
-
-const BASE_CCY = {
+const BCCY = {
   HGRU11:"BRL",RBVA11:"BRL",ALZR11:"BRL",TRXF11:"BRL",FIIB11:"BRL",BTLG11:"BRL",HGLG11:"BRL",
   XPIN11:"BRL",JFLL11:"BRL",TEPP11:"BRL",PVBI11:"BRL",TGAR11:"BRL",HSML11:"BRL",XPML11:"BRL",
   RECR11:"BRL",KNHY11:"BRL",KNUQ11:"BRL",KNIP11:"BRL",AFHI11:"BRL",
@@ -64,177 +60,107 @@ const BASE_CCY = {
   MSFT:"USD",APH:"USD",MU:"USD",AMAT:"USD",GOOGL:"USD",WM:"USD",O:"USD",
   BRKB:"USD",DHR:"USD",PH:"USD",LIN:"USD",ECL:"USD",ADBE:"USD",PEP:"USD",
   XOM:"USD",AOS:"USD",PANW:"USD",CTVA:"USD",NDIA:"USD",
-  SIE:"EUR",SAP:"EUR",ASML:"EUR",ABBN:"CHF",
-  NSIS_B:"DKK",HLMA:"GBP",KOG:"NOK",GMEXICOB:"MXN",
-  TSE8058:"JPY",TSE8031:"JPY",REA:"AUD",WES:"AUD",
+  SIE:"EUR",SAP:"EUR",ASML:"EUR",ABBN:"CHF",NSIS_B:"DKK",HLMA:"GBP",KOG:"NOK",
+  GMEXICOB:"MXN",TSE8058:"JPY",TSE8031:"JPY",REA:"AUD",WES:"AUD",
   HKG0700:"HKD",HKG1299:"HKD",HKG0001:"HKD",HKG0087:"HKD",J36:"SGD",
   SELIC2031:"BRL",OURO_FISICO:"BRL",AAAU:"USD",BTC:"USD",
   BRZP11:"BRL",AZIN11:"BRL",KDIF11:"BRL",
 };
-
-// Assets stored as total BRL value (no qty x price)
-// Assets stored as total BRL value (no qty x price)
 const VALUE_BASED = ["SELIC2031"];
-// Assets measured in grams
-const GRAM_BASED = ["OURO_FISICO"];
-
-// Risk x Return profile per class (estimated annualized, for visualization)
-// risk: volatility proxy 1-10, return: expected long-term annual return proxy 1-10
-const CLASS_PROFILE = {
-  fii:       { risk:3.5, ret:7.5, label:"FIIs BR" },
-  acoes_br:  { risk:6.5, ret:8.5, label:"Ações BR" },
-  acoes_ext: { risk:5.5, ret:8.0, label:"Ações Ext" },
-  selic:     { risk:1.0, ret:4.5, label:"Selic" },
-  ouro:      { risk:4.0, ret:5.5, label:"Ouro" },
-  bitcoin:   { risk:9.5, ret:9.0, label:"Bitcoin" },
-  infra:     { risk:2.5, ret:7.0, label:"Infra" },
+const GRAM_BASED  = ["OURO_FISICO"];
+const FX = {BRL:1,USD:5.8,EUR:6.3,GBP:7.3,CHF:6.5,JPY:0.038,AUD:3.7,HKD:0.74,SGD:4.3,DKK:0.84,NOK:0.55,MXN:0.29};
+const RISKRET = {
+  fii:{risk:3.5,ret:7.5},acoes_br:{risk:6.5,ret:8.5},acoes_ext:{risk:5.5,ret:8.0},
+  selic:{risk:1.0,ret:4.5},ouro:{risk:4.0,ret:5.5},bitcoin:{risk:9.5,ret:9.0},infra:{risk:2.5,ret:7.0},
 };
 
-// Live FX rates (updated on price refresh)
-const FX = { BRL:1,USD:5.8,EUR:6.3,GBP:7.3,CHF:6.5,JPY:0.038,AUD:3.7,HKD:0.74,SGD:4.3,DKK:0.84,NOK:0.55,MXN:0.29 };
+const SK="pat-v7";
+const load=()=>{try{return JSON.parse(localStorage.getItem(SK)||"null");}catch{return null;}};
+const save=(d)=>{try{localStorage.setItem(SK,JSON.stringify(d));}catch{}};
+const getKey=()=>{try{return localStorage.getItem("pat-key")||"";}catch{return "";}};
+const setKey=(k)=>{try{localStorage.setItem("pat-key",k);}catch{}};
 
-// ── STORAGE
-const SK = "pat-v6";
-function load() { try { return JSON.parse(localStorage.getItem(SK)||"null"); } catch { return null; } }
-function save(d) { try { localStorage.setItem(SK,JSON.stringify(d)); } catch {} }
-function getKey() { try { return localStorage.getItem("pat-key")||""; } catch { return ""; } }
-function setKey(k) { try { localStorage.setItem("pat-key",k); } catch {} }
-
-// Dynamic lookups (merge built-in + custom)
-function makeLookups(customAssets) {
-  const ccy = {...BASE_CCY};
-  const cls = {};
-  const labels = {...LABELS};
-  Object.entries(BASE).forEach(([cid,ts]) => ts.forEach(t => { cls[t]=cid; }));
-  Object.entries(customAssets||{}).forEach(([cid,list]) => {
-    (list||[]).forEach(a => { ccy[a.ticker]=a.ccy||"BRL"; cls[a.ticker]=cid; labels[a.ticker]=a.label||a.ticker; });
+function mkLookups(custom){
+  const ccy={...BCCY},cls={},labels={...BLABELS};
+  Object.entries(BASE).forEach(([cid,ts])=>ts.forEach(t=>{cls[t]=cid;}));
+  Object.entries(custom||{}).forEach(([cid,list])=>{
+    (list||[]).forEach(a=>{ccy[a.ticker]=a.ccy||"BRL";cls[a.ticker]=cid;labels[a.ticker]=a.label||a.ticker;});
   });
-  return { ccy, cls, labels };
+  return {ccy,cls,labels};
 }
+function posVal(t,p,ccy){
+  if(!p)return 0;
+  if(VALUE_BASED.includes(t))return p.totalBRL||0;
+  if(GRAM_BASED.includes(t))return(p.qty||0)*(p.price||0);
+  return(p.qty||0)*(p.price||0)*(FX[ccy[t]||"BRL"]||1);
+}
+const fmtBRL=v=>new Intl.NumberFormat("pt-BR",{style:"currency",currency:"BRL"}).format(v||0);
+const fmtN=(v,d=2)=>(v||0).toLocaleString("pt-BR",{minimumFractionDigits:d,maximumFractionDigits:d});
+const pct=v=>(v||0).toFixed(1)+"%";
+const parseN=s=>parseFloat(String(s).replace(",","."))||0;
 
-// ── API CALLS
-async function apiFetch(prompt, apiKey, useSearch) {
-  const body = { model:"claude-sonnet-4-20250514", max_tokens:2000, messages:[{role:"user",content:prompt}] };
-  if(useSearch) body.tools = [{type:"web_search_20250305",name:"web_search"}];
-  const r = await fetch("https://api.anthropic.com/v1/messages", {
+async function callAI(messages,apiKey,useSearch){
+  const body={model:"claude-sonnet-4-20250514",max_tokens:2000,messages};
+  if(useSearch)body.tools=[{type:"web_search_20250305",name:"web_search"}];
+  const r=await fetch("https://api.anthropic.com/v1/messages",{
     method:"POST",
     headers:{"Content-Type":"application/json","x-api-key":apiKey,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
-    body: JSON.stringify(body)
+    body:JSON.stringify(body)
   });
-  const d = await r.json();
-  if(d.error) throw new Error(d.error.message);
+  const d=await r.json();
+  if(d.error)throw new Error(d.error.message);
   return d.content.filter(i=>i.type==="text").map(i=>i.text).join("").replace(/```json|```/g,"").trim();
 }
 
-async function fetchPrices(tickers, apiKey, ccy) {
-  const list = tickers.map(t => t+"("+(ccy[t]||"BRL")+")").join(",");
-  const prompt = "Busque na web: 1) cotacoes fechamento ultimo pregao de: "+list+
-    ". BTC=atual. OURO_FISICO=preco/grama BRL. SELIC2031=valor unitario BRL. "+
-    "2) cambio atual: USD/BRL,EUR/BRL,GBP/BRL,CHF/BRL,JPY/BRL,AUD/BRL,HKD/BRL,SGD/BRL,NOK/BRL,DKK/BRL,MXN/BRL. "+
-    "JSON sem markdown: {\"fx\":{\"USD\":5.8},\"prices\":{\"TICKER\":{\"price\":10.5}}}";
-  const txt = await apiFetch(prompt, apiKey, true);
-  const p = JSON.parse(txt);
-  return { prices: p.prices||{}, fx: p.fx||{} };
-}
-
-async function fetchAllocation(aporte, portfolio, cw, apiKey, customAssets, ccy) {
-  const allTickers = (cid) => [...(BASE[cid]||[]), ...(customAssets[cid]||[]).map(a=>a.ticker)];
-  const classInfo = CLASSES.map(c => ({
-    id:c.id, name:c.name, min:c.min, max:c.max, peso:cw[c.id]||0,
-    ativos: allTickers(c.id).map(t => {
-      const p=portfolio[t], cc=ccy[t]||"BRL";
-      if(VALUE_BASED.includes(t)) return {ticker:t,moeda:"BRL",valorBRL:p?.totalBRL||0};
-      return p ? {ticker:t,moeda:cc,qtd:p.qty,preco:p.price||0,valorBRL:(p.qty||0)*(p.price||0)*(FX[cc]||1)} : {ticker:t,moeda:cc};
-    }).slice(0,8)
-  }));
-  const prompt = "Analista Buy&Hold aposentadoria. Analise RIGOROSA, MARGEM DE SEGURANCA real.\n"+
-    "PORTFOLIO:"+JSON.stringify(classInfo)+"\nAPORTE:R$"+aporte+"\n"+
-    "REGRAS: zero vendas, rebalanceamento so aportes, todas 7 classes recebem (min 2%), priorizar abaixo do alvo com ativos atraentes.\n"+
-    "FIIs: P/VPA<=0.97, DY>=9%. Acoes BR ciclicas: P/L<=10x. Compounders: P/L<=18x se ROE>20%. Exterior: P/L<=28x compounders, <=18x value. Infra: DY>=9.5%.\n"+
-    "JSON sem markdown, percentualAporte somando 100: {\"resumo\":\"...\",\"alertas\":[\"...\"],\"classes\":[{\"id\":\"fii\",\"pct\":25,\"valor\":2500,\"justificativa\":\"...\",\"ativos\":[{\"ticker\":\"HGLG11\",\"score\":\"COMPRA FORTE\",\"metricas\":\"P/VPA 0.91 DY 9.6%\",\"margem\":\"...\",\"obs\":\"...\"}]}]}";
-  const txt = await apiFetch(prompt, apiKey, false);
-  return JSON.parse(txt);
-}
-
-// ── HELPERS
-const fmtBRL = v => new Intl.NumberFormat("pt-BR",{style:"currency",currency:"BRL"}).format(v||0);
-const fmtN   = (v,d=2) => (v||0).toLocaleString("pt-BR",{minimumFractionDigits:d,maximumFractionDigits:d});
-const pct    = v => (v||0).toFixed(1)+"%";
-const parseN = s => parseFloat(String(s).replace(",","."))||0;
-const toBRL  = (v,cc) => v*(FX[cc]||1);
-
-function posVal(t, p, ccy) {
-  if(!p) return 0;
-  if(VALUE_BASED.includes(t)) return p.totalBRL||0;
-  // GRAM_BASED: qty=gramas, price=R$/grama, always BRL
-  if(GRAM_BASED.includes(t)) return (p.qty||0)*(p.price||0);
-  return (p.qty||0)*(p.price||0)*(FX[ccy[t]||"BRL"]||1);
-}
-
-// ── SCORE BADGE
-function Badge({score}) {
-  if(!score) return null;
+function Badge({score}){
+  if(!score)return null;
   const s=score.toUpperCase();
-  const c = s.includes("FORTE")?["#1A3A20","#4CAF82"] : s.includes("COMPRA")?["#1A3020","#2E8B57"] :
-            s.includes("NEUTRO")?["#2A2A1A","#C8A96E"] : s.includes("EVITAR")?["#2A1010","#E05252"] : ["#1A2030","#5B8FD4"];
+  const c=s.includes("FORTE")?["#1A3A20","#4CAF82"]:s.includes("COMPRA")?["#1A3020","#2E8B57"]:
+          s.includes("NEUTRO")?["#2A2A1A","#C8A96E"]:s.includes("EVITAR")?["#2A1010","#E05252"]:["#1A2030","#5B8FD4"];
   return <span style={{display:"inline-flex",padding:"2px 7px",background:c[0],border:"1px solid "+c[1],borderRadius:4,fontSize:9,fontFamily:"monospace",fontWeight:700,color:c[1],letterSpacing:1,textTransform:"uppercase",whiteSpace:"nowrap"}}>{score}</span>;
 }
 
-// ── API KEY SCREEN
-function ApiKeyScreen({onSave}) {
+function ApiKeyScreen({onSave}){
   const [v,setV]=useState("");
-  return (
+  return(
     <div style={{minHeight:"100vh",background:"#0D0F14",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:24}}>
       <div style={{fontSize:40,marginBottom:16}}>🔑</div>
       <div style={{fontSize:10,letterSpacing:4,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:8,textAlign:"center"}}>Configuração inicial</div>
       <h2 style={{margin:"0 0 10px",fontSize:20,fontWeight:400,color:"#F0EAD8",textAlign:"center"}}>Chave da API Anthropic</h2>
-      <p style={{color:"#8A8070",fontSize:13,lineHeight:1.7,marginBottom:20,textAlign:"center",maxWidth:320}}>Obtenha gratuitamente em <span style={{color:"#C8A96E"}}>console.anthropic.com</span>. Fica salva só neste dispositivo.</p>
-      <input type="password" placeholder="sk-ant-..." value={v} onChange={e=>setV(e.target.value)}
-        style={{width:"100%",maxWidth:320,background:"rgba(200,169,110,0.05)",border:"1px solid rgba(200,169,110,0.3)",borderRadius:8,padding:"12px 14px",color:"#F0EAD8",fontSize:15,fontFamily:"monospace",outline:"none",marginBottom:10}}/>
-      <button onClick={()=>v.startsWith("sk-")?onSave(v):alert("Chave inválida. Deve começar com sk-ant-...")}
-        style={{width:"100%",maxWidth:320,padding:"13px",background:"linear-gradient(135deg,#C8A96E,#A8893E)",border:"none",borderRadius:8,color:"#0D0F14",fontSize:13,fontWeight:700,letterSpacing:2,textTransform:"uppercase",cursor:"pointer",fontFamily:"monospace"}}>
+      <p style={{color:"#8A8070",fontSize:13,lineHeight:1.7,marginBottom:20,textAlign:"center",maxWidth:320}}>Obtenha em <span style={{color:"#C8A96E"}}>console.anthropic.com</span>. Fica salva só neste dispositivo.</p>
+      <input type="password" placeholder="sk-ant-..." value={v} onChange={e=>setV(e.target.value)} style={{width:"100%",maxWidth:320,background:"rgba(200,169,110,0.05)",border:"1px solid rgba(200,169,110,0.3)",borderRadius:8,padding:"12px 14px",color:"#F0EAD8",fontSize:15,fontFamily:"monospace",outline:"none",marginBottom:10}}/>
+      <button onClick={()=>v.startsWith("sk-")?onSave(v):alert("Chave inválida.")} style={{width:"100%",maxWidth:320,padding:"13px",background:"linear-gradient(135deg,#C8A96E,#A8893E)",border:"none",borderRadius:8,color:"#0D0F14",fontSize:13,fontWeight:700,letterSpacing:2,textTransform:"uppercase",cursor:"pointer",fontFamily:"monospace"}}>
         Salvar e continuar →
       </button>
     </div>
   );
 }
 
-
-// ── CHART: Allocation bars (SVG)
-function AllocationChart({cw}) {
-  const W=320,H=165,pL=32,pB=42,pT=16,pR=10;
-  const cW=W-pL-pR, cH=H-pB-pT, maxY=35;
+function AllocChart({cw}){
+  const W=320,H=165,pL=32,pB=44,pT=16,pR=10,cW=W-pL-pR,cH=H-pB-pT,maxY=35;
   const bW=Math.floor(cW/CLASSES.length)-4;
-  return (
+  return(
     <div style={{marginBottom:24}}>
       <div style={{fontSize:10,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:4}}>Alocação atual vs alvo</div>
-      <div style={{fontSize:9,color:"#5A5550",marginBottom:8,fontStyle:"italic"}}>Vermelho = abaixo do mínimo · Amarelo = acima · Colorido = dentro do alvo</div>
+      <div style={{fontSize:9,color:"#5A5550",marginBottom:8,fontStyle:"italic"}}>Vermelho = abaixo · Amarelo = acima · Colorido = dentro do alvo</div>
       <svg viewBox={"0 0 "+W+" "+H} style={{width:"100%",height:"auto",overflow:"visible"}}>
         {[0,10,20,30].map(v=>{
           const y=pT+cH-(v/maxY)*cH;
-          return <g key={v}>
-            <line x1={pL} y1={y} x2={W-pR} y2={y} stroke="rgba(255,255,255,0.05)" strokeWidth="1"/>
-            <text x={pL-3} y={y+3} textAnchor="end" fill="#5A5550" fontSize="7">{v}%</text>
-          </g>;
+          return <g key={v}><line x1={pL} y1={y} x2={W-pR} y2={y} stroke="rgba(255,255,255,0.05)" strokeWidth="1"/><text x={pL-3} y={y+3} textAnchor="end" fill="#5A5550" fontSize="7">{v}%</text></g>;
         })}
         {CLASSES.map((c,i)=>{
-          const w=cw[c.id]||0;
-          const slotW=cW/CLASSES.length;
-          const x=pL+i*slotW+(slotW-bW)/2;
-          const bH=Math.max((w/maxY)*cH,1);
-          const y=pT+cH-bH;
-          const st=w<c.min?"under":w>c.max?"over":"ok";
-          const fill=st==="under"?"#E05252":st==="over"?"#E8C44A":c.color;
-          const xMid=x+bW/2;
-          const yMin=pT+cH-(c.min/maxY)*cH;
-          const yMax=pT+cH-(c.max/maxY)*cH;
+          const w=cw[c.id]||0,sW=cW/CLASSES.length,x=pL+i*sW+(sW-bW)/2;
+          const bH=Math.max((w/maxY)*cH,1),y=pT+cH-bH;
+          const st=w<c.min?"u":w>c.max?"o":"k";
+          const fill=st==="u"?"#E05252":st==="o"?"#E8C44A":c.color;
+          const xm=x+bW/2,yMin=pT+cH-(c.min/maxY)*cH,yMax=pT+cH-(c.max/maxY)*cH;
           return <g key={c.id}>
-            <line x1={xMid-bW*0.55} y1={yMin} x2={xMid+bW*0.55} y2={yMin} stroke={c.color} strokeWidth="1" strokeOpacity="0.4" strokeDasharray="2,2"/>
-            <line x1={xMid-bW*0.55} y1={yMax} x2={xMid+bW*0.55} y2={yMax} stroke={c.color} strokeWidth="1" strokeOpacity="0.2" strokeDasharray="2,2"/>
-            <rect x={x} y={y} width={bW} height={bH} fill={fill} fillOpacity="0.85" rx="2"/>
-            <text x={xMid} y={y-3} textAnchor="middle" fill={fill} fontSize="7" fontFamily="monospace">{w.toFixed(1)}</text>
-            <text x={xMid} y={H-pB+13} textAnchor="middle" fill={c.color} fontSize="10">{c.emoji}</text>
-            <text x={xMid} y={H-pB+26} textAnchor="middle" fill="#6A6050" fontSize="6.5" fontFamily="monospace">{c.name.split(" ")[0]}</text>
+            <line x1={xm-bW*.55} y1={yMin} x2={xm+bW*.55} y2={yMin} stroke={c.color} strokeWidth="1" strokeOpacity=".4" strokeDasharray="2,2"/>
+            <line x1={xm-bW*.55} y1={yMax} x2={xm+bW*.55} y2={yMax} stroke={c.color} strokeWidth="1" strokeOpacity=".2" strokeDasharray="2,2"/>
+            <rect x={x} y={y} width={bW} height={bH} fill={fill} fillOpacity=".85" rx="2"/>
+            <text x={xm} y={y-3} textAnchor="middle" fill={fill} fontSize="7" fontFamily="monospace">{w.toFixed(1)}</text>
+            <text x={xm} y={H-pB+14} textAnchor="middle" fill={c.color} fontSize="10">{c.emoji}</text>
+            <text x={xm} y={H-pB+27} textAnchor="middle" fill="#6A6050" fontSize="6.5" fontFamily="monospace">{c.name.split(" ")[0]}</text>
           </g>;
         })}
         <line x1={pL} y1={pT+cH} x2={W-pR} y2={pT+cH} stroke="rgba(255,255,255,0.08)" strokeWidth="1"/>
@@ -243,45 +169,26 @@ function AllocationChart({cw}) {
   );
 }
 
-// ── CHART: Risk x Return scatter (SVG)
-function RiskReturnChart({cw}) {
-  const W=320,H=200,pL=28,pB=28,pT=16,pR=16;
-  const cW=W-pL-pR, cH=H-pB-pT;
-  const PROF={
-    fii:      {risk:3.5,ret:7.5},
-    acoes_br: {risk:6.5,ret:8.5},
-    acoes_ext:{risk:5.5,ret:8.0},
-    selic:    {risk:1.0,ret:4.5},
-    ouro:     {risk:4.0,ret:5.5},
-    bitcoin:  {risk:9.5,ret:9.0},
-    infra:    {risk:2.5,ret:7.0},
-  };
-  return (
+function RiskChart({cw}){
+  const W=320,H=200,pL=28,pB=28,pT=16,pR=16,cW=W-pL-pR,cH=H-pB-pT;
+  return(
     <div style={{marginBottom:24}}>
       <div style={{fontSize:10,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:4}}>Risco x Retorno esperado</div>
       <div style={{fontSize:9,color:"#5A5550",marginBottom:8,fontStyle:"italic"}}>Tamanho do círculo = peso atual no portfólio</div>
       <svg viewBox={"0 0 "+W+" "+H} style={{width:"100%",height:"auto"}}>
         {[0,2,4,6,8,10].map(v=>{
-          const x=pL+(v/10)*cW, y=pT+cH-(v/10)*cH;
-          return <g key={v}>
-            <line x1={x} y1={pT} x2={x} y2={pT+cH} stroke="rgba(255,255,255,0.04)" strokeWidth="1"/>
-            <line x1={pL} y1={y} x2={pL+cW} y2={y} stroke="rgba(255,255,255,0.04)" strokeWidth="1"/>
-          </g>;
+          const x=pL+(v/10)*cW,y=pT+cH-(v/10)*cH;
+          return <g key={v}><line x1={x} y1={pT} x2={x} y2={pT+cH} stroke="rgba(255,255,255,0.04)" strokeWidth="1"/><line x1={pL} y1={y} x2={pL+cW} y2={y} stroke="rgba(255,255,255,0.04)" strokeWidth="1"/></g>;
         })}
         <text x={pL+cW/2} y={H-4} textAnchor="middle" fill="#4A4840" fontSize="7">menor risco ← → maior risco</text>
         <text x={9} y={pT+cH/2} textAnchor="middle" fill="#4A4840" fontSize="7" transform={"rotate(-90,9,"+(pT+cH/2)+")"}>retorno →</text>
         {CLASSES.map(c=>{
-          const p=PROF[c.id]; if(!p) return null;
-          const w=cw[c.id]||0;
-          const cx=pL+(p.risk/10)*cW, cy=pT+cH-(p.ret/10)*cH;
-          const r=w>0?Math.max(Math.sqrt(w)*3.5,8):5;
-          const op=w>0?0.9:0.18;
+          const p=RISKRET[c.id];if(!p)return null;
+          const w=cw[c.id]||0,cx=pL+(p.risk/10)*cW,cy=pT+cH-(p.ret/10)*cH;
+          const r=w>0?Math.max(Math.sqrt(w)*3.5,8):5,op=w>0?0.9:0.18;
           return <g key={c.id}>
             <circle cx={cx} cy={cy} r={r} fill={c.color} fillOpacity={op} stroke={c.color} strokeWidth="1.5" strokeOpacity={op}/>
-            {w>0 && <>
-              <text x={cx} y={cy+3} textAnchor="middle" fill="#0D0F14" fontSize="7" fontWeight="bold">{w.toFixed(0)}%</text>
-              <text x={cx} y={cy-r-3} textAnchor="middle" fill={c.color} fontSize="8">{c.emoji}</text>
-            </>}
+            {w>0&&<><text x={cx} y={cy+3} textAnchor="middle" fill="#0D0F14" fontSize="7" fontWeight="bold">{w.toFixed(0)}%</text><text x={cx} y={cy-r-3} textAnchor="middle" fill={c.color} fontSize="8">{c.emoji}</text></>}
           </g>;
         })}
         <line x1={pL} y1={pT+cH} x2={pL+cW} y2={pT+cH} stroke="rgba(255,255,255,0.1)" strokeWidth="1"/>
@@ -291,40 +198,28 @@ function RiskReturnChart({cw}) {
   );
 }
 
-// ── CHART: Evolution bars (SVG)
-function EvolutionChart({hist}) {
-  if(!hist||hist.length<2) return (
+function EvolChart({hist}){
+  if(!hist||hist.length<2)return(
     <div style={{marginBottom:24}}>
       <div style={{fontSize:10,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:4}}>Evolução dos aportes</div>
       <div style={{padding:"16px",textAlign:"center",color:"#5A5550",fontSize:11,fontStyle:"italic",border:"1px solid rgba(255,255,255,0.05)",borderRadius:8}}>Disponível após 2+ aportes registrados</div>
     </div>
   );
-  const data=[...hist].reverse();
-  const maxVal=Math.max(...data.map(r=>r.totalExecuted));
-  const W=320,H=140,pL=40,pB=36,pT=12,pR=10;
-  const cW=W-pL-pR, cH=H-pB-pT;
+  const data=[...hist].reverse(),maxV=Math.max(...data.map(r=>r.totalExecuted));
+  const W=320,H=140,pL=40,pB=36,pT=12,pR=10,cW=W-pL-pR,cH=H-pB-pT;
   const bW=Math.max(Math.floor(cW/data.length)-4,4);
-  return (
+  return(
     <div style={{marginBottom:24}}>
       <div style={{fontSize:10,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:4}}>Evolução dos aportes</div>
       <svg viewBox={"0 0 "+W+" "+H} style={{width:"100%",height:"auto"}}>
-        {[0,0.5,1].map(f=>{
-          const y=pT+cH-(f*cH), v=maxVal*f;
-          return <g key={f}>
-            <line x1={pL} y1={y} x2={W-pR} y2={y} stroke="rgba(255,255,255,0.05)" strokeWidth="1"/>
-            <text x={pL-3} y={y+3} textAnchor="end" fill="#5A5550" fontSize="7">{v>=1000?"R$"+(v/1000).toFixed(0)+"k":"R$"+v.toFixed(0)}</text>
-          </g>;
+        {[0,.5,1].map(f=>{
+          const y=pT+cH-(f*cH),v=maxV*f;
+          return <g key={f}><line x1={pL} y1={y} x2={W-pR} y2={y} stroke="rgba(255,255,255,0.05)" strokeWidth="1"/><text x={pL-3} y={y+3} textAnchor="end" fill="#5A5550" fontSize="7">{v>=1000?"R$"+(v/1000).toFixed(0)+"k":"R$"+v.toFixed(0)}</text></g>;
         })}
         {data.map((r,i)=>{
-          const slotW=cW/data.length;
-          const x=pL+i*slotW+(slotW-bW)/2;
-          const bh=Math.max((r.totalExecuted/maxVal)*cH,2);
-          const y=pT+cH-bh;
+          const sW=cW/data.length,x=pL+i*sW+(sW-bW)/2,bh=Math.max((r.totalExecuted/maxV)*cH,2),y=pT+cH-bh;
           const lbl=new Date(r.date).toLocaleDateString("pt-BR",{day:"2-digit",month:"short"});
-          return <g key={i}>
-            <rect x={x} y={y} width={bW} height={bh} fill="#C8A96E" fillOpacity="0.8" rx="2"/>
-            <text x={x+bW/2} y={H-pB+14} textAnchor="end" fill="#8A8070" fontSize="7" transform={"rotate(-35,"+(x+bW/2)+","+(H-pB+12)+")"}>{lbl}</text>
-          </g>;
+          return <g key={i}><rect x={x} y={y} width={bW} height={bh} fill="#C8A96E" fillOpacity=".8" rx="2"/><text x={x+bW/2} y={H-pB+14} textAnchor="end" fill="#8A8070" fontSize="7" transform={"rotate(-35,"+(x+bW/2)+","+(H-pB+12)+")"}>{lbl}</text></g>;
         })}
         <line x1={pL} y1={pT+cH} x2={W-pR} y2={pT+cH} stroke="rgba(255,255,255,0.08)" strokeWidth="1"/>
       </svg>
@@ -332,248 +227,162 @@ function EvolutionChart({hist}) {
   );
 }
 
-
-
-// ── CHAT TAB
-function ChatTab({msgs, input, setInput, loading, onSend, hasAlloc, onClear}) {
-  const endRef = React.useRef(null);
-  useEffect(()=>{ endRef.current?.scrollIntoView({behavior:"smooth"}); },[msgs,loading]);
-
-  const SUGGESTIONS = hasAlloc ? [
+function ChatTab({msgs,input,setInput,loading,onSend,hasAlloc,onClear}){
+  const endRef=useRef(null);
+  useEffect(()=>{endRef.current&&endRef.current.scrollIntoView({behavior:"smooth"});},[msgs,loading]);
+  const SUGG=hasAlloc?[
     "Por que esse ativo e não outro da mesma classe?",
     "Qual o principal risco desta alocação?",
-    "O valuation do ativo mais recomendado é realmente atrativo?",
-    "Existe algum ativo da lista com melhor margem de segurança agora?",
-  ] : [
+    "O valuation do ativo mais recomendado é realmente atrativo agora?",
+    "Existe ativo da lista com melhor margem de segurança?",
+  ]:[
     "Como está o valuation dos FIIs brasileiros hoje?",
     "Qual a perspectiva para ações brasileiras neste ciclo?",
-    "Como avalio se um FII de papel tem boa margem de segurança?",
-    "Quando vale alocar mais em Bitcoin dentro de um portfólio patrimonial?",
+    "Como avalio margem de segurança em FIIs de papel?",
+    "Quando faz sentido alocar mais em Bitcoin num portfólio patrimonial?",
   ];
-
-  return (
+  return(
     <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 160px)"}}>
-      {/* Header */}
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
         <div>
           <div style={{fontSize:10,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase"}}>Debate de Valuation</div>
-          <div style={{fontSize:11,color:"#5A5550",marginTop:2}}>
-            {hasAlloc ? "Contexto: última análise de aporte carregada" : "Contexto: portfólio atual"}
-          </div>
+          <div style={{fontSize:11,color:"#5A5550",marginTop:2}}>{hasAlloc?"Contexto: última análise de aporte carregada":"Contexto: portfólio atual"}</div>
         </div>
-        {msgs.length>0 && <button onClick={onClear} style={{background:"none",border:"1px solid rgba(255,255,255,0.08)",borderRadius:5,color:"#5A5550",fontSize:10,padding:"4px 8px",cursor:"pointer",fontFamily:"monospace"}}>limpar</button>}
+        {msgs.length>0&&<button onClick={onClear} style={{background:"none",border:"1px solid rgba(255,255,255,0.08)",borderRadius:5,color:"#5A5550",fontSize:10,padding:"4px 8px",cursor:"pointer",fontFamily:"monospace"}}>limpar</button>}
       </div>
-
-      {/* Messages */}
       <div style={{flex:1,overflowY:"auto",paddingRight:4,marginBottom:12}}>
-        {msgs.length===0 && (
+        {msgs.length===0&&(
           <div>
             <div style={{padding:"14px",background:"rgba(200,169,110,0.05)",border:"1px solid rgba(200,169,110,0.15)",borderRadius:10,marginBottom:16}}>
-              <div style={{fontSize:12,color:"#B0A890",lineHeight:1.7}}>
-                Olá. Sou seu analista de Buy & Hold. Posso debater qualquer recomendação de alocação, discutir valuation de ativos específicos, analisar riscos ou responder dúvidas sobre a estratégia patrimonial.
-                {hasAlloc && <span style={{color:"#C8A96E"}}> A última análise de aporte está carregada como contexto.</span>}
-              </div>
+              <div style={{fontSize:12,color:"#B0A890",lineHeight:1.7}}>Olá. Sou seu analista de Buy &amp; Hold. Posso debater recomendações, discutir valuation, analisar riscos ou responder dúvidas sobre a estratégia patrimonial.{hasAlloc&&<span style={{color:"#C8A96E"}}> A última análise de aporte está carregada como contexto.</span>}</div>
             </div>
             <div style={{fontSize:10,color:"#5A5550",fontFamily:"monospace",textTransform:"uppercase",letterSpacing:2,marginBottom:8}}>Sugestões</div>
-            {SUGGESTIONS.map((s,i)=>(
-              <button key={i} onClick={()=>onSend(s)} style={{
-                display:"block",width:"100%",textAlign:"left",background:"rgba(255,255,255,0.02)",
-                border:"1px solid rgba(255,255,255,0.06)",borderRadius:8,padding:"10px 12px",
-                color:"#9A9080",fontSize:12,cursor:"pointer",fontFamily:"Georgia,serif",
-                marginBottom:6,lineHeight:1.5
-              }}>
-                {s}
-              </button>
+            {SUGG.map((s,i)=>(
+              <button key={i} onClick={()=>onSend(s)} style={{display:"block",width:"100%",textAlign:"left",background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:8,padding:"10px 12px",color:"#9A9080",fontSize:12,cursor:"pointer",fontFamily:"Georgia,serif",marginBottom:6,lineHeight:1.5}}>{s}</button>
             ))}
           </div>
         )}
-
         {msgs.map((m,i)=>(
-          <div key={i} style={{
-            display:"flex",flexDirection:"column",
-            alignItems:m.role==="user"?"flex-end":"flex-start",
-            marginBottom:12
-          }}>
-            <div style={{
-              maxWidth:"88%",padding:"10px 14px",
-              background:m.role==="user"
-                ?"linear-gradient(135deg,rgba(200,169,110,0.15),rgba(200,169,110,0.08))"
-                :"rgba(255,255,255,0.04)",
-              border:"1px solid "+(m.role==="user"?"rgba(200,169,110,0.25)":"rgba(255,255,255,0.07)"),
-              borderRadius:m.role==="user"?"12px 12px 4px 12px":"12px 12px 12px 4px",
-            }}>
-              <div style={{
-                fontSize:12,color:m.role==="user"?"#F0EAD8":"#C8C0B0",
-                lineHeight:1.7,whiteSpace:"pre-wrap",fontFamily:m.role==="user"?"Georgia,serif":"Georgia,serif"
-              }}>{m.content}</div>
+          <div key={i} style={{display:"flex",flexDirection:"column",alignItems:m.role==="user"?"flex-end":"flex-start",marginBottom:12}}>
+            <div style={{maxWidth:"88%",padding:"10px 14px",background:m.role==="user"?"linear-gradient(135deg,rgba(200,169,110,0.15),rgba(200,169,110,0.08))":"rgba(255,255,255,0.04)",border:"1px solid "+(m.role==="user"?"rgba(200,169,110,0.25)":"rgba(255,255,255,0.07)"),borderRadius:m.role==="user"?"12px 12px 4px 12px":"12px 12px 12px 4px"}}>
+              <div style={{fontSize:12,color:m.role==="user"?"#F0EAD8":"#C8C0B0",lineHeight:1.7,whiteSpace:"pre-wrap"}}>{m.content}</div>
             </div>
-            <div style={{fontSize:9,color:"#3A3830",marginTop:3,fontFamily:"monospace"}}>
-              {m.role==="user"?"você":"analista"}
-            </div>
+            <div style={{fontSize:9,color:"#3A3830",marginTop:3,fontFamily:"monospace"}}>{m.role==="user"?"você":"analista"}</div>
           </div>
         ))}
-
-        {loading && (
+        {loading&&(
           <div style={{display:"flex",alignItems:"flex-start",marginBottom:12}}>
             <div style={{padding:"10px 14px",background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:"12px 12px 12px 4px"}}>
               <div style={{display:"flex",gap:5,alignItems:"center"}}>
-                {[0,1,2].map(i=>(
-                  <div key={i} style={{
-                    width:6,height:6,borderRadius:"50%",background:"#C8A96E",
-                    animation:"pulse 1.2s ease-in-out "+i*0.2+"s infinite"
-                  }}/>
-                ))}
+                {[0,1,2].map(i=><div key={i} style={{width:6,height:6,borderRadius:"50%",background:"#C8A96E",animation:"pulse 1.2s ease-in-out "+(i*0.2)+"s infinite"}}/>)}
               </div>
             </div>
           </div>
         )}
         <div ref={endRef}/>
       </div>
-
-      {/* Input */}
-      <div style={{
-        display:"flex",gap:8,alignItems:"flex-end",
-        background:"rgba(0,0,0,0.3)",border:"1px solid rgba(200,169,110,0.2)",
-        borderRadius:12,padding:"8px 10px",
-      }}>
-        <textarea
-          value={input}
-          onChange={e=>setInput(e.target.value)}
-          onKeyDown={e=>{ if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();if(input.trim())onSend(input);} }}
-          placeholder="Questione uma recomendação, peça análise de valuation..."
-          rows={2}
-          style={{
-            flex:1,background:"transparent",border:"none",outline:"none",
-            color:"#F0EAD8",fontSize:13,fontFamily:"Georgia,serif",
-            resize:"none",lineHeight:1.5,maxHeight:80,
-          }}
-        />
-        <button
-          onClick={()=>{ if(input.trim()) onSend(input); }}
-          disabled={loading||!input.trim()}
-          style={{
-            flexShrink:0,width:36,height:36,
-            background:loading||!input.trim()?"rgba(200,169,110,0.1)":"linear-gradient(135deg,#C8A96E,#A8893E)",
-            border:"none",borderRadius:8,cursor:loading||!input.trim()?"not-allowed":"pointer",
-            display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,
-          }}>
-          {loading?"⟳":"↑"}
-        </button>
+      <div style={{display:"flex",gap:8,alignItems:"flex-end",background:"rgba(0,0,0,0.3)",border:"1px solid rgba(200,169,110,0.2)",borderRadius:12,padding:"8px 10px"}}>
+        <textarea value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();if(input.trim())onSend(input);}}} placeholder="Questione uma recomendação ou peça análise de valuation..." rows={2} style={{flex:1,background:"transparent",border:"none",outline:"none",color:"#F0EAD8",fontSize:13,fontFamily:"Georgia,serif",resize:"none",lineHeight:1.5,maxHeight:80}}/>
+        <button onClick={()=>{if(input.trim())onSend(input);}} disabled={loading||!input.trim()} style={{flexShrink:0,width:36,height:36,background:loading||!input.trim()?"rgba(200,169,110,0.1)":"linear-gradient(135deg,#C8A96E,#A8893E)",border:"none",borderRadius:8,cursor:loading||!input.trim()?"not-allowed":"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,color:"#0D0F14"}}>↑</button>
       </div>
-      <style>{`@keyframes pulse{0%,100%{opacity:0.3;transform:scale(0.8)}50%{opacity:1;transform:scale(1)}}`}</style>
     </div>
   );
 }
 
-// ── MAIN APP
-function App() {
-  const [apiKey,setApiKeyS] = useState(()=>getKey());
-  const [tab,setTab]        = useState("dashboard");
-  const [port,setPort]      = useState({});
-  const [custom,setCustom]  = useState({});  // { classId: [{ticker,label,ccy}] }
-  const [hidden,setHidden]  = useState([]);   // array of hidden tickers
-  const [lastPU,setLastPU]  = useState(null);
-  const [loadP,setLoadP]    = useState(false);
-  const [pErr,setPErr]      = useState("");
-  const [editA,setEditA]    = useState(null);
-  const [eQty,setEQty]      = useState("");
-  const [ePrice,setEPrice]  = useState("");
-  const [showHidden,setShowHidden] = useState(false);
-  const [addingTo,setAddingTo] = useState(null);
-  const [nTicker,setNTicker]  = useState("");
-  const [nLabel,setNLabel]    = useState("");
-  const [nCcy,setNCcy]        = useState("BRL");
-  const [aporteV,setAporteV]  = useState("");
-  const [aporteR,setAporteR]  = useState(null);
-  const [loadA,setLoadA]      = useState(false);
-  const [execEnt,setExecEnt]  = useState({});
-  const [step,setStep]        = useState("result");
-  const [hist,setHist]        = useState([]);
-  const [aErr,setAErr]        = useState("");
-  // Chat state
-  const [chatMsgs,setChatMsgs]  = useState([]);
-  const [chatInput,setChatInput]= useState("");
-  const [chatLoading,setChatL]  = useState(false);
-  const [inited,setInited]    = useState(false);
+function App(){
+  const [apiKey,setApiKeyS]=useState(()=>getKey());
+  const [tab,setTab]=useState("dashboard");
+  const [port,setPort]=useState({});
+  const [custom,setCustom]=useState({});
+  const [hidden,setHidden]=useState([]);
+  const [lastPU,setLastPU]=useState(null);
+  const [loadP,setLoadP]=useState(false);
+  const [pErr,setPErr]=useState("");
+  const [editA,setEditA]=useState(null);
+  const [eQty,setEQty]=useState("");
+  const [ePrice,setEPrice]=useState("");
+  const [showHid,setShowHid]=useState(false);
+  const [addingTo,setAddingTo]=useState(null);
+  const [nTicker,setNTicker]=useState("");
+  const [nLabel,setNLabel]=useState("");
+  const [nCcy,setNCcy]=useState("BRL");
+  const [aporteV,setAporteV]=useState("");
+  const [aporteR,setAporteR]=useState(null);
+  const [loadA,setLoadA]=useState(false);
+  const [execEnt,setExecEnt]=useState({});
+  const [step,setStep]=useState("result");
+  const [hist,setHist]=useState([]);
+  const [aErr,setAErr]=useState("");
+  const [chatMsgs,setChatMsgs]=useState([]);
+  const [chatIn,setChatIn]=useState("");
+  const [chatLoad,setChatLoad]=useState(false);
+  const [inited,setInited]=useState(false);
 
   useEffect(()=>{
     const d=load();
-    if(d){ setPort(d.port||{}); setCustom(d.custom||{}); setHidden(d.hidden||[]); setLastPU(d.lastPU||null); setHist(d.hist||[]); }
+    if(d){
+      setPort(d.port||{});setCustom(d.custom||{});setHidden(d.hidden||[]);
+      setLastPU(d.lastPU||null);setHist(d.hist||[]);
+      Object.entries(d.custom||{}).forEach(([cid,list])=>{
+        (list||[]).forEach(a=>{BCCY[a.ticker]=a.ccy||"BRL";});
+      });
+    }
     setInited(true);
   },[]);
-  useEffect(()=>{ if(!inited) return; save({port,custom,hidden,lastPU,hist}); },[port,custom,hidden,lastPU,hist,inited]);
+  useEffect(()=>{if(!inited)return;save({port,custom,hidden,lastPU,hist});},[port,custom,hidden,lastPU,hist,inited]);
 
-  const LU = useCallback(()=>makeLookups(custom),[custom]);
-  const {ccy,cls,labels} = LU();
+  const {ccy,cls,labels}=mkLookups(custom);
+  const allT=useCallback((cid)=>[...(BASE[cid]||[]),...(custom[cid]||[]).map(a=>a.ticker)],[custom]);
 
-  const allTickers = useCallback((cid)=>[...(BASE[cid]||[]),...(custom[cid]||[]).map(a=>a.ticker)],[custom]);
-  const visibleTickers = useCallback((cid)=>allTickers(cid).filter(t=>!hidden.includes(t)),[allTickers,hidden]);
-
-  const stats = useCallback(()=>{
-    let total=0; const ct={};
-    CLASSES.forEach(c=>{ ct[c.id]=0; });
+  const stats=useCallback(()=>{
+    let total=0;const ct={};
+    CLASSES.forEach(c=>{ct[c.id]=0;});
     Object.entries(port).forEach(([t,p])=>{
-      const v=posVal(t,p,ccy);
-      if(!v) return;
-      total+=v;
-      const cid=p.classId||cls[t];
-      if(cid) ct[cid]=(ct[cid]||0)+v;
+      const v=posVal(t,p,ccy);if(!v)return;
+      total+=v;const cid=p.classId||cls[t];
+      if(cid)ct[cid]=(ct[cid]||0)+v;
     });
-    const cw={};
-    CLASSES.forEach(c=>{ cw[c.id]=total>0?(ct[c.id]/total)*100:0; });
+    const cw={};CLASSES.forEach(c=>{cw[c.id]=total>0?(ct[c.id]/total)*100:0;});
     return {total,ct,cw};
   },[port,ccy,cls]);
 
-  const {total,ct,cw} = stats();
-  const hasPos = Object.entries(port).some(([t,p])=>posVal(t,p,ccy)>0);
+  const {total,ct,cw}=stats();
+  const hasPos=Object.entries(port).some(([t,p])=>posVal(t,p,ccy)>0);
 
-  const refresh = useCallback(async()=>{
+  const refresh=useCallback(async()=>{
     const tickers=Object.keys(port).filter(t=>posVal(t,port[t],ccy)>0);
-    if(!tickers.length) return;
-    setLoadP(true); setPErr(""); setAErr("");
-    try {
-      const {prices,fx} = await fetchPrices(tickers,apiKey,ccy);
-      if(fx) Object.entries(fx).forEach(([c,r])=>{ if(r>0) FX[c]=r; });
-      setPort(prev=>{
-        const n={...prev};
-        Object.entries(prices).forEach(([t,d])=>{ if(n[t]) n[t]={...n[t],price:d.price}; });
-        return n;
-      });
+    if(!tickers.length)return;
+    setLoadP(true);setPErr("");
+    try{
+      const list=tickers.map(t=>t+"("+(ccy[t]||"BRL")+")").join(",");
+      const prompt="Busque na web: 1) cotacoes fechamento ultimo pregao: "+list+". BTC=atual. OURO_FISICO=preco/grama BRL. SELIC2031=valor unitario BRL. 2) cambio atual: USD/BRL,EUR/BRL,GBP/BRL,CHF/BRL,JPY/BRL,AUD/BRL,HKD/BRL,SGD/BRL,NOK/BRL,DKK/BRL,MXN/BRL. JSON sem markdown: {\"fx\":{\"USD\":5.8},\"prices\":{\"TICKER\":{\"price\":10.5}}}";
+      const txt=await callAI([{role:"user",content:prompt}],apiKey,true);
+      const parsed=JSON.parse(txt);
+      if(parsed.fx)Object.entries(parsed.fx).forEach(([c,r])=>{if(r>0)FX[c]=r;});
+      setPort(prev=>{const n={...prev};Object.entries(parsed.prices||{}).forEach(([t,d])=>{if(n[t])n[t]={...n[t],price:d.price};});return n;});
       setLastPU(new Date().toISOString());
-    } catch(e){ setPErr(e.message||"Erro"); }
+    }catch(e){setPErr(e.message||"Erro");}
     setLoadP(false);
   },[port,apiKey,ccy]);
 
   const openEdit=(ticker,classId)=>{
-    const p=port[ticker]||{};
-    setEditA({ticker,classId});
-    if(VALUE_BASED.includes(ticker)){ setEQty(p.totalBRL!=null?String(p.totalBRL):""); setEPrice(""); }
-    else { setEQty(p.qty!=null?String(p.qty):""); setEPrice(p.price!=null?String(p.price):""); }
+    const p=port[ticker]||{};setEditA({ticker,classId});
+    if(VALUE_BASED.includes(ticker)){setEQty(p.totalBRL!=null?String(p.totalBRL):"");setEPrice("");}
+    else{setEQty(p.qty!=null?String(p.qty):"");setEPrice(p.price!=null?String(p.price):"");}
   };
   const saveEdit=()=>{
-    if(!editA) return;
-    const {ticker,classId}=editA;
-    if(VALUE_BASED.includes(ticker)){
-      const totalBRL=parseN(eQty);
-      setPort(prev=>({...prev,[ticker]:{...prev[ticker],classId,totalBRL,qty:1,price:totalBRL,lastUpdate:new Date().toISOString()}}));
-    } else {
-      const qty=parseN(eQty),price=parseN(ePrice);
-      setPort(prev=>({...prev,[ticker]:{...prev[ticker],classId,qty,price,lastUpdate:new Date().toISOString()}}));
-    }
+    if(!editA)return;const{ticker,classId}=editA;
+    if(VALUE_BASED.includes(ticker)){const totalBRL=parseN(eQty);setPort(prev=>({...prev,[ticker]:{...prev[ticker],classId,totalBRL,qty:1,price:totalBRL,lastUpdate:new Date().toISOString()}}));}
+    else{const qty=parseN(eQty),price=parseN(ePrice);setPort(prev=>({...prev,[ticker]:{...prev[ticker],classId,qty,price,lastUpdate:new Date().toISOString()}}));}
     setEditA(null);
   };
-  const removePos=(ticker)=>{ setPort(prev=>{const n={...prev};delete n[ticker];return n;}); setEditA(null); };
-  const toggleHide=(ticker)=>{
-    setHidden(prev=>prev.includes(ticker)?prev.filter(t=>t!==ticker):[...prev,ticker]);
-    setEditA(null);
-  };
-
+  const removePos=(ticker)=>{setPort(prev=>{const n={...prev};delete n[ticker];return n;});setEditA(null);};
+  const toggleHide=(ticker)=>{setHidden(prev=>prev.includes(ticker)?prev.filter(t=>t!==ticker):[...prev,ticker]);setEditA(null);};
   const addCustom=(cid)=>{
-    const t=nTicker.trim().toUpperCase();
-    if(!t) return;
-    if(allTickers(cid).includes(t)){ alert("Ativo já existe."); return; }
+    const t=nTicker.trim().toUpperCase();if(!t)return;
+    if(allT(cid).includes(t)){alert("Ativo já existe.");return;}
     setCustom(prev=>({...prev,[cid]:[...(prev[cid]||[]),{ticker:t,label:nLabel.trim()||t,ccy:nCcy}]}));
-    setAddingTo(null); setNTicker(""); setNLabel(""); setNCcy("BRL");
+    BCCY[t]=nCcy;setAddingTo(null);setNTicker("");setNLabel("");setNCcy("BRL");
   };
   const removeCustom=(cid,ticker)=>{
     setCustom(prev=>({...prev,[cid]:(prev[cid]||[]).filter(a=>a.ticker!==ticker)}));
@@ -581,340 +390,194 @@ function App() {
   };
 
   const genAlloc=async()=>{
-    const v=parseN(aporteV); if(v<=0) return;
-    setLoadA(true); setAErr("");
-    try {
-      const res=await fetchAllocation(v,port,cw,apiKey,custom,ccy);
-      setAporteR({...res,aporteValue:v}); setStep("result");
-      const ent={};
-      (res.classes||[]).forEach(cl=>(cl.ativos||[]).forEach(a=>{
-        ent[a.ticker]={qty:"",price:port[a.ticker]?.price?String(port[a.ticker].price):"",executed:false};
+    const v=parseN(aporteV);if(v<=0)return;
+    setLoadA(true);setAErr("");
+    try{
+      const classInfo=CLASSES.map(c=>({id:c.id,name:c.name,min:c.min,max:c.max,peso:cw[c.id]||0,
+        ativos:allT(c.id).map(t=>{const p=port[t],cc=ccy[t]||"BRL";
+          if(VALUE_BASED.includes(t))return{ticker:t,moeda:"BRL",valorBRL:p?.totalBRL||0};
+          if(GRAM_BASED.includes(t))return{ticker:t,moeda:"BRL(g)",valorBRL:(p?.qty||0)*(p?.price||0)};
+          return p?{ticker:t,moeda:cc,qtd:p.qty,preco:p.price||0,valorBRL:(p.qty||0)*(p.price||0)*(FX[cc]||1)}:{ticker:t,moeda:cc};
+        }).slice(0,8)
       }));
+      const prompt="Analista Buy&Hold aposentadoria. RIGOROSO, MARGEM DE SEGURANCA real.\nPORTFOLIO:"+JSON.stringify(classInfo)+"\nAPORTE:R$"+v+"\nREGRAS: zero vendas, todas 7 classes recebem (min 2%), priorizar abaixo do alvo com ativos atraentes.\nFIIs: P/VPA<=0.97, DY>=9%. Acoes BR ciclicas: P/L<=10x. Compounders: P/L<=18x se ROE>20%. Exterior: P/L<=28x compounders, <=18x value. Infra: DY>=9.5%.\nJSON sem markdown, percentualAporte somando 100: {\"resumo\":\"...\",\"alertas\":[\"...\"],\"classes\":[{\"id\":\"fii\",\"pct\":25,\"valor\":2500,\"justificativa\":\"...\",\"ativos\":[{\"ticker\":\"HGLG11\",\"score\":\"COMPRA FORTE\",\"metricas\":\"P/VPA 0.91 DY 9.6%\",\"margem\":\"...\",\"obs\":\"...\"}]}]}";
+      const txt=await callAI([{role:"user",content:prompt}],apiKey,false);
+      const res=JSON.parse(txt);
+      setAporteR({...res,aporteValue:v});setStep("result");
+      const ent={};
+      (res.classes||[]).forEach(cl=>(cl.ativos||[]).forEach(a=>{ent[a.ticker]={qty:"",price:port[a.ticker]?.price?String(port[a.ticker].price):"",executed:false};}));
       setExecEnt(ent);
-    } catch(e){ setAErr(e.message||"Erro"); }
+    }catch(e){setAErr(e.message||"Erro");}
     setLoadA(false);
   };
 
   const applyExec=()=>{
     const buys=Object.entries(execEnt).filter(([,v])=>v.executed&&parseN(v.qty)>0&&parseN(v.price)>0);
-    if(!buys.length) return;
-    setPort(prev=>{
-      const n={...prev};
-      buys.forEach(([t,v])=>{
-        const aq=parseN(v.qty),ap=parseN(v.price),cid=cls[t]||n[t]?.classId,old=n[t]||{};
-        n[t]={...old,classId:cid,qty:(old.qty||0)+aq,price:ap,lastUpdate:new Date().toISOString()};
-      });
-      return n;
-    });
-    const rec={date:new Date().toISOString(),aporteValue:aporteR.aporteValue,
-      purchases:buys.map(([t,v])=>({ticker:t,qty:parseN(v.qty),price:parseN(v.price),total:parseN(v.qty)*parseN(v.price)})),
-      totalExecuted:buys.reduce((s,[,v])=>s+parseN(v.qty)*parseN(v.price),0)};
-    setHist(prev=>[rec,...prev].slice(0,24));
-    setStep("done");
+    if(!buys.length)return;
+    setPort(prev=>{const n={...prev};buys.forEach(([t,v])=>{const aq=parseN(v.qty),ap=parseN(v.price),cid=cls[t]||n[t]?.classId,old=n[t]||{};n[t]={...old,classId:cid,qty:(old.qty||0)+aq,price:ap,lastUpdate:new Date().toISOString()};});return n;});
+    const rec={date:new Date().toISOString(),aporteValue:aporteR.aporteValue,purchases:buys.map(([t,v])=>({ticker:t,qty:parseN(v.qty),price:parseN(v.price),total:parseN(v.qty)*parseN(v.price)})),totalExecuted:buys.reduce((s,[,v])=>s+parseN(v.qty)*parseN(v.price),0)};
+    setHist(prev=>[rec,...prev].slice(0,24));setStep("done");
   };
 
-  const sendChat = async(userMsg) => {
-    if(!userMsg.trim()) return;
-    const newMsg = {role:"user", content:userMsg};
-    setChatMsgs(prev=>[...prev, newMsg]);
-    setChatInput("");
-    setChatL(true);
-
-    // Build context about current portfolio and last allocation
-    const portfolioCtx = Object.entries(port)
-      .filter(([t,p])=>posVal(t,p,ccy)>0)
-      .map(([t,p])=>({ticker:t, classe:cls[t], valorBRL:Math.round(posVal(t,p,ccy))}))
-      .sort((a,b)=>b.valorBRL-a.valorBRL).slice(0,15);
-
-    const allocationCtx = aporteR ? {
-      aporteValue: aporteR.aporteValue,
-      resumo: aporteR.resumo,
-      classes: (aporteR.classes||[]).map(c=>({
-        id:c.id, pct:c.pct, valor:c.valor,
-        ativos:(c.ativos||[]).map(a=>({ticker:a.ticker,score:a.score,metricas:a.metricas,margem:a.margem}))
-      }))
-    } : null;
-
-    const systemPrompt = "Você é um analista patrimonial sênior especializado em Buy & Hold de longo prazo para aposentadoria. " +
-      "Você está debatendo as recomendações de alocação com o investidor. " +
-      "CONTEXTO DO PORTFÓLIO ATUAL: " + JSON.stringify(portfolioCtx) + ". " +
-      (allocationCtx ? "ÚLTIMA ANÁLISE DE APORTE GERADA: " + JSON.stringify(allocationCtx) + ". " : "") +
-      "FILOSOFIA: Buy & Hold patrimonialista, zero vendas, rebalanceamento só por aportes, margem de segurança obrigatória. " +
-      "Responda de forma direta e objetiva. Use dados e múltiplos quando relevante. " +
-      "Se o investidor questionar uma indicação, defenda ou revise com base em fundamentos reais. " +
-      "Máximo 4 parágrafos por resposta. Use linguagem clara, sem jargão desnecessário.";
-
-    const messages = [
-      {role:"user", content: systemPrompt + "
-
-Primeira mensagem do investidor: " + userMsg},
-      ...chatMsgs.filter(m=>m.role!=="system").slice(-8).map(m=>({
-        role:m.role, content:m.content
-      })),
-    ];
-
-    // For subsequent messages use conversation history properly
-    const apiMessages = chatMsgs.length === 0
-      ? [{role:"user", content: systemPrompt + "
-
-" + userMsg}]
-      : [
-          {role:"user", content: systemPrompt + "
-
-Histórico da conversa:
-" +
-            chatMsgs.map(m=>(m.role==="user"?"Investidor: ":"Analista: ")+m.content).join("
-") +
-            "
-
-Nova mensagem do investidor: " + userMsg
-          }
-        ];
-
-    try {
-      const r = await fetch("https://api.anthropic.com/v1/messages", {
-        method:"POST",
-        headers:{"Content-Type":"application/json","x-api-key":apiKey,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
-        body: JSON.stringify({model:"claude-sonnet-4-20250514", max_tokens:1000, messages:apiMessages})
-      });
-      const d = await r.json();
-      if(d.error) throw new Error(d.error.message);
-      const reply = d.content.filter(i=>i.type==="text").map(i=>i.text).join("");
-      setChatMsgs(prev=>[...prev, {role:"assistant", content:reply}]);
-    } catch(e) {
-      setChatMsgs(prev=>[...prev, {role:"assistant", content:"Erro: "+e.message}]);
-    }
-    setChatL(false);
+  const sendChat=async(userMsg)=>{
+    if(!userMsg.trim())return;
+    setChatMsgs(prev=>[...prev,{role:"user",content:userMsg}]);
+    setChatIn("");setChatLoad(true);
+    const portCtx=Object.entries(port).filter(([t,p])=>posVal(t,p,ccy)>0).map(([t,p])=>({ticker:t,classe:cls[t],valorBRL:Math.round(posVal(t,p,ccy))})).sort((a,b)=>b.valorBRL-a.valorBRL).slice(0,12);
+    const allocCtx=aporteR?{aporteValue:aporteR.aporteValue,resumo:aporteR.resumo,classes:(aporteR.classes||[]).map(c=>({id:c.id,pct:c.pct,valor:c.valor,ativos:(c.ativos||[]).map(a=>({ticker:a.ticker,score:a.score,metricas:a.metricas,margem:a.margem}))}))}:null;
+    const hist8=chatMsgs.slice(-8);
+    const ctx="Você é analista patrimonial sênior Buy&Hold aposentadoria. PORTFÓLIO: "+JSON.stringify(portCtx)+(allocCtx?". ÚLTIMA ANÁLISE: "+JSON.stringify(allocCtx):".")+". Responda direto, use dados e múltiplos. Máx 4 parágrafos.";
+    const msgs=[{role:"user",content:ctx+"\n\nHistórico:\n"+hist8.map(m=>(m.role==="user"?"Investidor: ":"Analista: ")+m.content).join("\n")+"\n\nNova pergunta: "+userMsg}];
+    try{
+      const txt=await callAI(msgs,apiKey,false);
+      setChatMsgs(prev=>[...prev,{role:"assistant",content:txt}]);
+    }catch(e){setChatMsgs(prev=>[...prev,{role:"assistant",content:"Erro: "+e.message}]);}
+    setChatLoad(false);
   };
 
-  if(!apiKey) return <ApiKeyScreen onSave={k=>{setKey(k);setApiKeyS(k);}}/>;
-  if(!inited) return <div style={{minHeight:"100vh",background:"#0D0F14",display:"flex",alignItems:"center",justifyContent:"center"}}><span style={{color:"#C8A96E",fontFamily:"monospace",fontSize:12,letterSpacing:3}}>CARREGANDO...</span></div>;
+  if(!apiKey)return <ApiKeyScreen onSave={k=>{setKey(k);setApiKeyS(k);}}/>;
+  if(!inited)return <div style={{minHeight:"100vh",background:"#0D0F14",display:"flex",alignItems:"center",justifyContent:"center"}}><span style={{color:"#C8A96E",fontFamily:"monospace",fontSize:12,letterSpacing:3}}>CARREGANDO...</span></div>;
 
-  return (
+  return(
     <div style={{minHeight:"100vh",background:"#0D0F14",color:"#E8E2D5",fontFamily:"'Georgia','Times New Roman',serif",paddingBottom:80}}>
-
-      {/* HEADER */}
       <div style={{background:"linear-gradient(180deg,rgba(200,169,110,0.08) 0%,transparent 100%)",borderBottom:"1px solid rgba(200,169,110,0.15)",padding:"16px 20px 12px"}}>
         <div style={{fontSize:9,letterSpacing:4,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:3}}>Planejamento Patrimonial · Buy & Hold</div>
         <div style={{display:"flex",alignItems:"flex-end",justifyContent:"space-between",gap:8,flexWrap:"wrap"}}>
           <div>
             <h1 style={{margin:0,fontSize:22,fontWeight:400,color:"#F0EAD8",letterSpacing:-0.5}}>Portfólio Patrimonial</h1>
-            {hasPos && <div style={{fontSize:26,color:"#C8A96E",fontFamily:"monospace",marginTop:2,fontWeight:700}}>{fmtBRL(total)}</div>}
+            {hasPos&&<div style={{fontSize:26,color:"#C8A96E",fontFamily:"monospace",marginTop:2,fontWeight:700}}>{fmtBRL(total)}</div>}
           </div>
-          {hasPos && <button onClick={refresh} disabled={loadP} style={{background:"rgba(200,169,110,0.1)",border:"1px solid rgba(200,169,110,0.3)",borderRadius:6,padding:"6px 12px",color:"#C8A96E",fontSize:10,fontFamily:"monospace",letterSpacing:2,cursor:"pointer",textTransform:"uppercase"}}>{loadP?"⟳ Buscando...":"⟳ Atualizar preços"}</button>}
+          {hasPos&&<button onClick={refresh} disabled={loadP} style={{background:"rgba(200,169,110,0.1)",border:"1px solid rgba(200,169,110,0.3)",borderRadius:6,padding:"6px 12px",color:"#C8A96E",fontSize:10,fontFamily:"monospace",letterSpacing:2,cursor:"pointer",textTransform:"uppercase"}}>{loadP?"⟳ Buscando...":"⟳ Atualizar preços"}</button>}
         </div>
-        {lastPU && <div style={{fontSize:9,color:"#5A5550",marginTop:4,fontFamily:"monospace"}}>
-          {new Date(lastPU).toLocaleString("pt-BR")} · USD {FX.USD.toFixed(2)} · EUR {FX.EUR.toFixed(2)} · GBP {FX.GBP.toFixed(2)}
-          {pErr && <span style={{color:"#E05252",marginLeft:8}}>⚠ {pErr}</span>}
-        </div>}
+        {lastPU&&<div style={{fontSize:9,color:"#5A5550",marginTop:4,fontFamily:"monospace"}}>{new Date(lastPU).toLocaleString("pt-BR")} · USD {FX.USD.toFixed(2)} · EUR {FX.EUR.toFixed(2)}{pErr&&<span style={{color:"#E05252",marginLeft:8}}>⚠ {pErr}</span>}</div>}
       </div>
 
       <div style={{padding:"0 20px"}}>
-        {/* TABS */}
-        <div style={{display:"flex",borderBottom:"1px solid rgba(255,255,255,0.06)",marginBottom:20,marginTop:12}}>
-          {[{id:"dashboard",label:"Dashboard"},{id:"positions",label:"Posições"},{id:"aporte",label:"Aporte"},{id:"history",label:"Histórico"},{id:"chat",label:"Análise"}].map(t=>(
-            <button key={t.id} onClick={()=>{setTab(t.id);if(t.id!=="aporte"){setAporteR(null);setStep("result");}}}
-              style={{background:"none",border:"none",borderBottom:tab===t.id?"2px solid #C8A96E":"2px solid transparent",color:tab===t.id?"#C8A96E":"#8A8070",padding:"7px 12px",cursor:"pointer",fontSize:12,fontFamily:"Georgia,serif",marginBottom:-1,flexShrink:0}}>{t.label}</button>
+        <div style={{display:"flex",borderBottom:"1px solid rgba(255,255,255,0.06)",marginBottom:20,marginTop:12,overflowX:"auto"}}>
+          {[{id:"dashboard",label:"Dashboard"},{id:"positions",label:"Posições"},{id:"aporte",label:"Aporte"},{id:"chat",label:"Análise"},{id:"history",label:"Histórico"}].map(t=>(
+            <button key={t.id} onClick={()=>{setTab(t.id);if(t.id!=="aporte"){setAporteR(null);setStep("result");}}} style={{background:"none",border:"none",borderBottom:tab===t.id?"2px solid #C8A96E":"2px solid transparent",color:tab===t.id?"#C8A96E":"#8A8070",padding:"7px 11px",cursor:"pointer",fontSize:12,fontFamily:"Georgia,serif",marginBottom:-1,flexShrink:0,whiteSpace:"nowrap"}}>{t.label}</button>
           ))}
-          <button onClick={()=>{if(window.confirm("Alterar chave de API?")){localStorage.removeItem("pat-key");setApiKeyS("");}}}
-            style={{marginLeft:"auto",background:"none",border:"none",color:"#3A3830",fontSize:10,cursor:"pointer",padding:"7px 0",fontFamily:"monospace"}}>API</button>
+          <button onClick={()=>{if(window.confirm("Alterar chave?")){localStorage.removeItem("pat-key");setApiKeyS("");}}} style={{marginLeft:"auto",background:"none",border:"none",color:"#3A3830",fontSize:10,cursor:"pointer",padding:"7px 0",fontFamily:"monospace",flexShrink:0}}>API</button>
         </div>
 
-        {/* ── DASHBOARD */}
-        {tab==="dashboard" && (!hasPos ? <Empty onGo={()=>setTab("positions")}/> : (
+        {tab==="dashboard"&&(!hasPos?<Empty onGo={()=>setTab("positions")}/>:(
           <>
-            <div style={{marginBottom:24}}>
+            <div style={{marginBottom:20}}>
               <div style={{fontSize:10,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:8}}>Composição atual</div>
               <div style={{display:"flex",height:8,borderRadius:4,overflow:"hidden",gap:1,marginBottom:10}}>
                 {CLASSES.map(c=><div key={c.id} style={{flex:cw[c.id]||0,background:c.color,minWidth:cw[c.id]>0?2:0}} title={c.name+": "+pct(cw[c.id])}/>)}
               </div>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
-                {CLASSES.map(c=>{
-                  const w=cw[c.id]||0,st=w<c.min?"under":w>c.max?"over":"ok",sc=st==="under"?"#E05252":st==="over"?"#E8C44A":"#4CAF82";
-                  return (
-                    <div key={c.id} style={{background:c.color+"0A",border:"1px solid "+c.color+"22",borderRadius:7,padding:"9px 10px"}}>
-                      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:3}}>
-                        <span style={{fontSize:10,color:c.color}}>{c.emoji} {c.name}</span>
-                        <span style={{fontFamily:"monospace",fontSize:13,color:sc,fontWeight:700}}>{pct(w)}</span>
-                      </div>
-                      <div style={{display:"flex",justifyContent:"space-between"}}>
-                        <span style={{fontSize:9,color:"#5A5550",fontFamily:"monospace"}}>Alvo {c.min}–{c.max}%</span>
-                        <span style={{fontSize:10,color:"#8A8070",fontFamily:"monospace"}}>{fmtBRL(ct[c.id]||0)}</span>
-                      </div>
-                      <div style={{marginTop:5,height:2,background:"rgba(255,255,255,0.05)",borderRadius:1,overflow:"hidden"}}>
-                        <div style={{width:Math.min((w/(c.max||1))*100,120)+"%",height:"100%",background:sc}}/>
-                      </div>
-                      <div style={{marginTop:3,fontSize:8,color:sc,fontFamily:"monospace"}}>
-                        {st==="under"?"▼ "+(c.min-w).toFixed(1)+"pp abaixo":st==="over"?"▲ "+(w-c.max).toFixed(1)+"pp acima":"✓ no alvo"}
-                      </div>
-                    </div>
-                  );
-                })}
+                {CLASSES.map(c=>{const w=cw[c.id]||0,st=w<c.min?"u":w>c.max?"o":"k",sc=st==="u"?"#E05252":st==="o"?"#E8C44A":"#4CAF82";return(
+                  <div key={c.id} style={{background:c.color+"0A",border:"1px solid "+c.color+"22",borderRadius:7,padding:"9px 10px"}}>
+                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:3}}><span style={{fontSize:10,color:c.color}}>{c.emoji} {c.name}</span><span style={{fontFamily:"monospace",fontSize:13,color:sc,fontWeight:700}}>{pct(w)}</span></div>
+                    <div style={{display:"flex",justifyContent:"space-between"}}><span style={{fontSize:9,color:"#5A5550",fontFamily:"monospace"}}>Alvo {c.min}–{c.max}%</span><span style={{fontSize:10,color:"#8A8070",fontFamily:"monospace"}}>{fmtBRL(ct[c.id]||0)}</span></div>
+                    <div style={{marginTop:5,height:2,background:"rgba(255,255,255,0.05)",borderRadius:1,overflow:"hidden"}}><div style={{width:Math.min((w/(c.max||1))*100,120)+"%",height:"100%",background:sc}}/></div>
+                    <div style={{marginTop:3,fontSize:8,color:sc,fontFamily:"monospace"}}>{st==="u"?"▼ "+(c.min-w).toFixed(1)+"pp abaixo":st==="o"?"▲ "+(w-c.max).toFixed(1)+"pp acima":"✓ no alvo"}</div>
+                  </div>
+                );})}
               </div>
             </div>
-            <RiskReturnChart cw={cw}/>
-            <AllocationChart cw={cw}/>
-            <EvolutionChart hist={hist}/>
+            <AllocChart cw={cw}/>
+            <RiskChart cw={cw}/>
+            <EvolChart hist={hist}/>
             <div>
               <div style={{fontSize:10,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:10}}>Maiores posições</div>
-              {Object.entries(port)
-                .map(([t,p])=>({t,p,val:posVal(t,p,ccy)}))
-                .filter(x=>x.val>0).sort((a,b)=>b.val-a.val).slice(0,8)
-                .map(({t,p,val})=>{
-                  const pp=total>0?(val/total)*100:0, cc=ccy[t]||"BRL";
-                  const cl=CLASSES.find(c=>c.id===(p.classId||cls[t]));
-                  return (
-                    <div key={t} style={{display:"flex",alignItems:"center",padding:"7px 0",borderBottom:"1px solid rgba(255,255,255,0.04)"}}>
-                      <div style={{width:5,height:5,borderRadius:"50%",background:cl?.color||"#888",marginRight:8,flexShrink:0}}/>
-                      <div style={{flex:1,minWidth:0}}>
-                        <div style={{display:"flex",justifyContent:"space-between"}}>
-                          <span style={{fontFamily:"monospace",fontSize:12,color:"#F0EAD8",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1,marginRight:8}}>{labels[t]||t}</span>
-                          <span style={{fontFamily:"monospace",fontSize:12,color:"#F0EAD8",flexShrink:0}}>{fmtBRL(val)}</span>
-                        </div>
-                        <div style={{display:"flex",justifyContent:"space-between",marginTop:1}}>
-                          <span style={{fontSize:9,color:"#5A5550"}}>{VALUE_BASED.includes(t)?"Valor total":GRAM_BASED.includes(t)?(fmtN(p.qty,3)+" g × R$ "+fmtN(p.price,2)+"/g"):(fmtN(p.qty,p.qty<100?4:0)+" × "+(cc!="BRL"?cc+" ":"R$ ")+fmtN(p.price,2))}</span>
-                          <span style={{fontSize:9,color:"#5A5550",fontFamily:"monospace"}}>{pct(pp)}</span>
-                        </div>
-                      </div>
+              {Object.entries(port).map(([t,p])=>({t,p,val:posVal(t,p,ccy)})).filter(x=>x.val>0).sort((a,b)=>b.val-a.val).slice(0,8).map(({t,p,val})=>{
+                const pp=total>0?(val/total)*100:0,cc=ccy[t]||"BRL",cl=CLASSES.find(c=>c.id===(p.classId||cls[t]));
+                return(<div key={t} style={{display:"flex",alignItems:"center",padding:"7px 0",borderBottom:"1px solid rgba(255,255,255,0.04)"}}>
+                  <div style={{width:5,height:5,borderRadius:"50%",background:cl?.color||"#888",marginRight:8,flexShrink:0}}/>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{display:"flex",justifyContent:"space-between"}}><span style={{fontFamily:"monospace",fontSize:12,color:"#F0EAD8",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1,marginRight:8}}>{labels[t]||t}</span><span style={{fontFamily:"monospace",fontSize:12,color:"#F0EAD8",flexShrink:0}}>{fmtBRL(val)}</span></div>
+                    <div style={{display:"flex",justifyContent:"space-between",marginTop:1}}>
+                      <span style={{fontSize:9,color:"#5A5550"}}>{VALUE_BASED.includes(t)?"Valor total":GRAM_BASED.includes(t)?fmtN(p.qty,3)+" g":(fmtN(p.qty,p.qty<100?4:0)+" × "+(cc!="BRL"?cc+" ":"R$ ")+fmtN(p.price,2))}</span>
+                      <span style={{fontSize:9,color:"#5A5550",fontFamily:"monospace"}}>{pct(pp)}</span>
                     </div>
-                  );
-                })}
+                  </div>
+                </div>);
+              })}
             </div>
           </>
         ))}
 
-        {/* ── POSITIONS */}
-        {tab==="positions" && (editA ? (
-          <EditPanel ticker={editA.ticker} classId={editA.classId} ccy={ccy} labels={labels}
-            custom={custom} eQty={eQty} setEQty={setEQty} ePrice={ePrice} setEPrice={setEPrice}
-            hidden={hidden} onSave={saveEdit} onCancel={()=>setEditA(null)}
-            onRemove={()=>removePos(editA.ticker)} onToggleHide={()=>toggleHide(editA.ticker)}/>
-        ) : (
+        {tab==="positions"&&(editA?(
+          <EditPanel ticker={editA.ticker} classId={editA.classId} ccy={ccy} labels={labels} custom={custom} eQty={eQty} setEQty={setEQty} ePrice={ePrice} setEPrice={setEPrice} hidden={hidden} onSave={saveEdit} onCancel={()=>setEditA(null)} onRemove={()=>removePos(editA.ticker)} onToggleHide={()=>toggleHide(editA.ticker)}/>
+        ):(
           <>
             <div style={{fontSize:11,color:"#8A8070",marginBottom:14,lineHeight:1.6}}>Toque em qualquer ativo para editar.</div>
-            {hidden.length>0 && (
-              <button onClick={()=>setShowHidden(s=>!s)} style={{background:"none",border:"1px solid rgba(255,255,255,0.08)",borderRadius:6,color:"#8A8070",fontSize:11,padding:"5px 12px",cursor:"pointer",fontFamily:"monospace",marginBottom:14}}>
-                {showHidden?"Ocultar ativos escondidos":"Mostrar "+hidden.length+" ativo(s) oculto(s)"}
-              </button>
-            )}
+            {hidden.length>0&&<button onClick={()=>setShowHid(s=>!s)} style={{background:"none",border:"1px solid rgba(255,255,255,0.08)",borderRadius:6,color:"#8A8070",fontSize:11,padding:"5px 12px",cursor:"pointer",fontFamily:"monospace",marginBottom:14}}>{showHid?"Ocultar ativos escondidos":"Mostrar "+hidden.length+" oculto(s)"}</button>}
             {CLASSES.map(c=>(
               <div key={c.id} style={{marginBottom:22}}>
                 <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:6,paddingBottom:5,borderBottom:"1px solid "+c.color+"33"}}>
-                  <span style={{fontSize:14}}>{c.emoji}</span>
-                  <span style={{color:c.color,fontSize:12,fontWeight:600}}>{c.name}</span>
+                  <span style={{fontSize:14}}>{c.emoji}</span><span style={{color:c.color,fontSize:12,fontWeight:600}}>{c.name}</span>
                   <span style={{marginLeft:"auto",fontSize:10,color:"#8A8070",fontFamily:"monospace"}}>{pct(cw[c.id]||0)} · {fmtBRL(ct[c.id]||0)}</span>
                 </div>
-
-                {allTickers(c.id).filter(t=>showHidden||!hidden.includes(t)).map(ticker=>{
-                  const pos=port[ticker], isHid=hidden.includes(ticker);
-                  const cc=ccy[ticker]||"BRL";
-                  const val=posVal(ticker,pos,ccy);
-                  const has=val>0;
+                {allT(c.id).filter(t=>showHid||!hidden.includes(t)).map(ticker=>{
+                  const pos=port[ticker],isHid=hidden.includes(ticker),cc=ccy[ticker]||"BRL";
+                  const val=posVal(ticker,pos,ccy),has=val>0;
                   const isCustom=!!(custom[c.id]||[]).find(a=>a.ticker===ticker);
-                  return (
-                    <div key={ticker} style={{display:"flex",alignItems:"center",padding:"7px 9px",marginBottom:2,
-                      background:isHid?"rgba(255,255,255,0.01)":has?c.color+"0A":"rgba(255,255,255,0.02)",
-                      border:"1px solid "+(isHid?"rgba(255,255,255,0.03)":has?c.color+"22":"rgba(255,255,255,0.04)"),
-                      borderRadius:6,gap:8,opacity:isHid?0.4:1}}>
+                  return(
+                    <div key={ticker} style={{display:"flex",alignItems:"center",padding:"7px 9px",marginBottom:2,background:isHid?"rgba(255,255,255,0.01)":has?c.color+"0A":"rgba(255,255,255,0.02)",border:"1px solid "+(isHid?"rgba(255,255,255,0.03)":has?c.color+"22":"rgba(255,255,255,0.04)"),borderRadius:6,gap:8,opacity:isHid?0.4:1}}>
                       <div onClick={()=>openEdit(ticker,c.id)} style={{width:3,height:24,borderRadius:2,background:has?c.color:"rgba(255,255,255,0.08)",flexShrink:0,cursor:"pointer"}}/>
                       <div onClick={()=>openEdit(ticker,c.id)} style={{flex:1,minWidth:0,cursor:"pointer"}}>
                         <div style={{display:"flex",alignItems:"center",gap:5}}>
                           <span style={{fontSize:11,color:has?"#F0EAD8":isHid?"#4A4840":"#5A5550",fontFamily:"monospace",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{labels[ticker]||ticker}</span>
-                          {isCustom && <span style={{fontSize:7,color:c.color,border:"1px solid "+c.color+"55",borderRadius:3,padding:"1px 3px",fontFamily:"monospace",flexShrink:0}}>+</span>}
-                          {isHid && <span style={{fontSize:7,color:"#8A8070",border:"1px solid #8A807044",borderRadius:3,padding:"1px 3px",fontFamily:"monospace",flexShrink:0}}>oculto</span>}
+                          {isCustom&&<span style={{fontSize:7,color:c.color,border:"1px solid "+c.color+"55",borderRadius:3,padding:"1px 3px",fontFamily:"monospace",flexShrink:0}}>+</span>}
+                          {isHid&&<span style={{fontSize:7,color:"#8A8070",border:"1px solid #8A807044",borderRadius:3,padding:"1px 3px",fontFamily:"monospace",flexShrink:0}}>oculto</span>}
                         </div>
-                        <div style={{fontSize:9,color:"#6A6050",marginTop:1,fontFamily:"monospace"}}>{VALUE_BASED.includes(ticker)?"valor total BRL":GRAM_BASED.includes(ticker)?"gramas (BRL/g)":cc}</div>
-                        {has && <div style={{fontSize:9,color:"#8A8070",marginTop:1}}>{VALUE_BASED.includes(ticker)?fmtBRL(pos.totalBRL||0):GRAM_BASED.includes(ticker)?(fmtN(pos.qty,3)+" g × R$ "+fmtN(pos.price||0,2)+"/g"):(fmtN(pos.qty,pos.qty<100?4:0)+" × "+(cc!="BRL"?cc+" ":"R$ ")+fmtN(pos.price||0,2))}</div>}
+                        <div style={{fontSize:9,color:"#6A6050",marginTop:1,fontFamily:"monospace"}}>{VALUE_BASED.includes(ticker)?"valor total BRL":GRAM_BASED.includes(ticker)?"gramas · BRL/g":cc}</div>
+                        {has&&<div style={{fontSize:9,color:"#8A8070",marginTop:1}}>{VALUE_BASED.includes(ticker)?fmtBRL(pos.totalBRL||0):GRAM_BASED.includes(ticker)?(fmtN(pos.qty,3)+" g × R$ "+fmtN(pos.price||0,2)+"/g"):(fmtN(pos.qty,pos.qty<100?4:0)+" × "+(cc!="BRL"?cc+" ":"R$ ")+fmtN(pos.price||0,2))}</div>}
                       </div>
-                      {has && <div style={{textAlign:"right",flexShrink:0}}>
-                        <div style={{fontSize:11,color:"#F0EAD8",fontFamily:"monospace"}}>{fmtBRL(val)}</div>
-                      </div>}
-                      {isCustom
-                        ? <button onClick={()=>removeCustom(c.id,ticker)} style={{background:"none",border:"none",color:"#E05252",fontSize:16,cursor:"pointer",padding:"0 2px",flexShrink:0,lineHeight:1}}>×</button>
-                        : <span onClick={()=>openEdit(ticker,c.id)} style={{color:"#3A3830",fontSize:12,cursor:"pointer"}}>›</span>}
+                      {has&&<div style={{textAlign:"right",flexShrink:0}}><div style={{fontSize:11,color:"#F0EAD8",fontFamily:"monospace"}}>{fmtBRL(val)}</div></div>}
+                      {isCustom?<button onClick={()=>removeCustom(c.id,ticker)} style={{background:"none",border:"none",color:"#E05252",fontSize:16,cursor:"pointer",padding:"0 2px",flexShrink:0,lineHeight:1}}>×</button>:<span onClick={()=>openEdit(ticker,c.id)} style={{color:"#3A3830",fontSize:12,cursor:"pointer"}}>›</span>}
                     </div>
                   );
                 })}
-
-                {/* Add custom asset */}
-                {addingTo===c.id ? (
+                {addingTo===c.id?(
                   <div style={{padding:"12px",background:"rgba(255,255,255,0.03)",border:"1px solid "+c.color+"33",borderRadius:8,marginTop:6}}>
                     <div style={{fontSize:9,letterSpacing:2,color:c.color,fontFamily:"monospace",textTransform:"uppercase",marginBottom:10}}>Novo ativo — {c.name}</div>
-                    {[
-                      ["TICKER",nTicker,v=>setNTicker(v.toUpperCase()),"ex: PETR4, NVDA",14],
-                      ["Nome / Descrição",nLabel,setNLabel,"ex: Petrobras PN",14],
-                    ].map(([lbl,val,setter,ph,sz])=>(
-                      <div key={lbl} style={{marginBottom:8}}>
-                        <div style={{fontSize:9,color:"#8A8070",fontFamily:"monospace",marginBottom:3}}>{lbl}</div>
-                        <input type="text" value={val} onChange={e=>setter(e.target.value)} placeholder={ph} maxLength={40}
-                          style={{width:"100%",background:"rgba(0,0,0,0.3)",border:"1px solid "+c.color+"44",borderRadius:5,padding:"8px 10px",color:"#F0EAD8",fontSize:sz,fontFamily:"monospace",outline:"none",boxSizing:"border-box"}}/>
-                      </div>
+                    {[["TICKER",nTicker,v=>setNTicker(v.toUpperCase()),"ex: PETR4"],["Nome",nLabel,setNLabel,"ex: Petrobras PN"]].map(([lbl,val,setter,ph])=>(
+                      <div key={lbl} style={{marginBottom:8}}><div style={{fontSize:9,color:"#8A8070",fontFamily:"monospace",marginBottom:3}}>{lbl}</div><input type="text" value={val} onChange={e=>setter(e.target.value)} placeholder={ph} maxLength={40} style={{width:"100%",background:"rgba(0,0,0,0.3)",border:"1px solid "+c.color+"44",borderRadius:5,padding:"8px 10px",color:"#F0EAD8",fontSize:14,fontFamily:"monospace",outline:"none",boxSizing:"border-box"}}/></div>
                     ))}
-                    <div style={{marginBottom:12}}>
-                      <div style={{fontSize:9,color:"#8A8070",fontFamily:"monospace",marginBottom:6}}>MOEDA</div>
-                      <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
-                        {["BRL","USD","EUR","GBP","CHF","JPY","AUD","HKD","SGD","NOK","DKK","MXN"].map(cc2=>(
-                          <button key={cc2} onClick={()=>setNCcy(cc2)} style={{padding:"3px 10px",borderRadius:4,fontFamily:"monospace",fontSize:11,background:nCcy===cc2?c.color:"transparent",border:"1px solid "+c.color+"44",color:nCcy===cc2?"#0D0F14":"#8A8070",cursor:"pointer"}}>{cc2}</button>
-                        ))}
-                      </div>
-                    </div>
+                    <div style={{marginBottom:12}}><div style={{fontSize:9,color:"#8A8070",fontFamily:"monospace",marginBottom:6}}>MOEDA</div><div style={{display:"flex",flexWrap:"wrap",gap:5}}>{["BRL","USD","EUR","GBP","CHF","JPY","AUD","HKD","SGD","NOK","DKK","MXN"].map(cc2=><button key={cc2} onClick={()=>setNCcy(cc2)} style={{padding:"3px 10px",borderRadius:4,fontFamily:"monospace",fontSize:11,background:nCcy===cc2?c.color:"transparent",border:"1px solid "+c.color+"44",color:nCcy===cc2?"#0D0F14":"#8A8070",cursor:"pointer"}}>{cc2}</button>)}</div></div>
                     <div style={{display:"flex",gap:8}}>
                       <button onClick={()=>addCustom(c.id)} style={{flex:1,padding:"10px",background:"linear-gradient(135deg,"+c.color+","+c.color+"BB)",border:"none",borderRadius:6,color:"#0D0F14",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"monospace"}}>Adicionar</button>
                       <button onClick={()=>{setAddingTo(null);setNTicker("");setNLabel("");setNCcy("BRL");}} style={{padding:"10px 14px",background:"transparent",border:"1px solid rgba(255,255,255,0.1)",borderRadius:6,color:"#8A8070",fontSize:12,cursor:"pointer",fontFamily:"monospace"}}>Cancelar</button>
                     </div>
                   </div>
-                ) : (
-                  <button onClick={()=>{setAddingTo(c.id);setNTicker("");setNLabel("");setNCcy(c.id==="acoes_ext"?"USD":"BRL");}}
-                    style={{width:"100%",padding:"7px",background:"transparent",border:"1px dashed "+c.color+"44",borderRadius:6,color:c.color+"88",fontSize:11,cursor:"pointer",fontFamily:"monospace",marginTop:4,letterSpacing:1}}>
-                    + Adicionar ativo
-                  </button>
-                )}
+                ):<button onClick={()=>{setAddingTo(c.id);setNTicker("");setNLabel("");setNCcy(c.id==="acoes_ext"?"USD":"BRL");}} style={{width:"100%",padding:"7px",background:"transparent",border:"1px dashed "+c.color+"44",borderRadius:6,color:c.color+"88",fontSize:11,cursor:"pointer",fontFamily:"monospace",marginTop:4,letterSpacing:1}}>+ Adicionar ativo</button>}
               </div>
             ))}
           </>
         ))}
 
-        {/* ── APORTE */}
-        {tab==="aporte" && (!hasPos ? <Empty onGo={()=>setTab("positions")} msg="Cadastre suas posições primeiro."/> :
-          step==="done" ? <AporteDone aporteR={aporteR} execEnt={execEnt} ccy={ccy} labels={labels}
-            onNew={()=>{setAporteR(null);setStep("result");setAporteV("");setExecEnt({});}}
-            onDash={()=>{setTab("dashboard");setAporteR(null);setStep("result");setAporteV("");setExecEnt({});}}/>:
-          step==="confirm" ? <ConfirmExec aporteR={aporteR} execEnt={execEnt} setExecEnt={setExecEnt}
-            port={port} ccy={ccy} labels={labels} onBack={()=>setStep("result")} onApply={applyExec}/>:
-          aporteR ? <AllocResult result={aporteR} cw={cw} apiKey={apiKey} onReset={()=>{setAporteR(null);setStep("result");}} onConfirm={()=>setStep("confirm")}/>:
+        {tab==="aporte"&&(!hasPos?<Empty onGo={()=>setTab("positions")} msg="Cadastre suas posições primeiro."/>:
+          step==="done"?<AporteDone aporteR={aporteR} execEnt={execEnt} ccy={ccy} labels={labels} onNew={()=>{setAporteR(null);setStep("result");setAporteV("");setExecEnt({});}} onDash={()=>{setTab("dashboard");setAporteR(null);setStep("result");setAporteV("");setExecEnt({});}}/>:
+          step==="confirm"?<ConfirmExec aporteR={aporteR} execEnt={execEnt} setExecEnt={setExecEnt} port={port} ccy={ccy} labels={labels} onBack={()=>setStep("result")} onApply={applyExec}/>:
+          aporteR?<AllocResult result={aporteR} cw={cw} onReset={()=>{setAporteR(null);setStep("result");}} onConfirm={()=>setStep("confirm")}/>:
           <AporteInput aporteV={aporteV} setAporteV={setAporteV} loadA={loadA} cw={cw} onGen={genAlloc} aErr={aErr}/>
         )}
 
-        {/* ── CHAT */}
-        {tab==="chat" && (
-          <ChatTab
-            msgs={chatMsgs} input={chatInput} setInput={setChatInput}
-            loading={chatLoading} onSend={sendChat}
-            hasAlloc={!!aporteR} onClear={()=>setChatMsgs([])}/>
-        )}
+        {tab==="chat"&&<ChatTab msgs={chatMsgs} input={chatIn} setInput={setChatIn} loading={chatLoad} onSend={sendChat} hasAlloc={!!aporteR} onClear={()=>setChatMsgs([])}/>}
 
-        {/* ── HISTORY */}
-        {tab==="history" && (
+        {tab==="history"&&(
           <div>
             <div style={{fontSize:10,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:14}}>Aportes executados</div>
-            {hist.length===0 ? <div style={{textAlign:"center",padding:"40px 0",color:"#5A5550",fontStyle:"italic",fontSize:13}}>Nenhum aporte registrado.</div> :
+            {hist.length===0?<div style={{textAlign:"center",padding:"40px 0",color:"#5A5550",fontStyle:"italic",fontSize:13}}>Nenhum aporte registrado.</div>:
             hist.map((rec,i)=>(
               <div key={i} style={{background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:8,padding:"12px 14px",marginBottom:8}}>
                 <div style={{display:"flex",justifyContent:"space-between",marginBottom:7}}>
                   <span style={{fontSize:10,color:"#8A8070",fontFamily:"monospace"}}>{new Date(rec.date).toLocaleDateString("pt-BR",{day:"2-digit",month:"short",year:"numeric"})}</span>
                   <span style={{fontFamily:"monospace",fontSize:13,color:"#C8A96E",fontWeight:700}}>{fmtBRL(rec.totalExecuted)}</span>
                 </div>
-                {rec.purchases.map((p,j)=>{
-                  const cl=CLASSES.find(c=>c.id===(cls[p.ticker]||""));
-                  return (
-                    <div key={j} style={{display:"flex",alignItems:"center",gap:7,padding:"3px 0",borderTop:"1px solid rgba(255,255,255,0.03)"}}>
-                      <div style={{width:4,height:4,borderRadius:"50%",background:cl?.color||"#888",flexShrink:0}}/>
-                      <span style={{fontFamily:"monospace",fontSize:11,color:"#F0EAD8",flex:1}}>{labels[p.ticker]||p.ticker}</span>
-                      <span style={{fontSize:10,color:"#8A8070",fontFamily:"monospace"}}>{fmtN(p.qty,p.qty<100?4:0)} × {fmtN(p.price,2)}</span>
-                      <span style={{fontFamily:"monospace",fontSize:11,color:"#B0A890"}}>{fmtBRL(p.total)}</span>
-                    </div>
-                  );
-                })}
+                {rec.purchases.map((p,j)=>{const cl=CLASSES.find(c=>c.id===(cls[p.ticker]||""));return(
+                  <div key={j} style={{display:"flex",alignItems:"center",gap:7,padding:"3px 0",borderTop:"1px solid rgba(255,255,255,0.03)"}}>
+                    <div style={{width:4,height:4,borderRadius:"50%",background:cl?.color||"#888",flexShrink:0}}/>
+                    <span style={{fontFamily:"monospace",fontSize:11,color:"#F0EAD8",flex:1}}>{labels[p.ticker]||p.ticker}</span>
+                    <span style={{fontSize:10,color:"#8A8070",fontFamily:"monospace"}}>{fmtN(p.qty,p.qty<100?4:0)} × {fmtN(p.price,2)}</span>
+                    <span style={{fontFamily:"monospace",fontSize:11,color:"#B0A890"}}>{fmtBRL(p.total)}</span>
+                  </div>
+                );})}
               </div>
             ))}
           </div>
@@ -924,236 +587,50 @@ Nova mensagem do investidor: " + userMsg
   );
 }
 
-// ── EDIT PANEL
-function EditPanel({ticker,classId,ccy,labels,custom,eQty,setEQty,ePrice,setEPrice,hidden,onSave,onCancel,onRemove,onToggleHide}) {
-  const cl=CLASSES.find(c=>c.id===classId);
-  const cc=ccy[ticker]||"BRL";
-  const isVB=VALUE_BASED.includes(ticker);
-  const isGB=GRAM_BASED.includes(ticker);
-  const isHid=hidden.includes(ticker);
-  const isCustom=!!(custom[classId]||[]).find(a=>a.ticker===ticker);
-  const totalBRL=isVB?parseN(eQty):parseN(eQty)*parseN(ePrice)*(isGB?1:(FX[cc]||1));
-  return (
+function EditPanel({ticker,classId,ccy,labels,custom,eQty,setEQty,ePrice,setEPrice,hidden,onSave,onCancel,onRemove,onToggleHide}){
+  const cl=CLASSES.find(c=>c.id===classId),cc=ccy[ticker]||"BRL";
+  const isVB=VALUE_BASED.includes(ticker),isGB=GRAM_BASED.includes(ticker);
+  const isHid=hidden.includes(ticker),isCustom=!!(custom[classId]||[]).find(a=>a.ticker===ticker);
+  const totalBRL=isVB?parseN(eQty):isGB?parseN(eQty)*parseN(ePrice):parseN(eQty)*parseN(ePrice)*(FX[cc]||1);
+  return(
     <div>
       <button onClick={onCancel} style={{background:"none",border:"none",color:"#8A8070",cursor:"pointer",fontSize:12,padding:0,marginBottom:14}}>← Voltar</button>
       <div style={{display:"flex",alignItems:"center",gap:9,marginBottom:18}}>
         <span style={{width:9,height:9,borderRadius:"50%",background:cl?.color||"#888",display:"inline-block"}}/>
-        <div>
-          <div style={{fontFamily:"monospace",fontSize:15,color:"#F0EAD8"}}>{labels[ticker]||ticker}</div>
-          <div style={{fontSize:10,color:cl?.color||"#888"}}>{cl?.name} · {cc}</div>
-        </div>
+        <div><div style={{fontFamily:"monospace",fontSize:15,color:"#F0EAD8"}}>{labels[ticker]||ticker}</div><div style={{fontSize:10,color:cl?.color||"#888"}}>{cl?.name} · {isGB?"BRL/g":cc}</div></div>
       </div>
-      {isVB ? (
-        <Fld label="Valor total aplicado (R$)" value={<NIn v={eQty} set={setEQty} ph="0,00" c={cl?.color}/>} hint="Saldo atual da aplicação em reais. Atualize a cada aporte."/>
-      ) : isGB ? (
-        <>
-          <Fld label="Quantidade em gramas (g)" value={<NIn v={eQty} set={setEQty} ph="0,000" c={cl?.color}/>} hint="Peso total do ouro custodiado na Ourominas"/>
-          <Fld label="Preço de venda por grama (R$/g)" value={<NIn v={ePrice} set={setEPrice} ph="0,00" c={cl?.color}/>} hint="Cotação atual de venda da Ourominas. Atualize pelo botão de preços."/>
-        </>
-      ) : (
-        <>
-          {cc!=="BRL" && <div style={{marginBottom:12,padding:"7px 10px",background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:6,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-            <span style={{fontSize:9,color:"#8A8070",fontFamily:"monospace",textTransform:"uppercase",letterSpacing:2}}>Moeda</span>
-            <span style={{fontFamily:"monospace",fontSize:13,color:cl?.color||"#C8A96E",fontWeight:700}}>{cc}</span>
-          </div>}
-          <Fld label="Quantidade" value={<NIn v={eQty} set={setEQty} ph="0" c={cl?.color}/>}/>
-          <Fld label={"Cotação atual ("+cc+")"} value={<NIn v={ePrice} set={setEPrice} ph="0,00" c={cl?.color}/>}/>
-        </>
-      )}
-      {totalBRL>0 && <div style={{padding:"9px 12px",background:"rgba(200,169,110,0.05)",border:"1px solid rgba(200,169,110,0.15)",borderRadius:7,marginBottom:16}}>
-        {isGB && <div style={{fontSize:9,color:"#8A8070",fontFamily:"monospace",marginBottom:4}}>{fmtN(parseN(eQty),3)} g × R$ {fmtN(parseN(ePrice),2)}/g</div>}
-        <span style={{fontSize:11,color:"#8A8070"}}>{isVB?"Valor:": isGB?"Valor de venda estimado: ":"Valor em BRL: "}</span>
-        <span style={{fontFamily:"monospace",fontSize:15,color:"#C8A96E"}}>{fmtBRL(totalBRL)}</span>
-      </div>}
+      {isVB?<Fld label="Valor total aplicado (R$)" value={<NIn v={eQty} set={setEQty} ph="0,00" c={cl?.color}/>} hint="Saldo atual em reais. Atualize a cada aporte."/>:
+       isGB?<><Fld label="Quantidade em gramas (g)" value={<NIn v={eQty} set={setEQty} ph="0,000" c={cl?.color}/>} hint="Peso total custodiado na Ourominas"/><Fld label="Preço de venda por grama (R$/g)" value={<NIn v={ePrice} set={setEPrice} ph="0,00" c={cl?.color}/>} hint="Cotação atual de venda Ourominas"/></>:
+       <><div style={{marginBottom:12,padding:"7px 10px",background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:6,display:"flex",justifyContent:"space-between",alignItems:"center"}}><span style={{fontSize:9,color:"#8A8070",fontFamily:"monospace",textTransform:"uppercase",letterSpacing:2}}>Moeda</span><span style={{fontFamily:"monospace",fontSize:13,color:cl?.color||"#C8A96E",fontWeight:700}}>{cc}</span></div><Fld label="Quantidade" value={<NIn v={eQty} set={setEQty} ph="0" c={cl?.color}/>}/><Fld label={"Cotação atual ("+cc+")"} value={<NIn v={ePrice} set={setEPrice} ph="0,00" c={cl?.color}/>}/></>}
+      {totalBRL>0&&<div style={{padding:"9px 12px",background:"rgba(200,169,110,0.05)",border:"1px solid rgba(200,169,110,0.15)",borderRadius:7,marginBottom:16}}><span style={{fontSize:11,color:"#8A8070"}}>{isVB?"Valor:":isGB?"Valor de venda estimado:":"Valor em BRL: "}</span><span style={{fontFamily:"monospace",fontSize:15,color:"#C8A96E"}}>{fmtBRL(totalBRL)}</span></div>}
       <button onClick={onSave} style={{width:"100%",padding:"12px",background:"linear-gradient(135deg,"+(cl?.color||"#C8A96E")+","+(cl?.color||"#A8893E")+")",border:"none",borderRadius:7,color:"#0D0F14",fontSize:12,fontWeight:700,letterSpacing:2,textTransform:"uppercase",cursor:"pointer",fontFamily:"monospace",marginBottom:8}}>Salvar</button>
       <div style={{display:"flex",gap:8}}>
-        <button onClick={onToggleHide} style={{flex:1,padding:"10px",background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:7,color:"#8A8070",fontSize:11,cursor:"pointer",fontFamily:"monospace"}}>
-          {isHid?"👁 Mostrar na lista":"👁 Ocultar da lista"}
-        </button>
-        {(isCustom||parseN(eQty)>0) && <button onClick={onRemove} style={{flex:1,padding:"10px",background:"rgba(224,82,82,0.08)",border:"1px solid rgba(224,82,82,0.25)",borderRadius:7,color:"#E05252",fontSize:11,cursor:"pointer",fontFamily:"monospace"}}>Remover posição</button>}
+        <button onClick={onToggleHide} style={{flex:1,padding:"10px",background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:7,color:"#8A8070",fontSize:11,cursor:"pointer",fontFamily:"monospace"}}>{isHid?"👁 Mostrar na lista":"👁 Ocultar da lista"}</button>
+        {(isCustom||parseN(eQty)>0)&&<button onClick={onRemove} style={{flex:1,padding:"10px",background:"rgba(224,82,82,0.08)",border:"1px solid rgba(224,82,82,0.25)",borderRadius:7,color:"#E05252",fontSize:11,cursor:"pointer",fontFamily:"monospace"}}>Remover posição</button>}
       </div>
     </div>
   );
 }
 
-// ── APORTE INPUT
-function AporteInput({aporteV,setAporteV,loadA,cw,onGen,aErr}) {
-  return (
+function AporteInput({aporteV,setAporteV,loadA,cw,onGen,aErr}){
+  return(
     <div>
       <div style={{fontSize:11,color:"#8A8070",marginBottom:14,lineHeight:1.7}}>A IA analisa composição e valuation atual para indicar onde alocar com margem de segurança.</div>
-      <div style={{marginBottom:14}}>
-        {CLASSES.map(c=>{const w=cw[c.id]||0,s=w<c.min?"under":w>c.max&&!c.flex?"over":"ok";if(s==="ok")return null;
-          return <div key={c.id} style={{display:"flex",alignItems:"center",gap:7,marginBottom:5,padding:"5px 9px",background:s==="under"?"rgba(224,82,82,0.06)":"rgba(232,196,74,0.06)",border:"1px solid "+(s==="under"?"#E0525222":"#E8C44A22"),borderRadius:6}}>
-            <span style={{fontSize:11}}>{c.emoji}</span><span style={{fontSize:11,color:"#B0A890",flex:1}}>{c.name}</span>
-            <span style={{fontFamily:"monospace",fontSize:10,color:s==="under"?"#E05252":"#E8C44A"}}>{pct(w)} {s==="under"?"↓":"↑"}</span>
-          </div>;
-        })}
-      </div>
+      <div style={{marginBottom:14}}>{CLASSES.map(c=>{const w=cw[c.id]||0,s=w<c.min?"u":w>c.max&&!c.flex?"o":"k";if(s==="k")return null;return<div key={c.id} style={{display:"flex",alignItems:"center",gap:7,marginBottom:5,padding:"5px 9px",background:s==="u"?"rgba(224,82,82,0.06)":"rgba(232,196,74,0.06)",border:"1px solid "+(s==="u"?"#E0525222":"#E8C44A22"),borderRadius:6}}><span style={{fontSize:11}}>{c.emoji}</span><span style={{fontSize:11,color:"#B0A890",flex:1}}>{c.name}</span><span style={{fontFamily:"monospace",fontSize:10,color:s==="u"?"#E05252":"#E8C44A"}}>{pct(w)} {s==="u"?"↓":"↑"}</span></div>;})} </div>
       <label style={{fontSize:10,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",display:"block",marginBottom:8}}>Valor do aporte</label>
       <div style={{display:"flex",alignItems:"center",gap:8,background:"rgba(200,169,110,0.05)",border:"1px solid rgba(200,169,110,0.25)",borderRadius:10,padding:"12px 16px",marginBottom:12}}>
         <span style={{color:"#C8A96E",fontFamily:"monospace",fontSize:15}}>R$</span>
-        <input type="text" placeholder="0,00" value={aporteV} onChange={e=>setAporteV(e.target.value.replace(/[^0-9,.]/g,""))}
-          style={{flex:1,background:"transparent",border:"none",outline:"none",color:"#F0EAD8",fontSize:28,fontFamily:"Georgia,serif"}}/>
+        <input type="text" placeholder="0,00" value={aporteV} onChange={e=>setAporteV(e.target.value.replace(/[^0-9,.]/g,""))} style={{flex:1,background:"transparent",border:"none",outline:"none",color:"#F0EAD8",fontSize:28,fontFamily:"Georgia,serif"}}/>
       </div>
-      {aErr && <div style={{color:"#E05252",fontSize:11,marginBottom:10,fontFamily:"monospace"}}>⚠ {aErr}</div>}
-      <button onClick={onGen} disabled={loadA} style={{width:"100%",padding:"14px",background:loadA?"#2A2820":"linear-gradient(135deg,#C8A96E,#A8893E)",border:loadA?"1px solid #C8A96E33":"none",borderRadius:10,color:loadA?"#C8A96E":"#0D0F14",fontSize:12,fontWeight:700,letterSpacing:3,textTransform:"uppercase",cursor:loadA?"not-allowed":"pointer",fontFamily:"monospace"}}>
-        {loadA?"⟳ Analisando portfólio...":"Gerar análise fundamentalista →"}
-      </button>
-      <p style={{fontSize:10,color:"#3A3830",marginTop:10,lineHeight:1.6,fontStyle:"italic"}}>Análise leva 20–40 segundos. Requer chave da API Anthropic.</p>
+      {aErr&&<div style={{color:"#E05252",fontSize:11,marginBottom:10,fontFamily:"monospace"}}>⚠ {aErr}</div>}
+      <button onClick={onGen} disabled={loadA} style={{width:"100%",padding:"14px",background:loadA?"#2A2820":"linear-gradient(135deg,#C8A96E,#A8893E)",border:loadA?"1px solid #C8A96E33":"none",borderRadius:10,color:loadA?"#C8A96E":"#0D0F14",fontSize:12,fontWeight:700,letterSpacing:3,textTransform:"uppercase",cursor:loadA?"not-allowed":"pointer",fontFamily:"monospace"}}>{loadA?"⟳ Analisando portfólio...":"Gerar análise fundamentalista →"}</button>
+      <p style={{fontSize:10,color:"#3A3830",marginTop:10,lineHeight:1.6,fontStyle:"italic"}}>Análise leva 20–40s. Requer chave da API Anthropic.</p>
     </div>
   );
 }
 
-
-// ── ASSET CHAT
-function AssetChat({asset,result,apiKey,onClose}) {
-  const [messages,setMessages] = React.useState([]);
-  const [input,setInput]       = React.useState("");
-  const [loading,setLoading]   = React.useState(false);
-  const bottomRef = React.useRef(null);
-
-  // Build system context from the asset and portfolio data
-  const systemContext = "Você é um analista fundamentalista sênior especializado em Buy & Hold patrimonialista de longo prazo. " +
-    "O investidor está debatendo a indicação do ativo " + asset.ticker + " (" + asset.className + "). " +
-    "Dados da análise já realizada: " +
-    "Score: " + (asset.score||"N/A") + ". " +
-    "Métricas: " + (asset.metricas||"N/A") + ". " +
-    "Margem de segurança: " + (asset.margem||"N/A") + ". " +
-    "Observação: " + (asset.obs||"N/A") + ". " +
-    "Contexto do portfólio: " + (result.resumo||"") + ". " +
-    "Responda de forma direta, técnica e fundamentalista. Sempre relacione com a filosofia Buy & Hold patrimonialista e margem de segurança. " +
-    "Seja conciso (máximo 4 parágrafos). Use linguagem clara mas precisa.";
-
-  React.useEffect(()=>{
-    // Initial message contextualizing the asset
-    const intro = "Estou analisando " + asset.ticker + " com score **" + (asset.score||"") + "**.
-
-" +
-      "📊 **Métricas:** " + (asset.metricas||"N/A") + "
-
-" +
-      "🛡 **Margem de segurança:** " + (asset.margem||"N/A") + "
-
-" +
-      "O que você gostaria de debater? Pode perguntar sobre valuation, riscos, comparação com pares, perspectivas de longo prazo, etc.";
-    setMessages([{role:"assistant",content:intro}]);
-  },[]);
-
-  React.useEffect(()=>{
-    bottomRef.current?.scrollIntoView({behavior:"smooth"});
-  },[messages]);
-
-  const send = async() => {
-    const txt = input.trim();
-    if(!txt||loading) return;
-    setInput("");
-    const newMsgs = [...messages,{role:"user",content:txt}];
-    setMessages(newMsgs);
-    setLoading(true);
-    try {
-      const apiMsgs = [{role:"user",content:systemContext+" HISTÓRICO DA CONVERSA: "+
-        newMsgs.slice(0,-1).map(m=>m.role.toUpperCase()+": "+m.content).join(" | ")+
-        " PERGUNTA ATUAL: "+txt}];
-      const r = await fetch("https://api.anthropic.com/v1/messages",{
-        method:"POST",
-        headers:{"Content-Type":"application/json","x-api-key":apiKey,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
-        body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:800,messages:apiMsgs})
-      });
-      const d = await r.json();
-      if(d.error) throw new Error(d.error.message);
-      const reply = d.content.filter(i=>i.type==="text").map(i=>i.text).join("");
-      setMessages(prev=>[...prev,{role:"assistant",content:reply}]);
-    } catch(e) {
-      setMessages(prev=>[...prev,{role:"assistant",content:"Erro: "+e.message}]);
-    }
-    setLoading(false);
-  };
-
-  // Simple markdown bold renderer
-  const renderText = (txt) => {
-    const parts = txt.split(/\*\*(.*?)\*\*/g);
-    return parts.map((p,i)=>i%2===1?<strong key={i} style={{color:"#F0EAD8"}}>{p}</strong>:<span key={i}>{p}</span>);
-  };
-
-  return (
-    <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 140px)"}}>
-      {/* Header */}
-      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14,paddingBottom:12,borderBottom:"1px solid rgba(91,143,212,0.2)"}}>
-        <button onClick={onClose} style={{background:"none",border:"none",color:"#8A8070",cursor:"pointer",fontSize:12,padding:0,flexShrink:0}}>← Voltar</button>
-        <div style={{flex:1}}>
-          <div style={{display:"flex",alignItems:"center",gap:7}}>
-            <span style={{background:asset.classColor||"#5B8FD4",color:"#0D0F14",fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:4,fontFamily:"monospace"}}>{asset.ticker}</span>
-            <span style={{fontSize:10,color:asset.classColor||"#5B8FD4"}}>{asset.classEmoji} {asset.className}</span>
-          </div>
-          <div style={{fontSize:9,color:"#5A5550",fontFamily:"monospace",marginTop:2}}>{asset.metricas}</div>
-        </div>
-      </div>
-
-      {/* Messages */}
-      <div style={{flex:1,overflowY:"auto",display:"flex",flexDirection:"column",gap:12,paddingBottom:8}}>
-        {messages.map((m,i)=>(
-          <div key={i} style={{display:"flex",flexDirection:"column",alignItems:m.role==="user"?"flex-end":"flex-start"}}>
-            <div style={{
-              maxWidth:"88%",padding:"10px 13px",borderRadius:10,lineHeight:1.65,fontSize:13,
-              background:m.role==="user"?"rgba(91,143,212,0.12)":"rgba(255,255,255,0.03)",
-              border:"1px solid "+(m.role==="user"?"rgba(91,143,212,0.25)":"rgba(255,255,255,0.06)"),
-              color:"#C8C0B0",
-              borderBottomRightRadius:m.role==="user"?2:10,
-              borderBottomLeftRadius:m.role==="assistant"?2:10,
-            }}>
-              {m.content.split("
-").map((line,j)=>(
-                <div key={j} style={{marginBottom:line===""?6:0}}>{renderText(line)}</div>
-              ))}
-            </div>
-            <div style={{fontSize:9,color:"#4A4840",marginTop:3,fontFamily:"monospace"}}>
-              {m.role==="user"?"você":"analista IA"}
-            </div>
-          </div>
-        ))}
-        {loading && (
-          <div style={{display:"flex",alignItems:"flex-start"}}>
-            <div style={{padding:"10px 14px",background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:10,borderBottomLeftRadius:2}}>
-              <span style={{color:"#5A5550",fontSize:12,fontFamily:"monospace",letterSpacing:2}}>analisando...</span>
-            </div>
-          </div>
-        )}
-        <div ref={bottomRef}/>
-      </div>
-
-      {/* Input */}
-      <div style={{paddingTop:10,borderTop:"1px solid rgba(255,255,255,0.06)"}}>
-        <div style={{display:"flex",gap:8,alignItems:"flex-end"}}>
-          <textarea
-            value={input}
-            onChange={e=>setInput(e.target.value)}
-            onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();send();}}}
-            placeholder={"Pergunte sobre " + asset.ticker + "... (Enter para enviar)"}
-            rows={2}
-            style={{flex:1,background:"rgba(255,255,255,0.04)",border:"1px solid rgba(91,143,212,0.25)",borderRadius:8,padding:"9px 12px",color:"#F0EAD8",fontSize:13,fontFamily:"Georgia,serif",outline:"none",resize:"none",lineHeight:1.5}}/>
-          <button onClick={send} disabled={loading||!input.trim()}
-            style={{padding:"10px 14px",background:loading||!input.trim()?"rgba(91,143,212,0.08)":"linear-gradient(135deg,#5B8FD4,#3A6FB4)",border:"none",borderRadius:8,color:loading||!input.trim()?"#3A5070":"#F0EAD8",fontSize:18,cursor:loading||!input.trim()?"not-allowed":"pointer",flexShrink:0,lineHeight:1}}>
-            ↑
-          </button>
-        </div>
-        <div style={{fontSize:9,color:"#3A3830",marginTop:6,textAlign:"center",fontStyle:"italic"}}>Shift+Enter para nova linha · Enter para enviar</div>
-      </div>
-    </div>
-  );
-}
-
-// ── ALLOC RESULT
-function AllocResult({result,cw,onReset,onConfirm,apiKey}) {
-  const [chatAsset,setChatAsset] = React.useState(null);
-  // chatAsset: { ticker, score, metricas, margem, obs, classId }
-  if(chatAsset) return (
-    <AssetChat
-      asset={chatAsset}
-      result={result}
-      apiKey={apiKey}
-      onClose={()=>setChatAsset(null)}/>
-  );
-  return (
+function AllocResult({result,cw,onReset,onConfirm}){
+  return(
     <div>
       <button onClick={onReset} style={{background:"none",border:"none",color:"#8A8070",cursor:"pointer",fontSize:12,padding:0,marginBottom:14}}>← Novo aporte</button>
       <div style={{background:"linear-gradient(135deg,rgba(200,169,110,0.08),rgba(200,169,110,0.02))",border:"1px solid rgba(200,169,110,0.2)",borderRadius:10,padding:"16px",marginBottom:14}}>
@@ -1161,155 +638,92 @@ function AllocResult({result,cw,onReset,onConfirm,apiKey}) {
         <div style={{fontSize:24,color:"#F0EAD8",marginBottom:8}}>{fmtBRL(result.aporteValue)}</div>
         <p style={{margin:0,fontSize:12,color:"#B0A890",fontStyle:"italic",lineHeight:1.7}}>{result.resumo}</p>
       </div>
-      {(result.alertas||[]).length>0 && <div style={{marginBottom:14,padding:"10px 12px",background:"rgba(232,196,74,0.05)",border:"1px solid rgba(232,196,74,0.2)",borderRadius:8}}>
-        <div style={{fontSize:8,letterSpacing:2,color:"#E8C44A",fontFamily:"monospace",textTransform:"uppercase",marginBottom:6}}>⚠ Alertas de valuation</div>
-        {result.alertas.map((a,i)=><div key={i} style={{fontSize:11,color:"#B0A070",lineHeight:1.6,marginBottom:2}}>• {a}</div>)}
-      </div>}
+      {(result.alertas||[]).length>0&&<div style={{marginBottom:14,padding:"10px 12px",background:"rgba(232,196,74,0.05)",border:"1px solid rgba(232,196,74,0.2)",borderRadius:8}}><div style={{fontSize:8,letterSpacing:2,color:"#E8C44A",fontFamily:"monospace",textTransform:"uppercase",marginBottom:6}}>⚠ Alertas de valuation</div>{result.alertas.map((a,i)=><div key={i} style={{fontSize:11,color:"#B0A070",lineHeight:1.6,marginBottom:2}}>• {a}</div>)}</div>}
       <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:16}}>
         {(result.classes||[]).map(cl=>{
-          const meta=CLASSES.find(c=>c.id===cl.id); if(!meta) return null;
-          const w=cw[meta.id]||0,st=w<meta.min?"under":w>meta.max?"over":"ok",sc=st==="under"?"#E05252":st==="over"?"#E8C44A":"#4CAF82";
-          return (
-            <div key={cl.id} style={{background:meta.color+"07",border:"1px solid "+meta.color+"2A",borderRadius:9,overflow:"hidden"}}>
-              <div style={{padding:"11px 13px 9px",borderBottom:"1px solid "+meta.color+"15"}}>
-                <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:7}}>
-                  <div style={{display:"flex",alignItems:"center",gap:7}}>
-                    <span style={{fontSize:16}}>{meta.emoji}</span>
-                    <div>
-                      <div style={{fontSize:11,color:meta.color,fontWeight:600}}>{meta.name}</div>
-                      <div style={{fontSize:9,color:"#5A5550",fontFamily:"monospace",marginTop:1}}>Atual <span style={{color:sc}}>{pct(w)}</span> · Alvo {meta.min}–{meta.max}%</div>
-                    </div>
-                  </div>
-                  <div style={{textAlign:"right",flexShrink:0}}>
-                    <div style={{fontFamily:"monospace",fontSize:14,color:"#F0EAD8",fontWeight:700}}>{fmtBRL(cl.valor)}</div>
-                    <div style={{fontSize:9,color:meta.color,fontFamily:"monospace"}}>{(cl.pct||0).toFixed(1)}% do aporte</div>
-                  </div>
-                </div>
-                <p style={{margin:"6px 0 0",fontSize:11,color:"#8A8070",fontStyle:"italic",lineHeight:1.5}}>{cl.justificativa}</p>
+          const meta=CLASSES.find(c=>c.id===cl.id);if(!meta)return null;
+          const w=cw[meta.id]||0,st=w<meta.min?"u":w>meta.max?"o":"k",sc=st==="u"?"#E05252":st==="o"?"#E8C44A":"#4CAF82";
+          return(<div key={cl.id} style={{background:meta.color+"07",border:"1px solid "+meta.color+"2A",borderRadius:9,overflow:"hidden"}}>
+            <div style={{padding:"11px 13px 9px",borderBottom:"1px solid "+meta.color+"15"}}>
+              <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:7}}>
+                <div style={{display:"flex",alignItems:"center",gap:7}}><span style={{fontSize:16}}>{meta.emoji}</span><div><div style={{fontSize:11,color:meta.color,fontWeight:600}}>{meta.name}</div><div style={{fontSize:9,color:"#5A5550",fontFamily:"monospace",marginTop:1}}>Atual <span style={{color:sc}}>{pct(w)}</span> · Alvo {meta.min}–{meta.max}%</div></div></div>
+                <div style={{textAlign:"right",flexShrink:0}}><div style={{fontFamily:"monospace",fontSize:14,color:"#F0EAD8",fontWeight:700}}>{fmtBRL(cl.valor)}</div><div style={{fontSize:9,color:meta.color,fontFamily:"monospace"}}>{(cl.pct||0).toFixed(1)}% do aporte</div></div>
               </div>
-              <div style={{padding:"9px 13px 11px",display:"flex",flexDirection:"column",gap:8}}>
-                {(cl.ativos||[]).map((a,i)=>(
-                  <div key={i} style={{background:"rgba(0,0,0,0.2)",border:"1px solid rgba(255,255,255,0.05)",borderRadius:6,padding:"9px 10px"}}>
-                    <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:5,flexWrap:"wrap"}}>
-                      <span style={{background:meta.color,color:"#0D0F14",fontSize:9,fontWeight:700,padding:"2px 7px",borderRadius:3,fontFamily:"monospace"}}>{a.ticker}</span>
-                      {a.score && <Badge score={a.score}/>}
-                    </div>
-                    {a.metricas && <div style={{fontFamily:"monospace",fontSize:10,color:"#C8A96E",marginBottom:4,lineHeight:1.6}}>{a.metricas}</div>}
-                    {a.margem && <div style={{fontSize:10,color:"#7A9A7A",lineHeight:1.5,marginBottom:3,borderLeft:"2px solid #4CAF8244",paddingLeft:7}}>{a.margem}</div>}
-                    {a.obs && <div style={{fontSize:10,color:"#8A8070",lineHeight:1.5,fontStyle:"italic"}}>{a.obs}</div>}
-                    <button onClick={()=>setChatAsset({...a,classId:cl.id,className:meta.name,classColor:meta.color,classEmoji:meta.emoji})}
-                      style={{marginTop:8,width:"100%",padding:"7px",background:"rgba(91,143,212,0.08)",border:"1px solid rgba(91,143,212,0.25)",borderRadius:6,color:"#5B8FD4",fontSize:11,cursor:"pointer",fontFamily:"monospace",letterSpacing:1,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
-                      <span style={{fontSize:13}}>💬</span> Debater este ativo
-                    </button>
-                  </div>
-                ))}
-              </div>
+              <p style={{margin:"6px 0 0",fontSize:11,color:"#8A8070",fontStyle:"italic",lineHeight:1.5}}>{cl.justificativa}</p>
             </div>
-          );
+            <div style={{padding:"9px 13px 11px",display:"flex",flexDirection:"column",gap:8}}>
+              {(cl.ativos||[]).map((a,i)=>(
+                <div key={i} style={{background:"rgba(0,0,0,0.2)",border:"1px solid rgba(255,255,255,0.05)",borderRadius:6,padding:"9px 10px"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:5,flexWrap:"wrap"}}>
+                    <span style={{background:meta.color,color:"#0D0F14",fontSize:9,fontWeight:700,padding:"2px 7px",borderRadius:3,fontFamily:"monospace"}}>{a.ticker}</span>
+                    {a.score&&<Badge score={a.score}/>}
+                  </div>
+                  {a.metricas&&<div style={{fontFamily:"monospace",fontSize:10,color:"#C8A96E",marginBottom:4,lineHeight:1.6}}>{a.metricas}</div>}
+                  {a.margem&&<div style={{fontSize:10,color:"#7A9A7A",lineHeight:1.5,marginBottom:3,borderLeft:"2px solid #4CAF8244",paddingLeft:7}}>{a.margem}</div>}
+                  {a.obs&&<div style={{fontSize:10,color:"#8A8070",lineHeight:1.5,fontStyle:"italic"}}>{a.obs}</div>}
+                </div>
+              ))}
+            </div>
+          </div>);
         })}
       </div>
       <div style={{background:"rgba(200,169,110,0.04)",border:"1px solid rgba(200,169,110,0.2)",borderRadius:9,padding:"14px",marginBottom:12,textAlign:"center"}}>
         <div style={{fontSize:11,color:"#B0A890",marginBottom:10,lineHeight:1.6}}>Executou o aporte? Registre as compras e o portfólio se atualiza automaticamente.</div>
         <button onClick={onConfirm} style={{width:"100%",padding:"12px",background:"linear-gradient(135deg,#C8A96E,#A8893E)",border:"none",borderRadius:7,color:"#0D0F14",fontSize:12,fontWeight:700,letterSpacing:2,textTransform:"uppercase",cursor:"pointer",fontFamily:"monospace"}}>✓ Registrar compras executadas →</button>
       </div>
-      <div style={{padding:"9px 12px",background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.05)",borderRadius:7}}>
-        <p style={{margin:0,fontSize:9,color:"#5A5550",lineHeight:1.6,fontStyle:"italic"}}>⚠️ Análise por IA. Não é assessoria de investimentos regulada. Valide com seu assessor.</p>
-      </div>
+      <div style={{padding:"9px 12px",background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.05)",borderRadius:7}}><p style={{margin:0,fontSize:9,color:"#5A5550",lineHeight:1.6,fontStyle:"italic"}}>⚠️ Análise por IA. Não é assessoria de investimentos regulada. Valide com seu assessor.</p></div>
     </div>
   );
 }
 
-// ── CONFIRM EXEC
-function ConfirmExec({aporteR,execEnt,setExecEnt,port,ccy,labels,onBack,onApply}) {
+function ConfirmExec({aporteR,execEnt,setExecEnt,port,ccy,labels,onBack,onApply}){
   const setF=(t,f,v)=>setExecEnt(prev=>({...prev,[t]:{...prev[t],[f]:v}}));
-  const totalExec=Object.entries(execEnt).filter(([,v])=>v.executed).reduce((s,[,v])=>s+parseN(v.qty)*parseN(v.price),0);
-  const anyExec=Object.values(execEnt).some(v=>v.executed&&parseN(v.qty)>0&&parseN(v.price)>0);
+  const total=Object.entries(execEnt).filter(([,v])=>v.executed).reduce((s,[,v])=>s+parseN(v.qty)*parseN(v.price),0);
+  const any=Object.values(execEnt).some(v=>v.executed&&parseN(v.qty)>0&&parseN(v.price)>0);
   const byClass={};
-  (aporteR.classes||[]).forEach(cl=>{
-    (cl.ativos||[]).forEach(a=>{
-      if(!byClass[cl.id]) byClass[cl.id]={meta:CLASSES.find(c=>c.id===cl.id),ativos:[],valor:cl.valor};
-      byClass[cl.id].ativos.push(a.ticker);
-    });
-  });
-  return (
+  (aporteR.classes||[]).forEach(cl=>{(cl.ativos||[]).forEach(a=>{if(!byClass[cl.id])byClass[cl.id]={meta:CLASSES.find(c=>c.id===cl.id),ativos:[],valor:cl.valor};byClass[cl.id].ativos.push(a.ticker);});});
+  return(
     <div>
       <button onClick={onBack} style={{background:"none",border:"none",color:"#8A8070",cursor:"pointer",fontSize:12,padding:0,marginBottom:14}}>← Voltar para análise</button>
-      <div style={{background:"rgba(76,175,130,0.05)",border:"1px solid rgba(76,175,130,0.2)",borderRadius:9,padding:"12px 14px",marginBottom:16}}>
-        <p style={{margin:0,fontSize:12,color:"#B0A890",lineHeight:1.6}}>Marque os ativos comprados, informe quantidade e preço pago.</p>
-      </div>
+      <div style={{background:"rgba(76,175,130,0.05)",border:"1px solid rgba(76,175,130,0.2)",borderRadius:9,padding:"12px 14px",marginBottom:16}}><p style={{margin:0,fontSize:12,color:"#B0A890",lineHeight:1.6}}>Marque os ativos comprados, informe quantidade e preço pago.</p></div>
       {Object.entries(byClass).map(([cid,{meta,ativos,valor}])=>(
         <div key={cid} style={{marginBottom:16}}>
-          <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:8,padding:"7px 10px",background:meta.color+"0A",border:"1px solid "+meta.color+"22",borderRadius:7}}>
-            <span style={{fontSize:14}}>{meta.emoji}</span>
-            <span style={{color:meta.color,fontSize:12,fontWeight:600,flex:1}}>{meta.name}</span>
-            <span style={{fontFamily:"monospace",fontSize:11,color:"#8A8070"}}>{fmtBRL(valor)}</span>
-          </div>
+          <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:8,padding:"7px 10px",background:meta.color+"0A",border:"1px solid "+meta.color+"22",borderRadius:7}}><span style={{fontSize:14}}>{meta.emoji}</span><span style={{color:meta.color,fontSize:12,fontWeight:600,flex:1}}>{meta.name}</span><span style={{fontFamily:"monospace",fontSize:11,color:"#8A8070"}}>{fmtBRL(valor)}</span></div>
           {ativos.map(ticker=>{
-            const entry=execEnt[ticker]||{qty:"",price:"",executed:false};
-            const cc=ccy[ticker]||"BRL";
-            const sub=parseN(entry.qty)*parseN(entry.price);
-            return (
-              <div key={ticker} style={{marginBottom:6,padding:"10px 12px",background:entry.executed?"rgba(76,175,130,0.04)":"rgba(255,255,255,0.02)",border:"1px solid "+(entry.executed?"rgba(76,175,130,0.2)":"rgba(255,255,255,0.06)"),borderRadius:7}}>
-                <div style={{display:"flex",alignItems:"center",gap:9,marginBottom:entry.executed?8:0}}>
-                  <div onClick={()=>setF(ticker,"executed",!entry.executed)}
-                    style={{width:20,height:20,borderRadius:4,border:"2px solid "+(entry.executed?"#4CAF82":"#3A3830"),background:entry.executed?"#4CAF82":"transparent",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0}}>
-                    {entry.executed && <span style={{color:"#0D0F14",fontSize:12,fontWeight:700,lineHeight:1}}>✓</span>}
-                  </div>
-                  <div style={{flex:1}}>
-                    <span style={{fontFamily:"monospace",fontSize:12,color:entry.executed?"#F0EAD8":"#8A8070"}}>{labels[ticker]||ticker}</span>
-                    <div style={{fontSize:9,color:"#5A5550",fontFamily:"monospace"}}>{cc}</div>
-                  </div>
-                  {sub>0 && <span style={{fontFamily:"monospace",fontSize:11,color:"#C8A96E"}}>{fmtBRL(sub*(FX[cc]||1))}</span>}
-                </div>
-                {entry.executed && <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7}}>
-                  <div>
-                    <div style={{fontSize:8,color:"#5A5570",fontFamily:"monospace",textTransform:"uppercase",marginBottom:3}}>Qtd comprada</div>
-                    <input type="text" value={entry.qty} placeholder="0" onChange={e=>setF(ticker,"qty",e.target.value.replace(/[^0-9.,]/g,""))}
-                      style={{width:"100%",background:"rgba(0,0,0,0.4)",border:"1px solid "+meta.color+"44",borderRadius:5,padding:"7px 9px",color:"#F0EAD8",fontSize:15,fontFamily:"monospace",outline:"none",boxSizing:"border-box"}}/>
-                  </div>
-                  <div>
-                    <div style={{fontSize:8,color:"#5A5570",fontFamily:"monospace",textTransform:"uppercase",marginBottom:3}}>Preço ({cc})</div>
-                    <input type="text" value={entry.price} placeholder="0,00" onChange={e=>setF(ticker,"price",e.target.value.replace(/[^0-9.,]/g,""))}
-                      style={{width:"100%",background:"rgba(0,0,0,0.4)",border:"1px solid "+meta.color+"44",borderRadius:5,padding:"7px 9px",color:"#F0EAD8",fontSize:15,fontFamily:"monospace",outline:"none",boxSizing:"border-box"}}/>
-                  </div>
-                </div>}
+            const e=execEnt[ticker]||{qty:"",price:"",executed:false},cc=ccy[ticker]||"BRL",sub=parseN(e.qty)*parseN(e.price);
+            return(<div key={ticker} style={{marginBottom:6,padding:"10px 12px",background:e.executed?"rgba(76,175,130,0.04)":"rgba(255,255,255,0.02)",border:"1px solid "+(e.executed?"rgba(76,175,130,0.2)":"rgba(255,255,255,0.06)"),borderRadius:7}}>
+              <div style={{display:"flex",alignItems:"center",gap:9,marginBottom:e.executed?8:0}}>
+                <div onClick={()=>setF(ticker,"executed",!e.executed)} style={{width:20,height:20,borderRadius:4,border:"2px solid "+(e.executed?"#4CAF82":"#3A3830"),background:e.executed?"#4CAF82":"transparent",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0}}>{e.executed&&<span style={{color:"#0D0F14",fontSize:12,fontWeight:700,lineHeight:1}}>✓</span>}</div>
+                <div style={{flex:1}}><span style={{fontFamily:"monospace",fontSize:12,color:e.executed?"#F0EAD8":"#8A8070"}}>{labels[ticker]||ticker}</span><div style={{fontSize:9,color:"#5A5550",fontFamily:"monospace"}}>{cc}</div></div>
+                {sub>0&&<span style={{fontFamily:"monospace",fontSize:11,color:"#C8A96E"}}>{fmtBRL(sub*(FX[cc]||1))}</span>}
               </div>
-            );
+              {e.executed&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7}}>
+                <div><div style={{fontSize:8,color:"#5A5570",fontFamily:"monospace",textTransform:"uppercase",marginBottom:3}}>Qtd comprada</div><input type="text" value={e.qty} placeholder="0" onChange={ev=>setF(ticker,"qty",ev.target.value.replace(/[^0-9.,]/g,""))} style={{width:"100%",background:"rgba(0,0,0,0.4)",border:"1px solid "+meta.color+"44",borderRadius:5,padding:"7px 9px",color:"#F0EAD8",fontSize:15,fontFamily:"monospace",outline:"none",boxSizing:"border-box"}}/></div>
+                <div><div style={{fontSize:8,color:"#5A5570",fontFamily:"monospace",textTransform:"uppercase",marginBottom:3}}>Preço ({cc})</div><input type="text" value={e.price} placeholder="0,00" onChange={ev=>setF(ticker,"price",ev.target.value.replace(/[^0-9.,]/g,""))} style={{width:"100%",background:"rgba(0,0,0,0.4)",border:"1px solid "+meta.color+"44",borderRadius:5,padding:"7px 9px",color:"#F0EAD8",fontSize:15,fontFamily:"monospace",outline:"none",boxSizing:"border-box"}}/></div>
+              </div>}
+            </div>);
           })}
         </div>
       ))}
       <div style={{position:"sticky",bottom:0,background:"#0D0F14",borderTop:"1px solid rgba(200,169,110,0.15)",paddingTop:10,paddingBottom:6}}>
-        {totalExec>0 && <div style={{display:"flex",justifyContent:"space-between",marginBottom:8,padding:"6px 10px",background:"rgba(200,169,110,0.06)",border:"1px solid rgba(200,169,110,0.15)",borderRadius:7}}>
-          <span style={{fontSize:11,color:"#8A8070"}}>Total a registrar</span>
-          <span style={{fontFamily:"monospace",fontSize:16,color:"#C8A96E",fontWeight:700}}>{fmtBRL(totalExec)}</span>
-        </div>}
-        <button onClick={onApply} disabled={!anyExec} style={{width:"100%",padding:"12px",background:anyExec?"linear-gradient(135deg,#4CAF82,#2A8F62)":"#1A2018",border:"none",borderRadius:9,color:anyExec?"#0D0F14":"#3A5040",fontSize:12,fontWeight:700,letterSpacing:2,textTransform:"uppercase",cursor:anyExec?"pointer":"not-allowed",fontFamily:"monospace"}}>
-          {anyExec?"✓ Aplicar ao portfólio →":"Marque ao menos uma compra"}
-        </button>
+        {total>0&&<div style={{display:"flex",justifyContent:"space-between",marginBottom:8,padding:"6px 10px",background:"rgba(200,169,110,0.06)",border:"1px solid rgba(200,169,110,0.15)",borderRadius:7}}><span style={{fontSize:11,color:"#8A8070"}}>Total a registrar</span><span style={{fontFamily:"monospace",fontSize:16,color:"#C8A96E",fontWeight:700}}>{fmtBRL(total)}</span></div>}
+        <button onClick={onApply} disabled={!any} style={{width:"100%",padding:"12px",background:any?"linear-gradient(135deg,#4CAF82,#2A8F62)":"#1A2018",border:"none",borderRadius:9,color:any?"#0D0F14":"#3A5040",fontSize:12,fontWeight:700,letterSpacing:2,textTransform:"uppercase",cursor:any?"pointer":"not-allowed",fontFamily:"monospace"}}>{any?"✓ Aplicar ao portfólio →":"Marque ao menos uma compra"}</button>
       </div>
     </div>
   );
 }
 
-// ── APORTE DONE
-function AporteDone({aporteR,execEnt,ccy,labels,onNew,onDash}) {
+function AporteDone({aporteR,execEnt,ccy,labels,onNew,onDash}){
   const exec=Object.entries(execEnt).filter(([,v])=>v.executed&&parseN(v.qty)>0&&parseN(v.price)>0);
   const total=exec.reduce((s,[,v])=>s+parseN(v.qty)*parseN(v.price),0);
-  return (
+  return(
     <div style={{textAlign:"center",padding:"20px 0"}}>
       <div style={{fontSize:44,marginBottom:14}}>✅</div>
       <div style={{fontSize:10,letterSpacing:3,color:"#4CAF82",fontFamily:"monospace",textTransform:"uppercase",marginBottom:6}}>Aporte registrado</div>
       <div style={{fontSize:26,color:"#F0EAD8",fontFamily:"monospace",fontWeight:700,marginBottom:4}}>{fmtBRL(total)}</div>
       <p style={{color:"#8A8070",fontSize:12,fontStyle:"italic",marginBottom:20}}>{exec.length} ativo{exec.length!==1?"s":""} atualizado{exec.length!==1?"s":""}.</p>
       <div style={{background:"rgba(76,175,130,0.05)",border:"1px solid rgba(76,175,130,0.15)",borderRadius:9,padding:"10px 14px",marginBottom:20,textAlign:"left"}}>
-        {exec.map(([t,v])=>{ const cc=ccy[t]||"BRL"; return(
-          <div key={t} style={{display:"flex",alignItems:"center",gap:7,padding:"4px 0",borderBottom:"1px solid rgba(255,255,255,0.04)"}}>
-            <div style={{width:4,height:4,borderRadius:"50%",background:"#4CAF82",flexShrink:0}}/>
-            <span style={{fontFamily:"monospace",fontSize:11,color:"#F0EAD8",flex:1}}>{labels[t]||t}</span>
-            <span style={{fontSize:10,color:"#8A8070",fontFamily:"monospace"}}>{fmtN(parseN(v.qty),parseN(v.qty)<100?4:0)} × {fmtN(parseN(v.price),2)}</span>
-            <span style={{fontFamily:"monospace",fontSize:11,color:"#C8A96E"}}>{fmtBRL(parseN(v.qty)*parseN(v.price)*(FX[cc]||1))}</span>
-          </div>
-        );})}
+        {exec.map(([t,v])=>{const cc=ccy[t]||"BRL";return(<div key={t} style={{display:"flex",alignItems:"center",gap:7,padding:"4px 0",borderBottom:"1px solid rgba(255,255,255,0.04)"}}><div style={{width:4,height:4,borderRadius:"50%",background:"#4CAF82",flexShrink:0}}/><span style={{fontFamily:"monospace",fontSize:11,color:"#F0EAD8",flex:1}}>{labels[t]||t}</span><span style={{fontSize:10,color:"#8A8070",fontFamily:"monospace"}}>{fmtN(parseN(v.qty),parseN(v.qty)<100?4:0)} × {fmtN(parseN(v.price),2)}</span><span style={{fontFamily:"monospace",fontSize:11,color:"#C8A96E"}}>{fmtBRL(parseN(v.qty)*parseN(v.price)*(FX[cc]||1))}</span></div>);})}
       </div>
       <div style={{display:"flex",gap:8}}>
         <button onClick={onDash} style={{flex:1,padding:"12px",background:"linear-gradient(135deg,#C8A96E,#A8893E)",border:"none",borderRadius:7,color:"#0D0F14",fontSize:12,fontWeight:700,letterSpacing:2,textTransform:"uppercase",cursor:"pointer",fontFamily:"monospace"}}>Dashboard</button>
@@ -1319,24 +733,9 @@ function AporteDone({aporteR,execEnt,ccy,labels,onNew,onDash}) {
   );
 }
 
-function Fld({label,value,hint}) {
-  return <div style={{marginBottom:12}}>
-    <label style={{fontSize:9,letterSpacing:2,color:"#8A8070",fontFamily:"monospace",textTransform:"uppercase",display:"block",marginBottom:5}}>{label}</label>
-    {value}
-    {hint && <div style={{fontSize:9,color:"#3A3830",marginTop:3,fontStyle:"italic"}}>{hint}</div>}
-  </div>;
-}
-function NIn({v,set,ph,c}) {
-  return <input type="text" value={v} onChange={e=>set(e.target.value.replace(/[^0-9.,]/g,""))} placeholder={ph}
-    style={{width:"100%",background:"rgba(0,0,0,0.3)",border:"1px solid "+(c||"#C8A96E")+"44",borderRadius:6,padding:"9px 11px",color:"#F0EAD8",fontSize:15,fontFamily:"monospace",outline:"none",boxSizing:"border-box"}}/>;
-}
-function Empty({onGo,msg}) {
-  return <div style={{textAlign:"center",padding:"50px 16px"}}>
-    <div style={{fontSize:36,marginBottom:14}}>📋</div>
-    <p style={{color:"#8A8070",fontSize:13,lineHeight:1.7,marginBottom:18,fontStyle:"italic"}}>{msg||"Nenhuma posição cadastrada."}</p>
-    <button onClick={onGo} style={{background:"linear-gradient(135deg,#C8A96E,#A8893E)",border:"none",borderRadius:7,padding:"11px 24px",color:"#0D0F14",fontSize:12,fontWeight:700,letterSpacing:2,textTransform:"uppercase",cursor:"pointer",fontFamily:"monospace"}}>Cadastrar posições →</button>
-  </div>;
-}
+function Fld({label,value,hint}){return <div style={{marginBottom:12}}><label style={{fontSize:9,letterSpacing:2,color:"#8A8070",fontFamily:"monospace",textTransform:"uppercase",display:"block",marginBottom:5}}>{label}</label>{value}{hint&&<div style={{fontSize:9,color:"#3A3830",marginTop:3,fontStyle:"italic"}}>{hint}</div>}</div>;}
+function NIn({v,set,ph,c}){return <input type="text" value={v} onChange={e=>set(e.target.value.replace(/[^0-9.,]/g,""))} placeholder={ph} style={{width:"100%",background:"rgba(0,0,0,0.3)",border:"1px solid "+(c||"#C8A96E")+"44",borderRadius:6,padding:"9px 11px",color:"#F0EAD8",fontSize:15,fontFamily:"monospace",outline:"none",boxSizing:"border-box"}}/>;}
+function Empty({onGo,msg}){return <div style={{textAlign:"center",padding:"50px 16px"}}><div style={{fontSize:36,marginBottom:14}}>📋</div><p style={{color:"#8A8070",fontSize:13,lineHeight:1.7,marginBottom:18,fontStyle:"italic"}}>{msg||"Nenhuma posição cadastrada."}</p><button onClick={onGo} style={{background:"linear-gradient(135deg,#C8A96E,#A8893E)",border:"none",borderRadius:7,padding:"11px 24px",color:"#0D0F14",fontSize:12,fontWeight:700,letterSpacing:2,textTransform:"uppercase",cursor:"pointer",fontFamily:"monospace"}}>Cadastrar posições →</button></div>;}
 
 ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
 </script>
