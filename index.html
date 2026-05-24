@@ -151,116 +151,102 @@ function App(){
     const tickers=Object.keys(port).filter(t=>hq(t,port[t])&&!VB.includes(t));
     if(!tickers.length){setPErr("Nenhum ativo com quantidade cadastrada");return;}
     setLoadP(true);setPErr("");
+
+    // Fetch via Yahoo Finance with CORS proxy fallback
+    async function yahooFetch(symbols){
+      const url="https://query1.finance.yahoo.com/v7/finance/quote?symbols="+encodeURIComponent(symbols);
+      const proxies=[
+        "https://corsproxy.io/?"+encodeURIComponent(url),
+        "https://api.allorigins.win/get?url="+encodeURIComponent(url),
+        "https://api.codetabs.com/v1/proxy?quest="+encodeURIComponent(url),
+      ];
+      for(const proxy of proxies){
+        try{
+          const r=await fetch(proxy,{signal:AbortSignal.timeout(8000)});
+          if(!r.ok)continue;
+          const raw=await r.text();
+          // Handle both direct JSON and wrapped JSON (allorigins)
+          let d;
+          try{d=JSON.parse(raw);}catch{continue;}
+          // allorigins wraps in {contents:"..."}
+          if(d.contents){try{d=JSON.parse(d.contents);}catch{continue;}}
+          const results=d?.quoteResponse?.result||[];
+          if(results.length>0)return results;
+        }catch{}
+      }
+      return [];
+    }
+
     try{
       const allPrices={};
 
-      // 1. Fetch BRL assets via brapi.dev (free, no CORS issues)
+      // 1. BRL assets (B3) - add .SA suffix for Yahoo
       const brlTickers=tickers.filter(t=>(BCCY[t]||"BRL")==="BRL"&&!GB.includes(t));
       if(brlTickers.length){
-        for(let i=0;i<brlTickers.length;i+=20){
-          const batch=brlTickers.slice(i,i+20).join(",");
-          try{
-            const r=await fetch("https://brapi.dev/api/quote/"+batch+"?fundamental=false");
-            const d=await r.json();
-            (d.results||[]).forEach(q=>{if(q.regularMarketPrice>0)allPrices[q.symbol]=q.regularMarketPrice;});
-          }catch{}
-        }
+        const syms=brlTickers.map(t=>t+".SA").join(",");
+        const results=await yahooFetch(syms);
+        results.forEach(q=>{
+          const orig=q.symbol.replace(".SA","");
+          if(q.regularMarketPrice>0)allPrices[orig]=q.regularMarketPrice;
+        });
       }
 
-      // 2. Fetch USD/BRL and other FX from exchangerate-api (free)
+      // 2. International stocks (USD, EUR, GBP, etc.)
+      const intlMap={BRKB:"BRK-B",NSIS_B:"NSIS-B.CO",HLMA:"HLMA.L",KOG:"KOG.OL",
+        GMEXICOB:"GMEXICOB.MX",TSE8058:"8058.T",TSE8031:"8031.T",REA:"REA.AX",WES:"WES.AX",
+        HKG0700:"0700.HK",HKG1299:"1299.HK",HKG0001:"0001.HK",HKG0087:"0087.HK",J36:"J36.SI",
+        ABBN:"ABBN.SW",SIE:"SIE.DE",SAP:"SAP.DE",ASML:"ASML.AS"};
+      const intlTickers=tickers.filter(t=>BCCY[t]&&BCCY[t]!=="BRL"&&!["BTC","AAAU"].includes(t));
+      if(intlTickers.length){
+        const syms=intlTickers.map(t=>intlMap[t]||t).join(",");
+        const results=await yahooFetch(syms);
+        results.forEach(q=>{
+          const orig=intlTickers.find(t=>(intlMap[t]||t)===q.symbol);
+          if(orig&&q.regularMarketPrice>0)allPrices[orig]=q.regularMarketPrice;
+        });
+      }
+
+      // 3. FX rates via exchangerate-api (free, no auth)
       try{
-        const r=await fetch("https://api.exchangerate-api.com/v4/latest/USD");
+        const r=await fetch("https://api.exchangerate-api.com/v4/latest/BRL",{signal:AbortSignal.timeout(5000)});
         const d=await r.json();
         if(d.rates){
-          FX.USD=1/(d.rates.USD||1)*d.rates.BRL||FX.USD;
-          // BRL per foreign currency
-          const brl=d.rates.BRL;
-          if(brl>0){
-            FX.USD=brl/(d.rates.USD||1);
-            FX.EUR=brl/(d.rates.EUR||1);
-            FX.GBP=brl/(d.rates.GBP||1);
-            FX.CHF=brl/(d.rates.CHF||1);
-            FX.JPY=brl/(d.rates.JPY||1);
-            FX.AUD=brl/(d.rates.AUD||1);
-            FX.HKD=brl/(d.rates.HKD||1);
-            FX.SGD=brl/(d.rates.SGD||1);
-            FX.NOK=brl/(d.rates.NOK||1);
-            FX.DKK=brl/(d.rates.DKK||1);
-            FX.MXN=brl/(d.rates.MXN||1);
-          }
+          // rates are X per BRL, so BRL per X = 1/rate
+          Object.entries({USD:"USD",EUR:"EUR",GBP:"GBP",CHF:"CHF",JPY:"JPY",AUD:"AUD",HKD:"HKD",SGD:"SGD",NOK:"NOK",DKK:"DKK",MXN:"MXN"}).forEach(([k,v])=>{
+            if(d.rates[v]>0)FX[k]=1/d.rates[v];
+          });
         }
       }catch{}
 
-      // 3. Fetch BTC price in USD via CoinGecko (free, no auth)
+      // 4. Bitcoin via CoinGecko
       if(tickers.includes("BTC")){
         try{
-          const r=await fetch("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd");
+          const r=await fetch("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd",{signal:AbortSignal.timeout(5000)});
           const d=await r.json();
           if(d.bitcoin?.usd>0)allPrices["BTC"]=d.bitcoin.usd;
         }catch{}
       }
 
-      // 4. Fetch gold price via Coinbase (free, no auth)
+      // 5. Gold via Coinbase (price per troy oz in USD → convert to BRL/gram)
       if(tickers.includes("OURO_FISICO")||tickers.includes("AAAU")){
         try{
-          const r=await fetch("https://api.coinbase.com/v2/prices/XAU-USD/spot");
+          const r=await fetch("https://api.coinbase.com/v2/prices/XAU-USD/spot",{signal:AbortSignal.timeout(5000)});
           const d=await r.json();
           const goldUSD=parseFloat(d?.data?.amount);
           if(goldUSD>0){
-            const goldBRLperGram=(goldUSD/31.1035)*FX.USD;
-            if(tickers.includes("OURO_FISICO"))allPrices["OURO_FISICO"]=goldBRLperGram;
+            if(tickers.includes("OURO_FISICO"))allPrices["OURO_FISICO"]=(goldUSD/31.1035)*FX.USD;
             if(tickers.includes("AAAU"))allPrices["AAAU"]=goldUSD/31.1035;
           }
         }catch{}
-      }
-
-      // 5. Fetch international stocks via Yahoo Finance proxy (cors-anywhere alternative)
-      const intlMap={
-        BRKB:"BRK-B",NSIS_B:"NSIS-B.CO",HLMA:"HLMA.L",KOG:"KOG.OL",
-        GMEXICOB:"GMEXICOB.MX",TSE8058:"8058.T",TSE8031:"8031.T",
-        REA:"REA.AX",WES:"WES.AX",HKG0700:"0700.HK",HKG1299:"1299.HK",
-        HKG0001:"0001.HK",HKG0087:"0087.HK",J36:"J36.SI",ABBN:"ABBN.SW",
-        SIE:"SIE.DE",SAP:"SAP.DE",ASML:"ASML.AS",NSIS_B:"NSIS-B.CO",
-        HLMA:"HLMA.L",KOG:"KOG.OL"
-      };
-      const intlTickers=tickers.filter(t=>BCCY[t]&&BCCY[t]!=="BRL"&&!["BTC","AAAU"].includes(t));
-      if(intlTickers.length){
-        const yahooSyms=intlTickers.map(t=>intlMap[t]||t).join(",");
-        // Use allorigins proxy to bypass CORS
-        const yahooUrl="https://query1.finance.yahoo.com/v7/finance/quote?symbols="+encodeURIComponent(yahooSyms);
-        const proxyUrl="https://api.allorigins.win/get?url="+encodeURIComponent(yahooUrl);
-        try{
-          const r=await fetch(proxyUrl);
-          const wrapper=await r.json();
-          const d=JSON.parse(wrapper.contents);
-          (d?.quoteResponse?.result||[]).forEach(q=>{
-            const origTicker=intlTickers.find(t=>(intlMap[t]||t)===q.symbol);
-            if(origTicker&&q.regularMarketPrice>0)allPrices[origTicker]=q.regularMarketPrice;
-          });
-        }catch{}
-        // Also try direct tickers (MSFT, GOOGL, etc. - US stocks don't need suffix)
-        const usTickers=intlTickers.filter(t=>BCCY[t]==="USD"&&!intlMap[t]);
-        if(usTickers.length){
-          const usUrl="https://query1.finance.yahoo.com/v7/finance/quote?symbols="+encodeURIComponent(usTickers.join(","));
-          const usProxy="https://api.allorigins.win/get?url="+encodeURIComponent(usUrl);
-          try{
-            const r=await fetch(usProxy);
-            const wrapper=await r.json();
-            const d=JSON.parse(wrapper.contents);
-            (d?.quoteResponse?.result||[]).forEach(q=>{
-              if(q.regularMarketPrice>0)allPrices[q.symbol]=q.regularMarketPrice;
-            });
-          }catch{}
-        }
       }
 
       const n=Object.keys(allPrices).length;
       if(n>0){
         setPort(prev=>{const np={...prev};Object.entries(allPrices).forEach(([t,v])=>{if(np[t])np[t]={...np[t],price:v};});return np;});
         setLastPU(new Date().toISOString());
-        setPErr("");
+        setPErr(n<tickers.length?"Parcial: "+n+"/"+tickers.length+" atualizados":"");
       } else {
-        setPErr("Erro ao buscar precos. Verifique sua conexao.");
+        setPErr("Sem precos. Verifique conexao e tente novamente.");
       }
     }catch(e){setPErr(e.message||"Erro");}
     setLoadP(false);
