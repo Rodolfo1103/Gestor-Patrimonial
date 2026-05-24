@@ -313,15 +313,22 @@ function EvolChart({hist,showUSD,setShowUSD}){
 }
 
 function KeyScreen({onSave}){
-  const [v,sv]=useState("");
+  const tryPrompt=()=>{
+    const k=window.prompt("Cole aqui sua chave da API Anthropic:\n(obtenha em console.anthropic.com)");
+    if(k===null)return;
+    if(k.length>20){onSave(k);}
+    else{alert("Chave invalida. Cole a chave completa que começa com sk-ant-...");tryPrompt();}
+  };
   return h("div",{style:{minHeight:"100vh",background:"#0D0F14",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:24}},
     h("div",{style:{fontSize:32,marginBottom:16}},"\u{1F511}"),
     h("h2",{style:{margin:"0 0 10px",fontSize:20,fontWeight:400,color:"#F0EAD8",textAlign:"center"}},"Chave da API Anthropic"),
     h("p",{style:{color:"#8A8070",fontSize:13,lineHeight:1.7,marginBottom:20,textAlign:"center",maxWidth:320}},
       "Obtenha em ",h("span",{style:{color:"#C8A96E"}},"console.anthropic.com"),". Salva so neste dispositivo."
     ),
-    h("input",{type:"text",placeholder:"sk-ant-...",value:v,onChange:e=>sv(e.target.value),autoComplete:"off",autoCapitalize:"off",spellCheck:false,style:{width:"100%",maxWidth:320,background:"rgba(200,169,110,0.05)",border:"1px solid rgba(200,169,110,0.3)",borderRadius:8,padding:"12px 14px",color:"#F0EAD8",fontFamily:"monospace",outline:"none",marginBottom:10}}),
-    h("button",{onClick:()=>v.length>20?onSave(v):alert("Cole a chave completa (sk-ant-...)"),style:{width:"100%",maxWidth:320,padding:"13px",background:"linear-gradient(135deg,#C8A96E,#A8893E)",border:"none",borderRadius:8,color:"#0D0F14",fontSize:13,fontWeight:700,cursor:"pointer"}},"Salvar e continuar")
+    h("p",{style:{color:"#8A8070",fontSize:12,lineHeight:1.7,marginBottom:20,textAlign:"center",maxWidth:320}},
+      "Toque no botao abaixo e cole a chave no campo que aparecer."
+    ),
+    h("button",{onClick:tryPrompt,style:{width:"100%",maxWidth:320,padding:"13px",background:"linear-gradient(135deg,#C8A96E,#A8893E)",border:"none",borderRadius:8,color:"#0D0F14",fontSize:13,fontWeight:700,cursor:"pointer"}},"Colar chave API ->")
   );
 }
 
