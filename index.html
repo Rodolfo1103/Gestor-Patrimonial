@@ -1178,8 +1178,22 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           h("div",{style:{fontSize:9,color:"#7A7570",fontStyle:"italic",marginTop:4,lineHeight:1.5}},"Soma dos maximos atual: ",h("span",{style:{color:Math.abs(bandsTotal-100)<=5?"#4CAF82":"#E8C44A",fontWeight:"bold",fontFamily:"monospace"}},bandsTotal+"%"),Math.abs(bandsTotal-100)>5?" (recomendado ficar perto de 100%)":"")
         )
       );
+      // Bloco de manutencao
+      const histLen=hist.filter(r=>r.composicao||r.totalPatrimBRL).length;
+      const manutencaoBlock=h("div",{style:{marginBottom:14,padding:"10px 13px",background:"rgba(232,196,74,0.03)",border:"1px solid rgba(232,196,74,0.2)",borderRadius:8}},
+        h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,flexWrap:"wrap"}},
+          h("div",{},
+            h("div",{style:{fontSize:9,letterSpacing:3,color:"#E8C44A",fontFamily:"monospace",textTransform:"uppercase"}},"Manutencao do Historico"),
+            h("div",{style:{fontSize:9,color:"#7A7570",marginTop:3,lineHeight:1.5}},histLen+" registro(s) salvos. Limpe se quiser zerar o grafico de evolucao (ex: apos grande variacao cambial).")
+          ),
+          h("button",{onClick:()=>{
+            if(window.confirm("Limpar todo o historico de evolucao do patrimonio? Esta acao nao pode ser desfeita."))setHist([]);
+          },style:{background:"rgba(224,82,82,0.08)",border:"1px solid rgba(224,82,82,0.35)",borderRadius:5,color:"#E05252",fontSize:10,padding:"6px 12px",cursor:"pointer",fontFamily:"monospace",letterSpacing:1,flexShrink:0}},"limpar historico")
+        )
+      );
       content=h("div",{},
         bandsBlock,
+        manutencaoBlock,
         h("div",{style:{fontSize:11,color:"#8A8070",marginBottom:12,lineHeight:1.6}},"Toque em qualquer ativo para editar."),
         hidden.length>0&&h("button",{onClick:()=>setShowHid(s=>!s),style:{background:"none",border:"1px solid rgba(255,255,255,0.08)",borderRadius:6,color:"#8A8070",fontSize:10,padding:"4px 10px",cursor:"pointer",fontFamily:"monospace",marginBottom:12}},showHid?"Ocultar escondidos":"Mostrar "+hidden.length+" oculto(s)"),
         ...rows
