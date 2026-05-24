@@ -240,9 +240,13 @@ function CompareChart({cw}){
 
 function RiskChart({cw}){
   const W=300,H=170,pL=22,pB=20,pT=12,pR=12,cW=W-pL-pR,cH=H-pB-pT;
+  // Calcula posicao do portfolio agregado (media ponderada de risco e retorno)
+  let totW=0,wR=0,wE=0;
+  CL.forEach(c=>{const p=RR[c.id],w=cw[c.id]||0;if(p&&w>0){totW+=w;wR+=p.r*w;wE+=p.e*w;}});
+  const portR=totW>0?wR/totW:null,portE=totW>0?wE/totW:null;
   return h("div",{style:{marginBottom:20,paddingTop:14,borderTop:"1px solid rgba(255,255,255,0.05)"}},
     h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:4}},"Risco x Retorno esperado"),
-    h("div",{style:{fontSize:9,color:"#5A5550",marginBottom:6,fontStyle:"italic"}},"Tamanho do circulo = peso no portfolio"),
+    h("div",{style:{fontSize:9,color:"#5A5550",marginBottom:6,fontStyle:"italic"}},"Estrela dourada = portfolio agregado. Circulos = classes."),
     h("svg",{viewBox:"0 0 "+W+" "+H,style:{width:"100%",height:"auto"}},
       ...[0,2,4,6,8,10].map(v=>{
         const x=pL+(v/10)*cW,y=pT+cH-(v/10)*cH;
@@ -260,6 +264,22 @@ function RiskChart({cw}){
           w>0&&h("text",{x:cx,y:cy-r-3,textAnchor:"middle",fill:c.color,fontSize:"8"},c.tag)
         );
       }),
+      // Marcador do portfolio agregado (estrela dourada)
+      portR!==null&&(()=>{
+        const cx=pL+(portR/10)*cW,cy=pT+cH-(portE/10)*cH;
+        // Estrela de 5 pontas
+        const star=[];
+        for(let i=0;i<10;i++){
+          const ang=(Math.PI/5)*i-Math.PI/2;
+          const rad=i%2===0?9:4;
+          star.push((cx+rad*Math.cos(ang)).toFixed(1)+","+(cy+rad*Math.sin(ang)).toFixed(1));
+        }
+        return h(Fragment,{key:"port"},
+          h("polygon",{points:star.join(" "),fill:"#FFD700",fillOpacity:0.95,stroke:"#0D0F14",strokeWidth:"1.5"}),
+          h("text",{x:cx,y:cy-13,textAnchor:"middle",fill:"#FFD700",fontSize:"8",fontWeight:"bold"},"PORT"),
+          h("text",{x:cx,y:cy+18,textAnchor:"middle",fill:"#FFD700",fontSize:"7",fontFamily:"monospace"},"R:"+portR.toFixed(1)+" E:"+portE.toFixed(1))
+        );
+      })(),
       h("line",{x1:pL,y1:pT+cH,x2:pL+cW,y2:pT+cH,stroke:"rgba(255,255,255,0.1)",strokeWidth:"1"}),
       h("line",{x1:pL,y1:pT,x2:pL,y2:pT+cH,stroke:"rgba(255,255,255,0.1)",strokeWidth:"1"})
     )
