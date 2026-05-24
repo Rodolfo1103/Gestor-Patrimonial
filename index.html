@@ -390,15 +390,15 @@ function App(){
           const pos=port[ticker],isHid=hidden.includes(ticker),cc=ccy[ticker]||"BRL";
           const val=pv(ticker,pos,ccy),has=val>0||hq(ticker,pos);
           const isCustom=!!(custom[c.id]||[]).find(a=>a.ticker===ticker);
-          return S({key:ticker,display:"flex",alignItems:"center",padding:"6px 8px",marginBottom:2,background:isHid?"rgba(255,255,255,0.01)":has?c.color+"0A":"rgba(255,255,255,0.02)",border:"1px solid "+(isHid?"rgba(255,255,255,0.03)":has?c.color+"22":"rgba(255,255,255,0.04)"),borderRadius:6,gap:7,opacity:isHid?0.4:1},
-            S({width:3,height:22,borderRadius:2,background:has?c.color:"rgba(255,255,255,0.08)",flexShrink:0,cursor:"pointer",onClick:()=>openEdit(ticker,c.id)}),
-            S({flex:1,minWidth:0,cursor:"pointer",onClick:()=>openEdit(ticker,c.id)},
+          return h("div",{onClick:()=>openEdit(ticker,c.id),style:{key:ticker,display:"flex",alignItems:"center",padding:"6px 8px",marginBottom:2,background:isHid?"rgba(255,255,255,0.01)":has?c.color+"0A":"rgba(255,255,255,0.02)",border:"1px solid "+(isHid?"rgba(255,255,255,0.03)":has?c.color+"22":"rgba(255,255,255,0.04)"),borderRadius:6,gap:7,opacity:isHid?0.4:1,cursor:"pointer"}},
+            S({width:3,height:22,borderRadius:2,background:has?c.color:"rgba(255,255,255,0.08)",flexShrink:0}),
+            S({flex:1,minWidth:0},
               S({display:"flex",alignItems:"center",gap:4},S({fontSize:10,color:has?"#F0EAD8":"#5A5550",fontFamily:"monospace",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"},lbl[ticker]||ticker),isCustom&&S({fontSize:6,color:c.color,border:"1px solid "+c.color+"55",borderRadius:2,padding:"1px 3px",fontFamily:"monospace"},"+"),isHid&&S({fontSize:6,color:"#8A8070",border:"1px solid #8A807044",borderRadius:2,padding:"1px 3px",fontFamily:"monospace"},"oculto")),
               S({fontSize:8,color:"#6A6050",fontFamily:"monospace"},VB.includes(ticker)?"valor BRL":GB.includes(ticker)?"gramas/BRL":cc),
               has&&pos&&S({fontSize:8,color:"#8A8070"},VB.includes(ticker)?fB(pos.totalBRL||0):GB.includes(ticker)?(fN(pos.qty,3)+" g x R$ "+fN(pos.price||0,2)):(fN(pos.qty,pos.qty<100?4:0)+" x "+(cc!="BRL"?cc+" ":"R$ ")+fN(pos.price||0,2)))
             ),
             val>0&&S({textAlign:"right",flexShrink:0},S({fontSize:10,color:"#F0EAD8",fontFamily:"monospace"},fB(val))),
-            isCustom?h("button",{onClick:()=>removeCustom(c.id,ticker),style:{background:"none",border:"none",color:"#E05252",fontSize:15,cursor:"pointer",padding:"0 2px",flexShrink:0}},"x"):S({color:"#3A3830",fontSize:12,cursor:"pointer",onClick:()=>openEdit(ticker,c.id)},"›")
+            isCustom?h("button",{onClick:()=>removeCustom(c.id,ticker),style:{background:"none",border:"none",color:"#E05252",fontSize:15,cursor:"pointer",padding:"0 2px",flexShrink:0}},"x"):S({color:"#3A3830",fontSize:12},"›")
           );
         });
         const addForm=addTo===c.id?
