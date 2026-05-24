@@ -573,14 +573,22 @@ function App(){
   const [editBands,setEditBands]=useState(false);
   const [bandsVer,setBandsVer]=useState(0); // forca re-render quando bandas mudam
   const [editAporte,setEditAporte]=useState(false);
+  // PIN de seguranca (4 digitos). Hash simples + checagem na entrada
+  const hashPIN=(s)=>{let h=5381;for(let i=0;i<s.length;i++)h=((h<<5)+h)+s.charCodeAt(i);return String(h);};
+  const [pinHash,setPinHash]=useState(()=>{try{return localStorage.getItem("pat-pin")||"";}catch{return "";}});
+  const [autenticado,setAutenticado]=useState(false);
+  const [pinInput,setPinInput]=useState("");
+  const [pinErr,setPinErr]=useState("");
+  const [pinMode,setPinMode]=useState("entrada"); // entrada | criar | confirmar | esqueci
+  const [pinNovo,setPinNovo]=useState("");
   // Programacao do proximo aporte
   const [aporteProg,setAporteProg]=useState(()=>{
     try{
       const s=localStorage.getItem("pat-aporte-prog");
       if(s)return JSON.parse(s);
     }catch{}
-    // Default: dia 5 do mes, faixa de 3 dias (5 a 8)
-    return {dia:5,faixaDias:3,ativo:true,ultimaNotif:""};
+    // Default: dia 5 do mes, faixa de 3 dias (5 a 8), todos os meses
+    return {dia:5,faixaDias:3,ativo:true,ultimaNotif:"",meses:[1,2,3,4,5,6,7,8,9,10,11,12]};
   });
   // Salva sempre que muda
   useEffect(()=>{
@@ -622,24 +630,27 @@ function App(){
     salvarBandas();
   };
 
-  // Calcula proxima janela de aporte
+  // Calcula proxima janela de aporte (considera meses selecionados)
   const calcProxAporte=()=>{
     if(!aporteProg.ativo)return null;
+    const mesesSel=(aporteProg.meses&&aporteProg.meses.length>0)?aporteProg.meses:[1,2,3,4,5,6,7,8,9,10,11,12];
     const hoje=new Date();hoje.setHours(0,0,0,0);
     const dia=Math.max(1,Math.min(28,aporteProg.dia||5));
     const faixa=Math.max(0,Math.min(15,aporteProg.faixaDias||3));
-    let inicio=new Date(hoje.getFullYear(),hoje.getMonth(),dia);
-    inicio.setHours(0,0,0,0);
-    let fim=new Date(inicio);fim.setDate(fim.getDate()+faixa);
-    // Se a janela ja passou no mes atual, vai para o proximo mes
-    if(hoje>fim){
-      inicio=new Date(hoje.getFullYear(),hoje.getMonth()+1,dia);
-      inicio.setHours(0,0,0,0);
-      fim=new Date(inicio);fim.setDate(fim.getDate()+faixa);
+    // Procura a proxima janela em ate 24 meses
+    for(let i=0;i<24;i++){
+      const ano=hoje.getFullYear()+Math.floor((hoje.getMonth()+i)/12);
+      const mes=(hoje.getMonth()+i)%12;
+      if(!mesesSel.includes(mes+1))continue;
+      const inicio=new Date(ano,mes,dia);inicio.setHours(0,0,0,0);
+      const fim=new Date(inicio);fim.setDate(fim.getDate()+faixa);
+      if(hoje<=fim){
+        const diasAteInicio=Math.ceil((inicio-hoje)/(24*3600*1000));
+        const naJanela=hoje>=inicio&&hoje<=fim;
+        return {inicio,fim,diasAteInicio,naJanela};
+      }
     }
-    const diasAteInicio=Math.ceil((inicio-hoje)/(24*3600*1000));
-    const naJanela=hoje>=inicio&&hoje<=fim;
-    return {inicio,fim,diasAteInicio,naJanela};
+    return null;
   };
 
   // Pedir permissao de notificacao + verificar vespera
@@ -1302,6 +1313,26 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             h("input",{type:"number",min:"0",max:"15",value:aporteProg.faixaDias||0,onChange:e=>setAporteProg(p=>({...p,faixaDias:Math.max(0,Math.min(15,parseInt(e.target.value)||0))})),disabled:!aporteProg.ativo,style:{width:60,background:"rgba(0,0,0,0.4)",border:"1px solid rgba(200,169,110,0.3)",borderRadius:3,padding:"4px 6px",color:"#F0EAD8",fontSize:11,fontFamily:"monospace",outline:"none",textAlign:"center"}}),
             h("span",{style:{fontSize:9,color:"#7A7570",fontStyle:"italic"}},aporteProg.faixaDias>0?"janela: dia "+aporteProg.dia+" ao "+(aporteProg.dia+aporteProg.faixaDias):"data unica")
           ),
+          h("div",{style:{padding:"7px 8px",background:"rgba(0,0,0,0.2)",borderRadius:5,opacity:aporteProg.ativo?1:0.4}},
+            h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6}},
+              h("span",{style:{fontSize:10,color:"#B0A890"}},"Meses do ano:"),
+              h("div",{style:{display:"flex",gap:4}},
+                h("button",{onClick:()=>setAporteProg(p=>({...p,meses:[1,2,3,4,5,6,7,8,9,10,11,12]})),disabled:!aporteProg.ativo,style:{background:"none",border:"1px solid rgba(200,169,110,0.25)",borderRadius:3,color:"#8A8070",fontSize:8,padding:"2px 6px",cursor:"pointer",fontFamily:"monospace"}},"todos"),
+                h("button",{onClick:()=>setAporteProg(p=>({...p,meses:[]})),disabled:!aporteProg.ativo,style:{background:"none",border:"1px solid rgba(224,82,82,0.25)",borderRadius:3,color:"#8A8070",fontSize:8,padding:"2px 6px",cursor:"pointer",fontFamily:"monospace"}},"limpar")
+              )
+            ),
+            h("div",{style:{display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:3}},
+              ...["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"].map((nm,i)=>{
+                const mes=i+1;
+                const sel=(aporteProg.meses||[]).includes(mes);
+                return h("button",{key:mes,onClick:()=>setAporteProg(p=>{
+                  const ms=new Set(p.meses||[]);
+                  if(ms.has(mes))ms.delete(mes);else ms.add(mes);
+                  return {...p,meses:[...ms].sort((a,b)=>a-b)};
+                }),disabled:!aporteProg.ativo,style:{background:sel?"rgba(200,169,110,0.2)":"rgba(255,255,255,0.03)",border:"1px solid "+(sel?"#C8A96E":"rgba(255,255,255,0.1)"),borderRadius:3,color:sel?"#C8A96E":"#5A5550",fontSize:9,padding:"4px 0",cursor:"pointer",fontFamily:"monospace",fontWeight:sel?"bold":"normal"}},nm);
+              })
+            )
+          ),
           notifStatus!=="granted"&&notifStatus!=="unsupported"&&h("button",{onClick:pedirNotif,style:{padding:"6px",background:"rgba(91,143,212,0.1)",border:"1px solid rgba(91,143,212,0.35)",borderRadius:5,color:"#5B8FD4",fontSize:10,cursor:"pointer",fontFamily:"monospace",letterSpacing:1}},"Ativar notificacoes do navegador"),
           notifStatus==="granted"&&h("div",{style:{fontSize:9,color:"#4CAF82",fontFamily:"monospace",textAlign:"center",padding:"4px"}},"Notificacoes ativas. Voce sera avisado na vespera."),
           notifStatus==="denied"&&h("div",{style:{fontSize:9,color:"#E05252",fontFamily:"monospace",textAlign:"center",padding:"4px"}},"Notificacoes bloqueadas no navegador. Habilite nas configuracoes do site.")
@@ -1533,6 +1564,93 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         h("div",{style:{display:"flex",justifyContent:"space-between",marginBottom:6}},h("span",{style:{fontSize:9,color:"#8A8070",fontFamily:"monospace"}},new Date(rec.date).toLocaleDateString("pt-BR",{day:"2-digit",month:"short",year:"numeric"})),h("span",{style:{fontFamily:"monospace",fontSize:12,color:"#C8A96E",fontWeight:700}},MV(fB(rec.totalExecuted)))),
         ...rec.purchases.map((p,j)=>{const cl3=CL.find(c=>c.id===(cls[p.ticker]||""));return h("div",{key:j,style:{display:"flex",alignItems:"center",gap:6,padding:"3px 0",borderTop:"1px solid rgba(255,255,255,0.03)"}},h("div",{style:{width:4,height:4,borderRadius:"50%",background:cl3?cl3.color:"#888",flexShrink:0}}),h("span",{style:{fontFamily:"monospace",fontSize:10,color:"#F0EAD8",flex:1}},p.ticker),h("span",{style:{fontSize:9,color:"#8A8070",fontFamily:"monospace"}},fN(p.qty,p.qty<100?4:0)+" x "+fN(p.price,2)),h("span",{style:{fontFamily:"monospace",fontSize:10,color:"#B0A890"}},MV(fB(p.total))));})
       )))
+    );
+  }
+
+  // Tela de PIN - mostra antes de tudo se nao autenticado
+  if(!autenticado){
+    const ehNovo=!pinHash;
+    const modo=ehNovo?(pinMode==="entrada"?"criar":pinMode):pinMode;
+    const titulo=modo==="criar"?"Criar PIN":modo==="confirmar"?"Confirmar PIN":modo==="esqueci"?"Recuperar acesso":"Digite o PIN";
+    const subtitulo=modo==="criar"?"Defina 4 digitos para proteger seu app":
+                    modo==="confirmar"?"Digite o mesmo PIN novamente":
+                    modo==="esqueci"?"Cole sua chave API Anthropic para resetar o PIN":
+                    "Acesso ao Portfolio Patrimonial";
+    const onDigit=(d)=>{
+      setPinErr("");
+      if(modo==="esqueci")return; // esqueci nao usa digitos
+      if(pinInput.length<4){
+        const novo=pinInput+d;
+        setPinInput(novo);
+        if(novo.length===4){
+          if(modo==="criar"){
+            setPinNovo(novo);setPinInput("");setPinMode("confirmar");
+          }else if(modo==="confirmar"){
+            if(novo===pinNovo){
+              const h2=hashPIN(novo);
+              try{localStorage.setItem("pat-pin",h2);}catch{}
+              setPinHash(h2);setPinInput("");setPinNovo("");setAutenticado(true);setPinMode("entrada");
+            }else{
+              setPinErr("PINs nao conferem. Tente novamente.");
+              setTimeout(()=>{setPinInput("");setPinNovo("");setPinMode("criar");setPinErr("");},1600);
+            }
+          }else{
+            // entrada
+            if(hashPIN(novo)===pinHash){
+              setAutenticado(true);setPinInput("");
+            }else{
+              setPinErr("PIN incorreto");
+              setTimeout(()=>{setPinInput("");setPinErr("");},900);
+            }
+          }
+        }
+      }
+    };
+    const onDel=()=>{setPinErr("");setPinInput(pinInput.slice(0,-1));};
+    const validarApiKeyEResetar=async()=>{
+      const k=document.getElementById("recovery-key").value.trim();
+      if(!k){setPinErr("Cole sua chave da API.");return;}
+      setPinErr("Validando chave...");
+      try{
+        const r=await fetch("https://api.anthropic.com/v1/messages",{
+          method:"POST",
+          headers:{"Content-Type":"application/json","x-api-key":k,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
+          body:JSON.stringify({model:"claude-haiku-4-5-20251001",max_tokens:5,messages:[{role:"user",content:"oi"}]})
+        });
+        if(r.ok){
+          // Chave valida -> reseta PIN
+          try{localStorage.removeItem("pat-pin");localStorage.setItem("pat-key",k);}catch{}
+          setPinHash("");setPinErr("");setPinMode("criar");setPinInput("");setPinNovo("");
+        }else{
+          setPinErr("Chave invalida ou sem credito.");
+        }
+      }catch(e){setPinErr("Erro ao validar: "+e.message);}
+    };
+    const keypad=h("div",{style:{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,maxWidth:280,margin:"0 auto"}},
+      ...["1","2","3","4","5","6","7","8","9"].map(d=>h("button",{key:d,onClick:()=>onDigit(d),style:{padding:"18px 0",background:"rgba(255,255,255,0.03)",border:"1px solid rgba(200,169,110,0.18)",borderRadius:10,color:"#F0EAD8",fontSize:22,fontFamily:"monospace",cursor:"pointer"}},d)),
+      h("button",{onClick:onDel,style:{padding:"18px 0",background:"transparent",border:"1px solid rgba(255,255,255,0.06)",borderRadius:10,color:"#7A7570",fontSize:16,fontFamily:"monospace",cursor:"pointer"}},"<"),
+      h("button",{onClick:()=>onDigit("0"),style:{padding:"18px 0",background:"rgba(255,255,255,0.03)",border:"1px solid rgba(200,169,110,0.18)",borderRadius:10,color:"#F0EAD8",fontSize:22,fontFamily:"monospace",cursor:"pointer"}},"0"),
+      h("div",{})
+    );
+    return h("div",{style:{minHeight:"100vh",background:"#0D0F14",color:"#E8E2D5",fontFamily:"Georgia,serif",display:"flex",alignItems:"center",justifyContent:"center",padding:"24px 18px"}},
+      h("div",{style:{width:"100%",maxWidth:360,textAlign:"center"}},
+        h("div",{style:{fontSize:9,letterSpacing:5,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:10}},"Planejamento Patrimonial"),
+        h("h1",{style:{margin:"0 0 6px",fontSize:26,fontWeight:400,color:"#F0EAD8"}},titulo),
+        h("p",{style:{color:"#8A8070",fontSize:12,marginBottom:28,fontStyle:"italic"}},subtitulo),
+        modo==="esqueci"?h("div",{},
+          h("textarea",{id:"recovery-key",placeholder:"sk-ant-api03-...",rows:3,style:{width:"100%",background:"rgba(0,0,0,0.4)",border:"1px solid rgba(200,169,110,0.3)",borderRadius:8,padding:"10px 12px",color:"#F0EAD8",fontSize:12,fontFamily:"monospace",outline:"none",boxSizing:"border-box",resize:"none",marginBottom:10}}),
+          h("button",{onClick:validarApiKeyEResetar,style:{width:"100%",padding:"12px",background:"linear-gradient(135deg,#C8A96E,#A8893E)",border:"none",borderRadius:8,color:"#0D0F14",fontSize:12,fontWeight:700,letterSpacing:2,textTransform:"uppercase",cursor:"pointer",marginBottom:8}},"Validar e resetar PIN"),
+          h("button",{onClick:()=>{setPinMode("entrada");setPinErr("");},style:{background:"none",border:"none",color:"#8A8070",fontSize:11,cursor:"pointer",textDecoration:"underline"}},"voltar")
+        ):h("div",{},
+          // Indicadores de digitos
+          h("div",{style:{display:"flex",justifyContent:"center",gap:14,marginBottom:34}},
+            ...[0,1,2,3].map(i=>h("div",{key:i,style:{width:16,height:16,borderRadius:"50%",background:i<pinInput.length?"#C8A96E":"transparent",border:"2px solid "+(i<pinInput.length?"#C8A96E":"rgba(200,169,110,0.25)"),transition:"all 0.15s"}}))
+          ),
+          keypad,
+          !ehNovo&&modo==="entrada"&&h("button",{onClick:()=>{setPinMode("esqueci");setPinErr("");setPinInput("");},style:{background:"none",border:"none",color:"#8A8070",fontSize:11,cursor:"pointer",textDecoration:"underline",marginTop:20}},"esqueci o PIN")
+        ),
+        pinErr&&h("div",{style:{color:pinErr.includes("Validando")?"#C8A96E":"#E05252",fontSize:11,marginTop:14,fontFamily:"monospace"}},pinErr)
+      )
     );
   }
 
