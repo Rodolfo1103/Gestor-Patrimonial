@@ -351,17 +351,29 @@ function App(){
 
   const refresh=useCallback(async()=>{
     const tickers=Object.keys(port).filter(t=>{const p=port[t];if(!p)return false;if(VALUE_BASED.includes(t))return(p.totalBRL||0)>0;if(GRAM_BASED.includes(t))return(p.qty||0)>0;return(p.qty||0)>0;});
-    if(!tickers.length)return;
+    if(!tickers.length){setPErr("Nenhum ativo com quantidade cadastrada");return;}
     setLoadP(true);setPErr("");
     try{
-      const list=tickers.map(t=>t+"("+(ccy[t]||"BRL")+")").join(",");
-      const prompt="Busque na web: 1) cotacoes fechamento ultimo pregao: "+list+". BTC=atual. OURO_FISICO=preco/grama BRL. SELIC2031=valor unitario BRL. 2) cambio atual: USD/BRL,EUR/BRL,GBP/BRL,CHF/BRL,JPY/BRL,AUD/BRL,HKD/BRL,SGD/BRL,NOK/BRL,DKK/BRL,MXN/BRL. JSON sem markdown: {\"fx\":{\"USD\":5.8},\"prices\":{\"TICKER\":{\"price\":10.5}}}";
-      const txt=await callAI([{role:"user",content:prompt}],apiKey,true);
-      const parsed=JSON.parse(txt);
-      if(parsed.fx)Object.entries(parsed.fx).forEach(([c,r])=>{if(r>0)FX[c]=r;});
-      setPort(prev=>{const n={...prev};Object.entries(parsed.prices||{}).forEach(([t,d])=>{if(n[t])n[t]={...n[t],price:d.price};});return n;});
+      // Split into batches of 8 to avoid overloading the prompt
+      const batches=[];
+      for(let i=0;i<tickers.length;i+=8)batches.push(tickers.slice(i,i+8));
+      let allPrices={};
+      for(const batch of batches){
+        const list=batch.map(t=>t+"("+(ccy[t]||"BRL")+")").join(",");
+        const prompt="Você é um sistema de cotações. Busque na web o preço de fechamento mais recente de cada ativo: "+list+". Retorne APENAS JSON sem markdown, sem texto extra: {"prices":{"HGRU11":{"price":127.50},"RBVA11":{"price":89.20}}}";
+        const txt=await callAI([{role:"user",content:prompt}],apiKey,true);
+        const parsed=JSON.parse(txt);
+        Object.assign(allPrices,parsed.prices||{});
+      }
+      // Also fetch FX
+      const fxTxt=await callAI([{role:"user",content:"Retorne APENAS JSON sem markdown com câmbio atual: {"USD":5.8,"EUR":6.3,"GBP":7.3,"CHF":6.5,"JPY":0.038,"AUD":3.7,"HKD":0.74,"SGD":4.3,"NOK":0.55,"DKK":0.84,"MXN":0.29}"}],apiKey,true);
+      const fxParsed=JSON.parse(fxTxt);
+      Object.entries(fxParsed).forEach(([c,r])=>{if(r>0&&typeof r==="number")FX[c]=r;});
+      const updated=Object.keys(allPrices).length;
+      setPort(prev=>{const n={...prev};Object.entries(allPrices).forEach(([t,d])=>{if(n[t]&&d.price>0)n[t]={...n[t],price:d.price};});return n;});
       setLastPU(new Date().toISOString());
-    }catch(e){setPErr(e.message||"Erro");}
+      if(updated===0)setPErr("API retornou sem preços. Tente novamente.");
+    }catch(e){setPErr("Erro: "+e.message);}
     setLoadP(false);
   },[port,apiKey,ccy]);
 
