@@ -153,12 +153,14 @@ function App(){
     setLoadP(true);setPErr("");
     try{
       const allPrices={};
-      for(let i=0;i<tickers.length;i+=6){
-        const batch=tickers.slice(i,i+6);
+      for(let i=0;i<tickers.length;i+=4){
+        const batch=tickers.slice(i,i+4);
         const msg="Busque o preco de fechamento mais recente de cada ativo: "+batch.join(",")+" . Responda SOMENTE um objeto JSON assim: {\"HGRU11\":127.50,\"BTLG11\":105.30} sem texto adicional.";
         const txt=await callAI([{role:"user",content:msg}],apiKey,true);
         const m=txt.match(/\{[^{}]+\}/);
         if(m){try{const p=JSON.parse(m[0]);Object.entries(p).forEach(([t,v])=>{if(typeof v==="number"&&v>0)allPrices[t]=v;});}catch{}}
+        // Pause 8 seconds between batches to avoid rate limits
+        if(i+4<tickers.length)await new Promise(r=>setTimeout(r,8000));
       }
       const n=Object.keys(allPrices).length;
       if(n>0){setPort(prev=>{const np={...prev};Object.entries(allPrices).forEach(([t,v])=>{if(np[t])np[t]={...np[t],price:v};});return np;});setLastPU(new Date().toISOString());}
