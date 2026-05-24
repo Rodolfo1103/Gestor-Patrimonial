@@ -239,7 +239,7 @@ function CompareChart({cw}){
 }
 
 
-function CurrencyChart({port,cls}){
+function CurrencyChart({port,cls,hideVal}){
   // Calcula exposicao por moeda (em BRL)
   const byCcy={};
   Object.entries(port||{}).forEach(([t,p])=>{
@@ -283,7 +283,7 @@ function CurrencyChart({port,cls}){
     h("svg",{viewBox:"0 0 "+W+" "+H,style:{width:"100%",height:"auto",maxWidth:280,display:"block",margin:"0 auto"}},
       ...slices.map((s,i)=>h("path",{key:i,d:s.d,fill:s.color,fillOpacity:0.85,stroke:"#0D0F14",strokeWidth:"1.5"})),
       h("text",{x:cx,y:cy-3,textAnchor:"middle",fill:"#8A8070",fontSize:"8",fontFamily:"monospace"},entries.length+" moeda"+(entries.length>1?"s":"")),
-      h("text",{x:cx,y:cy+9,textAnchor:"middle",fill:"#C8A96E",fontSize:"10",fontFamily:"monospace",fontWeight:"bold"},fB(total).replace("R$ ",""))
+      h("text",{x:cx,y:cy+9,textAnchor:"middle",fill:"#C8A96E",fontSize:"10",fontFamily:"monospace",fontWeight:"bold"},hideVal?"----":fB(total).replace("R$ ",""))
     ),
     // Barras horizontais
     h("div",{style:{marginTop:14}},
@@ -292,7 +292,7 @@ function CurrencyChart({port,cls}){
         return h("div",{key:ccy,style:{marginBottom:10}},
           h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:3,fontSize:10,fontFamily:"monospace"}},
             h("span",{style:{color:color,fontWeight:"bold"}},ccy+" "+(NAME[ccy]||"")),
-            h("span",{style:{color:"#8A8070"}},pc(pct)+"  "+fB(v))
+            h("span",{style:{color:"#8A8070"}},pc(pct)+(hideVal?"":"  "+fB(v)))
           ),
           h("div",{style:{height:6,background:"rgba(255,255,255,0.05)",borderRadius:3,overflow:"hidden"}},
             h("div",{style:{height:"100%",width:pct.toFixed(1)+"%",background:color,opacity:0.85,borderRadius:3}})
@@ -1223,7 +1223,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         ),
         notifStatus==="granted"&&h("div",{style:{marginTop:6,fontSize:9,color:"#4CAF82",fontFamily:"monospace",letterSpacing:1}},"notificacoes ativas")
       ):null;
-      content=h("div",{},cards,aporteCard,insightCard,h(AllocChart,{cw}),h(CompareChart,{cw}),h(RiskChart,{cw}),h(EvolChart,{hist,showUSD,setShowUSD}),h(HeatmapChart,{hist}),h(CurrencyChart,{port,cls}),topPos);
+      content=h("div",{},cards,aporteCard,insightCard,h(AllocChart,{cw}),h(CompareChart,{cw}),h(RiskChart,{cw}),h(EvolChart,{hist,showUSD,setShowUSD}),h(HeatmapChart,{hist}),h(CurrencyChart,{port,cls,hideVal}),topPos);
     }
   }  // POSITIONS
   if(tab==="positions"){
