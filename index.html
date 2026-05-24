@@ -153,14 +153,14 @@ function App(){
     setLoadP(true);setPErr("");
     try{
       const allPrices={};
-      for(let i=0;i<tickers.length;i+=4){
-        const batch=tickers.slice(i,i+4);
+      for(let i=0;i<tickers.length;i+=3){
+        const batch=tickers.slice(i,i+3);
         const msg="Busque o preco de fechamento mais recente de cada ativo: "+batch.join(",")+" . Responda SOMENTE um objeto JSON assim: {\"HGRU11\":127.50,\"BTLG11\":105.30} sem texto adicional.";
         const txt=await callAI([{role:"user",content:msg}],apiKey,true);
         const m=txt.match(/\{[^{}]+\}/);
         if(m){try{const p=JSON.parse(m[0]);Object.entries(p).forEach(([t,v])=>{if(typeof v==="number"&&v>0)allPrices[t]=v;});}catch{}}
-        // Pause 8 seconds between batches to avoid rate limits
-        if(i+4<tickers.length)await new Promise(r=>setTimeout(r,8000));
+        // Pause 15 seconds between batches to avoid rate limits
+        if(i+3<tickers.length)await new Promise(r=>setTimeout(r,15000));
       }
       const n=Object.keys(allPrices).length;
       if(n>0){setPort(prev=>{const np={...prev};Object.entries(allPrices).forEach(([t,v])=>{if(np[t])np[t]={...np[t],price:v};});return np;});setLastPU(new Date().toISOString());}
@@ -244,7 +244,7 @@ function App(){
         h("h1",{style:{margin:0,fontSize:20,fontWeight:400,color:"#F0EAD8"}},"Portfolio Patrimonial"),
         hasPos&&S({fontSize:24,color:"#C8A96E",fontFamily:"monospace",marginTop:2,fontWeight:700},fB(total))
       ),
-      hasPos&&h("button",{onClick:refresh,disabled:loadP,style:{background:"rgba(200,169,110,0.1)",border:"1px solid rgba(200,169,110,0.3)",borderRadius:6,padding:"6px 12px",color:"#C8A96E",fontSize:10,fontFamily:"monospace",letterSpacing:2,cursor:"pointer",textTransform:"uppercase"}},loadP?"Buscando...":"Atualizar precos")
+      hasPos&&h("button",{onClick:refresh,disabled:loadP,style:{background:"rgba(200,169,110,0.1)",border:"1px solid rgba(200,169,110,0.3)",borderRadius:6,padding:"6px 12px",color:"#C8A96E",fontSize:10,fontFamily:"monospace",letterSpacing:2,cursor:"pointer",textTransform:"uppercase"}},loadP?"Buscando... (pode levar alguns minutos)":"Atualizar precos")
     ),
     (lastPU||pErr)&&S({fontSize:9,color:"#5A5550",marginTop:3,fontFamily:"monospace"},
       lastPU&&("Atualizado: "+new Date(lastPU).toLocaleString("pt-BR")+" · USD "+FX.USD.toFixed(2)),
@@ -272,11 +272,25 @@ function App(){
         S({display:"flex",height:7,borderRadius:4,overflow:"hidden",gap:1,marginBottom:9},...CL.map(c=>S({flex:cw[c.id]||0,background:c.color,minWidth:cw[c.id]>0?2:0}))),
         S({display:"grid",gridTemplateColumns:"1fr 1fr",gap:5},...CL.map(c=>{
           const w=cw[c.id]||0,st=w<c.min?"u":w>c.max?"o":"k",sc=st==="u"?"#E05252":st==="o"?"#E8C44A":"#4CAF82";
-          return S({background:c.color+"0A",border:"1px solid "+c.color+"22",borderRadius:7,padding:"8px 9px"},
-            S({display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:2},S({fontSize:9,color:c.color},c.emoji+" "+c.name),S({fontFamily:"monospace",fontSize:12,color:sc,fontWeight:700},pc(w))),
-            S({display:"flex",justifyContent:"space-between"},S({fontSize:8,color:"#5A5550",fontFamily:"monospace"},c.min+"-"+c.max+"%"),S({fontSize:9,color:"#8A8070",fontFamily:"monospace"},fB(ct[c.id]||0))),
-            S({marginTop:4,height:2,background:"rgba(255,255,255,0.05)",borderRadius:1,overflow:"hidden"},S({width:Math.min((w/(c.max||1))*100,120)+"%",height:"100%",background:sc})),
-            S({marginTop:2,fontSize:7,color:sc,fontFamily:"monospace"},st==="u"?"abaixo":st==="o"?"acima":"no alvo")
+          return S({background:c.color+"08",border:"1px solid "+c.color+(st==="k"?"22":"44"),borderRadius:8,padding:"10px 11px"},
+            S({display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:5},
+              S({},
+                S({fontSize:10,color:c.color,marginBottom:1},c.emoji+" "+c.name),
+                S({fontSize:8,color:"#5A5550",fontFamily:"monospace"},"alvo "+c.min+"-"+c.max+"%")
+              ),
+              S({textAlign:"right"},
+                S({fontFamily:"monospace",fontSize:14,color:sc,fontWeight:700},pc(w)),
+                S({fontSize:9,color:"#8A8070",fontFamily:"monospace",marginTop:1},fB(ct[c.id]||0))
+              )
+            ),
+            S({height:3,background:"rgba(255,255,255,0.06)",borderRadius:2,overflow:"hidden"},
+              S({width:Math.min((w/(c.max||1))*100,100)+"%",height:"100%",background:sc,borderRadius:2})
+            ),
+            S({marginTop:3,fontSize:8,color:sc,fontFamily:"monospace"},
+              st==="u"?"▼ "+(c.min-w).toFixed(1)+"pp abaixo do mínimo":
+              st==="o"?"▲ "+(w-c.max).toFixed(1)+"pp acima do alvo":
+              "✓ dentro do alvo"
+            )
           );
         }))
       );
@@ -284,10 +298,10 @@ function App(){
       // SVG Charts
       const W=300,pR=8;
       // Alloc chart
-      const H1=150,pL1=28,pB1=40,pT1=14,cW1=W-pL1-pR,cH1=H1-pB1-pT1,mx=35,bW1=Math.floor(cW1/CL.length)-3;
-      const allocSvg=S({marginBottom:18},
+      const H1=160,pL1=32,pB1=44,pT1=16,cW1=W-pL1-pR,cH1=H1-pB1-pT1,mx=Math.max(35,...CL.map(c=>Math.ceil((cw[c.id]||0)/5)*5+5)),bW1=Math.floor(cW1/CL.length)-3;
+      const allocSvg=S({marginBottom:20,paddingTop:4,borderTop:"1px solid rgba(255,255,255,0.05)"},
         S({fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:4},"Alocacao atual vs alvo"),
-        h("svg",{viewBox:"0 0 "+W+" "+H1,style:{width:"100%",height:"auto",overflow:"visible"}},
+        h("svg",{viewBox:"0 0 "+W+" "+H1,style:{width:"100%",height:"auto",overflow:"hidden"}},
           ...[0,10,20,30].map(v=>{const y=pT1+cH1-(v/mx)*cH1;return h(Fragment,{key:v},h("line",{x1:pL1,y1:y,x2:W-pR,y2:y,stroke:"rgba(255,255,255,0.05)",strokeWidth:"1"}),h("text",{x:pL1-2,y:y+3,textAnchor:"end",fill:"#5A5550",fontSize:"6"},v+"%"));}),
           ...CL.map((c,i)=>{
             const w=cw[c.id]||0,sW=cW1/CL.length,x=pL1+i*sW+(sW-bW1)/2,bH=Math.max((w/mx)*cH1,1),y=pT1+cH1-bH,st=w<c.min?"u":w>c.max?"o":"k",fill=st==="u"?"#E05252":st==="o"?"#E8C44A":c.color,xm=x+bW1/2;
@@ -305,7 +319,7 @@ function App(){
 
       // Risk chart
       const H2=170,pL2=24,pB2=22,pT2=14,cW2=W-pL2-pR,cH2=H2-pB2-pT2;
-      const riskSvg=S({marginBottom:18},
+      const riskSvg=S({marginBottom:20,paddingTop:4,borderTop:"1px solid rgba(255,255,255,0.05)"},
         S({fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:4},"Risco x Retorno esperado"),
         h("svg",{viewBox:"0 0 "+W+" "+H2,style:{width:"100%",height:"auto"}},
           ...[0,2,4,6,8,10].map(v=>{const x=pL2+(v/10)*cW2,y=pT2+cH2-(v/10)*cH2;return h(Fragment,{key:v},h("line",{x1:x,y1:pT2,x2:x,y2:pT2+cH2,stroke:"rgba(255,255,255,0.04)",strokeWidth:"1"}),h("line",{x1:pL2,y1:y,x2:pL2+cW2,y2:y,stroke:"rgba(255,255,255,0.04)",strokeWidth:"1"}));}),
@@ -327,11 +341,11 @@ function App(){
       // Evolution chart
       let evolSvg;
       if(!hist||hist.length<2){
-        evolSvg=S({marginBottom:18,padding:"14px",textAlign:"center",color:"#5A5550",fontSize:11,fontStyle:"italic",border:"1px solid rgba(255,255,255,0.05)",borderRadius:8},"Evolucao disponivel apos 2+ aportes");
+        evolSvg=S({marginBottom:20,padding:"14px",textAlign:"center",color:"#5A5550",fontSize:11,fontStyle:"italic",border:"1px solid rgba(255,255,255,0.05)",borderRadius:8,paddingTop:4,borderTop:"1px solid rgba(255,255,255,0.05)"},"Evolucao disponivel apos 2+ aportes");
       } else {
         const data=[...hist].reverse(),mx2=Math.max(...data.map(r=>r.totalExecuted));
         const H3=130,pL3=36,pB3=32,pT3=10,cW3=W-pL3-pR,cH3=H3-pB3-pT3,bW3=Math.max(Math.floor(cW3/data.length)-4,4);
-        evolSvg=S({marginBottom:18},
+        evolSvg=S({marginBottom:20,paddingTop:4,borderTop:"1px solid rgba(255,255,255,0.05)"},
           S({fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:4},"Evolucao dos aportes"),
           h("svg",{viewBox:"0 0 "+W+" "+H3,style:{width:"100%",height:"auto"}},
             ...[0,.5,1].map(f=>{const y=pT3+cH3-(f*cH3),v=mx2*f;return h(Fragment,{key:f},h("line",{x1:pL3,y1:y,x2:W-pR,y2:y,stroke:"rgba(255,255,255,0.05)",strokeWidth:"1"}),h("text",{x:pL3-2,y:y+3,textAnchor:"end",fill:"#5A5550",fontSize:"6"},v>=1000?"R$"+(v/1000).toFixed(0)+"k":"R$"+v.toFixed(0)));}),
@@ -343,7 +357,7 @@ function App(){
 
       // Top positions
       const topPos=S({},
-        S({fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:9},"Maiores posicoes"),
+        S({fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:9,paddingTop:4,borderTop:"1px solid rgba(255,255,255,0.05)"},"Maiores posicoes"),
         ...Object.entries(port).map(([t,p])=>({t,p,val:pv(t,p,ccy)})).filter(x=>x.val>0).sort((a,b)=>b.val-a.val).slice(0,8).map(({t,p,val})=>{
           const pp=total>0?(val/total)*100:0,cc=ccy[t]||"BRL",cl=CL.find(c=>c.id===(p.classId||cls[t]));
           return S({display:"flex",alignItems:"center",padding:"6px 0",borderBottom:"1px solid rgba(255,255,255,0.04)"},
