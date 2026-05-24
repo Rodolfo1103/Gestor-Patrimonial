@@ -653,23 +653,21 @@ function App(){
       const isBR=t=>BCCY[t]==="BRL"&&!["OURO_FISICO","BTC","SELIC2031"].includes(t);
       const brTickers=tickers.filter(isBR);
       const fgnTickers=tickers.filter(t=>YH[t]);
-      // Brapi - ativos brasileiros
+      // Brasil - Yahoo Finance com sufixo .SA (B3) via proxy CORS
       if(brTickers.length){
-        try{
-          const d=await fetchJSON("https://brapi.dev/api/quote/"+brTickers.join(",")+"?range=1d&interval=1d",12000);
-          let n=0;
-          if(d&&d.results){
-            d.results.forEach(item=>{
-              const p=item.regularMarketPrice;
-              if(typeof p==="number"&&p>0){allPrices[item.symbol]=p;n++;}
-            });
-          }
-          dbg.push("BR:"+n+"/"+brTickers.length);
-          brTickers.forEach(t=>{if(!allPrices[t])failed.push(t);});
-        }catch(e){
-          brTickers.forEach(t=>failed.push(t));
-          dbg.push("BR-erro:"+e.message);
-        }
+        let brN=0;
+        await Promise.all(brTickers.map(async t=>{
+          try{
+            const sym=t+".SA";
+            const target="https://query1.finance.yahoo.com/v8/finance/chart/"+encodeURIComponent(sym)+"?interval=1d&range=5d";
+            const d=await fetchViaProxy(target,15000);
+            const res=d&&d.chart&&d.chart.result&&d.chart.result[0];
+            const p=res&&res.meta&&(res.meta.regularMarketPrice||res.meta.previousClose);
+            if(typeof p==="number"&&p>0){allPrices[t]=p;brN++;}
+          }catch{}
+        }));
+        dbg.push("BR:"+brN+"/"+brTickers.length);
+        brTickers.forEach(t=>{if(!allPrices[t])failed.push(t);});
       }
       // Yahoo Finance - estrangeiros (em paralelo, com cascata de proxies CORS)
       if(fgnTickers.length){
