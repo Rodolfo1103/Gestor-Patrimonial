@@ -1041,8 +1041,8 @@ function App(){
     CL.forEach(c=>{compPct[c.id]=cw[c.id]||0;});
     setHist(prev=>{
       const last=prev[0];
-      // Evita duplicar excessiva: so grava se ultimo registro tem >15 min OU nao tem composicao
-      if(last&&last.composicao&&new Date()-new Date(last.date)<900000)return prev;
+      // Evita duplicar excessiva: so grava se ultimo registro tem >5 min OU nao tem composicao
+      if(last&&last.composicao&&new Date()-new Date(last.date)<300000)return prev;
       return [{date:new Date().toISOString(),apValue:0,totalExecuted:0,
         totalPatrimBRL:total,totalPatrimUSD:total/(FX.USD||5.8),
         composicao:compPct,snapshot:true
