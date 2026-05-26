@@ -751,7 +751,11 @@ function App(){
     if(dd){
       setPort(dd.port||{});setCustom(dd.custom||{});setHidden(dd.hidden||[]);
       setLastPU(dd.lastPU||null);setHist(dd.hist||[]);
-      Object.entries(dd.custom||{}).forEach(([,list])=>{(list||[]).forEach(a=>{BCCY[a.ticker]=a.ccy||"BRL";});});
+      Object.entries(dd.custom||{}).forEach(([,list])=>{(list||[]).forEach(a=>{
+        BCCY[a.ticker]=a.ccy||"BRL";
+        // Carrega labels personalizados em NAMES (para aparecer em cards/grafs)
+        if(a.label&&a.label!==a.ticker&&!NAMES[a.ticker])NAMES[a.ticker]=a.label;
+      });});
     }
     setInited(true);
   },[]);
@@ -1059,6 +1063,27 @@ function App(){
     setAddTo(null);setNTick("");setNLbl("");setNCcy("BRL");
   };
   const removeCustom=(cid,t)=>{setCustom(prev=>({...prev,[cid]:(prev[cid]||[]).filter(a=>a.ticker!==t)}));removePos(t);};
+
+  // Atualiza nome e moeda de um ativo ja cadastrado (busca no Yahoo)
+  const [refreshingName,setRefreshingName]=useState("");
+  const atualizarNomeAtivo=async(ticker,cid)=>{
+    setRefreshingName(ticker);
+    try{
+      const info=await fetchTickerInfo(ticker,cid,ccy[ticker]||"USD");
+      if(info.nome){
+        NAMES[ticker]=info.nome;
+        // Atualiza label nos custom
+        setCustom(prev=>{
+          const arr=(prev[cid]||[]).map(a=>a.ticker===ticker?{...a,label:info.nome,ccy:info.ccy||a.ccy}:a);
+          return {...prev,[cid]:arr};
+        });
+        if(info.ccy)BCCY[ticker]=info.ccy;
+      }else{
+        alert("Nao foi possivel encontrar info para "+ticker+" no Yahoo. Verifique se o ticker esta correto.");
+      }
+    }catch(e){alert("Erro: "+e.message);}
+    setRefreshingName("");
+  };
 
   const genAlloc=async()=>{
     const v=pN(apV);if(v<=0)return;
@@ -1388,10 +1413,12 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
       const row=(label,field,hint)=>h("div",{style:{marginBottom:11}},h("div",{style:{fontSize:8,letterSpacing:2,color:"#8A8070",fontFamily:"monospace",textTransform:"uppercase",marginBottom:4}},label),field,hint&&h("div",{style:{fontSize:8,color:"#3A3830",marginTop:2,fontStyle:"italic"}},hint));
       content=h("div",{},
         h("button",{onClick:()=>setEditA(null),style:{background:"none",border:"none",color:"#8A8070",cursor:"pointer",fontSize:12,padding:0,marginBottom:12}},"<- Voltar"),
-        h("div",{style:{display:"flex",alignItems:"center",gap:8,marginBottom:16}},
+        h("div",{style:{display:"flex",alignItems:"center",gap:8,marginBottom:8}},
           h("span",{style:{width:8,height:8,borderRadius:"50%",background:cl?cl.color:"#888",display:"inline-block"}}),
-          h("div",{},h("div",{style:{fontFamily:"monospace",fontSize:14,color:"#F0EAD8"}},ticker),h("div",{style:{fontSize:9,color:cl?cl.color:"#888"}},(cl?cl.name:"")+" - "+(isGB?"BRL/g":cc)))
+          h("div",{style:{flex:1}},h("div",{style:{fontFamily:"monospace",fontSize:14,color:"#F0EAD8"}},ticker),h("div",{style:{fontSize:9,color:cl?cl.color:"#888"}},(NAMES[ticker]||lbl[ticker]||"")+(NAMES[ticker]||lbl[ticker]?" - ":"")+(cl?cl.name:"")+" - "+(isGB?"BRL/g":cc)))
         ),
+        // Botao para atualizar nome via Yahoo (so para ativos custom de classes com preco)
+        isCustom&&!isVB&&!isGB&&h("button",{onClick:()=>atualizarNomeAtivo(ticker,cl?cl.id:editA.classId),disabled:refreshingName===ticker,style:{width:"100%",padding:"7px",background:"rgba(91,143,212,0.08)",border:"1px solid rgba(91,143,212,0.3)",borderRadius:5,color:"#5B8FD4",fontSize:10,cursor:refreshingName===ticker?"not-allowed":"pointer",fontFamily:"monospace",marginBottom:12,letterSpacing:1}},refreshingName===ticker?"buscando..." :"buscar nome e moeda no Yahoo"),
         isVB?row("Valor total aplicado (R$)",inp(eQty,setEQty,"0,00"),"Saldo atual em reais. Atualize a cada aporte."):
         isGB?h("div",{},row("Quantidade em gramas",inp(eQty,setEQty,"0,000")),row("Preco de venda por grama (R$/g)",inp(ePrice,setEPrice,"0,00"))):
         h("div",{},
