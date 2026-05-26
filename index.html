@@ -611,6 +611,7 @@ function App(){
   const [xauBrl,setXauBrl]=useState(null);// R$/grama
   const [xauTs,setXauTs]=useState(null);
   const [xauVar,setXauVar]=useState(null);
+  const [xauYday,setXauYday]=useState(null);// {valor, data:"YYYY-MM-DD"}
   const [aErr,setAErr]=useState("");
   const [chatM,setChatM]=useState([]);
   const [chatIn,setChatIn]=useState("");
@@ -780,13 +781,14 @@ function App(){
       if(typeof dd.btcVar==="number")setBtcVar(dd.btcVar);
       if(typeof dd.usdVar==="number")setUsdVar(dd.usdVar);
       if(dd.usdYday&&typeof dd.usdYday==="object")setUsdYday(dd.usdYday);
-      // Carrega ouro salvo
-      if(dd.xauBrl&&dd.xauBrl>0){setXauBrl(dd.xauBrl);setXauTs(dd.xauTs||null);}
+      // Carrega ouro salvo (descarta se valor antigo irrealista < R$ 400/g)
+      if(dd.xauBrl&&dd.xauBrl>=400){setXauBrl(dd.xauBrl);setXauTs(dd.xauTs||null);}
       if(typeof dd.xauVar==="number")setXauVar(dd.xauVar);
+      if(dd.xauYday&&typeof dd.xauYday==="object"&&dd.xauYday.valor>=400)setXauYday(dd.xauYday);
     }
     setInited(true);
   },[]);
-  useEffect(()=>{if(!inited)return;sv({port,custom,hidden,lastPU,hist,fx:{...FX},btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar});},[port,custom,hidden,lastPU,hist,btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,inited]);
+  useEffect(()=>{if(!inited)return;sv({port,custom,hidden,lastPU,hist,fx:{...FX},btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday});},[port,custom,hidden,lastPU,hist,btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,inited]);
 
   // Atualiza FX em background ao abrir o app (silencioso, nao bloqueia, nao toca em precos de ativos)
   const [fxBgTick,setFxBgTick]=useState(0);
@@ -841,41 +843,44 @@ function App(){
         if(typeof d.bitcoin.usd_24h_change==="number")setBtcVar(d.bitcoin.usd_24h_change);
       }catch(e){/* silencioso */}
     })();
-    // Busca Ouro BCB serie 4 (BRL/g) - puxa ultimos 2 valores para calcular variacao
+    // Busca Ouro spot internacional via Coinbase XAU-USD (USD/onca troy) + tambem GoldAPI fallback
+    // Calcula BRL/g = (USD/oz / 31.1035) * FX.USD
     (async()=>{
-      const proxies=[
-        u=>"https://corsproxy.io/?url="+encodeURIComponent(u),
-        u=>"https://api.allorigins.win/raw?url="+encodeURIComponent(u),
-        u=>"https://api.codetabs.com/v1/proxy/?quest="+encodeURIComponent(u),
-        u=>"https://proxy.cors.sh/"+u
+      // Pequeno delay para FX terminar primeiro (ou ja estar carregada)
+      await new Promise(r=>setTimeout(r,1500));
+      if(cancelado)return;
+      const fontes=[
+        {url:"https://api.coinbase.com/v2/prices/XAU-USD/spot",parse:d=>parseFloat(d&&d.data&&d.data.amount)},
+        {url:"https://api.coinbase.com/v2/prices/XAU-USD/buy",parse:d=>parseFloat(d&&d.data&&d.data.amount)}
       ];
-      const targetUrl="https://api.bcb.gov.br/dados/serie/bcdata.sgs.4/dados/ultimos/2?formato=json";
-      let dados=null;
-      for(const proxyFn of proxies){
+      let usdPerOz=0;
+      for(const f of fontes){
         if(cancelado)return;
         try{
           const ctrl=new AbortController();
           const tid=setTimeout(()=>ctrl.abort(),6000);
-          const r=await fetch(proxyFn(targetUrl),{signal:ctrl.signal});
+          const r=await fetch(f.url,{signal:ctrl.signal});
           clearTimeout(tid);
           if(!r.ok)continue;
-          const text=await r.text();
-          if(!text||text.toLowerCase().includes("host not in allowlist"))continue;
-          const parsed=JSON.parse(text);
-          if(Array.isArray(parsed)&&parsed.length>0){dados=parsed;break;}
+          const d=await r.json();
+          const v=f.parse(d);
+          if(v>0){usdPerOz=v;break;}
         }catch(e){continue;}
       }
-      if(cancelado||!dados||dados.length===0)return;
-      const ult=parseFloat(String(dados[dados.length-1].valor).replace(",","."));
-      if(!(ult>0))return;
-      setXauBrl(ult);
+      if(cancelado||!(usdPerOz>0)||!(FX.USD>0))return;
+      // Hoje: USD/g = USD/oz / 31.1035; BRL/g = USD/g * FX.USD
+      const brlPorGrama=(usdPerOz/31.1035)*FX.USD;
+      setXauBrl(brlPorGrama);
       setXauTs(new Date().toISOString());
-      if(dados.length>=2){
-        const ant=parseFloat(String(dados[dados.length-2].valor).replace(",","."));
-        if(ant>0){
-          const variacao=((ult-ant)/ant)*100;
-          if(!cancelado)setXauVar(variacao);
-        }
+      // Variacao vs ontem (mesmo esquema do USD)
+      const hojeStr=new Date().toISOString().slice(0,10);
+      if(xauYday&&xauYday.valor>0&&xauYday.data&&xauYday.data!==hojeStr){
+        const variacao=((brlPorGrama-xauYday.valor)/xauYday.valor)*100;
+        if(!cancelado)setXauVar(variacao);
+        const diasAtras=(new Date(hojeStr)-new Date(xauYday.data))/(86400000);
+        if(diasAtras>=1&&!cancelado)setXauYday({valor:brlPorGrama,data:hojeStr});
+      }else if(!xauYday||!xauYday.data){
+        if(!cancelado)setXauYday({valor:brlPorGrama,data:hojeStr});
       }
     })();
     return()=>{cancelado=true;};
@@ -969,30 +974,35 @@ function App(){
       const queremOuro=tickers.includes("OURO_FISICO");
       {
         let okOuro=false;
-        // 1) BCB serie 4 = Ouro BM&F grama (oficial, ja em BRL/g) - pega ultimos 2 pra variacao
+        // 1) Coinbase XAU/USD spot internacional (preco real de mercado, calcula BRL/g)
         try{
-          const d=await fetchViaProxy("https://api.bcb.gov.br/dados/serie/bcdata.sgs.4/dados/ultimos/2?formato=json",8000);
-          if(d&&d.length>0){
-            const v=parseFloat(String(d[d.length-1].valor).replace(",","."));
-            if(v>0){
-              if(queremOuro){allPrices["OURO_FISICO"]=v;dbg.push("Ouro-BCB:ok");}
-              setXauBrl(v);setXauTs(new Date().toISOString());
-              if(d.length>=2){
-                const ant=parseFloat(String(d[d.length-2].valor).replace(",","."));
-                if(ant>0)setXauVar(((v-ant)/ant)*100);
-              }
-              okOuro=true;
+          const d=await fetchJSON("https://api.coinbase.com/v2/prices/XAU-USD/spot",8000);
+          const usdPerOz=parseFloat(d&&d.data&&d.data.amount);
+          if(usdPerOz>0&&FX.USD>0){
+            const brlPorGrama=(usdPerOz/31.1035)*FX.USD;
+            if(queremOuro){allPrices["OURO_FISICO"]=brlPorGrama;dbg.push("Ouro-spot:ok");}
+            setXauBrl(brlPorGrama);setXauTs(new Date().toISOString());
+            // Variacao vs xauYday salvo
+            const hojeStr=new Date().toISOString().slice(0,10);
+            if(xauYday&&xauYday.valor>0&&xauYday.data&&xauYday.data!==hojeStr){
+              setXauVar(((brlPorGrama-xauYday.valor)/xauYday.valor)*100);
+              const diasAtras=(new Date(hojeStr)-new Date(xauYday.data))/(86400000);
+              if(diasAtras>=1)setXauYday({valor:brlPorGrama,data:hojeStr});
+            }else if(!xauYday||!xauYday.data){
+              setXauYday({valor:brlPorGrama,data:hojeStr});
             }
+            okOuro=true;
           }
-        }catch(e){dbg.push("Ouro-BCB-err:"+e.message);}
-        // 2) Fallback: Coinbase XAU/USD spot internacional
+        }catch(e){dbg.push("Ouro-spot-err:"+e.message);}
+        // 2) Fallback: BCB serie 4 (Ouro BM&F - costuma estar defasado, mas ultimo recurso)
         if(!okOuro&&queremOuro){
           try{
-            const d=await fetchJSON("https://api.coinbase.com/v2/prices/XAU-USD/spot",8000);
-            const g=parseFloat(d&&d.data&&d.data.amount);
-            if(g>0){allPrices["OURO_FISICO"]=(g/31.1035)*FX.USD;dbg.push("Ouro-spot:ok");okOuro=true;}
-            else{dbg.push("Ouro-spot:semvalor");}
-          }catch(e){dbg.push("Ouro-spot-err:"+e.message);}
+            const d=await fetchViaProxy("https://api.bcb.gov.br/dados/serie/bcdata.sgs.4/dados/ultimos/1?formato=json",8000);
+            if(d&&d.length>0){
+              const v=parseFloat(String(d[0].valor).replace(",","."));
+              if(v>0){allPrices["OURO_FISICO"]=v;dbg.push("Ouro-BCB-fallback:ok");okOuro=true;}
+            }
+          }catch(e){dbg.push("Ouro-BCB-err:"+e.message);}
         }
         if(queremOuro&&!okOuro)failed.push("OURO_FISICO");
       }
@@ -1457,6 +1467,7 @@ h("button",{onClick:()=>{
           if(d.usdYday)setUsdYday(d.usdYday);
           if(d.xauBrl&&d.xauBrl>0){setXauBrl(d.xauBrl);setXauTs(d.xauTs||null);}
           if(typeof d.xauVar==="number")setXauVar(d.xauVar);
+          if(d.xauYday)setXauYday(d.xauYday);
           alert("Backup restaurado com sucesso!");
         }catch(err){alert("Erro ao importar: "+err.message);}
       };
