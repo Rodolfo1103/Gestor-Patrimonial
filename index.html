@@ -843,21 +843,40 @@ function App(){
     })();
     // Busca Ouro BCB serie 4 (BRL/g) - puxa ultimos 2 valores para calcular variacao
     (async()=>{
-      try{
-        const d=await fetchViaProxy("https://api.bcb.gov.br/dados/serie/bcdata.sgs.4/dados/ultimos/2?formato=json",8000);
-        if(cancelado||!d||!Array.isArray(d)||d.length===0)return;
-        const ult=parseFloat(String(d[d.length-1].valor).replace(",","."));
-        if(!(ult>0))return;
-        setXauBrl(ult);
-        setXauTs(new Date().toISOString());
-        if(d.length>=2){
-          const ant=parseFloat(String(d[d.length-2].valor).replace(",","."));
-          if(ant>0){
-            const variacao=((ult-ant)/ant)*100;
-            if(!cancelado)setXauVar(variacao);
-          }
+      const proxies=[
+        u=>"https://corsproxy.io/?url="+encodeURIComponent(u),
+        u=>"https://api.allorigins.win/raw?url="+encodeURIComponent(u),
+        u=>"https://api.codetabs.com/v1/proxy/?quest="+encodeURIComponent(u),
+        u=>"https://proxy.cors.sh/"+u
+      ];
+      const targetUrl="https://api.bcb.gov.br/dados/serie/bcdata.sgs.4/dados/ultimos/2?formato=json";
+      let dados=null;
+      for(const proxyFn of proxies){
+        if(cancelado)return;
+        try{
+          const ctrl=new AbortController();
+          const tid=setTimeout(()=>ctrl.abort(),6000);
+          const r=await fetch(proxyFn(targetUrl),{signal:ctrl.signal});
+          clearTimeout(tid);
+          if(!r.ok)continue;
+          const text=await r.text();
+          if(!text||text.toLowerCase().includes("host not in allowlist"))continue;
+          const parsed=JSON.parse(text);
+          if(Array.isArray(parsed)&&parsed.length>0){dados=parsed;break;}
+        }catch(e){continue;}
+      }
+      if(cancelado||!dados||dados.length===0)return;
+      const ult=parseFloat(String(dados[dados.length-1].valor).replace(",","."));
+      if(!(ult>0))return;
+      setXauBrl(ult);
+      setXauTs(new Date().toISOString());
+      if(dados.length>=2){
+        const ant=parseFloat(String(dados[dados.length-2].valor).replace(",","."));
+        if(ant>0){
+          const variacao=((ult-ant)/ant)*100;
+          if(!cancelado)setXauVar(variacao);
         }
-      }catch(e){/* silencioso */}
+      }
     })();
     return()=>{cancelado=true;};
   },[inited]);
