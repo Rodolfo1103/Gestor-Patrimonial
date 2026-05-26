@@ -925,37 +925,54 @@ function App(){
     if(!inited)return;
     let cancelado=false;
     (async()=>{
+      let mudou=false;
+      // 1) AwesomeAPI (PTAX brasileira, atualizada a cada minuto, retorna BRL direto)
       try{
         const ctrl=new AbortController();
-        const tid=setTimeout(()=>ctrl.abort(),8000);
+        const tid=setTimeout(()=>ctrl.abort(),6000);
+        const r=await fetch("https://economia.awesomeapi.com.br/json/last/USD-BRL,EUR-BRL,GBP-BRL,CHF-BRL,JPY-BRL,AUD-BRL,CAD-BRL",{signal:ctrl.signal,cache:"no-store"});
+        clearTimeout(tid);
+        if(r.ok){
+          const d=await r.json();
+          if(!cancelado&&d){
+            const map={USDBRL:"USD",EURBRL:"EUR",GBPBRL:"GBP",CHFBRL:"CHF",JPYBRL:"JPY",AUDBRL:"AUD"};
+            Object.entries(map).forEach(([k,fx])=>{
+              const v=parseFloat(d[k]&&d[k].bid);
+              if(v>0){if(Math.abs((FX[fx]||0)-v)>0.0001){FX[fx]=v;mudou=true;}}
+            });
+          }
+        }
+      }catch(e){/* fallback abaixo */}
+      // 2) Fallback open.er-api.com (cache 12h, mas tem mais moedas como HKD/SGD/NOK/DKK/MXN)
+      try{
+        const ctrl=new AbortController();
+        const tid=setTimeout(()=>ctrl.abort(),6000);
         const r=await fetch("https://open.er-api.com/v6/latest/BRL",{signal:ctrl.signal});
         clearTimeout(tid);
-        if(!r.ok)return;
-        const d=await r.json();
-        if(cancelado||!d||!d.rates)return;
-        let mudou=false;
-        ["USD","EUR","GBP","CHF","JPY","AUD","HKD","SGD","NOK","DKK","MXN"].forEach(k=>{
-          if(d.rates[k]>0){const novo=1/d.rates[k];if(Math.abs((FX[k]||0)-novo)>0.0001){FX[k]=novo;mudou=true;}}
-        });
-        // Calcula variacao USD vs ontem (e atualiza usdYday se passou o dia)
-        const hojeStr=new Date().toISOString().slice(0,10);
-        const usdHoje=FX.USD;
-        if(usdYday&&usdYday.valor>0&&usdYday.data&&usdYday.data!==hojeStr){
-          // ja temos cotacao de outro dia, calcula variacao
-          const variacao=((usdHoje-usdYday.valor)/usdYday.valor)*100;
-          if(!cancelado)setUsdVar(variacao);
-          // Se a data salva e de mais de 1 dia atras, atualiza para hoje
-          const diasAtras=(new Date(hojeStr)-new Date(usdYday.data))/(86400000);
-          if(diasAtras>=1&&!cancelado)setUsdYday({valor:usdHoje,data:hojeStr});
-        }else if(!usdYday||!usdYday.data){
-          // Primeira vez: salva como referencia (sem variacao calculavel)
-          if(!cancelado)setUsdYday({valor:usdHoje,data:hojeStr});
+        if(r.ok){
+          const d=await r.json();
+          if(!cancelado&&d&&d.rates){
+            // Para moedas NAO cobertas pela AwesomeAPI
+            ["HKD","SGD","NOK","DKK","MXN"].forEach(k=>{
+              if(d.rates[k]>0){const novo=1/d.rates[k];if(Math.abs((FX[k]||0)-novo)>0.0001){FX[k]=novo;mudou=true;}}
+            });
+          }
         }
-        if(mudou&&!cancelado){
-          sv({port,custom,hidden,lastPU,hist,fx:{...FX},btcUsd,btcTs,btcVar,usdVar,usdYday});
-          setFxBgTick(t=>t+1);
-        }
-      }catch(e){/* silencioso - se falhar, usa FX salva ou default */}
+      }catch(e){}
+      if(cancelado||!mudou)return;
+      // Calcula variacao USD vs ontem (e atualiza usdYday se passou o dia)
+      const hojeStr=new Date().toISOString().slice(0,10);
+      const usdHoje=FX.USD;
+      if(usdYday&&usdYday.valor>0&&usdYday.data&&usdYday.data!==hojeStr){
+        const variacao=((usdHoje-usdYday.valor)/usdYday.valor)*100;
+        if(!cancelado)setUsdVar(variacao);
+        const diasAtras=(new Date(hojeStr)-new Date(usdYday.data))/(86400000);
+        if(diasAtras>=1&&!cancelado)setUsdYday({valor:usdHoje,data:hojeStr});
+      }else if(!usdYday||!usdYday.data){
+        if(!cancelado)setUsdYday({valor:usdHoje,data:hojeStr});
+      }
+      // forca re-render: o save effect ja vai persistir automaticamente
+      setFxBgTick(t=>t+1);
     })();
     // Busca BTC em USD da CoinGecko com variacao 24h
     (async()=>{
@@ -1060,15 +1077,25 @@ function App(){
     try{
       const allPrices={};
       const failed=[];
-      // Cambio - open.er-api.com (confirmado funcionando)
+      // Cambio - AwesomeAPI (PTAX, atualizada constantemente) com fallback open.er-api.com
       try{
-        const d=await fetchJSON("https://open.er-api.com/v6/latest/BRL",8000);
+        const d=await fetchJSON("https://economia.awesomeapi.com.br/json/last/USD-BRL,EUR-BRL,GBP-BRL,CHF-BRL,JPY-BRL,AUD-BRL",6000);
+        if(d){
+          const map={USDBRL:"USD",EURBRL:"EUR",GBPBRL:"GBP",CHFBRL:"CHF",JPYBRL:"JPY",AUDBRL:"AUD"};
+          let n=0;
+          Object.entries(map).forEach(([k,fx])=>{const v=parseFloat(d[k]&&d[k].bid);if(v>0){FX[fx]=v;n++;}});
+          dbg.push("FX-Awesome:"+n);
+        }else dbg.push("FX-Awesome:sem-d");
+      }catch(e){dbg.push("FX-Awesome-erro:"+e.message);}
+      // Complementa com moedas nao cobertas pela AwesomeAPI
+      try{
+        const d=await fetchJSON("https://open.er-api.com/v6/latest/BRL",6000);
         if(d&&d.rates){
           let n=0;
-          ["USD","EUR","GBP","CHF","JPY","AUD","HKD","SGD","NOK","DKK","MXN"].forEach(k=>{if(d.rates[k]>0){FX[k]=1/d.rates[k];n++;}});
-          dbg.push("FX:"+n);
-        }else dbg.push("FX:semrates");
-      }catch(e){dbg.push("FX-erro:"+e.message);}
+          ["HKD","SGD","NOK","DKK","MXN"].forEach(k=>{if(d.rates[k]>0){FX[k]=1/d.rates[k];n++;}});
+          dbg.push("FX-ER:"+n);
+        }
+      }catch(e){dbg.push("FX-ER-erro:"+e.message);}
       // Imoveis fisicos: atualiza valor com IPCA acumulado desde a ultima avaliacao
       const imvTickers=Object.keys(port).filter(t=>isImv(t));
       if(imvTickers.length>0){
