@@ -1519,6 +1519,8 @@ function App(){
 
   // Chave de API nao e mais necessaria - cotacoes vem de APIs publicas
   // if(!apiKey)return h(KeyScreen,{onSave:k=>{setApiKeyS(k);if(aesKey)saveApiKey(aesKey,k);}});
+  // Se nao autenticado, mostra tela de PIN ANTES de qualquer outra checagem
+  if(!autenticado)return renderTelaPin();
   if(!inited)return h("div",{style:{minHeight:"100vh",background:"#0D0F14",display:"flex",alignItems:"center",justifyContent:"center"}},h("span",{style:{color:"#C8A96E",fontFamily:"monospace",letterSpacing:3}},"CARREGANDO..."));
 
   const MV=v=>hideVal?"----":v;
@@ -2138,7 +2140,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
   }
 
   // Tela de PIN - mostra antes de tudo se nao autenticado
-  if(!autenticado){
+  function renderTelaPin(){
     const PIN_LEN=6;
     // Legacy: PIN antigo de 4 digitos
     let pinAntigo="";
