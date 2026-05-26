@@ -88,7 +88,7 @@ const BCCY={
 const VB=["SELIC2031"];
 const GB=["OURO_FISICO"];
 const IMB=true; // flag indicando que IMV usa ativos custom (cadastrados pelo usuario)
-const FX={BRL:1,USD:5.8,EUR:6.3,GBP:7.3,CHF:6.5,JPY:0.038,AUD:3.7,HKD:0.74,SGD:4.3,DKK:0.84,NOK:0.55,MXN:0.29};
+const FX={BRL:1,USD:5.01,EUR:5.7,GBP:6.8,CHF:6.1,JPY:0.034,AUD:3.25,HKD:0.64,SGD:3.85,DKK:0.76,NOK:0.49,MXN:0.26};
 const RR={fii:{r:3.5,e:7.5},acoes_br:{r:6.5,e:8.5},acoes_ext:{r:5.5,e:8.0},selic:{r:1.0,e:4.5},ouro:{r:4.0,e:5.5},bitcoin:{r:9.5,e:9.0},infra:{r:2.5,e:7.0},imoveis:{r:2.0,e:6.0},agro:{r:3.0,e:8.0}};
 
 const SK="pat-v9";
@@ -603,6 +603,14 @@ function App(){
   const [execE,setExecE]=useState({});
   const [step,setStep]=useState("r");
   const [hist,setHist]=useState([]);
+  const [btcUsd,setBtcUsd]=useState(null);
+  const [btcTs,setBtcTs]=useState(null);
+  const [btcVar,setBtcVar]=useState(null);
+  const [usdVar,setUsdVar]=useState(null);
+  const [usdYday,setUsdYday]=useState(null);// {valor, data:"YYYY-MM-DD"} - cotacao salva de ontem
+  const [xauBrl,setXauBrl]=useState(null);// R$/grama
+  const [xauTs,setXauTs]=useState(null);
+  const [xauVar,setXauVar]=useState(null);
   const [aErr,setAErr]=useState("");
   const [chatM,setChatM]=useState([]);
   const [chatIn,setChatIn]=useState("");
@@ -763,10 +771,96 @@ function App(){
         // Carrega labels personalizados em NAMES (para aparecer em cards/grafs)
         if(a.label&&a.label!==a.ticker&&!NAMES[a.ticker])NAMES[a.ticker]=a.label;
       });});
+      // Carrega FX salva (evita mostrar USD 5.80 default)
+      if(dd.fx&&typeof dd.fx==="object"){
+        Object.keys(dd.fx).forEach(k=>{if(typeof dd.fx[k]==="number"&&dd.fx[k]>0)FX[k]=dd.fx[k];});
+      }
+      // Carrega ultimo BTC salvo
+      if(dd.btcUsd&&dd.btcUsd>0){setBtcUsd(dd.btcUsd);setBtcTs(dd.btcTs||null);}
+      if(typeof dd.btcVar==="number")setBtcVar(dd.btcVar);
+      if(typeof dd.usdVar==="number")setUsdVar(dd.usdVar);
+      if(dd.usdYday&&typeof dd.usdYday==="object")setUsdYday(dd.usdYday);
+      // Carrega ouro salvo
+      if(dd.xauBrl&&dd.xauBrl>0){setXauBrl(dd.xauBrl);setXauTs(dd.xauTs||null);}
+      if(typeof dd.xauVar==="number")setXauVar(dd.xauVar);
     }
     setInited(true);
   },[]);
-  useEffect(()=>{if(!inited)return;sv({port,custom,hidden,lastPU,hist});},[port,custom,hidden,lastPU,hist,inited]);
+  useEffect(()=>{if(!inited)return;sv({port,custom,hidden,lastPU,hist,fx:{...FX},btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar});},[port,custom,hidden,lastPU,hist,btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,inited]);
+
+  // Atualiza FX em background ao abrir o app (silencioso, nao bloqueia, nao toca em precos de ativos)
+  const [fxBgTick,setFxBgTick]=useState(0);
+  useEffect(()=>{
+    if(!inited)return;
+    let cancelado=false;
+    (async()=>{
+      try{
+        const ctrl=new AbortController();
+        const tid=setTimeout(()=>ctrl.abort(),8000);
+        const r=await fetch("https://open.er-api.com/v6/latest/BRL",{signal:ctrl.signal});
+        clearTimeout(tid);
+        if(!r.ok)return;
+        const d=await r.json();
+        if(cancelado||!d||!d.rates)return;
+        let mudou=false;
+        ["USD","EUR","GBP","CHF","JPY","AUD","HKD","SGD","NOK","DKK","MXN"].forEach(k=>{
+          if(d.rates[k]>0){const novo=1/d.rates[k];if(Math.abs((FX[k]||0)-novo)>0.0001){FX[k]=novo;mudou=true;}}
+        });
+        // Calcula variacao USD vs ontem (e atualiza usdYday se passou o dia)
+        const hojeStr=new Date().toISOString().slice(0,10);
+        const usdHoje=FX.USD;
+        if(usdYday&&usdYday.valor>0&&usdYday.data&&usdYday.data!==hojeStr){
+          // ja temos cotacao de outro dia, calcula variacao
+          const variacao=((usdHoje-usdYday.valor)/usdYday.valor)*100;
+          if(!cancelado)setUsdVar(variacao);
+          // Se a data salva e de mais de 1 dia atras, atualiza para hoje
+          const diasAtras=(new Date(hojeStr)-new Date(usdYday.data))/(86400000);
+          if(diasAtras>=1&&!cancelado)setUsdYday({valor:usdHoje,data:hojeStr});
+        }else if(!usdYday||!usdYday.data){
+          // Primeira vez: salva como referencia (sem variacao calculavel)
+          if(!cancelado)setUsdYday({valor:usdHoje,data:hojeStr});
+        }
+        if(mudou&&!cancelado){
+          sv({port,custom,hidden,lastPU,hist,fx:{...FX},btcUsd,btcTs,btcVar,usdVar,usdYday});
+          setFxBgTick(t=>t+1);
+        }
+      }catch(e){/* silencioso - se falhar, usa FX salva ou default */}
+    })();
+    // Busca BTC em USD da CoinGecko com variacao 24h
+    (async()=>{
+      try{
+        const ctrl=new AbortController();
+        const tid=setTimeout(()=>ctrl.abort(),8000);
+        const r=await fetch("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd&include_24hr_change=true",{signal:ctrl.signal});
+        clearTimeout(tid);
+        if(!r.ok)return;
+        const d=await r.json();
+        if(cancelado||!d||!d.bitcoin||!d.bitcoin.usd)return;
+        setBtcUsd(d.bitcoin.usd);
+        setBtcTs(new Date().toISOString());
+        if(typeof d.bitcoin.usd_24h_change==="number")setBtcVar(d.bitcoin.usd_24h_change);
+      }catch(e){/* silencioso */}
+    })();
+    // Busca Ouro BCB serie 4 (BRL/g) - puxa ultimos 2 valores para calcular variacao
+    (async()=>{
+      try{
+        const d=await fetchViaProxy("https://api.bcb.gov.br/dados/serie/bcdata.sgs.4/dados/ultimos/2?formato=json",8000);
+        if(cancelado||!d||!Array.isArray(d)||d.length===0)return;
+        const ult=parseFloat(String(d[d.length-1].valor).replace(",","."));
+        if(!(ult>0))return;
+        setXauBrl(ult);
+        setXauTs(new Date().toISOString());
+        if(d.length>=2){
+          const ant=parseFloat(String(d[d.length-2].valor).replace(",","."));
+          if(ant>0){
+            const variacao=((ult-ant)/ant)*100;
+            if(!cancelado)setXauVar(variacao);
+          }
+        }
+      }catch(e){/* silencioso */}
+    })();
+    return()=>{cancelado=true;};
+  },[inited]);
 
   const {ccy,cls,lbl}=mkL(custom);
   const allT=useCallback((cid)=>[...(BASE[cid]||[]),...(custom[cid]||[]).map(a=>a.ticker)],[custom]);
@@ -852,18 +946,28 @@ function App(){
         }catch(e){dbg.push("IPCA-err:"+e.message);}
       }
       // Ouro: tenta BCB (Ouro BM&F grama, R$/g) primeiro, fallback Coinbase XAU spot
-      if(tickers.includes("OURO_FISICO")){
+      // Busca sempre (mesmo sem OURO_FISICO na posicao) pra header
+      const queremOuro=tickers.includes("OURO_FISICO");
+      {
         let okOuro=false;
-        // 1) BCB serie 4 = Ouro BM&F grama (oficial, ja em BRL/g)
+        // 1) BCB serie 4 = Ouro BM&F grama (oficial, ja em BRL/g) - pega ultimos 2 pra variacao
         try{
-          const d=await fetchViaProxy("https://api.bcb.gov.br/dados/serie/bcdata.sgs.4/dados/ultimos/1?formato=json",8000);
+          const d=await fetchViaProxy("https://api.bcb.gov.br/dados/serie/bcdata.sgs.4/dados/ultimos/2?formato=json",8000);
           if(d&&d.length>0){
-            const v=parseFloat(String(d[0].valor).replace(",","."));
-            if(v>0){allPrices["OURO_FISICO"]=v;dbg.push("Ouro-BCB:ok");okOuro=true;}
+            const v=parseFloat(String(d[d.length-1].valor).replace(",","."));
+            if(v>0){
+              if(queremOuro){allPrices["OURO_FISICO"]=v;dbg.push("Ouro-BCB:ok");}
+              setXauBrl(v);setXauTs(new Date().toISOString());
+              if(d.length>=2){
+                const ant=parseFloat(String(d[d.length-2].valor).replace(",","."));
+                if(ant>0)setXauVar(((v-ant)/ant)*100);
+              }
+              okOuro=true;
+            }
           }
         }catch(e){dbg.push("Ouro-BCB-err:"+e.message);}
         // 2) Fallback: Coinbase XAU/USD spot internacional
-        if(!okOuro){
+        if(!okOuro&&queremOuro){
           try{
             const d=await fetchJSON("https://api.coinbase.com/v2/prices/XAU-USD/spot",8000);
             const g=parseFloat(d&&d.data&&d.data.amount);
@@ -871,15 +975,28 @@ function App(){
             else{dbg.push("Ouro-spot:semvalor");}
           }catch(e){dbg.push("Ouro-spot-err:"+e.message);}
         }
-        if(!okOuro)failed.push("OURO_FISICO");
+        if(queremOuro&&!okOuro)failed.push("OURO_FISICO");
       }
       // Bitcoin via CoinGecko
       if(tickers.includes("BTC")){
         try{
-          const d=await fetchJSON("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd",8000);
-          if(d.bitcoin&&d.bitcoin.usd>0){allPrices["BTC"]=d.bitcoin.usd;dbg.push("BTC:ok");}
+          const d=await fetchJSON("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd&include_24hr_change=true",8000);
+          if(d.bitcoin&&d.bitcoin.usd>0){
+            allPrices["BTC"]=d.bitcoin.usd;dbg.push("BTC:ok");
+            setBtcUsd(d.bitcoin.usd);setBtcTs(new Date().toISOString());
+            if(typeof d.bitcoin.usd_24h_change==="number")setBtcVar(d.bitcoin.usd_24h_change);
+          }
           else{failed.push("BTC");dbg.push("BTC:semvalor");}
         }catch(e){failed.push("BTC");dbg.push("BTC-erro:"+e.message);}
+      }else{
+        // Mesmo sem posicao em BTC, busca o preco pra exibir no header
+        try{
+          const d=await fetchJSON("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd&include_24hr_change=true",6000);
+          if(d.bitcoin&&d.bitcoin.usd>0){
+            setBtcUsd(d.bitcoin.usd);setBtcTs(new Date().toISOString());
+            if(typeof d.bitcoin.usd_24h_change==="number")setBtcVar(d.bitcoin.usd_24h_change);
+          }
+        }catch(e){/* silencioso */}
       }
       // Mapeamento de tickers para Yahoo Finance
       const YH={
@@ -1148,7 +1265,7 @@ function App(){
     setHist(prev=>[{date:new Date().toISOString(),apValue:apR.apValue,
       purchases:buys.map(([t,v])=>({ticker:t,qty:pN(v.qty),price:pN(v.price),total:pN(v.qty)*pN(v.price)})),
       totalExecuted:buys.reduce((s,[,v])=>s+pN(v.qty)*pN(v.price),0),
-      totalPatrimBRL:totalBRL,totalPatrimUSD:totalBRL/(FX.USD||5.8),
+      totalPatrimBRL:totalBRL,totalPatrimUSD:totalBRL/(FX.USD||5.01),
       composicao:compPct
     },...prev].slice(0,24));
     setStep("done");
@@ -1164,7 +1281,7 @@ function App(){
       // Evita duplicar excessiva: so grava se ultimo registro tem >5 min OU nao tem composicao
       if(last&&last.composicao&&new Date()-new Date(last.date)<300000)return prev;
       return [{date:new Date().toISOString(),apValue:0,totalExecuted:0,
-        totalPatrimBRL:total,totalPatrimUSD:total/(FX.USD||5.8),
+        totalPatrimBRL:total,totalPatrimUSD:total/(FX.USD||5.01),
         composicao:compPct,snapshot:true
       },...prev].slice(0,100);
     });
@@ -1276,8 +1393,14 @@ function App(){
       ),
       hasPos&&h("button",{onClick:refresh,disabled:loadP,style:{background:"rgba(200,169,110,0.1)",border:"1px solid rgba(200,169,110,0.3)",borderRadius:6,padding:"6px 12px",color:"#C8A96E",fontSize:10,fontFamily:"monospace",letterSpacing:2,cursor:"pointer",textTransform:"uppercase"}},loadP?"Buscando...":"Atualizar precos")
     ),
-    (lastPU||pErr)&&h("div",{style:{fontSize:9,color:fxAntigo?"#E8C44A":"#5A5550",marginTop:3,fontFamily:"monospace"}},
-      lastPU&&("Atualizado: "+new Date(lastPU).toLocaleString("pt-BR")+" - USD "+FX.USD.toFixed(4)+(fxAntigo?" (cambio com "+fxIdadeMin+" min)":"")),
+    (lastPU||pErr||btcUsd||xauBrl)&&h("div",{style:{fontSize:9,color:fxAntigo?"#E8C44A":"#5A5550",marginTop:3,fontFamily:"monospace"}},
+      lastPU&&("Atualizado: "+new Date(lastPU).toLocaleString("pt-BR")+" - USD "+FX.USD.toFixed(4)),
+      lastPU&&typeof usdVar==="number"&&h("span",{style:{marginLeft:4,color:usdVar>=0?"#4CAF82":"#E05252",fontWeight:700}},(usdVar>=0?"▲":"▼")+fN(Math.abs(usdVar),2)+"%"),
+      lastPU&&fxAntigo&&h("span",{style:{color:"#E8C44A"}}," (cambio com "+fxIdadeMin+" min)"),
+      btcUsd&&h("span",{style:{marginLeft:lastPU?8:0,color:"#F7931A"}},(lastPU?" - ":"")+"BTC USD "+fN(btcUsd,0)),
+      btcUsd&&typeof btcVar==="number"&&h("span",{style:{marginLeft:4,color:btcVar>=0?"#4CAF82":"#E05252",fontWeight:700}},(btcVar>=0?"▲":"▼")+fN(Math.abs(btcVar),2)+"%"),
+      xauBrl&&h("span",{style:{marginLeft:(lastPU||btcUsd)?8:0,color:"#E8C44A"}},((lastPU||btcUsd)?" - ":"")+"Ouro R$ "+fN(xauBrl,2)+"/g"),
+      xauBrl&&typeof xauVar==="number"&&h("span",{style:{marginLeft:4,color:xauVar>=0?"#4CAF82":"#E05252",fontWeight:700}},(xauVar>=0?"▲":"▼")+fN(Math.abs(xauVar),2)+"%"),
       pErr&&h("span",{style:{color:"#E05252",marginLeft:8}},"Erro: "+pErr)
     )
   );
@@ -1305,6 +1428,13 @@ h("button",{onClick:()=>{
           if(d.hidden){setHidden(d.hidden);}
           if(d.lastPU){setLastPU(d.lastPU);}
           if(d.hist){setHist(d.hist);}
+          if(d.fx&&typeof d.fx==="object"){Object.keys(d.fx).forEach(k=>{if(typeof d.fx[k]==="number"&&d.fx[k]>0)FX[k]=d.fx[k];});}
+          if(d.btcUsd&&d.btcUsd>0){setBtcUsd(d.btcUsd);setBtcTs(d.btcTs||null);}
+          if(typeof d.btcVar==="number")setBtcVar(d.btcVar);
+          if(typeof d.usdVar==="number")setUsdVar(d.usdVar);
+          if(d.usdYday)setUsdYday(d.usdYday);
+          if(d.xauBrl&&d.xauBrl>0){setXauBrl(d.xauBrl);setXauTs(d.xauTs||null);}
+          if(typeof d.xauVar==="number")setXauVar(d.xauVar);
           alert("Backup restaurado com sucesso!");
         }catch(err){alert("Erro ao importar: "+err.message);}
       };
