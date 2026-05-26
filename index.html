@@ -981,11 +981,82 @@ function App(){
   };
   const removePos=t=>{setPort(prev=>{const n={...prev};delete n[t];return n;});setEditA(null);};
   const toggleHide=t=>{setHidden(prev=>prev.includes(t)?prev.filter(x=>x!==t):[...prev,t]);setEditA(null);};
-  const addCustom=cid=>{
+  // Busca nome E moeda do ativo no Yahoo Finance (auto-completar ao adicionar ticker)
+  // Para ativos do exterior, tenta varios sufixos ate achar o ticker certo
+  const fetchTickerInfo=async(symbol,cid,ccyHint)=>{
+    // Lista de sufixos a tentar, em ordem de prioridade
+    let sufixos;
+    if(cid==="acoes_br"||cid==="fii"||cid==="infra"||cid==="agro"||cid==="selic"){
+      sufixos=[".SA"];
+    }else if(cid==="acoes_ext"){
+      // Comeca pelo sufixo da moeda hint (se houver), depois testa os demais
+      const porMoeda={USD:"",EUR:".DE",GBP:".L",CHF:".SW",DKK:".CO",NOK:".OL",MXN:".MX",JPY:".T",AUD:".AX",HKD:".HK",SGD:".SI"};
+      sufixos=[porMoeda[ccyHint]||"","",".L",".DE",".SW",".T",".AX",".HK",".AS",".PA",".MI",".MX",".SI",".CO",".OL"];
+      sufixos=[...new Set(sufixos)]; // remove duplicatas
+    }else{
+      sufixos=[""];
+    }
+    const proxies=[
+      u=>"https://corsproxy.io/?url="+encodeURIComponent(u),
+      u=>"https://api.allorigins.win/raw?url="+encodeURIComponent(u),
+      u=>"https://api.codetabs.com/v1/proxy/?quest="+encodeURIComponent(u),
+    ];
+    // Mapeamento de exchange Yahoo -> moeda
+    const exchToCcy={
+      NMS:"USD",NYQ:"USD",NCM:"USD",ASE:"USD",PCX:"USD",PNK:"USD",BTS:"USD",
+      SAO:"BRL",GER:"EUR",FRA:"EUR",STU:"EUR",DUS:"EUR",HAM:"EUR",MUN:"EUR",BER:"EUR",
+      LSE:"GBP",IOB:"GBP",AQS:"GBP",
+      EBS:"CHF",SWX:"CHF",
+      CPH:"DKK",OSL:"NOK",STO:"SEK",
+      MEX:"MXN",TYO:"JPY",ASX:"AUD",HKG:"HKD",SES:"SGD",
+      AMS:"EUR",PAR:"EUR",MIL:"EUR",BRU:"EUR",LIS:"EUR",MCE:"EUR",
+      TLO:"CAD",TOR:"CAD",
+    };
+    for(const suf of sufixos){
+      const yhSym=symbol+suf;
+      const yhUrl="https://query1.finance.yahoo.com/v7/finance/quote?symbols="+encodeURIComponent(yhSym);
+      for(const mk of proxies){
+        try{
+          const ctrl=new AbortController();const tid=setTimeout(()=>ctrl.abort(),6000);
+          const r=await fetch(mk(yhUrl),{signal:ctrl.signal});clearTimeout(tid);
+          if(!r.ok)continue;
+          const j=await r.json();
+          const q=j&&j.quoteResponse&&j.quoteResponse.result&&j.quoteResponse.result[0];
+          if(q&&(q.longName||q.shortName)){
+            const nome=(q.longName||q.shortName||q.displayName||"").trim().slice(0,40);
+            // Pega moeda diretamente do quote ou via exchange
+            let ccy=q.currency||exchToCcy[q.exchange]||"";
+            ccy=ccy.toUpperCase();
+            // So aceita moedas conhecidas pelo app
+            if(!["USD","EUR","GBP","CHF","JPY","AUD","HKD","SGD","DKK","NOK","MXN","BRL"].includes(ccy))ccy="";
+            return {nome,ccy,suffix:suf};
+          }
+        }catch{}
+        break; // se uma proxy retornou, nao tenta proximas para mesmo sufixo
+      }
+    }
+    return {nome:"",ccy:"",suffix:""};
+  };
+  const addCustom=async cid=>{
     const t=nTick.trim().toUpperCase();if(!t)return;
     if(allT(cid).includes(t)){alert("Ja existe");return;}
-    setCustom(prev=>({...prev,[cid]:[...(prev[cid]||[]),{ticker:t,label:nLbl.trim()||t,ccy:nCcy}]}));
-    BCCY[t]=nCcy;setAddTo(null);setNTick("");setNLbl("");setNCcy("BRL");
+    let label=nLbl.trim();
+    let ccyFinal=nCcy;
+    // Busca info no Yahoo se: nome vazio OU acoes_ext (para validar moeda)
+    if(!label||cid==="acoes_ext"){
+      setLoadP(true);
+      try{
+        const info=await fetchTickerInfo(t,cid,nCcy);
+        if(!label&&info.nome)label=info.nome;
+        // Se eh acao exterior e descobrimos a moeda real, usa ela
+        if(cid==="acoes_ext"&&info.ccy)ccyFinal=info.ccy;
+      }catch{}
+      setLoadP(false);
+    }
+    setCustom(prev=>({...prev,[cid]:[...(prev[cid]||[]),{ticker:t,label:label||t,ccy:ccyFinal}]}));
+    BCCY[t]=ccyFinal;
+    if(label)NAMES[t]=label;
+    setAddTo(null);setNTick("");setNLbl("");setNCcy("BRL");
   };
   const removeCustom=(cid,t)=>{setCustom(prev=>({...prev,[cid]:(prev[cid]||[]).filter(a=>a.ticker!==t)}));removePos(t);};
 
@@ -1363,7 +1434,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           }),
           addTo===c.id?h("div",{style:{padding:"10px",background:"rgba(255,255,255,0.03)",border:"1px solid "+c.color+"33",borderRadius:7,marginTop:5}},
             h("div",{style:{fontSize:8,letterSpacing:2,color:c.color,fontFamily:"monospace",textTransform:"uppercase",marginBottom:8}},"Novo ativo"),
-            ...[ ["TICKER",nTick,v2=>setNTick(v2.toUpperCase()),"ex: PETR4"], ["Nome",nLbl,setNLbl,"ex: Petrobras"] ].map(([l,v2,s2,p2])=>h("div",{key:l,style:{marginBottom:7}},h("div",{style:{fontSize:8,color:"#8A8070",fontFamily:"monospace",marginBottom:2}},l),h("input",{type:"text",value:v2,onChange:e=>s2(e.target.value),placeholder:p2,maxLength:30,style:{width:"100%",background:"rgba(0,0,0,0.3)",border:"1px solid "+c.color+"44",borderRadius:4,padding:"7px 9px",color:"#F0EAD8",fontSize:13,fontFamily:"monospace",outline:"none",boxSizing:"border-box"}}))),
+            ...[ ["TICKER",nTick,v2=>setNTick(v2.toUpperCase()),"ex: PETR4"], ["Nome (opcional - auto)",nLbl,setNLbl,"deixe vazio para buscar"] ].map(([l,v2,s2,p2])=>h("div",{key:l,style:{marginBottom:7}},h("div",{style:{fontSize:8,color:"#8A8070",fontFamily:"monospace",marginBottom:2}},l),h("input",{type:"text",value:v2,onChange:e=>s2(e.target.value),placeholder:p2,maxLength:40,style:{width:"100%",background:"rgba(0,0,0,0.3)",border:"1px solid "+c.color+"44",borderRadius:4,padding:"7px 9px",color:"#F0EAD8",fontSize:13,fontFamily:"monospace",outline:"none",boxSizing:"border-box"}}))),
             h("div",{style:{marginBottom:10}},h("div",{style:{fontSize:8,color:"#8A8070",fontFamily:"monospace",marginBottom:5}},"MOEDA"),h("div",{style:{display:"flex",flexWrap:"wrap",gap:4}},...["BRL","USD","EUR","GBP","CHF","JPY","AUD","HKD","SGD","NOK","DKK","MXN"].map(cc2=>h("button",{key:cc2,onClick:()=>setNCcy(cc2),style:{padding:"2px 8px",borderRadius:3,fontFamily:"monospace",fontSize:10,background:nCcy===cc2?c.color:"transparent",border:"1px solid "+c.color+"44",color:nCcy===cc2?"#0D0F14":"#8A8070",cursor:"pointer"}},cc2)))),
             h("div",{style:{display:"flex",gap:7}},h("button",{onClick:()=>addCustom(c.id),style:{flex:1,padding:"9px",background:"linear-gradient(135deg,"+c.color+","+c.color+"BB)",border:"none",borderRadius:5,color:"#0D0F14",fontSize:11,fontWeight:700,cursor:"pointer"}},"Adicionar"),h("button",{onClick:()=>{setAddTo(null);setNTick("");setNLbl("");setNCcy("BRL");},style:{padding:"9px 12px",background:"transparent",border:"1px solid rgba(255,255,255,0.1)",borderRadius:5,color:"#8A8070",fontSize:11,cursor:"pointer"}},"Cancelar"))
           ):h("button",{onClick:()=>{setAddTo(c.id);setNTick("");setNLbl("");setNCcy(c.id==="acoes_ext"?"USD":"BRL");},style:{width:"100%",padding:"6px",background:"transparent",border:"1px dashed "+c.color+"44",borderRadius:5,color:c.color+"88",fontSize:10,cursor:"pointer",marginTop:3}},"+  Adicionar ativo")
