@@ -32,12 +32,14 @@ const CL=[
   {id:"ouro",     name:"Ouro",          tag:"XAU", min:3, max:5, color:"#E8C44A"},
   {id:"bitcoin",  name:"Bitcoin",       tag:"BTC", min:3, max:5, color:"#F7931A"},
   {id:"infra",    name:"Fundos Infra",  tag:"INF", min:5, max:7, color:"#A56FD4"},
+  {id:"imoveis",  name:"Imoveis Fisicos",tag:"IMV", min:5, max:8, color:"#D17A22",flex:true},
+  {id:"agro",     name:"Fiagros",       tag:"AGRO",min:5, max:7, color:"#8FBE3F"},
 ];
 const BASE={
   fii:["HGRU11","RBVA11","ALZR11","TRXF11","FIIB11","BTLG11","HGLG11","XPIN11","JFLL11","TEPP11","PVBI11","TGAR11","HSML11","XPML11","RECR11","KNHY11","KNUQ11","KNIP11","AFHI11"],
   acoes_br:["PSSA3","EGIE3","WEGE3","BBAS3","ITUB3","KLBN4","CXSE3","MULT3","CMIN3","FRAS3","TAEE11"],
   acoes_ext:["MSFT","APH","MU","AMAT","GOOGL","WM","O","BRKB","DHR","PH","LIN","ECL","ADBE","PEP","XOM","AOS","PANW","CTVA","SIE","SAP","NSIS_B","HLMA","KOG","GMEXICOB","ASML","ABBN","TSE8058","TSE8031","NDIA","REA","HKG0700","HKG1299","J36","HKG0001","HKG0087","WES"],
-  selic:["SELIC2031"],ouro:["OURO_FISICO","AAAU"],bitcoin:["BTC"],infra:["BRZP11","AZIN11","KDIF11"],
+  selic:["SELIC2031"],ouro:["OURO_FISICO","AAAU"],bitcoin:["BTC"],infra:["BRZP11","AZIN11","KDIF11"],imoveis:[],agro:[],
 };
 const NAMES={
   HGRU11:"CSHG Renda Urbana",RBVA11:"Rio Bravo Renda Varejo",ALZR11:"Alianza Trust",
@@ -78,8 +80,9 @@ const BCCY={
 };
 const VB=["SELIC2031"];
 const GB=["OURO_FISICO"];
+const IMB=true; // flag indicando que IMV usa ativos custom (cadastrados pelo usuario)
 const FX={BRL:1,USD:5.8,EUR:6.3,GBP:7.3,CHF:6.5,JPY:0.038,AUD:3.7,HKD:0.74,SGD:4.3,DKK:0.84,NOK:0.55,MXN:0.29};
-const RR={fii:{r:3.5,e:7.5},acoes_br:{r:6.5,e:8.5},acoes_ext:{r:5.5,e:8.0},selic:{r:1.0,e:4.5},ouro:{r:4.0,e:5.5},bitcoin:{r:9.5,e:9.0},infra:{r:2.5,e:7.0}};
+const RR={fii:{r:3.5,e:7.5},acoes_br:{r:6.5,e:8.5},acoes_ext:{r:5.5,e:8.0},selic:{r:1.0,e:4.5},ouro:{r:4.0,e:5.5},bitcoin:{r:9.5,e:9.0},infra:{r:2.5,e:7.0},imoveis:{r:2.0,e:6.0},agro:{r:3.0,e:8.0}};
 
 const SK="pat-v9";
 const ld=()=>{try{return JSON.parse(localStorage.getItem(SK)||"null");}catch{return null;}};
@@ -104,13 +107,14 @@ function mkL(cu){
   });
   return {ccy,cls,lbl};
 }
+const isImv=t=>typeof t==="string"&&t.startsWith("IMV_");
 function pv(t,p,ccy){
   if(!p)return 0;
-  if(VB.includes(t))return p.totalBRL||0;
+  if(VB.includes(t)||isImv(t))return p.totalBRL||0;
   if(GB.includes(t))return(p.qty||0)*(p.price||0);
   return(p.qty||0)*(p.price||0)*(FX[ccy[t]||"BRL"]||1);
 }
-function hq(t,p){if(!p)return false;if(VB.includes(t))return(p.totalBRL||0)>0;return(p.qty||0)>0;}
+function hq(t,p){if(!p)return false;if(VB.includes(t)||isImv(t))return(p.totalBRL||0)>0;return(p.qty||0)>0;}
 const fB=v=>new Intl.NumberFormat("pt-BR",{style:"currency",currency:"BRL"}).format(v||0);
 const fN=(v,d=2)=>(v||0).toLocaleString("pt-BR",{minimumFractionDigits:d,maximumFractionDigits:d});
 const pc=v=>(v||0).toFixed(1)+"%";
@@ -605,6 +609,9 @@ function App(){
   const [editBands,setEditBands]=useState(false);
   const [bandsVer,setBandsVer]=useState(0); // forca re-render quando bandas mudam
   const [editAporte,setEditAporte]=useState(false);
+  // Estados para cadastro/edicao de imovel
+  const [addImov,setAddImov]=useState(false);
+  const [imvForm,setImvForm]=useState({id:"",desc:"",valor:"",data:""});
   // PIN de seguranca (4 digitos). Hash simples + checagem na entrada
   const hashPIN=(s)=>{let h=5381;for(let i=0;i<s.length;i++)h=((h<<5)+h)+s.charCodeAt(i);return String(h);};
   const [pinHash,setPinHash]=useState(()=>{try{return localStorage.getItem("pat-pin")||"";}catch{return "";}});
@@ -657,9 +664,35 @@ function App(){
     salvarBandas();
   };
   const resetBandas=()=>{
-    const original={fii:[28,30],acoes_br:[13,15],acoes_ext:[28,30],selic:[5,8],ouro:[3,5],bitcoin:[3,5],infra:[5,7]};
+    const original={fii:[28,30],acoes_br:[13,15],acoes_ext:[28,30],selic:[5,8],ouro:[3,5],bitcoin:[3,5],infra:[5,7],imoveis:[5,8],agro:[5,7]};
     CL.forEach(c=>{if(original[c.id]){c.min=original[c.id][0];c.max=original[c.id][1];}});
     salvarBandas();
+  };
+  // Imoveis fisicos: gerar id, salvar, remover
+  const salvarImovel=()=>{
+    const desc=imvForm.desc.trim();
+    const valor=pN(imvForm.valor);
+    if(!desc||valor<=0){alert("Preencha descricao e valor de venda");return;}
+    const dataAv=imvForm.data||new Date().toISOString().slice(0,10);
+    if(imvForm.id){
+      // Edicao
+      setPort(prev=>({...prev,[imvForm.id]:{...prev[imvForm.id],desc,totalBRL:valor,price:valor,qty:1,classId:"imoveis",dataAvaliacao:dataAv}}));
+    }else{
+      // Novo - gera ticker unico
+      const ids=Object.keys(port).filter(t=>isImv(t)).map(t=>parseInt(t.slice(4))||0);
+      const novoId="IMV_"+(Math.max(0,...ids)+1);
+      setPort(prev=>({...prev,[novoId]:{desc,totalBRL:valor,price:valor,qty:1,classId:"imoveis",dataAvaliacao:dataAv}}));
+    }
+    setImvForm({id:"",desc:"",valor:"",data:""});setAddImov(false);
+  };
+  const editarImovel=(tk)=>{
+    const p=port[tk];if(!p)return;
+    setImvForm({id:tk,desc:p.desc||"",valor:String(p.totalBRL||""),data:p.dataAvaliacao?p.dataAvaliacao.slice(0,10):""});
+    setAddImov(true);
+  };
+  const removerImovel=(tk)=>{
+    if(!window.confirm("Remover este imovel do portfolio?"))return;
+    setPort(prev=>{const n={...prev};delete n[tk];return n;});
   };
 
   // Calcula proxima janela de aporte (considera meses selecionados)
@@ -737,7 +770,7 @@ function App(){
   const hasPos=Object.entries(port).some(([t,p])=>hq(t,p));
 
   const refresh=useCallback(async()=>{
-    const tickers=Object.keys(port).filter(t=>hq(t,port[t])&&!VB.includes(t));
+    const tickers=Object.keys(port).filter(t=>hq(t,port[t])&&!VB.includes(t)&&!isImv(t));
     if(!tickers.length){setPErr("Nenhum ativo com quantidade cadastrada");return;}
     setLoadP(true);setPErr("");
     // Helper de fetch com timeout manual (compativel com todos os navegadores)
@@ -778,6 +811,35 @@ function App(){
           dbg.push("FX:"+n);
         }else dbg.push("FX:semrates");
       }catch(e){dbg.push("FX-erro:"+e.message);}
+      // Imoveis fisicos: atualiza valor com IPCA acumulado desde a ultima avaliacao
+      const imvTickers=Object.keys(port).filter(t=>isImv(t));
+      if(imvTickers.length>0){
+        try{
+          // Busca a serie 433 do BCB (IPCA mensal) - puxa ultimos 24 meses
+          const d=await fetchViaProxy("https://api.bcb.gov.br/dados/serie/bcdata.sgs.433/dados/ultimos/24?formato=json",10000);
+          if(d&&d.length>0){
+            // d eh array de {data:"01/04/2026", valor:"0.43"} (% do mes)
+            // Para cada imovel, calcula IPCA acumulado desde dataAvaliacao
+            imvTickers.forEach(t=>{
+              const p=port[t];if(!p||!p.totalBRL||!p.dataAvaliacao)return;
+              const dataAv=new Date(p.dataAvaliacao);
+              let fator=1;
+              d.forEach(item=>{
+                const [dd,mm,aa]=item.data.split("/");
+                const dataMes=new Date(parseInt(aa),parseInt(mm)-1,parseInt(dd));
+                if(dataMes>dataAv){
+                  const pct=parseFloat(String(item.valor).replace(",","."))||0;
+                  fator*=(1+pct/100);
+                }
+              });
+              if(fator>1.0001){
+                allPrices[t+"_FATOR"]=fator; // armazena pra usar abaixo
+              }
+            });
+            dbg.push("IPCA:ok");
+          }
+        }catch(e){dbg.push("IPCA-err:"+e.message);}
+      }
       // Ouro: tenta BCB (Ouro BM&F grama, R$/g) primeiro, fallback Coinbase XAU spot
       if(tickers.includes("OURO_FISICO")){
         let okOuro=false;
@@ -878,9 +940,24 @@ function App(){
       fgnTickers.forEach(t=>{if(!allPrices[t])failed.push(t);});
       const SCALE10=["ALZR11","RBVA11","TEPP11"];
       SCALE10.forEach(t=>{if(allPrices[t]&&allPrices[t]>500)allPrices[t]=allPrices[t]/10;});
-      const n=Object.keys(allPrices).length;
-      if(n>0){
-        setPort(prev=>{const np={...prev};Object.entries(allPrices).forEach(([t,v])=>{if(np[t])np[t]={...np[t],price:v};});return np;});
+      const n=Object.keys(allPrices).filter(k=>!k.endsWith("_FATOR")).length;
+      if(n>0||Object.keys(allPrices).some(k=>k.endsWith("_FATOR"))){
+        setPort(prev=>{
+          const np={...prev};
+          Object.entries(allPrices).forEach(([t,v])=>{
+            if(t.endsWith("_FATOR")){
+              // Atualiza valor do imovel pelo fator IPCA acumulado
+              const tImv=t.slice(0,-6);
+              if(np[tImv]&&np[tImv].totalBRL){
+                const novo=np[tImv].totalBRL*v;
+                np[tImv]={...np[tImv],totalBRL:novo,price:novo,dataAvaliacao:new Date().toISOString()};
+              }
+            }else if(np[t]){
+              np[t]={...np[t],price:v};
+            }
+          });
+          return np;
+        });
         setLastPU(new Date().toISOString());
         if(n<tickers.length){
           const uniq=[...new Set(failed)].filter(t=>!allPrices[t]);
@@ -1150,8 +1227,8 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           return h("div",{key:t,style:{display:"flex",alignItems:"center",padding:"6px 0",borderBottom:"1px solid rgba(255,255,255,0.04)"}},
             h("div",{style:{width:5,height:5,borderRadius:"50%",background:cl?cl.color:"#888",marginRight:7,flexShrink:0}}),
             h("div",{style:{flex:1,minWidth:0,marginRight:7}},
-              h("div",{style:{fontFamily:"monospace",fontSize:11,color:"#F0EAD8",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}},t),
-              h("div",{style:{fontSize:9,color:"#8A8070",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}},NAMES[t]||"")
+              h("div",{style:{fontFamily:"monospace",fontSize:11,color:"#F0EAD8",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}},isImv(t)?(p.desc||t).slice(0,28):t),
+              h("div",{style:{fontSize:9,color:"#8A8070",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}},isImv(t)?"Imovel":(NAMES[t]||""))
             ),
             h("div",{style:{textAlign:"right",flexShrink:0}},
               h("div",{style:{fontFamily:"monospace",fontSize:11,color:"#F0EAD8"}},MV(fB(val))),
@@ -1257,7 +1334,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         )
       );
     } else {
-      const rows=CL.map(c=>{
+      const rows=CL.filter(c=>c.id!=="imoveis").map(c=>{
         const tickers=allT(c.id).filter(t=>showHid||!hidden.includes(t));
         return h("div",{key:c.id,style:{marginBottom:20}},
           h("div",{style:{display:"flex",alignItems:"center",gap:6,marginBottom:5,paddingBottom:4,borderBottom:"1px solid "+c.color+"33"}},
@@ -1383,9 +1460,52 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           },style:{background:"rgba(224,82,82,0.08)",border:"1px solid rgba(224,82,82,0.35)",borderRadius:5,color:"#E05252",fontSize:10,padding:"6px 12px",cursor:"pointer",fontFamily:"monospace",letterSpacing:1,flexShrink:0}},"limpar historico")
         )
       );
+      // Bloco de imoveis fisicos
+      const imovs=Object.entries(port).filter(([t])=>isImv(t));
+      const totalImov=imovs.reduce((s,[t,p])=>s+(p.totalBRL||0),0);
+      const imoveisBlock=h("div",{style:{marginBottom:14,padding:"11px 13px",background:"rgba(209,122,34,0.04)",border:"1px solid rgba(209,122,34,0.25)",borderRadius:8}},
+        h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:addImov||imovs.length>0?9:0,gap:6}},
+          h("div",{},
+            h("div",{style:{fontSize:9,letterSpacing:3,color:"#D17A22",fontFamily:"monospace",textTransform:"uppercase"}},"Imoveis Fisicos"),
+            h("div",{style:{fontSize:9,color:"#7A7570",marginTop:3,fontStyle:"italic"}},imovs.length===0?"Nenhum imovel cadastrado":imovs.length+" imovel(eis) - valor: "+(hideVal?"----":fB(totalImov))+" (auto-atualizado por IPCA)")
+          ),
+          h("button",{onClick:()=>{setAddImov(!addImov);if(addImov)setImvForm({id:"",desc:"",valor:"",data:""});},style:{background:addImov?"rgba(209,122,34,0.15)":"none",border:"1px solid "+(addImov?"#D17A22":"rgba(255,255,255,0.15)"),borderRadius:4,color:addImov?"#D17A22":"#8A8070",fontSize:9,padding:"3px 9px",cursor:"pointer",fontFamily:"monospace"}},addImov?"cancelar":"+ adicionar")
+        ),
+        // Lista de imoveis cadastrados
+        imovs.length>0&&h("div",{style:{display:"flex",flexDirection:"column",gap:5,marginBottom:addImov?12:0}},
+          ...imovs.map(([tk,p])=>h("div",{key:tk,style:{display:"flex",alignItems:"center",gap:8,padding:"7px 9px",background:"rgba(0,0,0,0.2)",borderRadius:5,borderLeft:"3px solid #D17A22"}},
+            h("div",{style:{flex:1,minWidth:0}},
+              h("div",{style:{fontSize:11,color:"#F0EAD8",fontWeight:600}},p.desc||tk),
+              h("div",{style:{fontSize:8,color:"#7A7570",fontFamily:"monospace",marginTop:2}},
+                hideVal?"----":fB(p.totalBRL||0),
+                p.dataAvaliacao?" - aval: "+new Date(p.dataAvaliacao).toLocaleDateString("pt-BR"):""
+              )
+            ),
+            h("button",{onClick:()=>editarImovel(tk),style:{background:"none",border:"1px solid rgba(91,143,212,0.3)",borderRadius:3,color:"#5B8FD4",fontSize:8,padding:"3px 7px",cursor:"pointer",fontFamily:"monospace"}},"editar"),
+            h("button",{onClick:()=>removerImovel(tk),style:{background:"none",border:"1px solid rgba(224,82,82,0.3)",borderRadius:3,color:"#E05252",fontSize:8,padding:"3px 7px",cursor:"pointer",fontFamily:"monospace"}},"x")
+          ))
+        ),
+        // Form de cadastro/edicao
+        addImov&&h("div",{style:{display:"flex",flexDirection:"column",gap:7,padding:"8px 9px",background:"rgba(0,0,0,0.2)",borderRadius:5,border:"1px dashed rgba(209,122,34,0.3)"}},
+          h("input",{type:"text",placeholder:"Descricao do imovel (ex: Apto Vila Madalena 80m2)",value:imvForm.desc,onChange:e=>setImvForm(f=>({...f,desc:e.target.value})),style:{background:"rgba(0,0,0,0.4)",border:"1px solid rgba(209,122,34,0.3)",borderRadius:4,padding:"7px 9px",color:"#F0EAD8",fontSize:11,fontFamily:"Georgia,serif",outline:"none"}}),
+          h("div",{style:{display:"flex",gap:7}},
+            h("div",{style:{flex:1}},
+              h("div",{style:{fontSize:8,color:"#7A7570",marginBottom:3,fontFamily:"monospace",textTransform:"uppercase",letterSpacing:1}},"Valor de venda (R$)"),
+              h("input",{type:"text",inputMode:"decimal",placeholder:"800.000,00",value:imvForm.valor,onChange:e=>setImvForm(f=>({...f,valor:e.target.value})),style:{width:"100%",boxSizing:"border-box",background:"rgba(0,0,0,0.4)",border:"1px solid rgba(209,122,34,0.3)",borderRadius:4,padding:"7px 9px",color:"#F0EAD8",fontSize:11,fontFamily:"monospace",outline:"none"}})
+            ),
+            h("div",{style:{flex:1}},
+              h("div",{style:{fontSize:8,color:"#7A7570",marginBottom:3,fontFamily:"monospace",textTransform:"uppercase",letterSpacing:1}},"Data avaliacao"),
+              h("input",{type:"date",value:imvForm.data,onChange:e=>setImvForm(f=>({...f,data:e.target.value})),style:{width:"100%",boxSizing:"border-box",background:"rgba(0,0,0,0.4)",border:"1px solid rgba(209,122,34,0.3)",borderRadius:4,padding:"6px 9px",color:"#F0EAD8",fontSize:11,fontFamily:"monospace",outline:"none"}})
+            )
+          ),
+          h("div",{style:{fontSize:8,color:"#7A7570",fontStyle:"italic",lineHeight:1.5}},"O valor sera auto-atualizado pelo IPCA acumulado desde a data de avaliacao."),
+          h("button",{onClick:salvarImovel,style:{padding:"8px",background:"linear-gradient(135deg,#D17A22,#A45A12)",border:"none",borderRadius:5,color:"#0D0F14",fontSize:11,fontWeight:700,letterSpacing:2,textTransform:"uppercase",cursor:"pointer",fontFamily:"monospace"}},imvForm.id?"Atualizar":"Cadastrar imovel")
+        )
+      );
       content=h("div",{},
         bandsBlock,
         aporteConfBlock,
+        imoveisBlock,
         manutencaoBlock,
         h("div",{style:{fontSize:11,color:"#8A8070",marginBottom:12,lineHeight:1.6}},"Toque em qualquer ativo para editar."),
         hidden.length>0&&h("button",{onClick:()=>setShowHid(s=>!s),style:{background:"none",border:"1px solid rgba(255,255,255,0.08)",borderRadius:6,color:"#8A8070",fontSize:10,padding:"4px 10px",cursor:"pointer",fontFamily:"monospace",marginBottom:12}},showHid?"Ocultar escondidos":"Mostrar "+hidden.length+" oculto(s)"),
