@@ -1066,23 +1066,38 @@ function App(){
 
   // Atualiza nome e moeda de um ativo ja cadastrado (busca no Yahoo)
   const [refreshingName,setRefreshingName]=useState("");
+  const [refreshMsg,setRefreshMsg]=useState("");
   const atualizarNomeAtivo=async(ticker,cid)=>{
-    setRefreshingName(ticker);
+    setRefreshingName(ticker);setRefreshMsg("");
     try{
       const info=await fetchTickerInfo(ticker,cid,ccy[ticker]||"USD");
       if(info.nome){
         NAMES[ticker]=info.nome;
-        // Atualiza label nos custom
         setCustom(prev=>{
           const arr=(prev[cid]||[]).map(a=>a.ticker===ticker?{...a,label:info.nome,ccy:info.ccy||a.ccy}:a);
           return {...prev,[cid]:arr};
         });
         if(info.ccy)BCCY[ticker]=info.ccy;
+        setRefreshMsg("OK: "+info.nome+(info.ccy?" ("+info.ccy+")":""));
+        setTimeout(()=>setRefreshMsg(""),3000);
       }else{
-        alert("Nao foi possivel encontrar info para "+ticker+" no Yahoo. Verifique se o ticker esta correto.");
+        setRefreshMsg("Yahoo nao retornou info. Edite o nome manualmente abaixo.");
       }
-    }catch(e){alert("Erro: "+e.message);}
+    }catch(e){setRefreshMsg("Falha de rede: "+e.message);}
     setRefreshingName("");
+  };
+  // Edita o nome do ativo manualmente
+  const editarNomeManual=(ticker,cid)=>{
+    const novo=prompt("Digite o nome do ativo:",NAMES[ticker]||lbl[ticker]||ticker);
+    if(novo===null)return;
+    const lim=novo.trim().slice(0,40);
+    NAMES[ticker]=lim||ticker;
+    setCustom(prev=>{
+      const arr=(prev[cid]||[]).map(a=>a.ticker===ticker?{...a,label:lim||ticker}:a);
+      return {...prev,[cid]:arr};
+    });
+    setRefreshMsg("Nome atualizado: "+(lim||ticker));
+    setTimeout(()=>setRefreshMsg(""),2500);
   };
 
   const genAlloc=async()=>{
@@ -1417,8 +1432,12 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           h("span",{style:{width:8,height:8,borderRadius:"50%",background:cl?cl.color:"#888",display:"inline-block"}}),
           h("div",{style:{flex:1}},h("div",{style:{fontFamily:"monospace",fontSize:14,color:"#F0EAD8"}},ticker),h("div",{style:{fontSize:9,color:cl?cl.color:"#888"}},(NAMES[ticker]||lbl[ticker]||"")+(NAMES[ticker]||lbl[ticker]?" - ":"")+(cl?cl.name:"")+" - "+(isGB?"BRL/g":cc)))
         ),
-        // Botao para atualizar nome via Yahoo (so para ativos custom de classes com preco)
-        isCustom&&!isVB&&!isGB&&h("button",{onClick:()=>atualizarNomeAtivo(ticker,cl?cl.id:editA.classId),disabled:refreshingName===ticker,style:{width:"100%",padding:"7px",background:"rgba(91,143,212,0.08)",border:"1px solid rgba(91,143,212,0.3)",borderRadius:5,color:"#5B8FD4",fontSize:10,cursor:refreshingName===ticker?"not-allowed":"pointer",fontFamily:"monospace",marginBottom:12,letterSpacing:1}},refreshingName===ticker?"buscando..." :"buscar nome e moeda no Yahoo"),
+        // Botoes para atualizar nome (Yahoo ou manual) - so para ativos custom de classes com preco
+        isCustom&&!isVB&&!isGB&&h("div",{style:{display:"flex",gap:6,marginBottom:6}},
+          h("button",{onClick:()=>atualizarNomeAtivo(ticker,cl?cl.id:editA.classId),disabled:refreshingName===ticker,style:{flex:1,padding:"7px",background:"rgba(91,143,212,0.08)",border:"1px solid rgba(91,143,212,0.3)",borderRadius:5,color:"#5B8FD4",fontSize:9,cursor:refreshingName===ticker?"not-allowed":"pointer",fontFamily:"monospace",letterSpacing:1}},refreshingName===ticker?"buscando...":"buscar no Yahoo"),
+          h("button",{onClick:()=>editarNomeManual(ticker,cl?cl.id:editA.classId),style:{flex:1,padding:"7px",background:"rgba(200,169,110,0.08)",border:"1px solid rgba(200,169,110,0.3)",borderRadius:5,color:"#C8A96E",fontSize:9,cursor:"pointer",fontFamily:"monospace",letterSpacing:1}},"editar nome manual")
+        ),
+        isCustom&&refreshMsg&&h("div",{style:{padding:"6px 9px",marginBottom:10,background:refreshMsg.startsWith("OK")||refreshMsg.startsWith("Nome")?"rgba(76,175,130,0.08)":"rgba(232,196,74,0.08)",border:"1px solid "+(refreshMsg.startsWith("OK")||refreshMsg.startsWith("Nome")?"rgba(76,175,130,0.3)":"rgba(232,196,74,0.3)"),borderRadius:5,fontSize:9,color:refreshMsg.startsWith("OK")||refreshMsg.startsWith("Nome")?"#4CAF82":"#E8C44A",fontFamily:"monospace",lineHeight:1.5}},refreshMsg),
         isVB?row("Valor total aplicado (R$)",inp(eQty,setEQty,"0,00"),"Saldo atual em reais. Atualize a cada aporte."):
         isGB?h("div",{},row("Quantidade em gramas",inp(eQty,setEQty,"0,000")),row("Preco de venda por grama (R$/g)",inp(ePrice,setEPrice,"0,00"))):
         h("div",{},
