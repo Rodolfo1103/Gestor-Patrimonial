@@ -91,11 +91,71 @@ const IMB=true; // flag indicando que IMV usa ativos custom (cadastrados pelo us
 const FX={BRL:1,USD:5.01,EUR:5.7,GBP:6.8,CHF:6.1,JPY:0.034,AUD:3.25,HKD:0.64,SGD:3.85,DKK:0.76,NOK:0.49,MXN:0.26};
 const RR={fii:{r:3.5,e:7.5},acoes_br:{r:6.5,e:8.5},acoes_ext:{r:5.5,e:8.0},selic:{r:1.0,e:4.5},ouro:{r:4.0,e:5.5},bitcoin:{r:9.5,e:9.0},infra:{r:2.5,e:7.0},imoveis:{r:2.0,e:6.0},agro:{r:3.0,e:8.0}};
 
-const SK="pat-v9";
-const ld=()=>{try{return JSON.parse(localStorage.getItem(SK)||"null");}catch{return null;}};
-const sv=(d)=>{try{localStorage.setItem(SK,JSON.stringify(d));}catch{}};
-const gk=()=>{try{return localStorage.getItem("pat-key")||"";}catch{return "";}};
-const sk2=(k)=>{try{localStorage.setItem("pat-key",k);}catch{}};
+const SK_OLD="pat-v9";       // legado nao criptografado (para migracao)
+const SK_ENC="pat-v10-enc";   // novo: dados criptografados
+const SK_SALT="pat-v10-salt"; // salt PBKDF2 (publico)
+const SK_PIN="pat-v10-pin";   // hash SHA-256 do PIN (validacao rapida)
+const SK_ATT="pat-v10-att";   // tentativas erradas {n, lockUntil}
+const SK_KEY="pat-key-enc";   // API key criptografada
+
+// === Web Crypto helpers ===
+const _enc=new TextEncoder();
+const _dec=new TextDecoder();
+const _b64=(buf)=>btoa(String.fromCharCode(...new Uint8Array(buf)));
+const _b64d=(s)=>{const bin=atob(s);const arr=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)arr[i]=bin.charCodeAt(i);return arr;};
+async function sha256Hex(s){
+  const h=await crypto.subtle.digest("SHA-256",_enc.encode(s));
+  return Array.from(new Uint8Array(h)).map(b=>b.toString(16).padStart(2,"0")).join("");
+}
+function getSaltOrCreate(){
+  let s=localStorage.getItem(SK_SALT);
+  if(!s){
+    const arr=crypto.getRandomValues(new Uint8Array(16));
+    s=_b64(arr);
+    localStorage.setItem(SK_SALT,s);
+  }
+  return _b64d(s);
+}
+async function deriveKey(pin){
+  const salt=getSaltOrCreate();
+  const baseKey=await crypto.subtle.importKey("raw",_enc.encode(pin),"PBKDF2",false,["deriveKey"]);
+  return crypto.subtle.deriveKey(
+    {name:"PBKDF2",salt,iterations:100000,hash:"SHA-256"},
+    baseKey,
+    {name:"AES-GCM",length:256},
+    false,
+    ["encrypt","decrypt"]
+  );
+}
+async function aesEncrypt(key,obj){
+  const iv=crypto.getRandomValues(new Uint8Array(12));
+  const data=_enc.encode(JSON.stringify(obj));
+  const ct=await crypto.subtle.encrypt({name:"AES-GCM",iv},key,data);
+  return _b64(iv)+":"+_b64(ct);
+}
+async function aesDecrypt(key,blob){
+  const [ivB64,ctB64]=blob.split(":");
+  const iv=_b64d(ivB64);
+  const ct=_b64d(ctB64);
+  const pt=await crypto.subtle.decrypt({name:"AES-GCM",iv},key,ct);
+  return JSON.parse(_dec.decode(pt));
+}
+
+// Carrega API key (criptografada com a mesma chave)
+async function loadApiKey(aesKey){
+  try{
+    const enc=localStorage.getItem(SK_KEY);
+    if(!enc)return "";
+    return await aesDecrypt(aesKey,enc);
+  }catch{return "";}
+}
+async function saveApiKey(aesKey,plainKey){
+  try{
+    if(!plainKey){localStorage.removeItem(SK_KEY);return;}
+    const enc=await aesEncrypt(aesKey,plainKey);
+    localStorage.setItem(SK_KEY,enc);
+  }catch{}
+}
 
 function exportData(data){
   const json=JSON.stringify(data,null,2);
@@ -581,7 +641,7 @@ function KeyScreen({onSave}){
 }
 
 function App(){
-  const [apiKey,setApiKeyS]=useState(gk);
+  const [apiKey,setApiKeyS]=useState("");
   const [tab,setTab]=useState("dashboard");
   const [port,setPort]=useState({});
   const [custom,setCustom]=useState({});
@@ -619,7 +679,7 @@ function App(){
   const [hideVal,setHideVal]=useState(false);
   const [showUSD,setShowUSD]=useState(false);
   const [inited,setInited]=useState(false);
-  const [insight,setInsight]=useState(()=>{try{return localStorage.getItem("pat-insight")||"";}catch{return "";}});
+  const [insight,setInsight]=useState("");// nao persiste em disco por seguranca
   const [insightLoad,setInsightLoad]=useState(false);
   const [insightErr,setInsightErr]=useState("");
   const [editBands,setEditBands]=useState(false);
@@ -628,14 +688,24 @@ function App(){
   // Estados para cadastro/edicao de imovel
   const [addImov,setAddImov]=useState(false);
   const [imvForm,setImvForm]=useState({id:"",desc:"",valor:"",data:""});
-  // PIN de seguranca (4 digitos). Hash simples + checagem na entrada
-  const hashPIN=(s)=>{let h=5381;for(let i=0;i<s.length;i++)h=((h<<5)+h)+s.charCodeAt(i);return String(h);};
-  const [pinHash,setPinHash]=useState(()=>{try{return localStorage.getItem("pat-pin")||"";}catch{return "";}});
+  // PIN de seguranca - SHA-256 hash + AES-GCM dos dados
+  const [pinHash,setPinHash]=useState(()=>{try{return localStorage.getItem(SK_PIN)||"";}catch{return "";}});
+  const [aesKey,setAesKey]=useState(null);// CryptoKey em memoria, derivada do PIN
   const [autenticado,setAutenticado]=useState(false);
+  const [lastActivity,setLastActivity]=useState(Date.now());
   const [pinInput,setPinInput]=useState("");
   const [pinErr,setPinErr]=useState("");
   const [pinMode,setPinMode]=useState("entrada"); // entrada | criar | confirmar | esqueci
   const [pinNovo,setPinNovo]=useState("");
+  // Tentativas erradas
+  const [pinAttempts,setPinAttempts]=useState(()=>{try{return JSON.parse(localStorage.getItem(SK_ATT)||"{\"n\":0,\"lockUntil\":0}");}catch{return {n:0,lockUntil:0};}});
+  // Tick para forcar re-render do countdown
+  const [lockTick,setLockTick]=useState(0);
+  useEffect(()=>{
+    if(!pinAttempts.lockUntil||pinAttempts.lockUntil<=Date.now())return;
+    const id=setInterval(()=>setLockTick(t=>t+1),1000);
+    return()=>clearInterval(id);
+  },[pinAttempts.lockUntil]);
   // Programacao do proximo aporte
   const [aporteProg,setAporteProg]=useState(()=>{
     try{
@@ -762,33 +832,92 @@ function App(){
     }
   },[notifStatus,aporteProg.ativo,aporteProg.dia,aporteProg.faixaDias]);
 
+  // Load criptografado: roda apos aesKey ser derivada (depois do PIN entrar)
   useEffect(()=>{
-    const dd=ld();
-    if(dd){
-      setPort(dd.port||{});setCustom(dd.custom||{});setHidden(dd.hidden||[]);
-      setLastPU(dd.lastPU||null);setHist(dd.hist||[]);
-      Object.entries(dd.custom||{}).forEach(([,list])=>{(list||[]).forEach(a=>{
-        BCCY[a.ticker]=a.ccy||"BRL";
-        // Carrega labels personalizados em NAMES (para aparecer em cards/grafs)
-        if(a.label&&a.label!==a.ticker&&!NAMES[a.ticker])NAMES[a.ticker]=a.label;
-      });});
-      // Carrega FX salva (evita mostrar USD 5.80 default)
-      if(dd.fx&&typeof dd.fx==="object"){
-        Object.keys(dd.fx).forEach(k=>{if(typeof dd.fx[k]==="number"&&dd.fx[k]>0)FX[k]=dd.fx[k];});
+    if(!aesKey||inited)return;
+    (async()=>{
+      let dd=null;
+      try{
+        // Tenta carregar dados ja criptografados
+        const enc=localStorage.getItem(SK_ENC);
+        if(enc){
+          dd=await aesDecrypt(aesKey,enc);
+        }else{
+          // Migracao: ha dados antigos em pat-v9 (texto puro)?
+          const legacy=localStorage.getItem(SK_OLD);
+          if(legacy){
+            dd=JSON.parse(legacy);
+            // Salva imediatamente criptografado
+            const newEnc=await aesEncrypt(aesKey,dd);
+            localStorage.setItem(SK_ENC,newEnc);
+            // Migra API key tambem (se existir em texto puro)
+            const oldKey=localStorage.getItem("pat-key");
+            if(oldKey){
+              await saveApiKey(aesKey,oldKey);
+              setApiKeyS(oldKey);
+              localStorage.removeItem("pat-key");
+            }
+            localStorage.removeItem(SK_OLD);
+          }
+        }
+      }catch(e){console.error("Erro ao descriptografar:",e);}
+      if(dd){
+        setPort(dd.port||{});setCustom(dd.custom||{});setHidden(dd.hidden||[]);
+        setLastPU(dd.lastPU||null);setHist(dd.hist||[]);
+        Object.entries(dd.custom||{}).forEach(([,list])=>{(list||[]).forEach(a=>{
+          BCCY[a.ticker]=a.ccy||"BRL";
+          if(a.label&&a.label!==a.ticker&&!NAMES[a.ticker])NAMES[a.ticker]=a.label;
+        });});
+        if(dd.fx&&typeof dd.fx==="object"){
+          Object.keys(dd.fx).forEach(k=>{if(typeof dd.fx[k]==="number"&&dd.fx[k]>0)FX[k]=dd.fx[k];});
+        }
+        if(dd.btcUsd&&dd.btcUsd>0){setBtcUsd(dd.btcUsd);setBtcTs(dd.btcTs||null);}
+        if(typeof dd.btcVar==="number")setBtcVar(dd.btcVar);
+        if(typeof dd.usdVar==="number")setUsdVar(dd.usdVar);
+        if(dd.usdYday&&typeof dd.usdYday==="object")setUsdYday(dd.usdYday);
+        if(dd.xauBrl&&dd.xauBrl>=400){setXauBrl(dd.xauBrl);setXauTs(dd.xauTs||null);}
+        if(typeof dd.xauVar==="number")setXauVar(dd.xauVar);
+        if(dd.xauYday&&typeof dd.xauYday==="object"&&dd.xauYday.valor>=400)setXauYday(dd.xauYday);
       }
-      // Carrega ultimo BTC salvo
-      if(dd.btcUsd&&dd.btcUsd>0){setBtcUsd(dd.btcUsd);setBtcTs(dd.btcTs||null);}
-      if(typeof dd.btcVar==="number")setBtcVar(dd.btcVar);
-      if(typeof dd.usdVar==="number")setUsdVar(dd.usdVar);
-      if(dd.usdYday&&typeof dd.usdYday==="object")setUsdYday(dd.usdYday);
-      // Carrega ouro salvo (descarta se valor antigo irrealista < R$ 400/g)
-      if(dd.xauBrl&&dd.xauBrl>=400){setXauBrl(dd.xauBrl);setXauTs(dd.xauTs||null);}
-      if(typeof dd.xauVar==="number")setXauVar(dd.xauVar);
-      if(dd.xauYday&&typeof dd.xauYday==="object"&&dd.xauYday.valor>=400)setXauYday(dd.xauYday);
-    }
-    setInited(true);
-  },[]);
-  useEffect(()=>{if(!inited)return;sv({port,custom,hidden,lastPU,hist,fx:{...FX},btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday});},[port,custom,hidden,lastPU,hist,btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,inited]);
+      // Carrega API key criptografada
+      const k=await loadApiKey(aesKey);
+      if(k)setApiKeyS(k);
+      setInited(true);
+    })();
+  },[aesKey,inited]);
+  // Save effect criptografado
+  useEffect(()=>{
+    if(!inited||!aesKey)return;
+    (async()=>{
+      try{
+        const obj={port,custom,hidden,lastPU,hist,fx:{...FX},btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday};
+        const enc=await aesEncrypt(aesKey,obj);
+        localStorage.setItem(SK_ENC,enc);
+      }catch(e){}
+    })();
+  },[port,custom,hidden,lastPU,hist,btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,inited,aesKey]);
+
+  // Auto-lock por inatividade (15 min)
+  useEffect(()=>{
+    if(!autenticado)return;
+    const reset=()=>setLastActivity(Date.now());
+    const events=["touchstart","mousedown","keydown","scroll"];
+    events.forEach(e=>window.addEventListener(e,reset,{passive:true}));
+    const id=setInterval(()=>{
+      if(Date.now()-lastActivity>15*60*1000){
+        // Auto-lock: limpa estado sensivel da memoria
+        setAutenticado(false);
+        setAesKey(null);
+        setInited(false);
+        setPort({});setCustom({});setHidden([]);setHist([]);setApiKeyS("");
+        setBtcUsd(null);setXauBrl(null);
+      }
+    },10000);
+    return()=>{
+      events.forEach(e=>window.removeEventListener(e,reset));
+      clearInterval(id);
+    };
+  },[autenticado,lastActivity]);
 
   // Atualiza FX em background ao abrir o app (silencioso, nao bloqueia, nao toca em precos de ativos)
   const [fxBgTick,setFxBgTick]=useState(0);
@@ -1366,7 +1495,7 @@ function App(){
     try{
       const txt=await callAPI([{role:"user",content:prompt}],apiKey);
       setInsight(txt);
-      try{localStorage.setItem("pat-insight",txt);localStorage.setItem("pat-insight-ts",String(Date.now()));}catch{}
+      
     }catch(e){setInsightErr(e.message);}
     setInsightLoad(false);
   },[apiKey,hasPos,cw,port,ccy,total,insightLoad]);
@@ -1389,7 +1518,7 @@ function App(){
   },[lastPU,inited]);
 
   // Chave de API nao e mais necessaria - cotacoes vem de APIs publicas
-  // if(!apiKey)return h(KeyScreen,{onSave:k=>{sk2(k);setApiKeyS(k);}});
+  // if(!apiKey)return h(KeyScreen,{onSave:k=>{setApiKeyS(k);if(aesKey)saveApiKey(aesKey,k);}});
   if(!inited)return h("div",{style:{minHeight:"100vh",background:"#0D0F14",display:"flex",alignItems:"center",justifyContent:"center"}},h("span",{style:{color:"#C8A96E",fontFamily:"monospace",letterSpacing:3}},"CARREGANDO..."));
 
   const MV=v=>hideVal?"----":v;
@@ -1475,7 +1604,7 @@ h("button",{onClick:()=>{
     };
     inp.click();
   },style:{background:"none",border:"none",color:"#3A3830",fontSize:10,cursor:"pointer",padding:"6px 4px",fontFamily:"monospace",flexShrink:0}},"IMP"),
-h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (sk-ant-...):");if(k&&k.length>20){sk2(k);setApiKeyS(k);alert("Chave salva!");}else if(k!==null){alert("Chave invalida. Cole a chave completa.");}},style:{marginLeft:"auto",background:"none",border:"none",color:"#3A3830",fontSize:10,cursor:"pointer",padding:"6px 0",fontFamily:"monospace",flexShrink:0}},"API")
+h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (sk-ant-...):");if(k&&k.length>20){setApiKeyS(k);if(aesKey)saveApiKey(aesKey,k);alert("Chave salva!");}else if(k!==null){alert("Chave invalida. Cole a chave completa.");}},style:{marginLeft:"auto",background:"none",border:"none",color:"#3A3830",fontSize:10,cursor:"pointer",padding:"6px 0",fontFamily:"monospace",flexShrink:0}},"API")
   );
 
   let content=null;
@@ -1531,7 +1660,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           return;
         }
         if(k.length>20){
-          sk2(k);setApiKeyS(k);
+          setApiKeyS(k);if(aesKey)saveApiKey(aesKey,k);
           // Limpa erro e insight antigo, forcando regeneracao
           setInsightErr("");setInsight("");
           try{localStorage.removeItem("pat-insight");localStorage.removeItem("pat-insight-ts");}catch{}
@@ -2010,39 +2139,113 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
 
   // Tela de PIN - mostra antes de tudo se nao autenticado
   if(!autenticado){
-    const ehNovo=!pinHash;
-    const modo=ehNovo?(pinMode==="entrada"?"criar":pinMode):pinMode;
-    const titulo=modo==="criar"?"Criar PIN":modo==="confirmar"?"Confirmar PIN":modo==="esqueci"?"Recuperar acesso":"Digite o PIN";
-    const subtitulo=modo==="criar"?"Defina 4 digitos para proteger seu app":
+    const PIN_LEN=6;
+    // Legacy: PIN antigo de 4 digitos
+    let pinAntigo="";
+    try{pinAntigo=localStorage.getItem("pat-pin")||"";}catch{}
+    const temLegacy=!!pinAntigo&&!pinHash;
+    const ehNovo=!pinHash&&!temLegacy;
+    // modos: entrada | criar | confirmar | esqueci | migrar (digite PIN antigo de 4 digitos)
+    const modo=temLegacy?(pinMode==="entrada"?"migrar":pinMode):(ehNovo?(pinMode==="entrada"?"criar":pinMode):pinMode);
+    const tamEsperado=modo==="migrar"?4:PIN_LEN;
+    // Bloqueio por tentativas
+    lockTick;// referencia o tick para forcar re-render
+    const bloqueado=pinAttempts.lockUntil>Date.now();
+    const segRest=bloqueado?Math.ceil((pinAttempts.lockUntil-Date.now())/1000):0;
+    const minRest=Math.floor(segRest/60);const secRest=segRest%60;
+    const titulo=bloqueado?"Bloqueado temporariamente":
+                 modo==="criar"?"Criar novo PIN":
+                 modo==="confirmar"?"Confirmar PIN":
+                 modo==="esqueci"?"Recuperar acesso":
+                 modo==="migrar"?"Atualizar seguranca":"Digite o PIN";
+    const subtitulo=bloqueado?("Aguarde "+(minRest>0?minRest+"min "+secRest+"s":secRest+"s")+" para tentar de novo"):
+                    modo==="criar"?"Defina 6 digitos para proteger seu app":
                     modo==="confirmar"?"Digite o mesmo PIN novamente":
                     modo==="esqueci"?"Cole sua chave API Anthropic para resetar o PIN":
+                    modo==="migrar"?"Digite seu PIN atual (4 digitos) para migrar":
                     "Acesso ao Portfolio Patrimonial";
-    const onDigit=(d)=>{
+    // Hash legado (DJB2) so para validacao na migracao
+    const hashLegacy=(s)=>{let hh=5381;for(let i=0;i<s.length;i++)hh=((hh<<5)+hh)+s.charCodeAt(i);return String(hh);};
+    const registrarFalha=()=>{
+      const novoN=(pinAttempts.n||0)+1;
+      let lockUntil=0;
+      if(novoN>=5)lockUntil=Date.now()+30*60*1000;// 30 min
+      else if(novoN>=3)lockUntil=Date.now()+5*60*1000;// 5 min
+      const novo={n:novoN,lockUntil};
+      setPinAttempts(novo);
+      try{localStorage.setItem(SK_ATT,JSON.stringify(novo));}catch{}
+    };
+    const limparFalhas=()=>{
+      const novo={n:0,lockUntil:0};
+      setPinAttempts(novo);
+      try{localStorage.setItem(SK_ATT,JSON.stringify(novo));}catch{}
+    };
+    const onDigit=async(d)=>{
+      if(bloqueado)return;
       setPinErr("");
-      if(modo==="esqueci")return; // esqueci nao usa digitos
-      if(pinInput.length<4){
+      if(modo==="esqueci")return;
+      if(pinInput.length<tamEsperado){
         const novo=pinInput+d;
         setPinInput(novo);
-        if(novo.length===4){
+        if(novo.length===tamEsperado){
           if(modo==="criar"){
             setPinNovo(novo);setPinInput("");setPinMode("confirmar");
           }else if(modo==="confirmar"){
             if(novo===pinNovo){
-              const h2=hashPIN(novo);
-              try{localStorage.setItem("pat-pin",h2);}catch{}
-              setPinHash(h2);setPinInput("");setPinNovo("");setAutenticado(true);setPinMode("entrada");
+              setPinErr("Configurando seguranca...");
+              try{
+                const h2=await sha256Hex(novo);
+                const key=await deriveKey(novo);
+                try{localStorage.setItem(SK_PIN,h2);}catch{}
+                // Se veio do fluxo de migracao (havia pat-v9), o load criptografara
+                setPinHash(h2);setAesKey(key);
+                // Se foi um reset via API key, restaura a chave temporaria criptografada
+                try{
+                  const tmpKey=sessionStorage.getItem("pat-tmp-key");
+                  if(tmpKey){
+                    await saveApiKey(key,tmpKey);
+                    setApiKeyS(tmpKey);
+                    sessionStorage.removeItem("pat-tmp-key");
+                  }
+                }catch{}
+                setPinInput("");setPinNovo("");setAutenticado(true);setPinMode("entrada");setPinErr("");
+                limparFalhas();
+              }catch(e){setPinErr("Erro: "+e.message);}
             }else{
               setPinErr("PINs nao conferem. Tente novamente.");
               setTimeout(()=>{setPinInput("");setPinNovo("");setPinMode("criar");setPinErr("");},1600);
             }
-          }else{
-            // entrada
-            if(hashPIN(novo)===pinHash){
-              setAutenticado(true);setPinInput("");
+          }else if(modo==="migrar"){
+            // Valida PIN antigo (4 digitos, DJB2)
+            if(hashLegacy(novo)===pinAntigo){
+              // PIN antigo correto - pede pra criar novo de 6 digitos
+              setPinErr("");
+              setPinInput("");
+              // Remove PIN antigo, mas mantem pat-v9 para o load migrar
+              try{localStorage.removeItem("pat-pin");}catch{}
+              setPinMode("criar");
+              limparFalhas();
             }else{
+              registrarFalha();
               setPinErr("PIN incorreto");
               setTimeout(()=>{setPinInput("");setPinErr("");},900);
             }
+          }else{
+            // entrada - valida SHA-256
+            try{
+              const h2=await sha256Hex(novo);
+              if(h2===pinHash){
+                setPinErr("Desbloqueando...");
+                const key=await deriveKey(novo);
+                setAesKey(key);
+                setPinInput("");setAutenticado(true);setPinErr("");
+                limparFalhas();
+              }else{
+                registrarFalha();
+                setPinErr("PIN incorreto");
+                setTimeout(()=>{setPinInput("");setPinErr("");},900);
+              }
+            }catch(e){setPinErr("Erro: "+e.message);}
           }
         }
       }
@@ -2059,38 +2262,52 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           body:JSON.stringify({model:"claude-haiku-4-5-20251001",max_tokens:5,messages:[{role:"user",content:"oi"}]})
         });
         if(r.ok){
-          // Chave valida -> reseta PIN
-          try{localStorage.removeItem("pat-pin");localStorage.setItem("pat-key",k);}catch{}
+          // ATENCAO: reset completo - os dados criptografados ficam IRRECUPERAVEIS
+          if(!confirm("ATENCAO: Resetar o PIN apagara TODOS os dados do app (criptografados). Voce so podera continuar se tiver um backup JSON. Continuar?")){setPinErr("");return;}
+          try{
+            localStorage.removeItem(SK_PIN);
+            localStorage.removeItem(SK_ENC);
+            localStorage.removeItem(SK_SALT);
+            localStorage.removeItem(SK_KEY);
+            localStorage.removeItem(SK_ATT);
+            localStorage.removeItem("pat-pin");
+            localStorage.removeItem("pat-v9");
+          }catch{}
+          // Armazena chave API temporariamente em sessionStorage pra apos criar novo PIN
+          try{sessionStorage.setItem("pat-tmp-key",k);}catch{}
           setPinHash("");setPinErr("");setPinMode("criar");setPinInput("");setPinNovo("");
         }else{
           setPinErr("Chave invalida ou sem credito.");
         }
       }catch(e){setPinErr("Erro ao validar: "+e.message);}
     };
-    const keypad=h("div",{style:{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,maxWidth:280,margin:"0 auto"}},
+    const keypad=h("div",{style:{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,maxWidth:280,margin:"0 auto",opacity:bloqueado?0.3:1,pointerEvents:bloqueado?"none":"auto"}},
       ...["1","2","3","4","5","6","7","8","9"].map(d=>h("button",{key:d,onClick:()=>onDigit(d),style:{padding:"18px 0",background:"rgba(255,255,255,0.03)",border:"1px solid rgba(200,169,110,0.18)",borderRadius:10,color:"#F0EAD8",fontSize:22,fontFamily:"monospace",cursor:"pointer"}},d)),
       h("button",{onClick:onDel,style:{padding:"18px 0",background:"transparent",border:"1px solid rgba(255,255,255,0.06)",borderRadius:10,color:"#7A7570",fontSize:16,fontFamily:"monospace",cursor:"pointer"}},"<"),
       h("button",{onClick:()=>onDigit("0"),style:{padding:"18px 0",background:"rgba(255,255,255,0.03)",border:"1px solid rgba(200,169,110,0.18)",borderRadius:10,color:"#F0EAD8",fontSize:22,fontFamily:"monospace",cursor:"pointer"}},"0"),
       h("div",{})
     );
+    const indicadores=Array.from({length:tamEsperado},(_,i)=>i);
     return h("div",{style:{minHeight:"100vh",background:"#0D0F14",color:"#E8E2D5",fontFamily:"Georgia,serif",display:"flex",alignItems:"center",justifyContent:"center",padding:"24px 18px"}},
       h("div",{style:{width:"100%",maxWidth:360,textAlign:"center"}},
         h("div",{style:{fontSize:9,letterSpacing:5,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:10}},"Planejamento Patrimonial"),
         h("h1",{style:{margin:"0 0 6px",fontSize:26,fontWeight:400,color:"#F0EAD8"}},titulo),
         h("p",{style:{color:"#8A8070",fontSize:12,marginBottom:28,fontStyle:"italic"}},subtitulo),
+        bloqueado?h("div",{style:{padding:"30px 0",fontSize:42,color:"#E05252",fontFamily:"monospace"}},(minRest>0?minRest+":":"")+(secRest<10?"0"+secRest:secRest)):
         modo==="esqueci"?h("div",{},
           h("textarea",{id:"recovery-key",placeholder:"sk-ant-api03-...",rows:3,style:{width:"100%",background:"rgba(0,0,0,0.4)",border:"1px solid rgba(200,169,110,0.3)",borderRadius:8,padding:"10px 12px",color:"#F0EAD8",fontSize:12,fontFamily:"monospace",outline:"none",boxSizing:"border-box",resize:"none",marginBottom:10}}),
+          h("div",{style:{fontSize:10,color:"#E8C44A",marginBottom:10,fontStyle:"italic"}},"Atencao: resetar o PIN apaga todos os dados criptografados. Tenha backup JSON pronto."),
           h("button",{onClick:validarApiKeyEResetar,style:{width:"100%",padding:"12px",background:"linear-gradient(135deg,#C8A96E,#A8893E)",border:"none",borderRadius:8,color:"#0D0F14",fontSize:12,fontWeight:700,letterSpacing:2,textTransform:"uppercase",cursor:"pointer",marginBottom:8}},"Validar e resetar PIN"),
           h("button",{onClick:()=>{setPinMode("entrada");setPinErr("");},style:{background:"none",border:"none",color:"#8A8070",fontSize:11,cursor:"pointer",textDecoration:"underline"}},"voltar")
         ):h("div",{},
-          // Indicadores de digitos
-          h("div",{style:{display:"flex",justifyContent:"center",gap:14,marginBottom:34}},
-            ...[0,1,2,3].map(i=>h("div",{key:i,style:{width:16,height:16,borderRadius:"50%",background:i<pinInput.length?"#C8A96E":"transparent",border:"2px solid "+(i<pinInput.length?"#C8A96E":"rgba(200,169,110,0.25)"),transition:"all 0.15s"}}))
+          h("div",{style:{display:"flex",justifyContent:"center",gap:tamEsperado>4?10:14,marginBottom:34}},
+            ...indicadores.map(i=>h("div",{key:i,style:{width:14,height:14,borderRadius:"50%",background:i<pinInput.length?"#C8A96E":"transparent",border:"2px solid "+(i<pinInput.length?"#C8A96E":"rgba(200,169,110,0.25)"),transition:"all 0.15s"}}))
           ),
           keypad,
-          !ehNovo&&modo==="entrada"&&h("button",{onClick:()=>{setPinMode("esqueci");setPinErr("");setPinInput("");},style:{background:"none",border:"none",color:"#8A8070",fontSize:11,cursor:"pointer",textDecoration:"underline",marginTop:20}},"esqueci o PIN")
+          !ehNovo&&!temLegacy&&modo==="entrada"&&h("button",{onClick:()=>{setPinMode("esqueci");setPinErr("");setPinInput("");},style:{background:"none",border:"none",color:"#8A8070",fontSize:11,cursor:"pointer",textDecoration:"underline",marginTop:20}},"esqueci o PIN"),
+          pinAttempts.n>0&&!bloqueado&&modo==="entrada"&&h("div",{style:{fontSize:10,color:"#E8C44A",marginTop:14,fontFamily:"monospace"}},"Tentativas erradas: "+pinAttempts.n+(pinAttempts.n>=3?" - 30min de bloqueio em "+(5-pinAttempts.n)+" tentativas":""))
         ),
-        pinErr&&h("div",{style:{color:pinErr.includes("Validando")?"#C8A96E":"#E05252",fontSize:11,marginTop:14,fontFamily:"monospace"}},pinErr)
+        pinErr&&h("div",{style:{color:pinErr.includes("Validando")||pinErr.includes("Desbloqueando")||pinErr.includes("Configurando")?"#C8A96E":"#E05252",fontSize:11,marginTop:14,fontFamily:"monospace"}},pinErr)
       )
     );
   }
