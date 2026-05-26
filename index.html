@@ -1413,12 +1413,15 @@ function App(){
       hasPos&&h("button",{onClick:refresh,disabled:loadP,style:{background:"rgba(200,169,110,0.1)",border:"1px solid rgba(200,169,110,0.3)",borderRadius:6,padding:"6px 12px",color:"#C8A96E",fontSize:10,fontFamily:"monospace",letterSpacing:2,cursor:"pointer",textTransform:"uppercase"}},loadP?"Buscando...":"Atualizar precos")
     ),
     (lastPU||pErr||btcUsd||xauBrl)&&h("div",{style:{fontSize:9,color:fxAntigo?"#E8C44A":"#5A5550",marginTop:3,fontFamily:"monospace"}},
-      lastPU&&("Atualizado: "+new Date(lastPU).toLocaleString("pt-BR")+" - USD "+FX.USD.toFixed(4)),
+      lastPU&&("Atualizado: "+new Date(lastPU).toLocaleString("pt-BR")+" - "),
+      lastPU&&h("span",{style:{color:"#5B8FD4",fontWeight:700}},"USD "+FX.USD.toFixed(4)),
       lastPU&&typeof usdVar==="number"&&h("span",{style:{marginLeft:4,color:usdVar>=0?"#4CAF82":"#E05252",fontWeight:700}},(usdVar>=0?"▲":"▼")+fN(Math.abs(usdVar),2)+"%"),
       lastPU&&fxAntigo&&h("span",{style:{color:"#E8C44A"}}," (cambio com "+fxIdadeMin+" min)"),
-      btcUsd&&h("span",{style:{marginLeft:lastPU?8:0,color:"#F7931A"}},(lastPU?" - ":"")+"BTC USD "+fN(btcUsd,0)),
+      btcUsd&&h("span",{style:{marginLeft:lastPU?8:0}},(lastPU?" - ":"")),
+      btcUsd&&h("span",{style:{color:"#F7931A",fontWeight:700}},"BTC USD "+fN(btcUsd,0)),
       btcUsd&&typeof btcVar==="number"&&h("span",{style:{marginLeft:4,color:btcVar>=0?"#4CAF82":"#E05252",fontWeight:700}},(btcVar>=0?"▲":"▼")+fN(Math.abs(btcVar),2)+"%"),
-      xauBrl&&h("span",{style:{marginLeft:(lastPU||btcUsd)?8:0,color:"#E8C44A"}},((lastPU||btcUsd)?" - ":"")+"Ouro R$ "+fN(xauBrl,2)+"/g"),
+      xauBrl&&h("span",{style:{marginLeft:(lastPU||btcUsd)?8:0}},((lastPU||btcUsd)?" - ":"")),
+      xauBrl&&h("span",{style:{color:"#E8C44A",fontWeight:700}},"Ouro R$ "+fN(xauBrl,2)+"/g"),
       xauBrl&&typeof xauVar==="number"&&h("span",{style:{marginLeft:4,color:xauVar>=0?"#4CAF82":"#E05252",fontWeight:700}},(xauVar>=0?"▲":"▼")+fN(Math.abs(xauVar),2)+"%"),
       pErr&&h("span",{style:{color:"#E05252",marginLeft:8}},"Erro: "+pErr)
     )
