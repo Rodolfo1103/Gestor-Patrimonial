@@ -672,6 +672,11 @@ function App(){
   const [xauTs,setXauTs]=useState(null);
   const [xauVar,setXauVar]=useState(null);
   const [xauYday,setXauYday]=useState(null);// {valor, data:"YYYY-MM-DD"}
+  // Indices de inflacao (acumulado 12 meses) - cada um: {valor, ref:"YYYY-MM"}
+  const [infIPCA,setInfIPCA]=useState(null);
+  const [infIGPM,setInfIGPM]=useState(null);
+  const [infINCC,setInfINCC]=useState(null);
+  const [infCPI,setInfCPI]=useState(null);
   const [aErr,setAErr]=useState("");
   const [chatM,setChatM]=useState([]);
   const [chatIn,setChatIn]=useState("");
@@ -882,6 +887,11 @@ function App(){
         // Carrega insight da IA persistido criptografado
         if(typeof dd.insight==="string"&&dd.insight)setInsight(dd.insight);
         if(typeof dd.insightTs==="number")setInsightTs(dd.insightTs);
+        // Indices de inflacao
+        if(dd.infIPCA&&typeof dd.infIPCA==="object")setInfIPCA(dd.infIPCA);
+        if(dd.infIGPM&&typeof dd.infIGPM==="object")setInfIGPM(dd.infIGPM);
+        if(dd.infINCC&&typeof dd.infINCC==="object")setInfINCC(dd.infINCC);
+        if(dd.infCPI&&typeof dd.infCPI==="object")setInfCPI(dd.infCPI);
       }
       // Carrega API key criptografada
       const k=await loadApiKey(aesKey);
@@ -894,12 +904,12 @@ function App(){
     if(!inited||!aesKey)return;
     (async()=>{
       try{
-        const obj={port,custom,hidden,lastPU,hist,fx:{...FX},btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs};
+        const obj={port,custom,hidden,lastPU,hist,fx:{...FX},btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,infIPCA,infIGPM,infINCC,infCPI};
         const enc=await aesEncrypt(aesKey,obj);
         localStorage.setItem(SK_ENC,enc);
       }catch(e){}
     })();
-  },[port,custom,hidden,lastPU,hist,btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,inited,aesKey]);
+  },[port,custom,hidden,lastPU,hist,btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,infIPCA,infIGPM,infINCC,infCPI,inited,aesKey]);
 
   // Auto-lock por inatividade (15 min)
   useEffect(()=>{
@@ -1032,6 +1042,99 @@ function App(){
       }else if(!xauYday||!xauYday.data){
         if(!cancelado)setXauYday({valor:brlPorGrama,data:hojeStr});
       }
+    })();
+    // Busca indices de inflacao (acumulado 12 meses)
+    // IPCA=433, IGPM=189, INCC=192 (todos BCB SGS)
+    (async()=>{
+      await new Promise(r=>setTimeout(r,2500));// pequeno delay
+      if(cancelado)return;
+      const proxies=[
+        u=>"https://corsproxy.io/?url="+encodeURIComponent(u),
+        u=>"https://api.allorigins.win/raw?url="+encodeURIComponent(u),
+        u=>"https://api.codetabs.com/v1/proxy/?quest="+encodeURIComponent(u)
+      ];
+      const buscarBCB=async(serie)=>{
+        // Pega ultimos 13 meses pra calcular acumulado 12m
+        const url="https://api.bcb.gov.br/dados/serie/bcdata.sgs."+serie+"/dados/ultimos/13?formato=json";
+        for(const proxyFn of proxies){
+          if(cancelado)return null;
+          try{
+            const ctrl=new AbortController();
+            const tid=setTimeout(()=>ctrl.abort(),6000);
+            const r=await fetch(proxyFn(url),{signal:ctrl.signal});
+            clearTimeout(tid);
+            if(!r.ok)continue;
+            const text=await r.text();
+            if(!text||text.toLowerCase().includes("host not in allowlist"))continue;
+            const parsed=JSON.parse(text);
+            if(Array.isArray(parsed)&&parsed.length>0)return parsed;
+          }catch(e){continue;}
+        }
+        return null;
+      };
+      const calcAcum12=(dados)=>{
+        // Pega os ultimos 12 valores e calcula (1+r1)(1+r2)...(1+r12) - 1
+        const ultimos12=dados.slice(-12);
+        let acum=1;
+        ultimos12.forEach(d=>{
+          const v=parseFloat(String(d.valor).replace(",","."));
+          if(!isNaN(v))acum*=(1+v/100);
+        });
+        return (acum-1)*100;
+      };
+      const formatRef=(dataStr)=>{
+        // Recebe "DD/MM/YYYY", retorna "MMM/AA" (ex: "Abr/26")
+        const m=String(dataStr).match(/(\d{2})\/(\d{2})\/(\d{4})/);
+        if(!m)return "";
+        const meses=["jan","fev","mar","abr","mai","jun","jul","ago","set","out","nov","dez"];
+        return meses[parseInt(m[2])-1]+"/"+m[3].slice(2);
+      };
+      // IPCA serie 433
+      try{
+        const d=await buscarBCB(433);
+        if(d&&d.length>=12&&!cancelado){
+          const mensal=parseFloat(String(d[d.length-1].valor).replace(",","."));
+          setInfIPCA({valor:calcAcum12(d),mensal,ref:formatRef(d[d.length-1].data)});
+        }
+      }catch(e){}
+      // IGPM serie 189
+      try{
+        const d=await buscarBCB(189);
+        if(d&&d.length>=12&&!cancelado){
+          const mensal=parseFloat(String(d[d.length-1].valor).replace(",","."));
+          setInfIGPM({valor:calcAcum12(d),mensal,ref:formatRef(d[d.length-1].data)});
+        }
+      }catch(e){}
+      // INCC-M serie 192
+      try{
+        const d=await buscarBCB(192);
+        if(d&&d.length>=12&&!cancelado){
+          const mensal=parseFloat(String(d[d.length-1].valor).replace(",","."));
+          setInfINCC({valor:calcAcum12(d),mensal,ref:formatRef(d[d.length-1].data)});
+        }
+      }catch(e){}
+      // CPI EUA via statbureau.org (sem chave, CORS aberto)
+      try{
+        const hoje=new Date();
+        const ha13=new Date(hoje);ha13.setMonth(ha13.getMonth()-13);
+        const ha1=new Date(hoje);ha1.setMonth(ha1.getMonth()-2);
+        const fmtData=(d)=>d.getFullYear()+"/"+String(d.getMonth()+1).padStart(2,"0")+"/01";
+        const fetchPct=async(url)=>{
+          const ctrl=new AbortController();const tid=setTimeout(()=>ctrl.abort(),8000);
+          const r=await fetch(url,{signal:ctrl.signal});clearTimeout(tid);
+          if(!r.ok)return NaN;
+          const text=await r.text();
+          return parseFloat(text.replace(/"/g,"").replace(",",".").replace(/[^\d.\-]/g,""));
+        };
+        const v12=await fetchPct("https://www.statbureau.org/calculate-inflation-rate-json?country=united-states&start="+fmtData(ha13)+"&end="+fmtData(hoje));
+        if(cancelado)return;
+        const vMes=await fetchPct("https://www.statbureau.org/calculate-inflation-rate-json?country=united-states&start="+fmtData(ha1)+"&end="+fmtData(hoje));
+        if(!isNaN(v12)&&!cancelado){
+          const meses=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+          const refMes=new Date(hoje);refMes.setMonth(refMes.getMonth()-1);
+          setInfCPI({valor:v12,mensal:isNaN(vMes)?null:vMes,ref:meses[refMes.getMonth()]+"/"+String(refMes.getFullYear()).slice(2)});
+        }
+      }catch(e){}
     })();
     return()=>{cancelado=true;};
   },[inited]);
@@ -1568,8 +1671,7 @@ function App(){
         h("h1",{style:{margin:0,fontSize:20,fontWeight:400,color:"#F0EAD8"}},"Portfolio Patrimonial"),
         hasPos&&h("div",{style:{display:"flex",alignItems:"center",gap:10,marginTop:2}},
           h("div",{style:{fontSize:24,color:"#C8A96E",fontFamily:"monospace",fontWeight:700}},MV(fB(total))),
-          h("button",{onClick:()=>setHideVal(v=>!v),style:{background:"none",border:"none",cursor:"pointer",padding:0,fontSize:18,color:"#C8A96E",opacity:0.7,lineHeight:1}},hideVal?"\u{1F441}":"\u{1F648}"),
-          !hideVal&&h("button",{onClick:()=>{try{navigator.clipboard.writeText(String(total.toFixed(2)));}catch{}},title:"Copiar valor exato",style:{background:"none",border:"1px solid rgba(200,169,110,0.2)",borderRadius:3,cursor:"pointer",padding:"1px 5px",fontSize:8,color:"#8A8070",fontFamily:"monospace",lineHeight:1.4}},"copiar")
+          h("button",{onClick:()=>setHideVal(v=>!v),style:{background:"none",border:"none",cursor:"pointer",padding:0,fontSize:18,color:"#C8A96E",opacity:0.7,lineHeight:1}},hideVal?"\u{1F441}":"\u{1F648}")
         ),
         hasPos&&!hideVal&&valorEstrangeiroBRL>0&&h("div",{style:{fontSize:9,color:"#7A7570",fontFamily:"monospace",marginTop:3,lineHeight:1.4}},
           "BRL nativo: ",h("span",{style:{color:"#4CAF82"}},fB(valorBRLnativo))," + Convertido: ",h("span",{style:{color:"#5B8FD4"}},fB(valorEstrangeiroBRL))
@@ -1589,6 +1691,17 @@ function App(){
       xauBrl&&h("span",{style:{color:"#E8C44A",fontWeight:700}},"Ouro R$ "+fN(xauBrl,2)+"/g"),
       xauBrl&&typeof xauVar==="number"&&h("span",{style:{marginLeft:4,color:xauVar>=0?"#4CAF82":"#E05252",fontWeight:700}},(xauVar>=0?"▲":"▼")+fN(Math.abs(xauVar),2)+"%"),
       pErr&&h("span",{style:{color:"#E05252",marginLeft:8}},"Erro: "+pErr)
+    ),
+    // Segunda linha: indices de inflacao acumulada 12 meses + variacao do mes
+    (infIPCA||infIGPM||infINCC||infCPI)&&h("div",{style:{fontSize:9,color:"#5A5550",marginTop:2,fontFamily:"monospace"}},
+      infIPCA&&h("span",{style:{color:"#C8A96E",fontWeight:700}},"IPCA "+fN(infIPCA.valor,2)+"%"),
+      infIPCA&&h("span",{style:{color:"#5A5550",marginLeft:3}},"("+(typeof infIPCA.mensal==="number"?fN(infIPCA.mensal,2)+"% "+infIPCA.ref:infIPCA.ref)+")"),
+      infIGPM&&h("span",{style:{marginLeft:8,color:"#5B8FD4",fontWeight:700}},"IGP-M "+fN(infIGPM.valor,2)+"%"),
+      infIGPM&&h("span",{style:{color:"#5A5550",marginLeft:3}},"("+(typeof infIGPM.mensal==="number"?fN(infIGPM.mensal,2)+"% "+infIGPM.ref:infIGPM.ref)+")"),
+      infINCC&&h("span",{style:{marginLeft:8,color:"#A56FD4",fontWeight:700}},"INCC "+fN(infINCC.valor,2)+"%"),
+      infINCC&&h("span",{style:{color:"#5A5550",marginLeft:3}},"("+(typeof infINCC.mensal==="number"?fN(infINCC.mensal,2)+"% "+infINCC.ref:infINCC.ref)+")"),
+      infCPI&&h("span",{style:{marginLeft:8,color:"#4CAF82",fontWeight:700}},"CPI "+fN(infCPI.valor,2)+"%"),
+      infCPI&&h("span",{style:{color:"#5A5550",marginLeft:3}},"("+(typeof infCPI.mensal==="number"?fN(infCPI.mensal,2)+"% "+infCPI.ref:infCPI.ref)+")")
     )
   );
 
