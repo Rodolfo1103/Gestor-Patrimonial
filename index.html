@@ -2016,10 +2016,10 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           row("Cotacao atual ("+cc+")",inp(ePrice,setEPrice,"0,00"))
         ),
         totBRL>0&&!isVB&&h("div",{style:{padding:"8px 11px",background:"rgba(200,169,110,0.05)",border:"1px solid rgba(200,169,110,0.15)",borderRadius:6,marginBottom:14}},h("span",{style:{fontSize:10,color:"#8A8070"}},isGB?"Valor estimado: ":"Valor BRL: "),h("span",{style:{fontFamily:"monospace",fontSize:14,color:"#C8A96E"}},fB(totBRL))),
-        h("button",{onClick:saveEdit,style:{width:"100%",padding:"11px",background:"linear-gradient(135deg,"+(cl?cl.color:"#C8A96E")+","+(cl?cl.color:"#A8893E")+")",border:"none",borderRadius:6,color:"#0D0F14",fontSize:12,fontWeight:700,letterSpacing:2,textTransform:"uppercase",cursor:"pointer",marginBottom:7}},"Salvar"),
-        h("div",{style:{display:"flex",gap:7}},
-          h("button",{onClick:()=>toggleHide(ticker),style:{flex:1,padding:"9px",background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:6,color:"#8A8070",fontSize:10,cursor:"pointer"}},isHid?"Mostrar na lista":"Ocultar da lista"),
-          (isCustom||pN(eQty)>0)&&h("button",{onClick:()=>removePos(ticker),style:{flex:1,padding:"9px",background:"rgba(224,82,82,0.08)",border:"1px solid rgba(224,82,82,0.25)",borderRadius:6,color:"#E05252",fontSize:10,cursor:"pointer"}},"Remover posicao")
+        h("button",{onClick:saveEdit,style:{width:"100%",padding:"11px",background:"linear-gradient(135deg,"+(cl?cl.color:"#C8A96E")+","+(cl?cl.color:"#A8893E")+")",border:"none",borderRadius:6,color:"#0D0F14",fontSize:12,fontWeight:700,letterSpacing:2,textTransform:"uppercase",cursor:"pointer",marginBottom:24}},"Salvar"),
+        h("div",{style:{display:"flex",gap:7,paddingTop:14,borderTop:"1px solid rgba(255,255,255,0.05)"}},
+          h("button",{onClick:()=>{if(isHid){toggleHide(ticker);}else{if(window.confirm("Ocultar "+ticker+" da lista? (a posicao sera preservada, apenas escondida da visualizacao)"))toggleHide(ticker);}},style:{flex:1,padding:"9px",background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:6,color:"#8A8070",fontSize:10,cursor:"pointer"}},isHid?"Mostrar na lista":"Ocultar da lista"),
+          (isCustom||pN(eQty)>0)&&h("button",{onClick:()=>{if(window.confirm("Remover "+ticker+" do portfolio? Esta acao apaga a quantidade e o preco salvos. Tem certeza?"))removePos(ticker);},style:{flex:1,padding:"9px",background:"rgba(224,82,82,0.08)",border:"1px solid rgba(224,82,82,0.25)",borderRadius:6,color:"#E05252",fontSize:10,cursor:"pointer"}},"Remover posicao")
         )
       );
     } else {
