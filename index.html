@@ -399,39 +399,88 @@ function RiskChart({cw}){
   const portR=totW>0?wR/totW:null,portE=totW>0?wE/totW:null;
   return h("div",{style:{marginBottom:20,paddingTop:14,borderTop:"1px solid rgba(255,255,255,0.05)"}},
     h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:4}},"Risco x Retorno esperado"),
-    h("div",{style:{fontSize:9,color:"#5A5550",marginBottom:6,fontStyle:"italic"}},"Estrela dourada = portfolio agregado. Circulos = classes. Eixos em escala 0-10."),
+    h("div",{style:{fontSize:9,color:"#5A5550",marginBottom:6,fontStyle:"italic"}},"Estrela dourada = portfolio (numero dentro = indice de eficiencia). Circulos = classes. Zonas tracejadas indicam faixas de eficiencia retorno/risco."),
     h("svg",{viewBox:"0 0 "+W+" "+H,style:{width:"100%",height:"auto"}},
+      // ZONAS DE EFICIENCIA: linhas tracejadas onde Retorno/Risco = constante
+      // Para cada razao (r), o ponto eh: retorno = razao * risco
+      // No grafico: y = retorno, x = risco. Linha: y/x = razao
+      // Pontos: do (0,0) ate o limite da area de plot
+      ...(()=>{
+        const razoes=[1.0,1.2,1.5,1.8];// limites das zonas
+        const linhas=[];
+        razoes.forEach(razao=>{
+          // Linha y = razao * x, parametrizada de x=0 a x=10
+          // Limita por max(retorno=10) tambem
+          const xMax=Math.min(10,10/razao);
+          const xPx1=pL,yPx1=pT+cH;// (0,0)
+          const xPx2=pL+(xMax/10)*cW;
+          const yRet=razao*xMax;
+          const yPx2=pT+cH-(yRet/10)*cH;
+          linhas.push(h("line",{key:"z"+razao,x1:xPx1,y1:yPx1,x2:xPx2,y2:yPx2,stroke:"rgba(255,215,0,0.15)",strokeWidth:"1",strokeDasharray:"2,3"}));
+        });
+        // Labels das zonas: posiciona perto da borda direita/superior
+        // Calcula ponto medio de cada zona pra label
+        const zonas=[
+          {nome:"DESFAV",cor:"#E0525266",razaoMed:0.65},
+          {nome:"EQUIL",cor:"#E8906066",razaoMed:1.1},
+          {nome:"BOA",cor:"#E8C44A66",razaoMed:1.35},
+          {nome:"OTIMA",cor:"#7AC49466",razaoMed:1.65},
+          {nome:"EXCEL",cor:"#4CAF8266",razaoMed:2.2}
+        ];
+        zonas.forEach((z,i)=>{
+          // Posiciona o label em x=7-9 (canto direito), calcula y pela razao
+          const xRisco=8.5;
+          const yRet=Math.min(10,z.razaoMed*xRisco);
+          if(yRet<0.5||yRet>10)return;// fora da area visivel
+          const xPx=pL+(xRisco/10)*cW;
+          const yPx=pT+cH-(yRet/10)*cH;
+          linhas.push(h("text",{key:"zl"+i,x:xPx,y:yPx,textAnchor:"middle",fill:z.cor,fontSize:"6",fontFamily:"monospace",letterSpacing:"0.5",fontWeight:"bold"},z.nome));
+        });
+        return linhas;
+      })(),
+      // Grade sutil
       ...[0,2,4,6,8,10].map(v=>{
         const x=pL+(v/10)*cW,y=pT+cH-(v/10)*cH;
         return h(Fragment,{key:v},h("line",{x1:x,y1:pT,x2:x,y2:pT+cH,stroke:"rgba(255,255,255,0.04)",strokeWidth:"1"}),h("line",{x1:pL,y1:y,x2:pL+cW,y2:y,stroke:"rgba(255,255,255,0.04)",strokeWidth:"1"}));
       }),
       h("text",{x:pL+cW/2,y:H-3,textAnchor:"middle",fill:"#4A4840",fontSize:"7"},"risco ->"),
       h("text",{x:8,y:pT+cH/2,textAnchor:"middle",fill:"#4A4840",fontSize:"7",transform:"rotate(-90,8,"+(pT+cH/2)+")"},"retorno ->"),
+      // Circulos das classes (transparentes para destacar a estrela)
       ...CL.map(c=>{
         const p=RR[c.id];if(!p)return null;
         const w=cw[c.id]||0,cx=pL+(p.r/10)*cW,cy=pT+cH-(p.e/10)*cH;
-        const r=w>0?Math.max(Math.sqrt(w)*3.2,7):4,op=w>0?.9:.15;
+        const r=w>0?Math.max(Math.sqrt(w)*3.2,7):4;
+        // Reduzir opacidade pra destacar a estrela do portfolio
+        const op=w>0?.40:.10;
+        const opLabel=w>0?.85:.3;
         return h(Fragment,{key:c.id},
-          h("circle",{cx,cy,r,fill:c.color,fillOpacity:op,stroke:c.color,strokeWidth:"1.5",strokeOpacity:op}),
-          w>0&&h("text",{x:cx,y:cy+3,textAnchor:"middle",fill:"#0D0F14",fontSize:"6.5",fontWeight:"bold"},w.toFixed(0)+"%"),
-          w>0&&h("text",{x:cx,y:cy-r-3,textAnchor:"middle",fill:c.color,fontSize:"8"},c.tag)
+          h("circle",{cx,cy,r,fill:c.color,fillOpacity:op,stroke:c.color,strokeWidth:"1.5",strokeOpacity:opLabel}),
+          w>0&&h("text",{x:cx,y:cy+3,textAnchor:"middle",fill:"#0D0F14",fontSize:"6.5",fontWeight:"bold",opacity:"0.85"},w.toFixed(0)+"%"),
+          w>0&&h("text",{x:cx,y:cy-r-3,textAnchor:"middle",fill:c.color,fontSize:"8",opacity:"0.75"},c.tag)
         );
       }),
-      // Marcador do portfolio agregado (estrela dourada)
+      // Marcador do portfolio agregado (estrela dourada DESTACADA com indice dentro)
       portR!==null&&(()=>{
         const cx=pL+(portR/10)*cW,cy=pT+cH-(portE/10)*cH;
-        // Estrela de 5 pontas
+        // Estrela maior pra acomodar o numero do indice de eficiencia
         const star=[];
         for(let i=0;i<10;i++){
           const ang=(Math.PI/5)*i-Math.PI/2;
-          const rad=i%2===0?9:4;
+          const rad=i%2===0?14:6;
           star.push((cx+rad*Math.cos(ang)).toFixed(1)+","+(cy+rad*Math.sin(ang)).toFixed(1));
         }
+        const ratio=portE/portR;
         return h(Fragment,{key:"port"},
-          h("polygon",{points:star.join(" "),fill:"#FFD700",fillOpacity:0.95,stroke:"#0D0F14",strokeWidth:"1.5"}),
-          h("title",{},"Portfolio agregado - Risco "+portR.toFixed(1)+"/10 | Retorno esperado "+portE.toFixed(1)+"/10"),
-          h("text",{x:cx,y:cy-13,textAnchor:"middle",fill:"#FFD700",fontSize:"8",fontWeight:"bold"},"PORT"),
-          h("text",{x:cx,y:cy+22,textAnchor:"middle",fill:"#FFD700",fontSize:"6.5",fontFamily:"monospace",opacity:"0.85"},"risco "+portR.toFixed(1)+" \u00b7 retorno "+portE.toFixed(1))
+          // Halo brilhante de fundo pra destacar
+          h("circle",{cx,cy,r:"18",fill:"#FFD700",fillOpacity:"0.08"}),
+          h("polygon",{points:star.join(" "),fill:"#FFD700",fillOpacity:0.98,stroke:"#0D0F14",strokeWidth:"1.8"}),
+          h("title",{},"Portfolio agregado - Risco "+portR.toFixed(1)+"/10 | Retorno esperado "+portE.toFixed(1)+"/10 | Eficiencia "+ratio.toFixed(2)),
+          // Indice de eficiencia no centro da estrela (preto)
+          h("text",{x:cx,y:cy+3,textAnchor:"middle",fill:"#0D0F14",fontSize:"9",fontWeight:"bold",fontFamily:"monospace"},ratio.toFixed(2)),
+          // Label PORT acima
+          h("text",{x:cx,y:cy-19,textAnchor:"middle",fill:"#FFD700",fontSize:"8.5",fontWeight:"bold",stroke:"#0D0F14",strokeWidth:"0.5",paintOrder:"stroke"},"PORT"),
+          // Risco e Retorno abaixo
+          h("text",{x:cx,y:cy+27,textAnchor:"middle",fill:"#FFD700",fontSize:"7",fontFamily:"monospace",fontWeight:"bold"},"risco "+portR.toFixed(1)+" \u00b7 retorno "+portE.toFixed(1))
         );
       })(),
       h("line",{x1:pL,y1:pT+cH,x2:pL+cW,y2:pT+cH,stroke:"rgba(255,255,255,0.1)",strokeWidth:"1"}),
@@ -518,7 +567,38 @@ function RiskChart({cw}){
         ...linhas.map((l,i)=>h("div",{key:i,style:{display:"flex",gap:7,marginBottom:i===linhas.length-1?0:5,fontSize:10,lineHeight:1.5}},
           h("span",{style:{minWidth:80,color:"#8A7050",fontFamily:"monospace",fontSize:8,letterSpacing:1,paddingTop:2}},l.label.toUpperCase()),
           h("span",{style:{color:"#C0B8A8",flex:1}},l.valor)
-        ))
+        )),
+        // Legenda das classificacoes (referencia)
+        h("div",{style:{marginTop:11,paddingTop:9,borderTop:"1px solid rgba(255,215,0,0.12)"}},
+          h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",letterSpacing:2,marginBottom:6}},"FAIXAS DE REFERENCIA"),
+          // Risco
+          h("div",{style:{display:"flex",flexWrap:"wrap",gap:"3px 6px",marginBottom:5,alignItems:"center"}},
+            h("span",{style:{fontSize:7,color:"#8A7050",fontFamily:"monospace",letterSpacing:1,minWidth:50}},"RISCO"),
+            h("span",{style:{fontSize:8,color:portR<3?"#0D0F14":"#7AC494",background:portR<3?"#7AC494":"transparent",border:"1px solid #7AC49455",borderRadius:3,padding:"1px 5px",fontFamily:"monospace",fontWeight:portR<3?700:400}},"<3 conservador"),
+            h("span",{style:{fontSize:8,color:portR>=3&&portR<5?"#0D0F14":"#4CAF82",background:portR>=3&&portR<5?"#4CAF82":"transparent",border:"1px solid #4CAF8255",borderRadius:3,padding:"1px 5px",fontFamily:"monospace",fontWeight:portR>=3&&portR<5?700:400}},"3-5 moderado"),
+            h("span",{style:{fontSize:8,color:portR>=5&&portR<7?"#0D0F14":"#E8C44A",background:portR>=5&&portR<7?"#E8C44A":"transparent",border:"1px solid #E8C44A55",borderRadius:3,padding:"1px 5px",fontFamily:"monospace",fontWeight:portR>=5&&portR<7?700:400}},"5-7 mod-arrojado"),
+            h("span",{style:{fontSize:8,color:portR>=7&&portR<8.5?"#0D0F14":"#E89060",background:portR>=7&&portR<8.5?"#E89060":"transparent",border:"1px solid #E8906055",borderRadius:3,padding:"1px 5px",fontFamily:"monospace",fontWeight:portR>=7&&portR<8.5?700:400}},"7-8.5 arrojado"),
+            h("span",{style:{fontSize:8,color:portR>=8.5?"#0D0F14":"#E05252",background:portR>=8.5?"#E05252":"transparent",border:"1px solid #E0525255",borderRadius:3,padding:"1px 5px",fontFamily:"monospace",fontWeight:portR>=8.5?700:400}},"8.5+ agressivo")
+          ),
+          // Retorno
+          h("div",{style:{display:"flex",flexWrap:"wrap",gap:"3px 6px",marginBottom:5,alignItems:"center"}},
+            h("span",{style:{fontSize:7,color:"#8A7050",fontFamily:"monospace",letterSpacing:1,minWidth:50}},"RETORNO"),
+            h("span",{style:{fontSize:8,color:portE<4?"#0D0F14":"#7A7570",background:portE<4?"#7A7570":"transparent",border:"1px solid #7A757055",borderRadius:3,padding:"1px 5px",fontFamily:"monospace",fontWeight:portE<4?700:400}},"<4 baixo"),
+            h("span",{style:{fontSize:8,color:portE>=4&&portE<6?"#0D0F14":"#5B8FD4",background:portE>=4&&portE<6?"#5B8FD4":"transparent",border:"1px solid #5B8FD455",borderRadius:3,padding:"1px 5px",fontFamily:"monospace",fontWeight:portE>=4&&portE<6?700:400}},"4-6 moderado"),
+            h("span",{style:{fontSize:8,color:portE>=6&&portE<7.5?"#0D0F14":"#7AC494",background:portE>=6&&portE<7.5?"#7AC494":"transparent",border:"1px solid #7AC49455",borderRadius:3,padding:"1px 5px",fontFamily:"monospace",fontWeight:portE>=6&&portE<7.5?700:400}},"6-7.5 alto"),
+            h("span",{style:{fontSize:8,color:portE>=7.5&&portE<8.5?"#0D0F14":"#4CAF82",background:portE>=7.5&&portE<8.5?"#4CAF82":"transparent",border:"1px solid #4CAF8255",borderRadius:3,padding:"1px 5px",fontFamily:"monospace",fontWeight:portE>=7.5&&portE<8.5?700:400}},"7.5-8.5 mt alto"),
+            h("span",{style:{fontSize:8,color:portE>=8.5?"#0D0F14":"#E8C44A",background:portE>=8.5?"#E8C44A":"transparent",border:"1px solid #E8C44A55",borderRadius:3,padding:"1px 5px",fontFamily:"monospace",fontWeight:portE>=8.5?700:400}},"8.5+ agressivo")
+          ),
+          // Eficiencia R/R
+          h("div",{style:{display:"flex",flexWrap:"wrap",gap:"3px 6px",alignItems:"center"}},
+            h("span",{style:{fontSize:7,color:"#8A7050",fontFamily:"monospace",letterSpacing:1,minWidth:50}},"EFIC R/R"),
+            h("span",{style:{fontSize:8,color:ratio<1.0?"#0D0F14":"#E05252",background:ratio<1.0?"#E05252":"transparent",border:"1px solid #E0525255",borderRadius:3,padding:"1px 5px",fontFamily:"monospace",fontWeight:ratio<1.0?700:400}},"<1.0 desfav"),
+            h("span",{style:{fontSize:8,color:ratio>=1.0&&ratio<1.2?"#0D0F14":"#E89060",background:ratio>=1.0&&ratio<1.2?"#E89060":"transparent",border:"1px solid #E8906055",borderRadius:3,padding:"1px 5px",fontFamily:"monospace",fontWeight:ratio>=1.0&&ratio<1.2?700:400}},"1.0-1.2 equil"),
+            h("span",{style:{fontSize:8,color:ratio>=1.2&&ratio<1.5?"#0D0F14":"#E8C44A",background:ratio>=1.2&&ratio<1.5?"#E8C44A":"transparent",border:"1px solid #E8C44A55",borderRadius:3,padding:"1px 5px",fontFamily:"monospace",fontWeight:ratio>=1.2&&ratio<1.5?700:400}},"1.2-1.5 boa"),
+            h("span",{style:{fontSize:8,color:ratio>=1.5&&ratio<1.8?"#0D0F14":"#7AC494",background:ratio>=1.5&&ratio<1.8?"#7AC494":"transparent",border:"1px solid #7AC49455",borderRadius:3,padding:"1px 5px",fontFamily:"monospace",fontWeight:ratio>=1.5&&ratio<1.8?700:400}},"1.5-1.8 otima"),
+            h("span",{style:{fontSize:8,color:ratio>=1.8?"#0D0F14":"#4CAF82",background:ratio>=1.8?"#4CAF82":"transparent",border:"1px solid #4CAF8255",borderRadius:3,padding:"1px 5px",fontFamily:"monospace",fontWeight:ratio>=1.8?700:400}},"1.8+ excel")
+          )
+        )
       );
     })()
   );
