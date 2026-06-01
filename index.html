@@ -458,59 +458,55 @@ function CurrencyChart({port,cls,hideVal}){
 }
 
 function RiskChart({cw,selicAtual,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,recalibrarRR_viaIA,calibracaoLoad,calibracaoErr,hasAjustesIA,apiKey}){
-  const W=300,H=170,pL=22,pB=20,pT=12,pR=12,cW=W-pL-pR,cH=H-pB-pT;
+  const W=300,H=175,pL=22,pB=22,pT=12,pR=12,cW=W-pL-pR,cH=H-pB-pT;
   // Calcula posicao do portfolio agregado (media ponderada de risco e retorno)
   let totW=0,wR=0,wE=0;
   CL.forEach(c=>{const p=RR[c.id],w=cw[c.id]||0;if(p&&w>0){totW+=w;wR+=p.r*w;wE+=p.e*w;}});
   const portR=totW>0?wR/totW:null,portE=totW>0?wE/totW:null;
   return h("div",{style:{marginBottom:20,paddingTop:14,borderTop:"1px solid rgba(255,255,255,0.05)"}},
     h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:4}},"Risco x Retorno esperado"),
-    h("div",{style:{fontSize:9,color:"#5A5550",marginBottom:6,fontStyle:"italic"}},"Estrela dourada = portfolio (numero dentro = indice de eficiencia). Circulos = classes. Zonas tracejadas indicam faixas de eficiencia retorno/risco."),
+    h("div",{style:{fontSize:9,color:"#5A5550",marginBottom:6,fontStyle:"italic"}},"Estrela = portfolio agregado (indice de eficiencia no centro). Circulos = classes de ativos. Zonas indicam faixas de eficiencia retorno/risco."),
     h("svg",{viewBox:"0 0 "+W+" "+H,style:{width:"100%",height:"auto"}},
+      // Definicao de filtro drop-shadow para a estrela
+      h("defs",{},
+        h("filter",{id:"starShadow",x:"-50%",y:"-50%",width:"200%",height:"200%"},
+          h("feGaussianBlur",{in:"SourceAlpha",stdDeviation:"1.5"}),
+          h("feOffset",{dx:"0",dy:"1",result:"offsetblur"}),
+          h("feFlood",{floodColor:"#000",floodOpacity:"0.6"}),
+          h("feComposite",{in2:"offsetblur",operator:"in"}),
+          h("feMerge",{},h("feMergeNode",{}),h("feMergeNode",{in:"SourceGraphic"}))
+        )
+      ),
       // ZONAS DE EFICIENCIA: areas sombreadas + linhas tracejadas
-      // Cada zona = setor entre duas razoes (E/R), area que vai de 0,0 ate o limite
       ...(()=>{
-        // Definicao das zonas (razao limite inferior, razao limite superior, cor)
         const zonas=[
-          {min:0,max:1.0,cor:"#E05252",fill:"rgba(224,82,82,0.06)",nome:"DESFAV"},
-          {min:1.0,max:1.2,cor:"#E89060",fill:"rgba(232,144,96,0.06)",nome:"EQUIL"},
-          {min:1.2,max:1.5,cor:"#E8C44A",fill:"rgba(232,196,74,0.06)",nome:"BOA"},
-          {min:1.5,max:1.8,cor:"#7AC494",fill:"rgba(122,196,148,0.06)",nome:"OTIMA"},
-          {min:1.8,max:99,cor:"#4CAF82",fill:"rgba(76,175,130,0.07)",nome:"EXCEL"}
+          {min:0,max:1.0,cor:"#E05252",fill:"rgba(224,82,82,0.05)",nome:"DESFAVORAVEL"},
+          {min:1.0,max:1.2,cor:"#E89060",fill:"rgba(232,144,96,0.05)",nome:"EQUILIBRADA"},
+          {min:1.2,max:1.5,cor:"#E8C44A",fill:"rgba(232,196,74,0.05)",nome:"BOA"},
+          {min:1.5,max:1.8,cor:"#7AC494",fill:"rgba(122,196,148,0.05)",nome:"OTIMA"},
+          {min:1.8,max:99,cor:"#4CAF82",fill:"rgba(76,175,130,0.06)",nome:"EXCELENTE"}
         ];
         const elements=[];
-        // Para cada zona, desenha um poligono delimitando a area
         zonas.forEach((z,idx)=>{
-          // Pontos do poligono: comeca em (0,0) -> sobe pela linha de razao min ate o limite do grafico
-          // -> percorre o limite ate a linha de razao max -> volta a (0,0)
           const pts=[];
-          pts.push(pL+","+(pT+cH));// origem (0,0) no eixo do grafico
-          // Sobe pela linha de razao min (y = min * x)
-          // Calcula onde essa linha sai do grafico (x=10 ou y=10)
+          pts.push(pL+","+(pT+cH));
           if(z.min===0){
-            // Zona DESFAV: vai do eixo x ate a linha de razao 1.0
-            pts.push((pL+cW)+","+(pT+cH));// (10, 0)
-            // Subir pela linha de razao max ate sair
+            pts.push((pL+cW)+","+(pT+cH));
             const xMaxLinha=Math.min(10,10/z.max);
             const yMaxLinha=z.max*xMaxLinha;
             pts.push((pL+(xMaxLinha/10)*cW)+","+(pT+cH-(yMaxLinha/10)*cH));
           }else if(z.max>10){
-            // Zona EXCEL: vai da linha de razao 1.8 ate o topo
             const xMaxMin=Math.min(10,10/z.min);
             const yMaxMin=z.min*xMaxMin;
             pts.push((pL+(xMaxMin/10)*cW)+","+(pT+cH-(yMaxMin/10)*cH));
-            // Vai ao topo esquerdo
             pts.push(pL+","+pT);
           }else{
-            // Zonas intermediarias
             const xMaxMin=Math.min(10,10/z.min);
             const yMaxMin=z.min*xMaxMin;
             pts.push((pL+(xMaxMin/10)*cW)+","+(pT+cH-(yMaxMin/10)*cH));
             const xMaxMax=Math.min(10,10/z.max);
             const yMaxMax=z.max*xMaxMax;
-            // Se as duas linhas saem em pontos diferentes (uma em x=10, outra em y=10), pega o canto entre elas
             if(xMaxMin>=10&&xMaxMax<10){
-              // Linha min sai em x=10, linha max sai em y=10 - precisa do canto superior direito
               pts.push((pL+cW)+","+pT);
             }
             pts.push((pL+(xMaxMax/10)*cW)+","+(pT+cH-(yMaxMax/10)*cH));
@@ -521,71 +517,71 @@ function RiskChart({cw,selicAtual,calibracaoRR_TS,calibracaoRR_texto,calibracaoR
         [1.0,1.2,1.5,1.8].forEach(razao=>{
           const xMax=Math.min(10,10/razao);
           const yRet=razao*xMax;
-          elements.push(h("line",{key:"z"+razao,x1:pL,y1:pT+cH,x2:pL+(xMax/10)*cW,y2:pT+cH-(yRet/10)*cH,stroke:"rgba(255,215,0,0.20)",strokeWidth:"0.8",strokeDasharray:"3,3"}));
+          elements.push(h("line",{key:"z"+razao,x1:pL,y1:pT+cH,x2:pL+(xMax/10)*cW,y2:pT+cH-(yRet/10)*cH,stroke:"rgba(255,215,0,0.15)",strokeWidth:"0.6",strokeDasharray:"2,4"}));
         });
-        // Labels: posiciona cada um a 40% do percurso da zona (proximo ao final do gráfico)
+        // Labels: nomes completos das zonas, fontSize pequeno e elegante
+        // Posicionamento ajustado para evitar sobreposicao
         const labels=[
-          {nome:"DESFAV",cor:"#E05252AA",razao:0.5,xPos:8.5},
-          {nome:"EQUIL",cor:"#E89060AA",razao:1.1,xPos:8.0},
-          {nome:"BOA",cor:"#E8C44AAA",razao:1.35,xPos:7.0},
-          {nome:"OTIMA",cor:"#7AC494AA",razao:1.65,xPos:5.8},
-          {nome:"EXCEL",cor:"#4CAF82AA",razao:2.0,xPos:4.5}
+          {nome:"DESFAVORAVEL",cor:"#E0525288",razao:0.5,xPos:8.0,letterSp:"1.5"},
+          {nome:"EQUILIBRADA",cor:"#E8906088",razao:1.1,xPos:7.5,letterSp:"1"},
+          {nome:"BOA",cor:"#E8C44A88",razao:1.35,xPos:6.5,letterSp:"2"},
+          {nome:"OTIMA",cor:"#7AC49488",razao:1.65,xPos:5.5,letterSp:"2"},
+          {nome:"EXCELENTE",cor:"#4CAF8288",razao:2.0,xPos:4.3,letterSp:"1.2"}
         ];
         labels.forEach((z,i)=>{
           const yRet=z.razao*z.xPos;
           if(yRet<0.5||yRet>10)return;
           const xPx=pL+(z.xPos/10)*cW;
           const yPx=pT+cH-(yRet/10)*cH;
-          elements.push(h("text",{key:"zl"+i,x:xPx,y:yPx,textAnchor:"middle",fill:z.cor,fontSize:"6.5",fontFamily:"monospace",letterSpacing:"1",fontWeight:"bold"},z.nome));
+          elements.push(h("text",{key:"zl"+i,x:xPx,y:yPx,textAnchor:"middle",fill:z.cor,fontSize:"5.5",fontFamily:"monospace",letterSpacing:z.letterSp,fontWeight:"500"},z.nome));
         });
         return elements;
       })(),
-      // Grade sutil
+      // Grade extra-sutil
       ...[0,2,4,6,8,10].map(v=>{
         const x=pL+(v/10)*cW,y=pT+cH-(v/10)*cH;
-        return h(Fragment,{key:v},h("line",{x1:x,y1:pT,x2:x,y2:pT+cH,stroke:"rgba(255,255,255,0.03)",strokeWidth:"1"}),h("line",{x1:pL,y1:y,x2:pL+cW,y2:y,stroke:"rgba(255,255,255,0.03)",strokeWidth:"1"}));
+        return h(Fragment,{key:v},h("line",{x1:x,y1:pT,x2:x,y2:pT+cH,stroke:"rgba(255,255,255,0.025)",strokeWidth:"1"}),h("line",{x1:pL,y1:y,x2:pL+cW,y2:y,stroke:"rgba(255,255,255,0.025)",strokeWidth:"1"}));
       }),
-      h("text",{x:pL+cW/2,y:H-3,textAnchor:"middle",fill:"#4A4840",fontSize:"7"},"risco ->"),
-      h("text",{x:8,y:pT+cH/2,textAnchor:"middle",fill:"#4A4840",fontSize:"7",transform:"rotate(-90,8,"+(pT+cH/2)+")"},"retorno ->"),
-      // Circulos das classes - bem translucidos com tag dentro
+      // Axis labels com mais elegancia
+      h("text",{x:pL+cW/2,y:H-3,textAnchor:"middle",fill:"#5A5550",fontSize:"6.5",fontFamily:"monospace",letterSpacing:"1.5"},"RISCO \u2192"),
+      h("text",{x:8,y:pT+cH/2,textAnchor:"middle",fill:"#5A5550",fontSize:"6.5",fontFamily:"monospace",letterSpacing:"1.5",transform:"rotate(-90,8,"+(pT+cH/2)+")"},"RETORNO \u2192"),
+      // Circulos das classes - translucidos com tag dentro
       ...CL.map(c=>{
         const p=RR[c.id];if(!p)return null;
         const w=cw[c.id]||0,cx=pL+(p.r/10)*cW,cy=pT+cH-(p.e/10)*cH;
         const r=w>0?Math.max(Math.sqrt(w)*3.2,7):4;
-        // Bem transparente (fill e borda na mesma opacidade)
         const op=w>0?.22:.08;
-        // Calibra fontSize do tag pra caber dentro do circulo
         const fs=Math.max(5,Math.min(9,r*0.55));
         return h(Fragment,{key:c.id},
           h("circle",{cx,cy,r,fill:c.color,fillOpacity:op,stroke:c.color,strokeWidth:"1.2",strokeOpacity:op}),
-          // Tag da classe DENTRO do circulo (substitui a porcentagem)
-          w>0&&h("text",{x:cx,y:cy+fs*0.35,textAnchor:"middle",fill:c.color,fontSize:fs.toFixed(1),fontWeight:"bold",fontFamily:"monospace",opacity:"0.85"},c.tag)
+          w>0&&h("text",{x:cx,y:cy+fs*0.35,textAnchor:"middle",fill:c.color,fontSize:fs.toFixed(1),fontWeight:"600",fontFamily:"monospace",opacity:"0.85",letterSpacing:"0.5"},c.tag)
         );
       }),
-      // Marcador do portfolio agregado (estrela dourada destacada)
+      // Marcador do portfolio agregado - visual institucional
       portR!==null&&(()=>{
         const cx=pL+(portR/10)*cW,cy=pT+cH-(portE/10)*cH;
-        // Estrela maior para destacar e acomodar o numero
         const star=[];
         for(let i=0;i<10;i++){
           const ang=(Math.PI/5)*i-Math.PI/2;
-          const rad=i%2===0?14:6;
+          const rad=i%2===0?13:5.5;
           star.push((cx+rad*Math.cos(ang)).toFixed(1)+","+(cy+rad*Math.sin(ang)).toFixed(1));
         }
         const ratio=portE/portR;
         return h(Fragment,{key:"port"},
           // Halo brilhante de fundo
-          h("circle",{cx,cy,r:"18",fill:"#FFD700",fillOpacity:"0.10"}),
-          h("polygon",{points:star.join(" "),fill:"#FFD700",fillOpacity:0.98,stroke:"#0D0F14",strokeWidth:"1.8"}),
+          h("circle",{cx,cy,r:"19",fill:"#FFD700",fillOpacity:"0.06"}),
+          h("circle",{cx,cy,r:"14",fill:"#FFD700",fillOpacity:"0.10"}),
+          // Estrela com drop shadow
+          h("polygon",{points:star.join(" "),fill:"#FFD700",fillOpacity:0.98,stroke:"#0D0F14",strokeWidth:"1.5",filter:"url(#starShadow)"}),
           h("title",{},"Portfolio agregado - Risco "+portR.toFixed(1)+"/10 | Retorno esperado "+portE.toFixed(1)+"/10 | Eficiencia "+ratio.toFixed(2)),
-          // Indice de eficiencia dentro da estrela (menor para caber)
-          h("text",{x:cx,y:cy+1.5,textAnchor:"middle",fill:"#0D0F14",fontSize:"6",fontWeight:"bold",fontFamily:"monospace"},ratio.toFixed(2)),
-          // Label PORT acima
-          h("text",{x:cx,y:cy-19,textAnchor:"middle",fill:"#FFD700",fontSize:"8.5",fontWeight:"bold",stroke:"#0D0F14",strokeWidth:"0.5",paintOrder:"stroke"},"PORT")
+          // Indice de eficiencia dentro da estrela (bem pequeno)
+          h("text",{x:cx,y:cy+1.2,textAnchor:"middle",fill:"#0D0F14",fontSize:"4.5",fontWeight:"700",fontFamily:"monospace"},ratio.toFixed(2)),
+          // Label PORTFOLIO abaixo da estrela (pequeno, institucional)
+          h("text",{x:cx,y:cy+24,textAnchor:"middle",fill:"#C8A96E",fontSize:"6.5",fontFamily:"monospace",fontWeight:"600",letterSpacing:"2.5"},"PORTFOLIO")
         );
       })(),
-      h("line",{x1:pL,y1:pT+cH,x2:pL+cW,y2:pT+cH,stroke:"rgba(255,255,255,0.1)",strokeWidth:"1"}),
-      h("line",{x1:pL,y1:pT,x2:pL,y2:pT+cH,stroke:"rgba(255,255,255,0.1)",strokeWidth:"1"})
+      h("line",{x1:pL,y1:pT+cH,x2:pL+cW,y2:pT+cH,stroke:"rgba(255,255,255,0.08)",strokeWidth:"1"}),
+      h("line",{x1:pL,y1:pT,x2:pL,y2:pT+cH,stroke:"rgba(255,255,255,0.08)",strokeWidth:"1"})
     ),
     // CARD DE DIAGNOSTICO AUTOMATICO
     portR!==null&&portE!==null&&(()=>{
