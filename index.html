@@ -283,22 +283,27 @@ async function callAPI(messages,key){
 }
 
 // SVG helpers
-function AllocChart({cw}){
-  const W=300,H=185,pL=30,pB=42,pT=34,pR=8,cW=W-pL-pR,cH=H-pB-pT;
+function AllocChart({cw,ct,fB,MV,hideVal}){
+  const W=300,H=200,pL=30,pB=58,pT=34,pR=8,cW=W-pL-pR,cH=H-pB-pT;
   // Limite Y dinamico mas com piso minimo + teto folgado para evitar barras tocando o topo
-  // Garante que mesmo a maior barra fique a >= 12% abaixo do topo do plot
   const maxPos=Math.max(...CL.map(c=>cw[c.id]||0));
-  const mx=Math.max(35,Math.ceil(maxPos*1.18/5)*5);// arredonda pra multiplo de 5
-  // Linhas de grade adaptativas baseadas no mx
+  const mx=Math.max(35,Math.ceil(maxPos*1.18/5)*5);
   const gridLines=[];
   const step=mx<=40?10:mx<=70?15:20;
   for(let v=0;v<=mx-step;v+=step)gridLines.push(v);
   if(!gridLines.includes(0))gridLines.unshift(0);
   const bW=Math.floor(cW/CL.length)-3;
+  // Funcao auxiliar para formatar valor BRL de forma compacta
+  // Ex: 4.375.179 -> "4,4M"; 220.000 -> "220K"; 1.115.152 -> "1,1M"
+  const fmtCompacto=(v)=>{
+    if(!v||v<=0)return "R$ 0";
+    if(v>=1e6)return "R$ "+(v/1e6).toFixed(v>=1e7?1:2).replace(".",",")+"M";
+    if(v>=1e3)return "R$ "+Math.round(v/1e3)+"K";
+    return "R$ "+Math.round(v);
+  };
   return h("div",{style:{marginBottom:20}},
     h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:4}},"Alocacao atual vs alvo"),
     h("svg",{viewBox:"0 0 "+W+" "+H,style:{width:"100%",height:"auto",overflow:"hidden"}},
-      // Grade horizontal
       ...gridLines.map(v=>{
         const y=pT+cH-(v/mx)*cH;
         return h(Fragment,{key:v},h("line",{x1:pL,y1:y,x2:W-pR,y2:y,stroke:"rgba(255,255,255,0.05)",strokeWidth:"1"}),h("text",{x:pL-2,y:y+3,textAnchor:"end",fill:"#5A5550",fontSize:"6"},v+"%"));
@@ -309,35 +314,34 @@ function AllocChart({cw}){
         const st=w<c.min?"u":w>c.max?"o":"k";
         const fill=st==="u"?"#E05252":st==="o"?"#E8C44A":c.color;
         const xm=x+bW/2;
-        // Banda alvo: duas linhas (min e max) e area entre elas destacada
         const yMin=pT+cH-(c.min/mx)*cH;
         const yMax=pT+cH-(Math.min(c.max,mx)/mx)*cH;
         const bandaH=yMin-yMax;
         const foraBanda=st!=="k";
         const desvio=st==="u"?(c.min-w):st==="o"?(w-c.max):0;
         const setaTxt=st==="u"?"\u2193":st==="o"?"\u2191":"";
-        // Posicoes alinhadas no topo do plot
-        const yTriangulo=pT-12;// triangulo acima do plot
-        const yPpText=pT-3;// pp logo abaixo do triangulo
+        const yTriangulo=pT-12;
+        const yPpText=pT-3;
+        // Valor BRL formatado (mascarado se hideVal)
+        const valorClasse=ct&&ct[c.id]?ct[c.id]:0;
+        const valorTxt=hideVal?"R$ ***":fmtCompacto(valorClasse);
         return h(Fragment,{key:c.id},
-          // Area da banda alvo (faixa retangular destacada entre min e max)
           h("rect",{x:xm-bW*.6,y:yMax,width:bW*1.2,height:bandaH,fill:c.color,fillOpacity:"0.06",stroke:"none"}),
-          // Linha tracejada do MIN da banda
           h("line",{x1:xm-bW*.6,y1:yMin,x2:xm+bW*.6,y2:yMin,stroke:c.color,strokeWidth:"1",strokeOpacity:".55",strokeDasharray:"3,2"}),
-          // Linha tracejada do MAX da banda
           h("line",{x1:xm-bW*.6,y1:yMax,x2:xm+bW*.6,y2:yMax,stroke:c.color,strokeWidth:"1",strokeOpacity:".55",strokeDasharray:"3,2"}),
-          // Barra translucida (mostra linhas tracejadas por tras)
           h("rect",{x,y,width:bW,height:bH,fill,fillOpacity:".50",stroke:fill,strokeWidth:"0.8",strokeOpacity:".9",rx:"2"}),
-          // Numero da alocacao atual logo acima da barra
           h("text",{x:xm,y:y-3,textAnchor:"middle",fill,fontSize:"6.5",fontFamily:"monospace",fontWeight:"700"},w.toFixed(1)),
-          // ALERTA DOURADO no topo do plot (alinhado horizontalmente para todas as classes fora)
           foraBanda&&h(Fragment,{key:"al"+c.id},
             h("path",{d:"M "+(xm-3.8)+" "+(yTriangulo+3.5)+" L "+xm+" "+(yTriangulo-3)+" L "+(xm+3.8)+" "+(yTriangulo+3.5)+" Z",fill:"#C8A96E",fillOpacity:"0.18",stroke:"#C8A96E",strokeWidth:"0.7",strokeLinejoin:"round"}),
             h("text",{x:xm,y:yTriangulo+2.5,textAnchor:"middle",fill:"#C8A96E",fontSize:"4.5",fontWeight:"700",fontFamily:"monospace"},"!"),
             h("text",{x:xm,y:yPpText+6,textAnchor:"middle",fill:"#C8A96E",fontSize:"5.5",fontWeight:"700",fontFamily:"monospace",letterSpacing:"0.3"},setaTxt+desvio.toFixed(1)+"pp")
           ),
+          // Tag da classe
           h("text",{x:xm,y:H-pB+13,textAnchor:"middle",fill:c.color,fontSize:"8"},c.tag),
-          h("text",{x:xm,y:H-pB+24,textAnchor:"middle",fill:"#6A6050",fontSize:"5.5",fontFamily:"monospace"},c.min+"-"+c.max+"%")
+          // Banda alvo
+          h("text",{x:xm,y:H-pB+24,textAnchor:"middle",fill:"#6A6050",fontSize:"5.5",fontFamily:"monospace"},c.min+"-"+c.max+"%"),
+          // Valor R$ em dourado discreto
+          h("text",{x:xm,y:H-pB+36,textAnchor:"middle",fill:"#A8893E",fontSize:"6",fontFamily:"monospace",letterSpacing:"0.4",fontWeight:"500",opacity:"0.85"},valorTxt)
         );
       }),
       h("line",{x1:pL,y1:pT+cH,x2:W-pR,y2:pT+cH,stroke:"rgba(255,255,255,0.08)",strokeWidth:"1"})
@@ -3305,7 +3309,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         insightMensal&&insightMensal.texto?h("div",{style:{fontSize:11,color:"#C8C0B0",lineHeight:1.7,whiteSpace:"pre-wrap"}},insightMensal.texto):
         h("div",{style:{fontSize:11,color:"#7A7570",fontStyle:"italic"}},"Sera gerado automaticamente no fechamento do proximo mes. Ou clique em atualizar para forcar agora.")
       ):null;
-      content=h("div",{},cards,aporteCard,insightCard,h(AllocChart,{cw}),h(RiskChart,{cw,selicAtual,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,recalibrarRR_viaIA,calibracaoLoad,calibracaoErr,hasAjustesIA:!!ajustesRR_IA,apiKey}),h(EvolChart,{histMensal,hist,showUSD,setShowUSD,hideVal}),h(ComparativoChart,{histMensal,idxMensal,hideVal}),insightMensalCard,h(HeatmapChart,{hist}),h(CurrencyChart,{port,cls,hideVal}),topPos);
+      content=h("div",{},aporteCard,insightCard,h(AllocChart,{cw,ct,fB,MV,hideVal}),h(RiskChart,{cw,selicAtual,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,recalibrarRR_viaIA,calibracaoLoad,calibracaoErr,hasAjustesIA:!!ajustesRR_IA,apiKey}),h(EvolChart,{histMensal,hist,showUSD,setShowUSD,hideVal}),h(ComparativoChart,{histMensal,idxMensal,hideVal}),insightMensalCard,h(HeatmapChart,{hist}),h(CurrencyChart,{port,cls,hideVal}),topPos);
     }
   }  // POSITIONS
   if(tab==="positions"){
