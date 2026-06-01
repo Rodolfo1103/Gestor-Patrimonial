@@ -89,7 +89,73 @@ const VB=["SELIC2031"];
 const GB=["OURO_FISICO"];
 const IMB=true; // flag indicando que IMV usa ativos custom (cadastrados pelo usuario)
 const FX={BRL:1,USD:5.01,EUR:5.7,GBP:6.8,CHF:6.1,JPY:0.034,AUD:3.25,HKD:0.64,SGD:3.85,DKK:0.76,NOK:0.49,MXN:0.26};
-const RR={fii:{r:3.5,e:7.5},acoes_br:{r:6.5,e:8.5},acoes_ext:{r:5.5,e:8.0},selic:{r:1.0,e:4.5},ouro:{r:4.0,e:5.5},bitcoin:{r:9.5,e:9.0},infra:{r:2.5,e:7.0},imoveis:{r:2.0,e:6.0},agro:{r:3.0,e:8.0}};
+// Premissas BASE de risco e retorno por classe (escala 0-10)
+// Valores ancorados em cenario Selic = 10% a.a. (normalizada)
+const RR_BASE={fii:{r:3.5,e:7.5},acoes_br:{r:6.5,e:8.5},acoes_ext:{r:5.5,e:8.0},selic:{r:1.0,e:4.5},ouro:{r:4.0,e:5.5},bitcoin:{r:9.5,e:9.0},infra:{r:2.5,e:7.0},imoveis:{r:2.0,e:6.0},agro:{r:3.0,e:8.0}};
+const SELIC_ANCORA=10;// Selic % a.a. considerada na premissa base
+// RR efetivo: comeca como base, depois eh recalibrado por Selic + IA
+// Mutavel apenas via funcao recalibrarRR (nao mutar diretamente)
+let RR={...RR_BASE};
+// Recalibra RR a partir da Selic atual e (opcional) ajustes da IA
+// Premissa: SEL tem 'e' linear na Selic; outras classes ajustam 'e' por premio de risco
+function recalibrarRR(selicAtual,ajustesIA){
+  const sel=typeof selicAtual==="number"&&selicAtual>0?selicAtual:SELIC_ANCORA;
+  const delta=sel-SELIC_ANCORA;// quanto a Selic mudou vs ancora
+  // Funcao auxiliar pra clampar entre 0.5 e 10
+  const c=(v)=>Math.max(0.5,Math.min(10,v));
+  // Selic: 'e' = 4.5 + (selic-10)*0.45 (saturando entre 1 e 10)
+  // Selic 5% -> e=2.25; Selic 10% -> e=4.5; Selic 15% -> e=6.75; Selic 20% -> e=9
+  // Risco da Selic muda pouco (titulo soberano), so leve aumento se Selic for muito alta (Selic 20 ja indica stress)
+  const novoSelE=c(RR_BASE.selic.e+delta*0.45);
+  const novoSelR=c(RR_BASE.selic.r+Math.max(0,delta-5)*0.2);
+  // Para classes de renda fixa/dividend (FII, infra, imoveis): retorno relativo cai um pouco quando Selic sobe muito (premio reduzido)
+  // Mas risco aumenta um pouco (custo de oportunidade maior, marcacao a mercado fica pior)
+  // Sensibilidade pequena - sao buy & hold de longo prazo
+  const ajusteRendaFixa=delta*0.10;// se Selic sobe 5pp, e cai 0.5; risco sobe 0.3
+  const novoFiiE=c(RR_BASE.fii.e-ajusteRendaFixa);
+  const novoFiiR=c(RR_BASE.fii.r+ajusteRendaFixa*0.6);
+  const novoInfE=c(RR_BASE.infra.e-ajusteRendaFixa);
+  const novoInfR=c(RR_BASE.infra.r+ajusteRendaFixa*0.6);
+  const novoImvE=c(RR_BASE.imoveis.e-ajusteRendaFixa*0.5);
+  const novoImvR=c(RR_BASE.imoveis.r+ajusteRendaFixa*0.3);
+  const novoAgroE=c(RR_BASE.agro.e-ajusteRendaFixa);
+  const novoAgroR=c(RR_BASE.agro.r+ajusteRendaFixa*0.5);
+  // Acoes brasileiras: Selic alta = custo de capital alto = retorno esperado cai, risco sobe (cenario macro pesa)
+  const novoBrE=c(RR_BASE.acoes_br.e-delta*0.20);
+  const novoBrR=c(RR_BASE.acoes_br.r+delta*0.15);
+  // Acoes exteriores: pouco impacto da Selic BR (diferencial cambial pode ate beneficiar com Selic alta atraindo capital)
+  const novoExtE=c(RR_BASE.acoes_ext.e);
+  const novoExtR=c(RR_BASE.acoes_ext.r);
+  // Ouro: hedge - retorno esperado pouco sensivel, risco neutro
+  const novoOuroE=c(RR_BASE.ouro.e);
+  const novoOuroR=c(RR_BASE.ouro.r);
+  // Bitcoin: classe especulativa, premissas inalteradas pela Selic
+  const novoBtcE=c(RR_BASE.bitcoin.e);
+  const novoBtcR=c(RR_BASE.bitcoin.r);
+  // Constroi novo RR
+  const novo={
+    fii:{r:novoFiiR,e:novoFiiE},
+    acoes_br:{r:novoBrR,e:novoBrE},
+    acoes_ext:{r:novoExtR,e:novoExtE},
+    selic:{r:novoSelR,e:novoSelE},
+    ouro:{r:novoOuroR,e:novoOuroE},
+    bitcoin:{r:novoBtcR,e:novoBtcE},
+    infra:{r:novoInfR,e:novoInfE},
+    imoveis:{r:novoImvR,e:novoImvE},
+    agro:{r:novoAgroR,e:novoAgroE}
+  };
+  // Sobrescreve com ajustes da IA (se fornecidos)
+  if(ajustesIA&&typeof ajustesIA==="object"){
+    Object.keys(novo).forEach(k=>{
+      if(ajustesIA[k]&&typeof ajustesIA[k]==="object"){
+        if(typeof ajustesIA[k].r==="number")novo[k].r=c(ajustesIA[k].r);
+        if(typeof ajustesIA[k].e==="number")novo[k].e=c(ajustesIA[k].e);
+      }
+    });
+  }
+  RR=novo;
+  return novo;
+}
 
 const SK_OLD="pat-v9";       // legado nao criptografado (para migracao)
 const SK_ENC="pat-v10-enc";   // novo: dados criptografados
@@ -391,7 +457,7 @@ function CurrencyChart({port,cls,hideVal}){
   );
 }
 
-function RiskChart({cw}){
+function RiskChart({cw,selicAtual,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,recalibrarRR_viaIA,calibracaoLoad,calibracaoErr,hasAjustesIA,apiKey}){
   const W=300,H=170,pL=22,pB=20,pT=12,pR=12,cW=W-pL-pR,cH=H-pB-pT;
   // Calcula posicao do portfolio agregado (media ponderada de risco e retorno)
   let totW=0,wR=0,wE=0;
@@ -401,68 +467,105 @@ function RiskChart({cw}){
     h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:4}},"Risco x Retorno esperado"),
     h("div",{style:{fontSize:9,color:"#5A5550",marginBottom:6,fontStyle:"italic"}},"Estrela dourada = portfolio (numero dentro = indice de eficiencia). Circulos = classes. Zonas tracejadas indicam faixas de eficiencia retorno/risco."),
     h("svg",{viewBox:"0 0 "+W+" "+H,style:{width:"100%",height:"auto"}},
-      // ZONAS DE EFICIENCIA: linhas tracejadas onde Retorno/Risco = constante
-      // Para cada razao (r), o ponto eh: retorno = razao * risco
-      // No grafico: y = retorno, x = risco. Linha: y/x = razao
-      // Pontos: do (0,0) ate o limite da area de plot
+      // ZONAS DE EFICIENCIA: areas sombreadas + linhas tracejadas
+      // Cada zona = setor entre duas razoes (E/R), area que vai de 0,0 ate o limite
       ...(()=>{
-        const razoes=[1.0,1.2,1.5,1.8];// limites das zonas
-        const linhas=[];
-        razoes.forEach(razao=>{
-          // Linha y = razao * x, parametrizada de x=0 a x=10
-          // Limita por max(retorno=10) tambem
-          const xMax=Math.min(10,10/razao);
-          const xPx1=pL,yPx1=pT+cH;// (0,0)
-          const xPx2=pL+(xMax/10)*cW;
-          const yRet=razao*xMax;
-          const yPx2=pT+cH-(yRet/10)*cH;
-          linhas.push(h("line",{key:"z"+razao,x1:xPx1,y1:yPx1,x2:xPx2,y2:yPx2,stroke:"rgba(255,215,0,0.15)",strokeWidth:"1",strokeDasharray:"2,3"}));
-        });
-        // Labels das zonas: posiciona perto da borda direita/superior
-        // Calcula ponto medio de cada zona pra label
+        // Definicao das zonas (razao limite inferior, razao limite superior, cor)
         const zonas=[
-          {nome:"DESFAV",cor:"#E0525266",razaoMed:0.65},
-          {nome:"EQUIL",cor:"#E8906066",razaoMed:1.1},
-          {nome:"BOA",cor:"#E8C44A66",razaoMed:1.35},
-          {nome:"OTIMA",cor:"#7AC49466",razaoMed:1.65},
-          {nome:"EXCEL",cor:"#4CAF8266",razaoMed:2.2}
+          {min:0,max:1.0,cor:"#E05252",fill:"rgba(224,82,82,0.06)",nome:"DESFAV"},
+          {min:1.0,max:1.2,cor:"#E89060",fill:"rgba(232,144,96,0.06)",nome:"EQUIL"},
+          {min:1.2,max:1.5,cor:"#E8C44A",fill:"rgba(232,196,74,0.06)",nome:"BOA"},
+          {min:1.5,max:1.8,cor:"#7AC494",fill:"rgba(122,196,148,0.06)",nome:"OTIMA"},
+          {min:1.8,max:99,cor:"#4CAF82",fill:"rgba(76,175,130,0.07)",nome:"EXCEL"}
         ];
-        zonas.forEach((z,i)=>{
-          // Posiciona o label em x=7-9 (canto direito), calcula y pela razao
-          const xRisco=8.5;
-          const yRet=Math.min(10,z.razaoMed*xRisco);
-          if(yRet<0.5||yRet>10)return;// fora da area visivel
-          const xPx=pL+(xRisco/10)*cW;
-          const yPx=pT+cH-(yRet/10)*cH;
-          linhas.push(h("text",{key:"zl"+i,x:xPx,y:yPx,textAnchor:"middle",fill:z.cor,fontSize:"6",fontFamily:"monospace",letterSpacing:"0.5",fontWeight:"bold"},z.nome));
+        const elements=[];
+        // Para cada zona, desenha um poligono delimitando a area
+        zonas.forEach((z,idx)=>{
+          // Pontos do poligono: comeca em (0,0) -> sobe pela linha de razao min ate o limite do grafico
+          // -> percorre o limite ate a linha de razao max -> volta a (0,0)
+          const pts=[];
+          pts.push(pL+","+(pT+cH));// origem (0,0) no eixo do grafico
+          // Sobe pela linha de razao min (y = min * x)
+          // Calcula onde essa linha sai do grafico (x=10 ou y=10)
+          if(z.min===0){
+            // Zona DESFAV: vai do eixo x ate a linha de razao 1.0
+            pts.push((pL+cW)+","+(pT+cH));// (10, 0)
+            // Subir pela linha de razao max ate sair
+            const xMaxLinha=Math.min(10,10/z.max);
+            const yMaxLinha=z.max*xMaxLinha;
+            pts.push((pL+(xMaxLinha/10)*cW)+","+(pT+cH-(yMaxLinha/10)*cH));
+          }else if(z.max>10){
+            // Zona EXCEL: vai da linha de razao 1.8 ate o topo
+            const xMaxMin=Math.min(10,10/z.min);
+            const yMaxMin=z.min*xMaxMin;
+            pts.push((pL+(xMaxMin/10)*cW)+","+(pT+cH-(yMaxMin/10)*cH));
+            // Vai ao topo esquerdo
+            pts.push(pL+","+pT);
+          }else{
+            // Zonas intermediarias
+            const xMaxMin=Math.min(10,10/z.min);
+            const yMaxMin=z.min*xMaxMin;
+            pts.push((pL+(xMaxMin/10)*cW)+","+(pT+cH-(yMaxMin/10)*cH));
+            const xMaxMax=Math.min(10,10/z.max);
+            const yMaxMax=z.max*xMaxMax;
+            // Se as duas linhas saem em pontos diferentes (uma em x=10, outra em y=10), pega o canto entre elas
+            if(xMaxMin>=10&&xMaxMax<10){
+              // Linha min sai em x=10, linha max sai em y=10 - precisa do canto superior direito
+              pts.push((pL+cW)+","+pT);
+            }
+            pts.push((pL+(xMaxMax/10)*cW)+","+(pT+cH-(yMaxMax/10)*cH));
+          }
+          elements.push(h("polygon",{key:"zone"+idx,points:pts.join(" "),fill:z.fill,stroke:"none"}));
         });
-        return linhas;
+        // Linhas tracejadas separando as zonas
+        [1.0,1.2,1.5,1.8].forEach(razao=>{
+          const xMax=Math.min(10,10/razao);
+          const yRet=razao*xMax;
+          elements.push(h("line",{key:"z"+razao,x1:pL,y1:pT+cH,x2:pL+(xMax/10)*cW,y2:pT+cH-(yRet/10)*cH,stroke:"rgba(255,215,0,0.20)",strokeWidth:"0.8",strokeDasharray:"3,3"}));
+        });
+        // Labels: posiciona cada um a 40% do percurso da zona (proximo ao final do gráfico)
+        const labels=[
+          {nome:"DESFAV",cor:"#E05252AA",razao:0.5,xPos:8.5},
+          {nome:"EQUIL",cor:"#E89060AA",razao:1.1,xPos:8.0},
+          {nome:"BOA",cor:"#E8C44AAA",razao:1.35,xPos:7.0},
+          {nome:"OTIMA",cor:"#7AC494AA",razao:1.65,xPos:5.8},
+          {nome:"EXCEL",cor:"#4CAF82AA",razao:2.0,xPos:4.5}
+        ];
+        labels.forEach((z,i)=>{
+          const yRet=z.razao*z.xPos;
+          if(yRet<0.5||yRet>10)return;
+          const xPx=pL+(z.xPos/10)*cW;
+          const yPx=pT+cH-(yRet/10)*cH;
+          elements.push(h("text",{key:"zl"+i,x:xPx,y:yPx,textAnchor:"middle",fill:z.cor,fontSize:"6.5",fontFamily:"monospace",letterSpacing:"1",fontWeight:"bold"},z.nome));
+        });
+        return elements;
       })(),
       // Grade sutil
       ...[0,2,4,6,8,10].map(v=>{
         const x=pL+(v/10)*cW,y=pT+cH-(v/10)*cH;
-        return h(Fragment,{key:v},h("line",{x1:x,y1:pT,x2:x,y2:pT+cH,stroke:"rgba(255,255,255,0.04)",strokeWidth:"1"}),h("line",{x1:pL,y1:y,x2:pL+cW,y2:y,stroke:"rgba(255,255,255,0.04)",strokeWidth:"1"}));
+        return h(Fragment,{key:v},h("line",{x1:x,y1:pT,x2:x,y2:pT+cH,stroke:"rgba(255,255,255,0.03)",strokeWidth:"1"}),h("line",{x1:pL,y1:y,x2:pL+cW,y2:y,stroke:"rgba(255,255,255,0.03)",strokeWidth:"1"}));
       }),
       h("text",{x:pL+cW/2,y:H-3,textAnchor:"middle",fill:"#4A4840",fontSize:"7"},"risco ->"),
       h("text",{x:8,y:pT+cH/2,textAnchor:"middle",fill:"#4A4840",fontSize:"7",transform:"rotate(-90,8,"+(pT+cH/2)+")"},"retorno ->"),
-      // Circulos das classes (transparentes para destacar a estrela)
+      // Circulos das classes - bem translucidos com tag dentro
       ...CL.map(c=>{
         const p=RR[c.id];if(!p)return null;
         const w=cw[c.id]||0,cx=pL+(p.r/10)*cW,cy=pT+cH-(p.e/10)*cH;
         const r=w>0?Math.max(Math.sqrt(w)*3.2,7):4;
-        // Reduzir opacidade pra destacar a estrela do portfolio
-        const op=w>0?.40:.10;
-        const opLabel=w>0?.85:.3;
+        // Bem transparente (fill e borda na mesma opacidade)
+        const op=w>0?.22:.08;
+        // Calibra fontSize do tag pra caber dentro do circulo
+        const fs=Math.max(5,Math.min(9,r*0.55));
         return h(Fragment,{key:c.id},
-          h("circle",{cx,cy,r,fill:c.color,fillOpacity:op,stroke:c.color,strokeWidth:"1.5",strokeOpacity:opLabel}),
-          w>0&&h("text",{x:cx,y:cy+3,textAnchor:"middle",fill:"#0D0F14",fontSize:"6.5",fontWeight:"bold",opacity:"0.85"},w.toFixed(0)+"%"),
-          w>0&&h("text",{x:cx,y:cy-r-3,textAnchor:"middle",fill:c.color,fontSize:"8",opacity:"0.75"},c.tag)
+          h("circle",{cx,cy,r,fill:c.color,fillOpacity:op,stroke:c.color,strokeWidth:"1.2",strokeOpacity:op}),
+          // Tag da classe DENTRO do circulo (substitui a porcentagem)
+          w>0&&h("text",{x:cx,y:cy+fs*0.35,textAnchor:"middle",fill:c.color,fontSize:fs.toFixed(1),fontWeight:"bold",fontFamily:"monospace",opacity:"0.85"},c.tag)
         );
       }),
-      // Marcador do portfolio agregado (estrela dourada DESTACADA com indice dentro)
+      // Marcador do portfolio agregado (estrela dourada destacada)
       portR!==null&&(()=>{
         const cx=pL+(portR/10)*cW,cy=pT+cH-(portE/10)*cH;
-        // Estrela maior pra acomodar o numero do indice de eficiencia
+        // Estrela maior para destacar e acomodar o numero
         const star=[];
         for(let i=0;i<10;i++){
           const ang=(Math.PI/5)*i-Math.PI/2;
@@ -471,16 +574,14 @@ function RiskChart({cw}){
         }
         const ratio=portE/portR;
         return h(Fragment,{key:"port"},
-          // Halo brilhante de fundo pra destacar
-          h("circle",{cx,cy,r:"18",fill:"#FFD700",fillOpacity:"0.08"}),
+          // Halo brilhante de fundo
+          h("circle",{cx,cy,r:"18",fill:"#FFD700",fillOpacity:"0.10"}),
           h("polygon",{points:star.join(" "),fill:"#FFD700",fillOpacity:0.98,stroke:"#0D0F14",strokeWidth:"1.8"}),
           h("title",{},"Portfolio agregado - Risco "+portR.toFixed(1)+"/10 | Retorno esperado "+portE.toFixed(1)+"/10 | Eficiencia "+ratio.toFixed(2)),
-          // Indice de eficiencia no centro da estrela (preto)
-          h("text",{x:cx,y:cy+3,textAnchor:"middle",fill:"#0D0F14",fontSize:"9",fontWeight:"bold",fontFamily:"monospace"},ratio.toFixed(2)),
+          // Indice de eficiencia dentro da estrela (menor para caber)
+          h("text",{x:cx,y:cy+1.5,textAnchor:"middle",fill:"#0D0F14",fontSize:"6",fontWeight:"bold",fontFamily:"monospace"},ratio.toFixed(2)),
           // Label PORT acima
-          h("text",{x:cx,y:cy-19,textAnchor:"middle",fill:"#FFD700",fontSize:"8.5",fontWeight:"bold",stroke:"#0D0F14",strokeWidth:"0.5",paintOrder:"stroke"},"PORT"),
-          // Risco e Retorno abaixo
-          h("text",{x:cx,y:cy+27,textAnchor:"middle",fill:"#FFD700",fontSize:"7",fontFamily:"monospace",fontWeight:"bold"},"risco "+portR.toFixed(1)+" \u00b7 retorno "+portE.toFixed(1))
+          h("text",{x:cx,y:cy-19,textAnchor:"middle",fill:"#FFD700",fontSize:"8.5",fontWeight:"bold",stroke:"#0D0F14",strokeWidth:"0.5",paintOrder:"stroke"},"PORT")
         );
       })(),
       h("line",{x1:pL,y1:pT+cH,x2:pL+cW,y2:pT+cH,stroke:"rgba(255,255,255,0.1)",strokeWidth:"1"}),
@@ -563,6 +664,113 @@ function RiskChart({cw}){
             h("div",{style:{display:"flex",alignItems:"baseline",gap:4}},h("span",{style:{fontSize:14,color:retColor,fontWeight:700}},portE.toFixed(1)),h("span",{style:{fontSize:9,color:"#5A5550"}},"/10"),h("span",{style:{fontSize:9,color:retColor,marginLeft:4}},retTxt))
           )
         ),
+        // === BARRA DE CALIBRACAO COM DIAGNOSTICO DE AFERICAO ===
+        (()=>{
+          // Calcula status e sugestao de proxima recalibragem
+          const agora=Date.now();
+          const ms_dia=86400000;
+          let diasDesde=null,mesesDesde=null;
+          if(typeof calibracaoRR_TS==="number"){
+            diasDesde=Math.floor((agora-calibracaoRR_TS)/ms_dia);
+            mesesDesde=diasDesde/30;
+          }
+          // Mudanca de Selic desde a calibragem
+          let deltaSelic=null;
+          if(typeof calibracaoRR_selic==="number"&&typeof selicAtual==="number"){
+            deltaSelic=Math.abs(selicAtual-calibracaoRR_selic);
+          }
+          // Determina status combinando tempo + delta Selic
+          let statusKey,statusTxt,statusCor,statusBg,statusBorda,sugestao;
+          if(!hasAjustesIA||!calibracaoRR_TS){
+            statusKey="nunca";
+            statusTxt="Nao calibrado";
+            statusCor="#A0A0A0";
+            statusBg="rgba(160,160,160,0.06)";
+            statusBorda="rgba(160,160,160,0.25)";
+            sugestao="Use 'recalibrar IA' para ancorar as premissas no cenario macro atual. Sem calibragem, o app opera apenas com a base + ajuste por Selic dinamica.";
+          }else if((diasDesde<60)&&(deltaSelic===null||deltaSelic<0.5)){
+            statusKey="atualizado";
+            statusTxt="Premissas atualizadas";
+            statusCor="#4CAF82";
+            statusBg="rgba(76,175,130,0.06)";
+            statusBorda="rgba(76,175,130,0.25)";
+            const proxData=new Date(calibracaoRR_TS+90*ms_dia);
+            sugestao="Premissas recentes e Selic estavel. Proxima reavaliacao sugerida em ~"+proxData.toLocaleDateString("pt-BR",{day:"2-digit",month:"short",year:"2-digit"})+" ("+Math.max(0,Math.round(90-diasDesde))+" dias) ou se houver virada estrutural no cenario.";
+          }else if((diasDesde<120)&&(deltaSelic===null||deltaSelic<1.5)){
+            statusKey="vigente";
+            statusTxt="Premissas vigentes";
+            statusCor="#7AC494";
+            statusBg="rgba(122,196,148,0.06)";
+            statusBorda="rgba(122,196,148,0.25)";
+            sugestao="Premissas ainda valem, mas considere recalibrar nos proximos 30-60 dias para refrescar o cenario. Sem urgencia."+(deltaSelic!==null?" Selic variou "+deltaSelic.toFixed(2)+"pp desde a ultima.":"");
+          }else if((diasDesde<180)&&(deltaSelic===null||deltaSelic<3)){
+            statusKey="atencao";
+            statusTxt="Recalibragem recomendada";
+            statusCor="#E8C44A";
+            statusBg="rgba(232,196,74,0.07)";
+            statusBorda="rgba(232,196,74,0.30)";
+            const motivo=diasDesde>=120?Math.round(mesesDesde)+" meses desde a ultima aferição":"Selic variou "+deltaSelic.toFixed(2)+"pp desde a ultima";
+            sugestao=motivo+". Recomendado recalibrar para capturar mudancas estruturais no cenario.";
+          }else{
+            statusKey="urgente";
+            statusTxt="Recalibragem urgente";
+            statusCor="#E89060";
+            statusBg="rgba(232,144,96,0.08)";
+            statusBorda="rgba(232,144,96,0.35)";
+            const motivos=[];
+            if(diasDesde>=180)motivos.push(Math.round(mesesDesde)+" meses sem calibragem");
+            if(deltaSelic!==null&&deltaSelic>=3)motivos.push("Selic variou "+deltaSelic.toFixed(2)+"pp");
+            sugestao=motivos.join(" + ")+". Premissas provavelmente defasadas do cenario macro vigente. Recalibre agora.";
+          }
+          // Formata datas
+          const dataCalibracao=calibracaoRR_TS?new Date(calibracaoRR_TS).toLocaleDateString("pt-BR",{day:"2-digit",month:"short",year:"2-digit"}):null;
+          const tempoCalibracao=diasDesde!==null?(diasDesde===0?"hoje":diasDesde===1?"ontem":diasDesde<30?"ha "+diasDesde+" dias":mesesDesde<2?"ha 1 mes":"ha "+Math.round(mesesDesde)+" meses"):null;
+          // Renderiza
+          return h("div",{style:{marginBottom:9,padding:"8px 11px",background:statusBg,border:"1px solid "+statusBorda,borderRadius:6,fontFamily:"monospace"}},
+            // Linha 1: Status + botão
+            h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,flexWrap:"wrap",marginBottom:6}},
+              h("div",{style:{display:"flex",alignItems:"center",gap:6}},
+                h("span",{style:{width:7,height:7,borderRadius:"50%",background:statusCor,display:"inline-block",boxShadow:"0 0 6px "+statusCor+"66"}}),
+                h("span",{style:{fontSize:9,color:statusCor,fontWeight:700,letterSpacing:1,textTransform:"uppercase"}},statusTxt)
+              ),
+              h("button",{onClick:recalibrarRR_viaIA,disabled:calibracaoLoad||!apiKey,title:apiKey?"Pede a IA Claude para reavaliar as premissas com base no cenario macro atual":"Cadastre sua chave API no botao API acima",style:{background:apiKey?"rgba(255,215,0,0.10)":"rgba(255,255,255,0.03)",border:"1px solid "+(apiKey?"rgba(255,215,0,0.30)":"rgba(255,255,255,0.10)"),borderRadius:4,color:apiKey?"#E8C44A":"#5A5550",fontSize:8,padding:"3px 9px",cursor:calibracaoLoad?"not-allowed":apiKey?"pointer":"not-allowed",fontFamily:"monospace",letterSpacing:1,fontWeight:700}},calibracaoLoad?"calibrando...":"recalibrar IA")
+            ),
+            // Linha 2: Métricas em grid (Selic atual / Aferição / Variação Selic)
+            h("div",{style:{display:"flex",gap:14,flexWrap:"wrap",fontSize:9,paddingTop:4,borderTop:"1px dashed rgba(255,255,255,0.06)"}},
+              // Selic atual
+              h("div",{style:{display:"flex",flexDirection:"column"}},
+                h("span",{style:{fontSize:7,color:"#7A7570",letterSpacing:1}},"SELIC ATUAL"),
+                h("span",{style:{color:"#5B8FD4",fontWeight:700,fontSize:10}},typeof selicAtual==="number"?selicAtual.toFixed(2)+"%":"--")
+              ),
+              // Ultima afericao
+              h("div",{style:{display:"flex",flexDirection:"column"}},
+                h("span",{style:{fontSize:7,color:"#7A7570",letterSpacing:1}},"ULTIMA AFERICAO"),
+                dataCalibracao
+                  ? h("div",{style:{display:"flex",flexDirection:"column"}},
+                      h("span",{style:{color:"#C8C0B0",fontWeight:700,fontSize:10}},dataCalibracao),
+                      h("span",{style:{color:"#7A7570",fontSize:8,fontStyle:"italic"}},tempoCalibracao+(typeof calibracaoRR_selic==="number"?" \u00b7 Selic "+calibracaoRR_selic.toFixed(2)+"%":""))
+                    )
+                  : h("span",{style:{color:"#7A7570",fontStyle:"italic"}},"nunca calibrado")
+              ),
+              // Delta Selic
+              deltaSelic!==null&&h("div",{style:{display:"flex",flexDirection:"column"}},
+                h("span",{style:{fontSize:7,color:"#7A7570",letterSpacing:1}},"\u0394 SELIC"),
+                h("span",{style:{color:deltaSelic>=3?"#E89060":deltaSelic>=1.5?"#E8C44A":deltaSelic>=0.5?"#7AC494":"#4CAF82",fontWeight:700,fontSize:10}},(selicAtual>calibracaoRR_selic?"+":selicAtual<calibracaoRR_selic?"-":"")+deltaSelic.toFixed(2)+"pp")
+              )
+            ),
+            // Linha 3: Sugestao
+            h("div",{style:{marginTop:7,paddingTop:6,borderTop:"1px dashed rgba(255,255,255,0.06)",fontSize:9,color:"#B0A890",lineHeight:1.5}},
+              h("span",{style:{color:statusCor,fontWeight:700,letterSpacing:1,fontSize:8,marginRight:5}},"SUGESTAO:"),
+              sugestao
+            )
+          );
+        })(),
+        // Erro ou explicacao da ultima calibracao IA
+        calibracaoErr&&h("div",{style:{fontSize:9,color:"#E05252",fontStyle:"italic",marginBottom:8,padding:"5px 8px",background:"rgba(224,82,82,0.05)",border:"1px solid rgba(224,82,82,0.2)",borderRadius:4}},"Erro: "+calibracaoErr),
+        hasAjustesIA&&calibracaoRR_texto&&h("div",{style:{fontSize:9,color:"#A0B8D4",fontStyle:"italic",marginBottom:8,padding:"5px 8px",background:"rgba(91,143,212,0.05)",border:"1px solid rgba(91,143,212,0.15)",borderRadius:4,lineHeight:1.5}},
+          h("span",{style:{color:"#5B8FD4",fontWeight:700,letterSpacing:1,fontFamily:"monospace",fontSize:8}},"IA: "),
+          calibracaoRR_texto
+        ),
         // Diagnostico textual em linhas
         ...linhas.map((l,i)=>h("div",{key:i,style:{display:"flex",gap:7,marginBottom:i===linhas.length-1?0:5,fontSize:10,lineHeight:1.5}},
           h("span",{style:{minWidth:80,color:"#8A7050",fontFamily:"monospace",fontSize:8,letterSpacing:1,paddingTop:2}},l.label.toUpperCase()),
@@ -598,7 +806,101 @@ function RiskChart({cw}){
             h("span",{style:{fontSize:8,color:ratio>=1.5&&ratio<1.8?"#0D0F14":"#7AC494",background:ratio>=1.5&&ratio<1.8?"#7AC494":"transparent",border:"1px solid #7AC49455",borderRadius:3,padding:"1px 5px",fontFamily:"monospace",fontWeight:ratio>=1.5&&ratio<1.8?700:400}},"1.5-1.8 otima"),
             h("span",{style:{fontSize:8,color:ratio>=1.8?"#0D0F14":"#4CAF82",background:ratio>=1.8?"#4CAF82":"transparent",border:"1px solid #4CAF8255",borderRadius:3,padding:"1px 5px",fontFamily:"monospace",fontWeight:ratio>=1.8?700:400}},"1.8+ excel")
           )
-        )
+        ),
+        // === ESTRATEGIA DE EVOLUCAO DO INDICE ===
+        (()=>{
+          // Calcula razao E/R de cada classe e classifica
+          // Tambem considera bandas-alvo e composicao atual
+          const analise=[];
+          CL.forEach(c=>{
+            const p=RR[c.id];if(!p||p.r<=0)return;
+            const razaoClasse=p.e/p.r;
+            const pesoAtual=cw[c.id]||0;
+            const dentroBanda=pesoAtual>=c.min&&pesoAtual<=c.max;
+            const abaixoBanda=pesoAtual<c.min;
+            const acimaBanda=pesoAtual>c.max;
+            // "Espaco" disponivel para aumentar/reduzir respeitando banda
+            const espacoSubir=Math.max(0,c.max-pesoAtual);
+            const espacoDescer=Math.max(0,pesoAtual-c.min);
+            analise.push({
+              tag:c.tag,nome:c.name,cor:c.color,id:c.id,
+              razao:razaoClasse,peso:pesoAtual,min:c.min,max:c.max,
+              dentroBanda,abaixoBanda,acimaBanda,espacoSubir,espacoDescer,
+              // Comparativo com o ratio global do portfolio
+              alavancadora:razaoClasse>ratio,lastradora:razaoClasse<ratio
+            });
+          });
+          // Alavancadoras: razao > ratio atual, com espaco pra subir e ainda dentro/abaixo da banda
+          const alavancadoras=analise
+            .filter(a=>a.alavancadora&&a.espacoSubir>0.5)
+            .sort((a,b)=>b.razao-a.razao);
+          // Lastradoras: razao < ratio, e estao acima da banda ou perto do max
+          const lastradoras=analise
+            .filter(a=>a.lastradora&&a.peso>=a.min)
+            .sort((a,b)=>a.razao-b.razao);
+          // Calcula meta: se ratio<1.8, mostrar como subir; se >=1.8, mostrar como manter
+          const metaExcel=ratio<1.8;
+          const gap=1.8-ratio;
+          // Simula um aporte tipico (5% do patrimonio em alavancadoras + reducao 1pp em lastradoras)
+          // para mostrar impacto estimado no ratio
+          let novoR=portR,novoE=portE,novoRatio=ratio;
+          if(alavancadoras.length>0){
+            const top=alavancadoras[0];
+            // Simula adicionar 2pp em cima (limite da banda) - calcula novo ratio
+            const aumento=Math.min(2,top.espacoSubir);
+            // Novo total nao muda (assumindo redistribuicao interna)
+            // Simulamos: tira 'aumento' pp de proporcionalmente das lastradoras
+            let totLastr=lastradoras.reduce((s,l)=>s+l.peso,0);
+            if(totLastr>0&&aumento>0){
+              const dWR=aumento*(RR[top.id].r-(lastradoras.reduce((s,l)=>s+l.peso*RR[l.id].r,0)/totLastr));
+              const dWE=aumento*(RR[top.id].e-(lastradoras.reduce((s,l)=>s+l.peso*RR[l.id].e,0)/totLastr));
+              novoR=portR+dWR/100;
+              novoE=portE+dWE/100;
+              novoRatio=novoR>0?novoE/novoR:ratio;
+            }
+          }
+          const deltaRatio=novoRatio-ratio;
+          // Constroi texto da estrategia
+          const linhasEstr=[];
+          if(metaExcel){
+            // Como subir o indice
+            linhasEstr.push({label:"Meta",valor:"Levar indice de "+ratio.toFixed(2)+" para >= 1.80 (zona EXCEL). Distancia: "+gap.toFixed(2)+" pontos."});
+          }else{
+            linhasEstr.push({label:"Meta",valor:"Manter indice acima de 1.80 (zona EXCEL atual: "+ratio.toFixed(2)+"). Foco em preservar a eficiencia."});
+          }
+          // Direcionamento de aportes
+          if(alavancadoras.length>0){
+            const top3=alavancadoras.slice(0,3);
+            const lista=top3.map(a=>a.tag+" ("+a.razao.toFixed(2)+(a.abaixoBanda?", "+(a.min-a.peso).toFixed(1)+"pp abaixo do minimo":a.dentroBanda?", "+a.espacoSubir.toFixed(1)+"pp ate o maximo":"")+")").join("; ");
+            linhasEstr.push({label:"Priorizar",valor:"Direcione proximos aportes para classes com razao E/R alta: "+lista+"."});
+          }
+          // Lastradoras (informativo, sem vender)
+          if(lastradoras.length>0){
+            const piores=lastradoras.slice(0,2).map(l=>l.tag+" ("+l.razao.toFixed(2)+")").join(" e ");
+            linhasEstr.push({label:"Desacelerar",valor:"Reduza aportes (zero vendas) em "+piores+" - razao E/R abaixo da media do portfolio. Deixe o tempo e os aportes nas outras classes reequilibrarem."});
+          }
+          // Simulacao
+          if(deltaRatio>0.005){
+            const corImpacto=novoRatio>=1.8?"#4CAF82":novoRatio>=1.5?"#7AC494":"#E8C44A";
+            linhasEstr.push({label:"Simulacao",valor:"Mover 2pp do peso para "+alavancadoras[0].tag+" eleva o indice para ~"+novoRatio.toFixed(2)+" (+"+(deltaRatio*100).toFixed(0)+" centavos). "+(novoRatio>=1.8?"Atingiria zona EXCEL.":novoRatio>=1.5?"Mantem zona OTIMA, aproximando do limite.":"Movimento na direcao certa.")});
+          }
+          // Disciplina geral
+          if(metaExcel){
+            linhasEstr.push({label:"Disciplina",valor:"Buy & Hold: nao vender, apenas redirecionar aportes mensais nas classes alavancadoras dentro de suas bandas-alvo. Quality at a reasonable price - nao sacrificar qualidade dos ativos pela razao matematica."});
+          }else{
+            linhasEstr.push({label:"Disciplina",valor:"Indice ja em zona EXCEL. Continue alocando dentro das bandas-alvo. Eficiencia preservada quando aportes respeitam as bandas; quedas naturais ocorrem se classes de menor razao crescerem desproporcionalmente."});
+          }
+          return h("div",{style:{marginTop:11,paddingTop:10,borderTop:"1px solid rgba(255,215,0,0.12)"}},
+            h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:7,gap:8,flexWrap:"wrap"}},
+              h("div",{style:{fontSize:8,color:"#FFD700",fontFamily:"monospace",letterSpacing:2,fontWeight:700}},metaExcel?"\u2197 ESTRATEGIA: ELEVAR INDICE PARA EXCEL":"\u2713 ESTRATEGIA: MANTER INDICE EM EXCEL"),
+              metaExcel&&h("div",{style:{fontSize:9,color:"#E8C44A",fontFamily:"monospace",fontWeight:700}},ratio.toFixed(2)+" \u2192 1.80")
+            ),
+            ...linhasEstr.map((l,i)=>h("div",{key:i,style:{display:"flex",gap:7,marginBottom:i===linhasEstr.length-1?0:5,fontSize:10,lineHeight:1.5}},
+              h("span",{style:{minWidth:80,color:"#A89070",fontFamily:"monospace",fontSize:8,letterSpacing:1,paddingTop:2}},l.label.toUpperCase()),
+              h("span",{style:{color:"#C0B8A8",flex:1}},l.valor)
+            ))
+          );
+        })()
       );
     })()
   );
@@ -1102,6 +1404,13 @@ function App(){
   const [idxMensal,setIdxMensal]=useState({});
   // Insight mensal IA: {mes:"YYYY-MM", texto:"...", ts:123456}
   const [insightMensal,setInsightMensal]=useState(null);
+  // Selic atual buscada do BCB (taxa de meta - serie 432)
+  const [selicAtual,setSelicAtual]=useState(null);
+  // Ajustes IA dos scores de risco/retorno por classe (sobrescreve a recalibracao por Selic)
+  const [ajustesRR_IA,setAjustesRR_IA]=useState(null);// {fii:{r,e},acoes_br:{r,e},...}
+  const [calibracaoRR_TS,setCalibracaoRR_TS]=useState(null);// timestamp da ultima calibracao IA
+  const [calibracaoRR_texto,setCalibracaoRR_texto]=useState("");// explicacao da IA sobre os ajustes
+  const [calibracaoRR_selic,setCalibracaoRR_selic]=useState(null);// Selic registrada no momento da calibracao
   const [btcUsd,setBtcUsd]=useState(null);
   const [btcTs,setBtcTs]=useState(null);
   const [btcVar,setBtcVar]=useState(null);
@@ -1312,6 +1621,11 @@ function App(){
         if(Array.isArray(dd.histMensal))setHistMensal(dd.histMensal);
         if(dd.idxMensal&&typeof dd.idxMensal==="object")setIdxMensal(dd.idxMensal);
         if(dd.insightMensal&&typeof dd.insightMensal==="object")setInsightMensal(dd.insightMensal);
+        if(typeof dd.selicAtual==="number"&&dd.selicAtual>0)setSelicAtual(dd.selicAtual);
+        if(dd.ajustesRR_IA&&typeof dd.ajustesRR_IA==="object")setAjustesRR_IA(dd.ajustesRR_IA);
+        if(typeof dd.calibracaoRR_TS==="number")setCalibracaoRR_TS(dd.calibracaoRR_TS);
+        if(typeof dd.calibracaoRR_texto==="string")setCalibracaoRR_texto(dd.calibracaoRR_texto);
+        if(typeof dd.calibracaoRR_selic==="number")setCalibracaoRR_selic(dd.calibracaoRR_selic);
         Object.entries(dd.custom||{}).forEach(([,list])=>{(list||[]).forEach(a=>{
           BCCY[a.ticker]=a.ccy||"BRL";
           if(a.label&&a.label!==a.ticker&&!NAMES[a.ticker])NAMES[a.ticker]=a.label;
@@ -1349,12 +1663,12 @@ function App(){
     if(!inited||!aesKey)return;
     (async()=>{
       try{
-        const obj={port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,fx:{...FX},btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,infIPCA,infIGPM,infINCC,infCPI};
+        const obj={port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,selicAtual,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,fx:{...FX},btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,infIPCA,infIGPM,infINCC,infCPI};
         const enc=await aesEncrypt(aesKey,obj);
         localStorage.setItem(SK_ENC,enc);
       }catch(e){}
     })();
-  },[port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,infIPCA,infIGPM,infINCC,infCPI,inited,aesKey]);
+  },[port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,selicAtual,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,infIPCA,infIGPM,infINCC,infCPI,inited,aesKey]);
 
   // Auto-lock por inatividade (15 min)
   useEffect(()=>{
@@ -1581,6 +1895,38 @@ function App(){
         }
       }catch(e){}
     })();
+    // Busca Selic atual (meta - serie 432) e recalibra RR
+    (async()=>{
+      await new Promise(r=>setTimeout(r,3000));
+      if(cancelado)return;
+      const proxies=[
+        u=>"https://corsproxy.io/?url="+encodeURIComponent(u),
+        u=>"https://api.allorigins.win/raw?url="+encodeURIComponent(u),
+        u=>"https://api.codetabs.com/v1/proxy/?quest="+encodeURIComponent(u)
+      ];
+      // BCB serie 432: Meta da taxa Selic (% a.a.)
+      const url="https://api.bcb.gov.br/dados/serie/bcdata.sgs.432/dados/ultimos/1?formato=json";
+      for(const mk of proxies){
+        if(cancelado)return;
+        try{
+          const ctrl=new AbortController();
+          const tid=setTimeout(()=>ctrl.abort(),7000);
+          const r=await fetch(mk(url),{signal:ctrl.signal});
+          clearTimeout(tid);
+          if(!r.ok)continue;
+          const text=await r.text();
+          if(!text||text.toLowerCase().includes("host not in allowlist"))continue;
+          const d=JSON.parse(text);
+          if(Array.isArray(d)&&d.length>0){
+            const v=parseFloat(String(d[0].valor).replace(",","."));
+            if(v>0&&v<50){
+              if(!cancelado)setSelicAtual(v);
+              break;
+            }
+          }
+        }catch(e){continue;}
+      }
+    })();
     // Busca series mensais dos indices comparativos
     (async()=>{
       await new Promise(r=>setTimeout(r,4500));
@@ -1690,6 +2036,14 @@ function App(){
     })();
     return()=>{cancelado=true;};
   },[inited]);
+
+  // Recalibra RR (premissas de risco/retorno) sempre que Selic ou ajustes IA mudam
+  // Forca re-render via rrTick (RR eh global mutavel)
+  const [rrTick,setRrTick]=useState(0);
+  useEffect(()=>{
+    recalibrarRR(selicAtual,ajustesRR_IA);
+    setRrTick(t=>t+1);
+  },[selicAtual,ajustesRR_IA]);
 
   const {ccy,cls,lbl}=mkL(custom);
   const allT=useCallback((cid)=>[...(BASE[cid]||[]),...(custom[cid]||[]).map(a=>a.ticker)],[custom]);
@@ -2390,6 +2744,59 @@ function App(){
   // Loading state
   const [insightMensalLoad,setInsightMensalLoad]=useState(false);
   const [insightMensalErr,setInsightMensalErr]=useState("");
+  // Recalibracao IA das premissas de risco/retorno (sob demanda do usuario)
+  const [calibracaoLoad,setCalibracaoLoad]=useState(false);
+  const [calibracaoErr,setCalibracaoErr]=useState("");
+  const recalibrarRR_viaIA=useCallback(async()=>{
+    if(!apiKey){setCalibracaoErr("Cadastre sua chave API Anthropic (botao API).");return;}
+    if(calibracaoLoad)return;
+    setCalibracaoLoad(true);setCalibracaoErr("");
+    try{
+      const dadosContexto={
+        selic_atual_pct:selicAtual,
+        ipca_12m:infIPCA?infIPCA.valor:null,
+        igpm_12m:infIGPM?infIGPM.valor:null,
+        cpi_eua_12m:infCPI?infCPI.valor:null,
+        usd_brl:FX.USD,
+        btc_usd:btcUsd,
+        ouro_brl_grama:xauBrl,
+        premissas_atuais:RR
+      };
+      const prompt="Voce eh um estrategista de portfolio Buy&Hold para aposentadoria, foco em qualidade a preco razoavel. Vou te passar o cenario macro atual brasileiro e as premissas atuais de risco e retorno esperado (escala 0-10) por classe. Reavalie e proponha NOVOS scores que reflitam o cenario macro vigente, considerando:\\n\\n"+
+        "CENARIO ATUAL:\\n"+JSON.stringify(dadosContexto,null,2)+"\\n\\n"+
+        "CONTEXTO ANALITICO:\\n"+
+        "- selic eh meta atual (% a.a.). Selic alta = renda fixa mais atrativa; renda variavel pressionada (custo de capital alto); FIIs sofrem por marcacao a mercado mas premio de DY pode ser atrativo.\\n"+
+        "- IPCA e IGP-M = inflacao 12m, refletem pressao de precos no Brasil. Inflacao alta favorece IMA-B, IPCA+ e ativos reais (imoveis, agro).\\n"+
+        "- CPI EUA = inflacao americana, influencia juros do FED e BTC.\\n"+
+        "- BTC USD = se em alta, momento favoravel; em queda profunda, oportunidade ou risco aumentado.\\n"+
+        "- Ouro: hedge cambial e geopolitico.\\n\\n"+
+        "REGRAS RIGIDAS:\\n"+
+        "1. Score r (risco) e e (retorno esperado) em escala 0-10, decimal permitido.\\n"+
+        "2. Mudancas devem ser FUNDAMENTADAS pelo cenario, nao opinioes pessoais.\\n"+
+        "3. Mantenha logica relativa: BTC continua sendo classe de maior risco; SEL continua a de menor risco; FII tem retorno moderado-alto via DY; etc.\\n"+
+        "4. Buy&Hold de longo prazo: nao reaja a movimentos de curto prazo. Atualize premissas estruturais.\\n"+
+        "5. Sem markdown. Sem texto extra. APENAS JSON valido:\\n"+
+        "{\"ajustes\":{\"fii\":{\"r\":3.5,\"e\":7.5},\"acoes_br\":{\"r\":6.5,\"e\":8.5},\"acoes_ext\":{\"r\":5.5,\"e\":8.0},\"selic\":{\"r\":1.0,\"e\":4.5},\"ouro\":{\"r\":4.0,\"e\":5.5},\"bitcoin\":{\"r\":9.5,\"e\":9.0},\"infra\":{\"r\":2.5,\"e\":7.0},\"imoveis\":{\"r\":2.0,\"e\":6.0},\"agro\":{\"r\":3.0,\"e\":8.0}},\"explicacao\":\"Texto curto (max 60 palavras) explicando por que os scores foram ajustados conforme o cenario macro.\"}";
+      const txt=await callAPI([{role:"user",content:prompt}],apiKey);
+      // Tenta extrair JSON da resposta
+      let parsed;
+      try{
+        parsed=JSON.parse(txt);
+      }catch(e1){
+        // Tenta extrair JSON entre as primeiras e ultimas chaves
+        const m=txt.match(/\{[\s\S]*\}/);
+        if(m)parsed=JSON.parse(m[0]);
+        else throw new Error("Resposta nao eh JSON valido");
+      }
+      if(!parsed||!parsed.ajustes)throw new Error("Resposta sem campo 'ajustes'");
+      setAjustesRR_IA(parsed.ajustes);
+      setCalibracaoRR_TS(Date.now());
+      setCalibracaoRR_texto(parsed.explicacao||"");
+      setCalibracaoRR_selic(typeof selicAtual==="number"?selicAtual:null);
+    }catch(e){setCalibracaoErr(e.message||"Erro na calibracao");}
+    setCalibracaoLoad(false);
+  },[apiKey,selicAtual,infIPCA,infIGPM,infCPI,btcUsd,xauBrl,calibracaoLoad,rrTick]);
+
   const genInsightMensal=useCallback(async(mesAlvo,forcar)=>{
     if(!apiKey||insightMensalLoad)return;
     if(!Array.isArray(histMensal)||histMensal.length<2)return;
@@ -2783,7 +3190,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         insightMensal&&insightMensal.texto?h("div",{style:{fontSize:11,color:"#C8C0B0",lineHeight:1.7,whiteSpace:"pre-wrap"}},insightMensal.texto):
         h("div",{style:{fontSize:11,color:"#7A7570",fontStyle:"italic"}},"Sera gerado automaticamente no fechamento do proximo mes. Ou clique em atualizar para forcar agora.")
       ):null;
-      content=h("div",{},cards,aporteCard,insightCard,h(AllocChart,{cw}),h(CompareChart,{cw}),h(RiskChart,{cw}),h(EvolChart,{histMensal,hist,showUSD,setShowUSD,hideVal}),h(ComparativoChart,{histMensal,idxMensal,hideVal}),insightMensalCard,h(HeatmapChart,{hist}),h(CurrencyChart,{port,cls,hideVal}),topPos);
+      content=h("div",{},cards,aporteCard,insightCard,h(AllocChart,{cw}),h(CompareChart,{cw}),h(RiskChart,{cw,selicAtual,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,recalibrarRR_viaIA,calibracaoLoad,calibracaoErr,hasAjustesIA:!!ajustesRR_IA,apiKey}),h(EvolChart,{histMensal,hist,showUSD,setShowUSD,hideVal}),h(ComparativoChart,{histMensal,idxMensal,hideVal}),insightMensalCard,h(HeatmapChart,{hist}),h(CurrencyChart,{port,cls,hideVal}),topPos);
     }
   }  // POSITIONS
   if(tab==="positions"){
