@@ -1593,13 +1593,15 @@ function App(){
           return {...prev,[cid]:arr};
         });
         if(info.ccy)BCCY[ticker]=info.ccy;
-        // Se a fonte retornou tambem o preco, grava no portfolio (preservando qty)
+        // Se a fonte retornou tambem o preco, grava no portfolio E atualiza o campo da UI
         let msgExtra="";
         if(info.preco>0){
           setPort(prev=>{
             const cur=prev[ticker]||{};
             return {...prev,[ticker]:{...cur,classId:cur.classId||cid,price:info.preco}};
           });
+          // Atualiza tambem o campo de cotacao exibido na tela de edicao
+          setEPrice(String(info.preco.toFixed(2)).replace(".",","));
           msgExtra=" - cotacao R$ "+info.preco.toFixed(2);
         }
         setRefreshMsg("OK: "+info.nome+(info.ccy?" ("+info.ccy+")":"")+msgExtra);
