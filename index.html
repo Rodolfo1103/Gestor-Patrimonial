@@ -458,14 +458,14 @@ function CurrencyChart({port,cls,hideVal}){
 }
 
 function RiskChart({cw,selicAtual,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,recalibrarRR_viaIA,calibracaoLoad,calibracaoErr,hasAjustesIA,apiKey}){
-  const W=300,H=170,pL=22,pB=18,pT=12,pR=12,cW=W-pL-pR,cH=H-pB-pT;
+  const W=300,H=170,pL=22,pB=18,pT=18,pR=12,cW=W-pL-pR,cH=H-pB-pT;
   // Calcula posicao do portfolio agregado (media ponderada de risco e retorno)
   let totW=0,wR=0,wE=0;
   CL.forEach(c=>{const p=RR[c.id],w=cw[c.id]||0;if(p&&w>0){totW+=w;wR+=p.r*w;wE+=p.e*w;}});
   const portR=totW>0?wR/totW:null,portE=totW>0?wE/totW:null;
   return h("div",{style:{marginBottom:20,paddingTop:14,borderTop:"1px solid rgba(255,255,255,0.05)"}},
     h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:4}},"Risco x Retorno esperado"),
-    h("div",{style:{fontSize:9,color:"#5A5550",marginBottom:6,fontStyle:"italic"}},"Estrela = portfolio agregado (indice de eficiencia no centro). Circulos = classes de ativos. Linhas tracejadas separam zonas de eficiencia (ver legenda abaixo)."),
+    h("div",{style:{fontSize:9,color:"#5A5550",marginBottom:6,fontStyle:"italic"}},"Estrela = portfolio agregado (indice de eficiencia no centro). Circulos = classes de ativos. Linhas tracejadas separam zonas de eficiencia (retorno/risco)."),
     h("svg",{viewBox:"0 0 "+W+" "+H,style:{width:"100%",height:"auto"}},
       // Definicao de filtro drop-shadow para a estrela
       h("defs",{},
@@ -519,7 +519,39 @@ function RiskChart({cw,selicAtual,calibracaoRR_TS,calibracaoRR_texto,calibracaoR
           const yRet=razao*xMax;
           elements.push(h("line",{key:"z"+razao,x1:pL,y1:pT+cH,x2:pL+(xMax/10)*cW,y2:pT+cH-(yRet/10)*cH,stroke:"rgba(255,215,0,0.15)",strokeWidth:"0.6",strokeDasharray:"2,4"}));
         });
-        // (Labels das zonas foram movidas para FORA do grafico - veja legenda lateral)
+        // Labels das zonas nas BORDAS do grafico (longe do plot principal)
+        // EXCELENTE, OTIMA, BOA, EQUILIBRADA: posicionadas no TOPO (onde as linhas tocam y=10)
+        // DESFAVORAVEL: no canto inferior direito
+        // Calcula onde cada linha de razao toca o topo (y=10) ou a direita (x=10)
+        const labelsTopo=[
+          {nome:"EXCELENTE",cor:"#4CAF82",razao:1.8},// linha 1.8 -> toca topo em x=10/1.8=5.55
+          {nome:"OTIMA",cor:"#7AC494",razao:1.5},// toca topo em x=10/1.5=6.67
+          {nome:"BOA",cor:"#E8C44A",razao:1.2},// toca topo em x=10/1.2=8.33
+          {nome:"EQUILIBRADA",cor:"#E89060",razao:1.0}// toca topo em x=10
+        ];
+        // Para cada linha, calcula onde ela toca o topo e posiciona o label centralizado entre linhas
+        // Sao 5 zonas: vou posicionar cada label NO MEIO de sua zona ao longo da BORDA SUPERIOR
+        // EXCELENTE: zona acima da linha 1.8 -> meio do trecho topo entre x=0 e x=5.55
+        // OTIMA: zona entre 1.5 e 1.8 -> meio do trecho topo entre x=5.55 e x=6.67
+        // BOA: zona entre 1.2 e 1.5 -> entre x=6.67 e x=8.33
+        // EQUILIBRADA: zona entre 1.0 e 1.2 -> entre x=8.33 e x=10
+        const zonasTopo=[
+          {nome:"EXCELENTE",cor:"#4CAF82",xCentro:2.78},// (0+5.55)/2
+          {nome:"OTIMA",cor:"#7AC494",xCentro:6.11},// (5.55+6.67)/2
+          {nome:"BOA",cor:"#E8C44A",xCentro:7.50},// (6.67+8.33)/2
+          {nome:"EQUILIBRADA",cor:"#E89060",xCentro:9.17}// (8.33+10)/2
+        ];
+        zonasTopo.forEach((z,i)=>{
+          const xPx=pL+(z.xCentro/10)*cW;
+          // y bem proximo ao topo do plot, com pequena margem
+          const yPx=pT+5;
+          elements.push(h("text",{key:"zt"+i,x:xPx,y:yPx,textAnchor:"middle",fill:z.cor,fontSize:"5.5",fontFamily:"monospace",letterSpacing:"1",fontWeight:"600",opacity:"0.85"},z.nome));
+        });
+        // DESFAVORAVEL: canto inferior direito do plot (x alto, y baixo)
+        const xDesfav=8.5,yDesfav=1;
+        const xPxDesfav=pL+(xDesfav/10)*cW;
+        const yPxDesfav=pT+cH-(yDesfav/10)*cH;
+        elements.push(h("text",{key:"zd",x:xPxDesfav,y:yPxDesfav,textAnchor:"middle",fill:"#E05252",fontSize:"5.5",fontFamily:"monospace",letterSpacing:"1",fontWeight:"600",opacity:"0.85"},"DESFAVORAVEL"));
         return elements;
       })(),
       // Grade extra-sutil
@@ -568,27 +600,6 @@ function RiskChart({cw,selicAtual,calibracaoRR_TS,calibracaoRR_texto,calibracaoR
       h("line",{x1:pL,y1:pT+cH,x2:pL+cW,y2:pT+cH,stroke:"rgba(255,255,255,0.08)",strokeWidth:"1"}),
       h("line",{x1:pL,y1:pT,x2:pL,y2:pT+cH,stroke:"rgba(255,255,255,0.08)",strokeWidth:"1"})
     ),
-    // LEGENDA DAS ZONAS DE EFICIENCIA (fora do grafico, abaixo)
-    portR!==null&&(()=>{
-      const ratio=portE/portR;
-      const zonas=[
-        {nome:"EXCELENTE",cor:"#4CAF82",razao:">= 1.8",ativa:ratio>=1.8},
-        {nome:"OTIMA",cor:"#7AC494",razao:"1.5-1.8",ativa:ratio>=1.5&&ratio<1.8},
-        {nome:"BOA",cor:"#E8C44A",razao:"1.2-1.5",ativa:ratio>=1.2&&ratio<1.5},
-        {nome:"EQUILIBRADA",cor:"#E89060",razao:"1.0-1.2",ativa:ratio>=1.0&&ratio<1.2},
-        {nome:"DESFAVORAVEL",cor:"#E05252",razao:"< 1.0",ativa:ratio<1.0}
-      ];
-      return h("div",{style:{marginTop:8,padding:"7px 10px",background:"rgba(0,0,0,0.18)",border:"1px solid rgba(255,255,255,0.04)",borderRadius:5}},
-        h("div",{style:{fontSize:7,letterSpacing:2,color:"#7A7060",fontFamily:"monospace",marginBottom:5,textTransform:"uppercase"}},"Zonas de Eficiencia (retorno / risco)"),
-        h("div",{style:{display:"flex",flexWrap:"wrap",gap:"4px 10px",alignItems:"center"}},
-          ...zonas.map((z,i)=>h("div",{key:i,style:{display:"inline-flex",alignItems:"center",gap:5,opacity:z.ativa?1:0.55}},
-            h("span",{style:{width:z.ativa?9:6,height:z.ativa?9:6,borderRadius:"50%",background:z.cor,boxShadow:z.ativa?"0 0 6px "+z.cor+"66":"none"}}),
-            h("span",{style:{fontSize:8.5,color:z.cor,fontFamily:"monospace",fontWeight:z.ativa?700:500,letterSpacing:1}},z.nome),
-            h("span",{style:{fontSize:7.5,color:"#5A5550",fontFamily:"monospace"}},z.razao)
-          ))
-        )
-      );
-    })(),
     // CARD DE DIAGNOSTICO AUTOMATICO
     portR!==null&&portE!==null&&(()=>{
       // Avaliacao do risco
