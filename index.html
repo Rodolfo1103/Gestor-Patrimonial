@@ -424,17 +424,27 @@ function RiskChart({cw}){
 
 function EvolChart({hist,showUSD,setShowUSD,hideVal}){
   // Filtra snapshots que tem composicao e patrimonio
-  const data=hist.filter(r=>r.composicao&&r.totalPatrimBRL>0).slice().reverse(); // antigo -> recente
-  const empty=h("div",{style:{padding:"14px",textAlign:"center",color:"#5A5550",fontSize:11,fontStyle:"italic",border:"1px solid rgba(255,255,255,0.05)",borderRadius:8}},"Disponivel apos 2+ atualizacoes de preco");
+  const raw=hist.filter(r=>r.composicao&&r.totalPatrimBRL>0).slice().reverse(); // antigo -> recente
+  // AGRUPA POR MES (YYYY-MM): pega o ULTIMO snapshot de cada mes
+  const porMes={};
+  raw.forEach(r=>{
+    const d=new Date(r.date);
+    const k=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");
+    porMes[k]=r;// substitui pelo mais recente daquele mes
+  });
+  const chaves=Object.keys(porMes).sort();
+  const data=chaves.map(k=>porMes[k]);
+
+  const empty=h("div",{style:{padding:"14px",textAlign:"center",color:"#5A5550",fontSize:11,fontStyle:"italic",border:"1px solid rgba(255,255,255,0.05)",borderRadius:8}},"Disponivel apos 2+ meses de historico");
   const toggler=h("div",{style:{display:"flex",alignItems:"center",gap:8,marginBottom:8}},
     h("button",{onClick:()=>setShowUSD(false),style:{fontSize:9,padding:"3px 10px",borderRadius:4,fontFamily:"monospace",background:!showUSD?"#C8A96E":"transparent",border:"1px solid rgba(200,169,110,0.4)",color:!showUSD?"#0D0F14":"#8A8070",cursor:"pointer"}},"BRL"),
     h("button",{onClick:()=>setShowUSD(true),style:{fontSize:9,padding:"3px 10px",borderRadius:4,fontFamily:"monospace",background:showUSD?"#5B8FD4":"transparent",border:"1px solid rgba(91,143,212,0.4)",color:showUSD?"#0D0F14":"#8A8070",cursor:"pointer"}},"USD")
   );
-  if(data.length<2)return h("div",{style:{marginBottom:20,paddingTop:14,borderTop:"1px solid rgba(255,255,255,0.05)"}},
+  if(data.length<1)return h("div",{style:{marginBottom:20,paddingTop:14,borderTop:"1px solid rgba(255,255,255,0.05)"}},
     h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:8}},"Evolucao por classe"),
     toggler,empty
   );
-  // Calcula valor R$ (ou USD) de cada classe em cada snapshot
+  // Calcula valor R$ (ou USD) de cada classe em cada mes
   const serie={};
   CL.forEach(c=>{serie[c.id]=data.map(r=>{
     const totalBRL=r.totalPatrimBRL||0;
@@ -442,14 +452,14 @@ function EvolChart({hist,showUSD,setShowUSD,hideVal}){
     const valBRL=totalBRL*pct;
     return showUSD?valBRL/(FX.USD||5):valBRL;
   });});
-  // Range Y: do menor ao maior valor entre todas as classes
+  // Range Y: do menor ao maior valor entre todas as classes (>0)
   const allVals=Object.values(serie).flat().filter(v=>v>0);
-  const minV=Math.min(...allVals)*0.9;
-  const maxV=Math.max(...allVals)*1.05;
+  const minV=allVals.length?Math.min(...allVals)*0.9:0;
+  const maxV=allVals.length?Math.max(...allVals)*1.05:1;
   const rng=maxV-minV||1;
   // SVG
-  const W=320,H=180,pL=46,pB=20,pT=10,pR=14,cW=W-pL-pR,cH=H-pB-pT;
-  const xScale=i=>pL+(i/(data.length-1||1))*cW;
+  const W=320,H=200,pL=46,pB=24,pT=10,pR=14,cW=W-pL-pR,cH=H-pB-pT;
+  const xScale=i=>data.length===1?pL+cW/2:pL+(i/(data.length-1))*cW;
   const yScale=v=>pT+cH-((v-minV)/rng)*cH;
   const fmtY=(v)=>{
     if(hideVal)return "----";
@@ -457,36 +467,53 @@ function EvolChart({hist,showUSD,setShowUSD,hideVal}){
     if(v>=1000)return (showUSD?"$":"R$")+(v/1000).toFixed(0)+"k";
     return (showUSD?"$":"R$")+v.toFixed(0);
   };
+  // Formata mes/ano para eixo X
+  const fmtMes=(r)=>{
+    const meses=["jan","fev","mar","abr","mai","jun","jul","ago","set","out","nov","dez"];
+    const d=new Date(r.date);
+    return meses[d.getMonth()]+"/"+String(d.getFullYear()).slice(2);
+  };
+  // Escolhe quais meses mostrar no eixo X (max 6 labels pra nao poluir)
+  const maxLabels=Math.min(6,data.length);
+  const step=Math.max(1,Math.ceil(data.length/maxLabels));
+  const idxLabels=[];
+  for(let i=0;i<data.length;i+=step)idxLabels.push(i);
+  if(idxLabels[idxLabels.length-1]!==data.length-1)idxLabels.push(data.length-1);
+
   return h("div",{style:{marginBottom:20,paddingTop:14,borderTop:"1px solid rgba(255,255,255,0.05)"}},
-    h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:8}},"Evolucao por classe"),
+    h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}},
+      h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase"}},"Evolucao por classe"),
+      h("div",{style:{fontSize:8,color:"#5A5550",fontFamily:"monospace"}},data.length+" "+(data.length===1?"mes":"meses"))
+    ),
     toggler,
     h("svg",{viewBox:"0 0 "+W+" "+H,style:{width:"100%",height:"auto",display:"block"}},
       // Linhas guia horizontais
       ...[0,0.25,0.5,0.75,1].map(f=>{
         const y=pT+cH-(f*cH),v=minV+f*rng;
-        return h(Fragment,{key:f},
+        return h(Fragment,{key:"g"+f},
           h("line",{x1:pL,y1:y,x2:W-pR,y2:y,stroke:"rgba(255,255,255,0.04)",strokeWidth:"1"}),
           h("text",{x:pL-3,y:y+3,textAnchor:"end",fill:"#5A5550",fontSize:"7",fontFamily:"monospace"},fmtY(v))
         );
       }),
-      // 7 linhas, uma por classe
+      // Linhas verticais sutis nos meses com label
+      ...idxLabels.map(i=>h("line",{key:"v"+i,x1:xScale(i),y1:pT,x2:xScale(i),y2:pT+cH,stroke:"rgba(255,255,255,0.03)",strokeWidth:"1"})),
+      // Para cada classe: linha conectando pontos + pontos visiveis
       ...CL.map(c=>{
         const vals=serie[c.id];
-        const pts=vals.map((v,i)=>({x:xScale(i),y:yScale(v)}));
+        const pts=vals.map((v,i)=>({x:xScale(i),y:yScale(v),v}));
         const lineD=pts.map((p,i)=>(i===0?"M":"L")+p.x.toFixed(1)+" "+p.y.toFixed(1)).join(" ");
-        const ultimo=pts[pts.length-1];
         return h(Fragment,{key:c.id},
-          h("path",{d:lineD,fill:"none",stroke:c.color,strokeWidth:"1.6",strokeLinejoin:"round",strokeLinecap:"round",opacity:"0.9"}),
-          // Ponto final destacado
-          h("circle",{cx:ultimo.x.toFixed(1),cy:ultimo.y.toFixed(1),r:"2.2",fill:c.color,stroke:"#0D0F14",strokeWidth:"1"})
+          // Linha conectora fina
+          data.length>=2&&h("path",{d:lineD,fill:"none",stroke:c.color,strokeWidth:"1.2",strokeLinejoin:"round",strokeLinecap:"round",opacity:"0.55"}),
+          // Pontos discretos em cada mes
+          ...pts.map((p,i)=>h("circle",{key:"p"+c.id+i,cx:p.x.toFixed(1),cy:p.y.toFixed(1),r:i===pts.length-1?"3":"2.4",fill:c.color,stroke:"#0D0F14",strokeWidth:"1",opacity:i===pts.length-1?"1":"0.85"}))
         );
       }),
-      // Labels de data no eixo X (so 3 marcas: inicio, meio, fim para evitar poluicao)
-      ...[0,Math.floor((data.length-1)/2),data.length-1].filter((v,i,a)=>a.indexOf(v)===i).map((i)=>{
+      // Labels de mes no eixo X
+      ...idxLabels.map((i)=>{
         const r=data[i];if(!r)return null;
         const x=xScale(i);
-        const lb=new Date(r.date).toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"});
-        return h("text",{key:i,x:x.toFixed(1),y:H-pB+12,textAnchor:"middle",fill:"#5A5550",fontSize:"7",fontFamily:"monospace"},lb);
+        return h("text",{key:"l"+i,x:x.toFixed(1),y:H-pB+12,textAnchor:"middle",fill:"#7A7060",fontSize:"7",fontFamily:"monospace"},fmtMes(r));
       })
     ),
     // Legenda compacta com valores atuais
