@@ -850,6 +850,20 @@ function RiskChart({cw,selicAtual,calibracaoRR_TS,calibracaoRR_texto,calibracaoR
             h("span",{style:{fontSize:8,color:ratio>=1.2&&ratio<1.5?"#0D0F14":"#E8C44A",background:ratio>=1.2&&ratio<1.5?"#E8C44A":"transparent",border:"1px solid #E8C44A55",borderRadius:3,padding:"1px 5px",fontFamily:"monospace",fontWeight:ratio>=1.2&&ratio<1.5?700:400}},"1.2-1.5 boa"),
             h("span",{style:{fontSize:8,color:ratio>=1.5&&ratio<1.8?"#0D0F14":"#7AC494",background:ratio>=1.5&&ratio<1.8?"#7AC494":"transparent",border:"1px solid #7AC49455",borderRadius:3,padding:"1px 5px",fontFamily:"monospace",fontWeight:ratio>=1.5&&ratio<1.8?700:400}},"1.5-1.8 otima"),
             h("span",{style:{fontSize:8,color:ratio>=1.8?"#0D0F14":"#4CAF82",background:ratio>=1.8?"#4CAF82":"transparent",border:"1px solid #4CAF8255",borderRadius:3,padding:"1px 5px",fontFamily:"monospace",fontWeight:ratio>=1.8?700:400}},"1.8+ excel")
+          ),
+          // Descricao de cada zona (o que esperar)
+          h("div",{style:{marginTop:9,paddingTop:7,borderTop:"1px dashed rgba(255,255,255,0.05)"}},
+            h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",letterSpacing:2,marginBottom:5}},"O QUE ESPERAR DE CADA ZONA"),
+            ...[
+              {tag:"<1.0",nome:"DESFAV",cor:"#E05252",ativa:ratio<1.0,desc:"Risco assumido nao remunerado. Mais perda potencial do que ganho esperado por unidade de risco. Configuracao a evitar - revisar alocacao."},
+              {tag:"1.0-1.2",nome:"EQUIL",cor:"#E89060",ativa:ratio>=1.0&&ratio<1.2,desc:"Retorno apenas acompanha o risco. Combinacao aceitavel mas sem alavancagem de eficiencia. Espaco amplo para otimizacao."},
+              {tag:"1.2-1.5",nome:"BOA",cor:"#E8C44A",ativa:ratio>=1.2&&ratio<1.5,desc:"Retorno justifica o risco com folga modesta. Posicao saudavel mas nao otimizada. Pequenos ajustes podem subir para zona OTIMA."},
+              {tag:"1.5-1.8",nome:"OTIMA",cor:"#7AC494",ativa:ratio>=1.5&&ratio<1.8,desc:"Voce captura retorno superior por unidade de risco assumido. Combinacao favoravel para Buy & Hold de longo prazo."},
+              {tag:"1.8+",nome:"EXCEL",cor:"#4CAF82",ativa:ratio>=1.8,desc:"Eficiencia maxima - retorno potencial significativamente superior ao risco assumido. Manter disciplina de aportes dentro das bandas-alvo para preservar a posicao."}
+            ].map((z,i)=>h("div",{key:i,style:{display:"flex",gap:6,marginBottom:i===4?0:4,padding:"3px 5px",borderRadius:3,background:z.ativa?z.cor+"12":"transparent",border:z.ativa?"1px solid "+z.cor+"33":"1px solid transparent"}},
+              h("span",{style:{minWidth:62,fontSize:7,color:z.cor,fontFamily:"monospace",fontWeight:z.ativa?700:600,letterSpacing:0.5,paddingTop:1}},z.tag+" "+z.nome),
+              h("span",{style:{fontSize:9,color:z.ativa?"#C0B8A8":"#8A8070",lineHeight:1.45,flex:1,fontStyle:z.ativa?"normal":"italic"}},z.desc)
+            ))
           )
         ),
         // === ESTRATEGIA DE EVOLUCAO DO INDICE ===
