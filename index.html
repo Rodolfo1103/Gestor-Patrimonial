@@ -284,7 +284,7 @@ async function callAPI(messages,key){
 
 // SVG helpers
 function AllocChart({cw}){
-  const W=300,H=170,pL=30,pB=42,pT=24,pR=8,cW=W-pL-pR,cH=H-pB-pT;
+  const W=300,H=180,pL=30,pB=42,pT=32,pR=8,cW=W-pL-pR,cH=H-pB-pT;
   const mx=Math.max(35,...CL.map(c=>(cw[c.id]||0)*1.15));
   const bW=Math.floor(cW/CL.length)-3;
   return h("div",{style:{marginBottom:20}},
@@ -300,26 +300,29 @@ function AllocChart({cw}){
         const st=w<c.min?"u":w>c.max?"o":"k";
         const fill=st==="u"?"#E05252":st==="o"?"#E8C44A":c.color;
         const xm=x+bW/2,yMin=pT+cH-(c.min/mx)*cH;
-        // Calcula desvio em pp para classes fora da banda
         const foraBanda=st!=="k";
         const desvio=st==="u"?(c.min-w):st==="o"?(w-c.max):0;
         const setaTxt=st==="u"?"\u2193":st==="o"?"\u2191":"";
-        const corAlerta=st==="u"?"#E05252":"#E8C44A";
-        // Y do topo do label de alerta (acima do numero da barra)
-        const yAlerta=y-12;
+        // Posicoes do alerta: empilhado VERTICALMENTE bem acima da barra, com folga grande
+        // Triangulo em cima, pp logo abaixo, e numero da barra mais abaixo ainda
+        const yTriangulo=pT-4;// 4px acima do limite superior do plot (dentro do pT=32)
+        const yPpText=pT+4;// um pouco abaixo do triangulo
+        const yNum=y-3;// numero original da barra (-3 vs barra)
         return h(Fragment,{key:c.id},
-          h("line",{x1:xm-bW*.5,y1:yMin,x2:xm+bW*.5,y2:yMin,stroke:c.color,strokeWidth:"1",strokeOpacity:".4",strokeDasharray:"2,2"}),
-          h("rect",{x,y,width:bW,height:bH,fill,fillOpacity:".85",rx:"2"}),
+          // Linha tracejada da banda-alvo (renderizada ANTES da barra pra ficar atras com transparencia)
+          h("line",{x1:xm-bW*.55,y1:yMin,x2:xm+bW*.55,y2:yMin,stroke:c.color,strokeWidth:"1",strokeOpacity:".5",strokeDasharray:"3,2"}),
+          // Barra com transparencia maior para ver a linha tracejada por tras
+          h("rect",{x,y,width:bW,height:bH,fill,fillOpacity:".55",stroke:fill,strokeWidth:"0.8",strokeOpacity:".9",rx:"2"}),
           // Numero da alocacao atual
-          h("text",{x:xm,y:y-2,textAnchor:"middle",fill,fontSize:"6",fontFamily:"monospace"},w.toFixed(1)),
-          // ALERTA: triangulo + pp acima do numero, se classe estiver fora da banda
+          h("text",{x:xm,y:yNum,textAnchor:"middle",fill,fontSize:"6.5",fontFamily:"monospace",fontWeight:"700"},w.toFixed(1)),
+          // ALERTA DOURADO: empilhado bem acima da barra (sem sobreposicao)
           foraBanda&&h(Fragment,{key:"al"+c.id},
-            // Triangulo de alerta SVG path (compacto)
-            h("path",{d:"M "+(xm-3.5)+" "+(yAlerta+3)+" L "+xm+" "+(yAlerta-3)+" L "+(xm+3.5)+" "+(yAlerta+3)+" Z",fill:"none",stroke:corAlerta,strokeWidth:"0.8",strokeLinejoin:"round"}),
-            // Ponto de exclamacao no centro do triangulo
-            h("text",{x:xm,y:yAlerta+2.2,textAnchor:"middle",fill:corAlerta,fontSize:"4.5",fontWeight:"700",fontFamily:"monospace"},"!"),
-            // Texto pp ao lado do triangulo
-            h("text",{x:xm,y:yAlerta+9.5,textAnchor:"middle",fill:corAlerta,fontSize:"5.5",fontWeight:"700",fontFamily:"monospace"},setaTxt+desvio.toFixed(1)+"pp")
+            // Triangulo SVG dourado
+            h("path",{d:"M "+(xm-3.8)+" "+(yTriangulo+3.5)+" L "+xm+" "+(yTriangulo-3)+" L "+(xm+3.8)+" "+(yTriangulo+3.5)+" Z",fill:"#C8A96E",fillOpacity:"0.18",stroke:"#C8A96E",strokeWidth:"0.7",strokeLinejoin:"round"}),
+            // Ponto de exclamacao dourado no centro do triangulo
+            h("text",{x:xm,y:yTriangulo+2.5,textAnchor:"middle",fill:"#C8A96E",fontSize:"4.5",fontWeight:"700",fontFamily:"monospace"},"!"),
+            // Texto pp abaixo do triangulo (com seta direcional)
+            h("text",{x:xm,y:yPpText+6,textAnchor:"middle",fill:"#C8A96E",fontSize:"5.5",fontWeight:"700",fontFamily:"monospace",letterSpacing:"0.3"},setaTxt+desvio.toFixed(1)+"pp")
           ),
           h("text",{x:xm,y:H-pB+13,textAnchor:"middle",fill:c.color,fontSize:"8"},c.tag),
           h("text",{x:xm,y:H-pB+24,textAnchor:"middle",fill:"#6A6050",fontSize:"5.5",fontFamily:"monospace"},c.min+"-"+c.max+"%")
