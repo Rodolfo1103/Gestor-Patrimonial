@@ -3305,7 +3305,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         insightMensal&&insightMensal.texto?h("div",{style:{fontSize:11,color:"#C8C0B0",lineHeight:1.7,whiteSpace:"pre-wrap"}},insightMensal.texto):
         h("div",{style:{fontSize:11,color:"#7A7570",fontStyle:"italic"}},"Sera gerado automaticamente no fechamento do proximo mes. Ou clique em atualizar para forcar agora.")
       ):null;
-      content=h("div",{},cards,aporteCard,insightCard,h(AllocChart,{cw}),h(CompareChart,{cw}),h(RiskChart,{cw,selicAtual,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,recalibrarRR_viaIA,calibracaoLoad,calibracaoErr,hasAjustesIA:!!ajustesRR_IA,apiKey}),h(EvolChart,{histMensal,hist,showUSD,setShowUSD,hideVal}),h(ComparativoChart,{histMensal,idxMensal,hideVal}),insightMensalCard,h(HeatmapChart,{hist}),h(CurrencyChart,{port,cls,hideVal}),topPos);
+      content=h("div",{},cards,aporteCard,insightCard,h(AllocChart,{cw}),h(RiskChart,{cw,selicAtual,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,recalibrarRR_viaIA,calibracaoLoad,calibracaoErr,hasAjustesIA:!!ajustesRR_IA,apiKey}),h(EvolChart,{histMensal,hist,showUSD,setShowUSD,hideVal}),h(ComparativoChart,{histMensal,idxMensal,hideVal}),insightMensalCard,h(HeatmapChart,{hist}),h(CurrencyChart,{port,cls,hideVal}),topPos);
     }
   }  // POSITIONS
   if(tab==="positions"){
