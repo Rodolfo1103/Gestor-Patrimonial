@@ -422,20 +422,25 @@ function RiskChart({cw}){
   );
 }
 
-function EvolChart({hist,showUSD,setShowUSD,hideVal}){
-  // Filtra snapshots que tem composicao e patrimonio
-  const raw=hist.filter(r=>r.composicao&&r.totalPatrimBRL>0).slice().reverse(); // antigo -> recente
-  // AGRUPA POR MES (YYYY-MM): pega o ULTIMO snapshot de cada mes
-  const porMes={};
-  raw.forEach(r=>{
-    const d=new Date(r.date);
-    const k=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");
-    porMes[k]=r;// substitui pelo mais recente daquele mes
-  });
-  const chaves=Object.keys(porMes).sort();
-  const data=chaves.map(k=>porMes[k]);
+function EvolChart({histMensal,hist,showUSD,setShowUSD,hideVal}){
+  // Prioridade: histMensal (consolidado). Fallback para hist agrupado (compatibilidade).
+  let data=[];
+  if(Array.isArray(histMensal)&&histMensal.length>0){
+    data=histMensal.filter(r=>r.composicao&&r.totalPatrimBRL>0);
+  }else if(Array.isArray(hist)&&hist.length>0){
+    // Fallback: agrupa hist por mes
+    const raw=hist.filter(r=>r.composicao&&r.totalPatrimBRL>0).slice().reverse();
+    const porMes={};
+    raw.forEach(r=>{
+      const d=new Date(r.date);
+      const k=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");
+      porMes[k]=r;
+    });
+    const chaves=Object.keys(porMes).sort();
+    data=chaves.map(k=>porMes[k]);
+  }
 
-  const empty=h("div",{style:{padding:"14px",textAlign:"center",color:"#5A5550",fontSize:11,fontStyle:"italic",border:"1px solid rgba(255,255,255,0.05)",borderRadius:8}},"Disponivel apos 2+ meses de historico");
+  const empty=h("div",{style:{padding:"14px",textAlign:"center",color:"#5A5550",fontSize:11,fontStyle:"italic",border:"1px solid rgba(255,255,255,0.05)",borderRadius:8}},"Disponivel apos 1 mes ou mais de historico");
   const toggler=h("div",{style:{display:"flex",alignItems:"center",gap:8,marginBottom:8}},
     h("button",{onClick:()=>setShowUSD(false),style:{fontSize:9,padding:"3px 10px",borderRadius:4,fontFamily:"monospace",background:!showUSD?"#C8A96E":"transparent",border:"1px solid rgba(200,169,110,0.4)",color:!showUSD?"#0D0F14":"#8A8070",cursor:"pointer"}},"BRL"),
     h("button",{onClick:()=>setShowUSD(true),style:{fontSize:9,padding:"3px 10px",borderRadius:4,fontFamily:"monospace",background:showUSD?"#5B8FD4":"transparent",border:"1px solid rgba(91,143,212,0.4)",color:showUSD?"#0D0F14":"#8A8070",cursor:"pointer"}},"USD")
@@ -452,13 +457,19 @@ function EvolChart({hist,showUSD,setShowUSD,hideVal}){
     const valBRL=totalBRL*pct;
     return showUSD?valBRL/(FX.USD||5):valBRL;
   });});
-  // Range Y: do menor ao maior valor entre todas as classes (>0)
+  // Range Y
   const allVals=Object.values(serie).flat().filter(v=>v>0);
   const minV=allVals.length?Math.min(...allVals)*0.9:0;
   const maxV=allVals.length?Math.max(...allVals)*1.05:1;
   const rng=maxV-minV||1;
-  // SVG
-  const W=320,H=200,pL=46,pB=24,pT=10,pR=14,cW=W-pL-pR,cH=H-pB-pT;
+  // LARGURA ADAPTATIVA: 12 meses cabem na tela; cada mes extra estica o SVG
+  const MESES_VISIVEIS=12;
+  const W_BASE=320,pL=46,pB=24,pT=10,pR=14;
+  const cW_BASE=W_BASE-pL-pR; // largura util quando ha <=12 meses
+  // Largura por mes quando supera 12 (mantem mesma densidade visual)
+  const larguraPorMes=cW_BASE/Math.max(1,MESES_VISIVEIS-1);
+  const W=data.length<=MESES_VISIVEIS?W_BASE:pL+pR+(data.length-1)*larguraPorMes;
+  const H=200,cW=W-pL-pR,cH=H-pB-pT;
   const xScale=i=>data.length===1?pL+cW/2:pL+(i/(data.length-1))*cW;
   const yScale=v=>pT+cH-((v-minV)/rng)*cH;
   const fmtY=(v)=>{
@@ -467,26 +478,28 @@ function EvolChart({hist,showUSD,setShowUSD,hideVal}){
     if(v>=1000)return (showUSD?"$":"R$")+(v/1000).toFixed(0)+"k";
     return (showUSD?"$":"R$")+v.toFixed(0);
   };
-  // Formata mes/ano para eixo X
   const fmtMes=(r)=>{
     const meses=["jan","fev","mar","abr","mai","jun","jul","ago","set","out","nov","dez"];
     const d=new Date(r.date);
     return meses[d.getMonth()]+"/"+String(d.getFullYear()).slice(2);
   };
-  // Escolhe quais meses mostrar no eixo X (max 6 labels pra nao poluir)
-  const maxLabels=Math.min(6,data.length);
+  // Quantos labels exibir
+  const maxLabels=Math.min(12,data.length);
   const step=Math.max(1,Math.ceil(data.length/maxLabels));
   const idxLabels=[];
   for(let i=0;i<data.length;i+=step)idxLabels.push(i);
   if(idxLabels[idxLabels.length-1]!==data.length-1)idxLabels.push(data.length-1);
+  const precisaRolar=data.length>MESES_VISIVEIS;
 
   return h("div",{style:{marginBottom:20,paddingTop:14,borderTop:"1px solid rgba(255,255,255,0.05)"}},
     h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}},
       h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase"}},"Evolucao por classe"),
-      h("div",{style:{fontSize:8,color:"#5A5550",fontFamily:"monospace"}},data.length+" "+(data.length===1?"mes":"meses"))
+      h("div",{style:{fontSize:8,color:"#5A5550",fontFamily:"monospace"}},data.length+" "+(data.length===1?"mes":"meses")+(precisaRolar?" - role lateral":""))
     ),
     toggler,
-    h("svg",{viewBox:"0 0 "+W+" "+H,style:{width:"100%",height:"auto",display:"block"}},
+    // Container com overflow horizontal quando passar de 12 meses
+    h("div",{style:{overflowX:precisaRolar?"auto":"visible",overflowY:"hidden",WebkitOverflowScrolling:"touch"}},
+      h("svg",{viewBox:"0 0 "+W+" "+H,style:{width:precisaRolar?(W*(W_BASE/W_BASE))+"px":"100%",minWidth:precisaRolar?W+"px":"auto",height:"auto",display:"block"}},
       // Linhas guia horizontais
       ...[0,0.25,0.5,0.75,1].map(f=>{
         const y=pT+cH-(f*cH),v=minV+f*rng;
@@ -497,26 +510,25 @@ function EvolChart({hist,showUSD,setShowUSD,hideVal}){
       }),
       // Linhas verticais sutis nos meses com label
       ...idxLabels.map(i=>h("line",{key:"v"+i,x1:xScale(i),y1:pT,x2:xScale(i),y2:pT+cH,stroke:"rgba(255,255,255,0.03)",strokeWidth:"1"})),
-      // Para cada classe: linha conectando pontos + pontos visiveis
+      // Linhas + pontos por classe
       ...CL.map(c=>{
         const vals=serie[c.id];
         const pts=vals.map((v,i)=>({x:xScale(i),y:yScale(v),v}));
         const lineD=pts.map((p,i)=>(i===0?"M":"L")+p.x.toFixed(1)+" "+p.y.toFixed(1)).join(" ");
         return h(Fragment,{key:c.id},
-          // Linha conectora fina
           data.length>=2&&h("path",{d:lineD,fill:"none",stroke:c.color,strokeWidth:"1.2",strokeLinejoin:"round",strokeLinecap:"round",opacity:"0.55"}),
-          // Pontos discretos em cada mes
           ...pts.map((p,i)=>h("circle",{key:"p"+c.id+i,cx:p.x.toFixed(1),cy:p.y.toFixed(1),r:i===pts.length-1?"3":"2.4",fill:c.color,stroke:"#0D0F14",strokeWidth:"1",opacity:i===pts.length-1?"1":"0.85"}))
         );
       }),
-      // Labels de mes no eixo X
+      // Labels mes/ano no eixo X
       ...idxLabels.map((i)=>{
         const r=data[i];if(!r)return null;
         const x=xScale(i);
         return h("text",{key:"l"+i,x:x.toFixed(1),y:H-pB+12,textAnchor:"middle",fill:"#7A7060",fontSize:"7",fontFamily:"monospace"},fmtMes(r));
       })
+      )
     ),
-    // Legenda compacta com valores atuais
+    // Legenda
     h("div",{style:{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:4,marginTop:10}},
       ...CL.map(c=>{
         const ult=serie[c.id][serie[c.id].length-1];
@@ -690,6 +702,7 @@ function App(){
   const [execE,setExecE]=useState({});
   const [step,setStep]=useState("r");
   const [hist,setHist]=useState([]);
+  const [histMensal,setHistMensal]=useState([]);// snapshots consolidados por mes (1 por mes, sem limite)
   const [btcUsd,setBtcUsd]=useState(null);
   const [btcTs,setBtcTs]=useState(null);
   const [btcVar,setBtcVar]=useState(null);
@@ -897,6 +910,7 @@ function App(){
       if(dd){
         setPort(dd.port||{});setCustom(dd.custom||{});setHidden(dd.hidden||[]);
         setLastPU(dd.lastPU||null);setHist(dd.hist||[]);
+        if(Array.isArray(dd.histMensal))setHistMensal(dd.histMensal);
         Object.entries(dd.custom||{}).forEach(([,list])=>{(list||[]).forEach(a=>{
           BCCY[a.ticker]=a.ccy||"BRL";
           if(a.label&&a.label!==a.ticker&&!NAMES[a.ticker])NAMES[a.ticker]=a.label;
@@ -931,12 +945,12 @@ function App(){
     if(!inited||!aesKey)return;
     (async()=>{
       try{
-        const obj={port,custom,hidden,lastPU,hist,fx:{...FX},btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,infIPCA,infIGPM,infINCC,infCPI};
+        const obj={port,custom,hidden,lastPU,hist,histMensal,fx:{...FX},btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,infIPCA,infIGPM,infINCC,infCPI};
         const enc=await aesEncrypt(aesKey,obj);
         localStorage.setItem(SK_ENC,enc);
       }catch(e){}
     })();
-  },[port,custom,hidden,lastPU,hist,btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,infIPCA,infIGPM,infINCC,infCPI,inited,aesKey]);
+  },[port,custom,hidden,lastPU,hist,histMensal,btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,infIPCA,infIGPM,infINCC,infCPI,inited,aesKey]);
 
   // Auto-lock por inatividade (15 min)
   useEffect(()=>{
@@ -1566,6 +1580,21 @@ function App(){
     setLoadA(false);
   };
 
+  // Atualiza histMensal: pega o snapshot mais recente do mes corrente e mantém 1 por mes
+  const atualizaHistMensal=useCallback((snap)=>{
+    const d=new Date(snap.date);
+    const k=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");
+    setHistMensal(prev=>{
+      // Remove qualquer entrada existente do mesmo mes e adiciona a nova
+      const filtrado=prev.filter(r=>{
+        const dr=new Date(r.date);
+        const kr=dr.getFullYear()+"-"+String(dr.getMonth()+1).padStart(2,"0");
+        return kr!==k;
+      });
+      return [...filtrado,{...snap,mesKey:k}].sort((a,b)=>new Date(a.date)-new Date(b.date));
+    });
+  },[]);
+
   const applyExec=()=>{
     const buys=Object.entries(execE).filter(([,v])=>v.done&&pN(v.qty)>0&&pN(v.price)>0);
     if(!buys.length)return;
@@ -1581,12 +1610,14 @@ function App(){
       const cid=p.classId||cls[t];if(cid)compPct[cid]=(compPct[cid]||0)+v;
     });
     CL.forEach(c=>{compPct[c.id]=totalBRL>0?(compPct[c.id]/totalBRL)*100:0;});
-    setHist(prev=>[{date:new Date().toISOString(),apValue:apR.apValue,
+    const snapAporte={date:new Date().toISOString(),apValue:apR.apValue,
       purchases:buys.map(([t,v])=>({ticker:t,qty:pN(v.qty),price:pN(v.price),total:pN(v.qty)*pN(v.price)})),
       totalExecuted:buys.reduce((s,[,v])=>s+pN(v.qty)*pN(v.price),0),
       totalPatrimBRL:totalBRL,totalPatrimUSD:totalBRL/(FX.USD||5.01),
       composicao:compPct
-    },...prev].slice(0,24));
+    };
+    setHist(prev=>[snapAporte,...prev].slice(0,24));
+    atualizaHistMensal(snapAporte);
     setStep("done");
   };
 
@@ -1595,16 +1626,17 @@ function App(){
     if(!hasPos||total<=0)return;
     const compPct={};
     CL.forEach(c=>{compPct[c.id]=cw[c.id]||0;});
+    const novoSnap={date:new Date().toISOString(),apValue:0,totalExecuted:0,
+      totalPatrimBRL:total,totalPatrimUSD:total/(FX.USD||5.01),
+      composicao:compPct,snapshot:true
+    };
     setHist(prev=>{
       const last=prev[0];
-      // Evita duplicar excessiva: so grava se ultimo registro tem >5 min OU nao tem composicao
       if(last&&last.composicao&&new Date()-new Date(last.date)<300000)return prev;
-      return [{date:new Date().toISOString(),apValue:0,totalExecuted:0,
-        totalPatrimBRL:total,totalPatrimUSD:total/(FX.USD||5.01),
-        composicao:compPct,snapshot:true
-      },...prev].slice(0,100);
+      return [novoSnap,...prev].slice(0,100);
     });
-  },[hasPos,total,cw]);
+    atualizaHistMensal(novoSnap);
+  },[hasPos,total,cw,atualizaHistMensal]);
 
   const sendChat=async msg=>{
     if(!msg.trim())return;
@@ -1756,6 +1788,7 @@ h("button",{onClick:()=>{
           if(d.hidden){setHidden(d.hidden);}
           if(d.lastPU){setLastPU(d.lastPU);}
           if(d.hist){setHist(d.hist);}
+          if(Array.isArray(d.histMensal)){setHistMensal(d.histMensal);}
           if(d.fx&&typeof d.fx==="object"){Object.keys(d.fx).forEach(k=>{if(typeof d.fx[k]==="number"&&d.fx[k]>0)FX[k]=d.fx[k];});}
           if(d.btcUsd&&d.btcUsd>0){setBtcUsd(d.btcUsd);setBtcTs(d.btcTs||null);}
           if(typeof d.btcVar==="number")setBtcVar(d.btcVar);
@@ -1881,7 +1914,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         ),
         notifStatus==="granted"&&h("div",{style:{marginTop:6,fontSize:9,color:"#4CAF82",fontFamily:"monospace",letterSpacing:1}},"notificacoes ativas")
       ):null;
-      content=h("div",{},cards,aporteCard,insightCard,h(AllocChart,{cw}),h(CompareChart,{cw}),h(RiskChart,{cw}),h(EvolChart,{hist,showUSD,setShowUSD,hideVal}),h(HeatmapChart,{hist}),h(CurrencyChart,{port,cls,hideVal}),topPos);
+      content=h("div",{},cards,aporteCard,insightCard,h(AllocChart,{cw}),h(CompareChart,{cw}),h(RiskChart,{cw}),h(EvolChart,{histMensal,hist,showUSD,setShowUSD,hideVal}),h(HeatmapChart,{hist}),h(CurrencyChart,{port,cls,hideVal}),topPos);
     }
   }  // POSITIONS
   if(tab==="positions"){
