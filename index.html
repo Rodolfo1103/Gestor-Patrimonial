@@ -337,11 +337,11 @@ function AllocChart({cw,ct,fB,MV,hideVal}){
             h("text",{x:xm,y:yPpText+6,textAnchor:"middle",fill:"#C8A96E",fontSize:"5.5",fontWeight:"700",fontFamily:"monospace",letterSpacing:"0.3"},setaTxt+desvio.toFixed(1)+"pp")
           ),
           // Tag da classe
-          h("text",{x:xm,y:H-pB+14,textAnchor:"middle",fill:c.color,fontSize:"8",fontWeight:"600"},c.tag),
+          h("text",{x:xm,y:H-pB+14,textAnchor:"middle",fill:c.color,fontSize:"7",fontWeight:"600"},c.tag),
           // Banda alvo
-          h("text",{x:xm,y:H-pB+26,textAnchor:"middle",fill:"#6A6050",fontSize:"5.5",fontFamily:"monospace"},c.min+"-"+c.max+"%"),
-          // Valor R$ em dourado discreto (mais espacado pra evitar sobreposicao)
-          h("text",{x:xm,y:H-pB+42,textAnchor:"middle",fill:"#A8893E",fontSize:"6.5",fontFamily:"monospace",letterSpacing:"0.3",fontWeight:"500",opacity:"0.9"},valorTxt)
+          h("text",{x:xm,y:H-pB+25,textAnchor:"middle",fill:"#6A6050",fontSize:"4.5",fontFamily:"monospace"},c.min+"-"+c.max+"%"),
+          // Valor R$ em dourado discreto
+          h("text",{x:xm,y:H-pB+38,textAnchor:"middle",fill:"#A8893E",fontSize:"5",fontFamily:"monospace",letterSpacing:"0.2",fontWeight:"500",opacity:"0.9"},valorTxt)
         );
       }),
       h("line",{x1:pL,y1:pT+cH,x2:W-pR,y2:pT+cH,stroke:"rgba(255,255,255,0.08)",strokeWidth:"1"})
