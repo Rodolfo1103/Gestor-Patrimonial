@@ -96,7 +96,8 @@ const SK_ENC="pat-v10-enc";   // novo: dados criptografados
 const SK_SALT="pat-v10-salt"; // salt PBKDF2 (publico)
 const SK_PIN="pat-v10-pin";   // hash SHA-256 do PIN (validacao rapida)
 const SK_ATT="pat-v10-att";   // tentativas erradas {n, lockUntil}
-const SK_KEY="pat-key-enc";   // API key criptografada
+const SK_KEY="pat-key-enc";   // API key Anthropic criptografada
+const SK_BRAPI="pat-brapi-enc";// token Brapi criptografado
 
 // === Web Crypto helpers ===
 const _enc=new TextEncoder();
@@ -154,6 +155,22 @@ async function saveApiKey(aesKey,plainKey){
     if(!plainKey){localStorage.removeItem(SK_KEY);return;}
     const enc=await aesEncrypt(aesKey,plainKey);
     localStorage.setItem(SK_KEY,enc);
+  }catch{}
+}
+
+// Carrega/Salva token Brapi (criptografado)
+async function loadBrapiKey(aesKey){
+  try{
+    const enc=localStorage.getItem(SK_BRAPI);
+    if(!enc)return "";
+    return await aesDecrypt(aesKey,enc);
+  }catch{return "";}
+}
+async function saveBrapiKey(aesKey,plainKey){
+  try{
+    if(!plainKey){localStorage.removeItem(SK_BRAPI);return;}
+    const enc=await aesEncrypt(aesKey,plainKey);
+    localStorage.setItem(SK_BRAPI,enc);
   }catch{}
 }
 
@@ -681,6 +698,7 @@ function KeyScreen({onSave}){
 
 function App(){
   const [apiKey,setApiKeyS]=useState("");
+  const [brapiKey,setBrapiKeyS]=useState("");
   const [tab,setTab]=useState("dashboard");
   const [port,setPort]=useState({});
   const [custom,setCustom]=useState({});
@@ -937,6 +955,9 @@ function App(){
       // Carrega API key criptografada
       const k=await loadApiKey(aesKey);
       if(k)setApiKeyS(k);
+      // Carrega token Brapi criptografado
+      const bk=await loadBrapiKey(aesKey);
+      if(bk)setBrapiKeyS(bk);
       setInited(true);
     })();
   },[aesKey,inited]);
@@ -964,7 +985,7 @@ function App(){
         setAutenticado(false);
         setAesKey(null);
         setInited(false);
-        setPort({});setCustom({});setHidden([]);setHist([]);setApiKeyS("");
+        setPort({});setCustom({});setHidden([]);setHist([]);setApiKeyS("");setBrapiKeyS("");
         setBtcUsd(null);setXauBrl(null);
       }
     },10000);
@@ -1344,10 +1365,28 @@ function App(){
       const isBR=t=>BCCY[t]==="BRL"&&!["OURO_FISICO","BTC","SELIC2031"].includes(t);
       const brTickers=tickers.filter(isBR);
       const fgnTickers=tickers.filter(t=>YH[t]);
-      // Brasil - Yahoo Finance com sufixo .SA (B3) via proxy CORS
-      if(brTickers.length){
+      // Brasil - PRIMEIRO tenta Brapi.dev (se token configurado): cobertura completa B3 incluindo FIAGROS
+      if(brTickers.length&&brapiKey){
+        try{
+          const tickersList=brTickers.join(",");
+          const url="https://brapi.dev/api/quote/"+encodeURIComponent(tickersList)+"?token="+encodeURIComponent(brapiKey);
+          const d=await fetchJSON(url,12000);
+          if(d&&Array.isArray(d.results)){
+            let bN=0;
+            d.results.forEach(r=>{
+              if(!r||!r.symbol)return;
+              const p=r.regularMarketPrice||r.previousClose;
+              if(typeof p==="number"&&p>0){allPrices[r.symbol]=p;bN++;}
+            });
+            dbg.push("Brapi:"+bN+"/"+brTickers.length);
+          }else dbg.push("Brapi:sem-results");
+        }catch(e){dbg.push("Brapi-erro:"+e.message);}
+      }
+      // Brasil - Yahoo Finance como fallback (apenas tickers que a Brapi nao trouxe)
+      const brFaltam=brTickers.filter(t=>!allPrices[t]);
+      if(brFaltam.length){
         let brN=0;
-        await Promise.all(brTickers.map(async t=>{
+        await Promise.all(brFaltam.map(async t=>{
           try{
             const sym=t+".SA";
             const target="https://query1.finance.yahoo.com/v8/finance/chart/"+encodeURIComponent(sym)+"?interval=1d&range=5d";
@@ -1357,8 +1396,8 @@ function App(){
             if(typeof p==="number"&&p>0){allPrices[t]=p;brN++;}
           }catch{}
         }));
-        dbg.push("BR:"+brN+"/"+brTickers.length);
-        brTickers.forEach(t=>{if(!allPrices[t])failed.push(t);});
+        dbg.push("YH-BR:"+brN+"/"+brFaltam.length);
+        brFaltam.forEach(t=>{if(!allPrices[t])failed.push(t);});
       }
       // Yahoo Finance - estrangeiros (em paralelo, com cascata de proxies CORS)
       if(fgnTickers.length){
@@ -1427,7 +1466,7 @@ function App(){
       } else {setPErr("Sem cotacoes ["+dbg.join(" ")+"]");}
     }catch(e){setPErr("Erro: "+e.message+" ["+dbg.join(" ")+"]");}
     setLoadP(false);
-  },[port]);
+  },[port,brapiKey]);
 
   const openEdit=(ticker,classId)=>{
     const p=port[ticker]||{};setEditA({ticker,classId});
@@ -1445,9 +1484,27 @@ function App(){
   // Busca nome E moeda do ativo no Yahoo Finance (auto-completar ao adicionar ticker)
   // Para ativos do exterior, tenta varios sufixos ate achar o ticker certo
   const fetchTickerInfo=async(symbol,cid,ccyHint)=>{
-    // Lista de sufixos a tentar, em ordem de prioridade
+    // Para classes brasileiras: tenta PRIMEIRO Brapi.dev (se token configurado)
+    const isBR=cid==="acoes_br"||cid==="fii"||cid==="infra"||cid==="agro"||cid==="selic";
+    if(isBR&&brapiKey){
+      try{
+        const url="https://brapi.dev/api/quote/"+encodeURIComponent(symbol)+"?token="+encodeURIComponent(brapiKey);
+        const ctrl=new AbortController();const tid=setTimeout(()=>ctrl.abort(),8000);
+        const r=await fetch(url,{signal:ctrl.signal});clearTimeout(tid);
+        if(r.ok){
+          const j=await r.json();
+          const q=j&&Array.isArray(j.results)&&j.results[0];
+          if(q&&(q.longName||q.shortName)){
+            const nome=(q.longName||q.shortName||"").trim().slice(0,40);
+            const preco=q.regularMarketPrice||q.previousClose||null;
+            return {nome,ccy:"BRL",preco};
+          }
+        }
+      }catch(e){/* segue pro Yahoo como fallback */}
+    }
+    // Lista de sufixos Yahoo a tentar, em ordem de prioridade
     let sufixos;
-    if(cid==="acoes_br"||cid==="fii"||cid==="infra"||cid==="agro"||cid==="selic"){
+    if(isBR){
       sufixos=[".SA"];
     }else if(cid==="acoes_ext"){
       // Comeca pelo sufixo da moeda hint (se houver), depois testa os demais
@@ -1538,7 +1595,7 @@ function App(){
         setRefreshMsg("OK: "+info.nome+(info.ccy?" ("+info.ccy+")":""));
         setTimeout(()=>setRefreshMsg(""),3000);
       }else{
-        setRefreshMsg("Yahoo nao retornou info. Edite o nome manualmente abaixo.");
+        setRefreshMsg(brapiKey?"Brapi e Yahoo nao retornaram info. Edite o nome manualmente.":"Yahoo nao retornou info. Cadastre o token Brapi (BRAPI no topo) ou edite o nome manual.");
       }
     }catch(e){setRefreshMsg("Falha de rede: "+e.message);}
     setRefreshingName("");
@@ -1804,7 +1861,8 @@ h("button",{onClick:()=>{
     };
     inp.click();
   },style:{background:"none",border:"none",color:"#3A3830",fontSize:10,cursor:"pointer",padding:"6px 4px",fontFamily:"monospace",flexShrink:0}},"IMP"),
-h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (sk-ant-...):");if(k&&k.length>20){setApiKeyS(k);if(aesKey)saveApiKey(aesKey,k);alert("Chave salva!");}else if(k!==null){alert("Chave invalida. Cole a chave completa.");}},style:{marginLeft:"auto",background:"none",border:"none",color:"#3A3830",fontSize:10,cursor:"pointer",padding:"6px 0",fontFamily:"monospace",flexShrink:0}},"API")
+h("button",{onClick:()=>{const k=window.prompt("Cole o token Brapi.dev (para cotacoes B3 / Fiagros). Cadastre gratis em brapi.dev/dashboard:",brapiKey||"");if(k===null)return;const lim=k.trim();if(!lim){if(aesKey)saveBrapiKey(aesKey,"");setBrapiKeyS("");alert("Token Brapi removido.");return;}if(lim.length<10){alert("Token muito curto. Verifique se copiou inteiro.");return;}setBrapiKeyS(lim);if(aesKey)saveBrapiKey(aesKey,lim);alert("Token Brapi salvo!");},style:{marginLeft:"auto",background:"none",border:"none",color:brapiKey?"#C8A96E":"#3A3830",fontSize:10,cursor:"pointer",padding:"6px 4px",fontFamily:"monospace",flexShrink:0}},"BRAPI"),
+h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (sk-ant-...):");if(k&&k.length>20){setApiKeyS(k);if(aesKey)saveApiKey(aesKey,k);alert("Chave salva!");}else if(k!==null){alert("Chave invalida. Cole a chave completa.");}},style:{background:"none",border:"none",color:apiKey?"#C8A96E":"#3A3830",fontSize:10,cursor:"pointer",padding:"6px 0",fontFamily:"monospace",flexShrink:0}},"API")
   );
 
   let content=null;
