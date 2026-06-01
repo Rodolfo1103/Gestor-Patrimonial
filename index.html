@@ -1509,15 +1509,18 @@ function App(){
     }else if(cid==="acoes_ext"){
       // Comeca pelo sufixo da moeda hint (se houver), depois testa os demais
       const porMoeda={USD:"",EUR:".DE",GBP:".L",CHF:".SW",DKK:".CO",NOK:".OL",MXN:".MX",JPY:".T",AUD:".AX",HKD:".HK",SGD:".SI"};
-      sufixos=[porMoeda[ccyHint]||"","",".L",".DE",".SW",".T",".AX",".HK",".AS",".PA",".MI",".MX",".SI",".CO",".OL"];
+      sufixos=[porMoeda[ccyHint]||"","",".L",".DE",".SW",".T",".AX",".HK",".AS",".PA",".MI",".MX",".SI",".CO",".OL",".TO",".F",".AT",".VI",".OL"];
       sufixos=[...new Set(sufixos)]; // remove duplicatas
     }else{
       sufixos=[""];
     }
+    // Cascata de proxies CORS expandida (mais resiliencia se algum cair)
     const proxies=[
       u=>"https://corsproxy.io/?url="+encodeURIComponent(u),
       u=>"https://api.allorigins.win/raw?url="+encodeURIComponent(u),
       u=>"https://api.codetabs.com/v1/proxy/?quest="+encodeURIComponent(u),
+      u=>"https://proxy.cors.sh/"+u,
+      u=>"https://yacdn.org/proxy/"+u,
     ];
     // Mapeamento de exchange Yahoo -> moeda
     const exchToCcy={
@@ -1528,8 +1531,42 @@ function App(){
       CPH:"DKK",OSL:"NOK",STO:"SEK",
       MEX:"MXN",TYO:"JPY",ASX:"AUD",HKG:"HKD",SES:"SGD",
       AMS:"EUR",PAR:"EUR",MIL:"EUR",BRU:"EUR",LIS:"EUR",MCE:"EUR",
-      TLO:"CAD",TOR:"CAD",
+      TLO:"CAD",TOR:"CAD",VIE:"EUR",
     };
+    const allowedCcy=["USD","EUR","GBP","CHF","JPY","AUD","HKD","SGD","DKK","NOK","MXN","BRL"];
+    // ESTRATEGIA 1: Yahoo Search API descobre o ticker certo (e o sufixo) automaticamente
+    // Util quando o usuario digita um ticker sem saber em qual bolsa esta listado
+    if(cid==="acoes_ext"){
+      try{
+        const searchUrl="https://query2.finance.yahoo.com/v1/finance/search?q="+encodeURIComponent(symbol)+"&quotesCount=5&newsCount=0";
+        for(const mk of proxies){
+          try{
+            const ctrl=new AbortController();const tid=setTimeout(()=>ctrl.abort(),6000);
+            const r=await fetch(mk(searchUrl),{signal:ctrl.signal});clearTimeout(tid);
+            if(!r.ok)continue;
+            const j=await r.json();
+            if(j&&Array.isArray(j.quotes)){
+              // Pega o primeiro quote relevante de equity/etf
+              const q=j.quotes.find(x=>["EQUITY","ETF","MUTUALFUND"].includes(x.quoteType));
+              if(q&&q.symbol){
+                // Encontrou ticker valido - reordena sufixos pra tentar o descoberto primeiro
+                const found=q.symbol;
+                // Extrai sufixo do simbolo descoberto (ex: SAP.DE -> .DE)
+                const dotIdx=found.lastIndexOf(".");
+                const sufDescoberto=dotIdx>0?found.substring(dotIdx):"";
+                if(sufDescoberto&&!sufixos.includes(sufDescoberto)){
+                  sufixos=[sufDescoberto,...sufixos];
+                }else if(sufDescoberto){
+                  sufixos=[sufDescoberto,...sufixos.filter(s=>s!==sufDescoberto)];
+                }
+              }
+            }
+            break;
+          }catch{}
+        }
+      }catch{}
+    }
+    // ESTRATEGIA 2: Yahoo Finance quote v7 (nome + preco + moeda)
     for(const suf of sufixos){
       const yhSym=symbol+suf;
       const yhUrl="https://query1.finance.yahoo.com/v7/finance/quote?symbols="+encodeURIComponent(yhSym);
@@ -1542,11 +1579,9 @@ function App(){
           const q=j&&j.quoteResponse&&j.quoteResponse.result&&j.quoteResponse.result[0];
           if(q&&(q.longName||q.shortName)){
             const nome=(q.longName||q.shortName||q.displayName||"").trim().slice(0,40);
-            // Pega moeda diretamente do quote ou via exchange
             let ccy=q.currency||exchToCcy[q.exchange]||"";
             ccy=ccy.toUpperCase();
-            // So aceita moedas conhecidas pelo app
-            if(!["USD","EUR","GBP","CHF","JPY","AUD","HKD","SGD","DKK","NOK","MXN","BRL"].includes(ccy))ccy="";
+            if(!allowedCcy.includes(ccy))ccy="";
             const preco=q.regularMarketPrice||q.previousClose||null;
             return {nome,ccy,suffix:suf,preco};
           }
@@ -1554,7 +1589,60 @@ function App(){
         break; // se uma proxy retornou, nao tenta proximas para mesmo sufixo
       }
     }
-    return {nome:"",ccy:"",suffix:""};
+    // ESTRATEGIA 3: Yahoo chart API (fallback - traz pelo menos o preco)
+    for(const suf of sufixos.slice(0,5)){ // limita pra nao demorar muito
+      const yhSym=symbol+suf;
+      const chartUrl="https://query1.finance.yahoo.com/v8/finance/chart/"+encodeURIComponent(yhSym)+"?interval=1d&range=5d";
+      for(const mk of proxies){
+        try{
+          const ctrl=new AbortController();const tid=setTimeout(()=>ctrl.abort(),6000);
+          const r=await fetch(mk(chartUrl),{signal:ctrl.signal});clearTimeout(tid);
+          if(!r.ok)continue;
+          const j=await r.json();
+          const res=j&&j.chart&&j.chart.result&&j.chart.result[0];
+          const meta=res&&res.meta;
+          if(meta&&(meta.regularMarketPrice||meta.previousClose)){
+            let ccy=(meta.currency||"").toUpperCase();
+            if(!allowedCcy.includes(ccy))ccy="";
+            const preco=meta.regularMarketPrice||meta.previousClose;
+            // Nome curto da symbol (ex: "AAPL" -> "AAPL") - permite usuario editar manual depois
+            return {nome:symbol,ccy:ccy||ccyHint||"USD",suffix:suf,preco};
+          }
+        }catch{}
+        break;
+      }
+    }
+    // ESTRATEGIA 4: Stooq (fallback final - util pra US/EU)
+    if(cid==="acoes_ext"){
+      const stooqMaps=[
+        symbol.toLowerCase()+".us",
+        symbol.toLowerCase()+".uk",
+        symbol.toLowerCase()+".de",
+        symbol.toLowerCase()+".f",
+        symbol.toLowerCase()
+      ];
+      for(const sq of stooqMaps){
+        try{
+          const stUrl="https://stooq.com/q/l/?s="+sq+"&f=sd2t2ohlcv&h&e=json";
+          for(const mk of proxies){
+            try{
+              const ctrl=new AbortController();const tid=setTimeout(()=>ctrl.abort(),6000);
+              const r=await fetch(mk(stUrl),{signal:ctrl.signal});clearTimeout(tid);
+              if(!r.ok)continue;
+              const j=await r.json();
+              const s=j&&j.symbols&&j.symbols[0];
+              const p=s&&parseFloat(s.close);
+              if(p>0){
+                const ccyGuess=sq.endsWith(".us")?"USD":sq.endsWith(".uk")?"GBP":sq.endsWith(".de")||sq.endsWith(".f")?"EUR":(ccyHint||"USD");
+                return {nome:symbol,ccy:ccyGuess,suffix:"",preco:p};
+              }
+            }catch{}
+            break;
+          }
+        }catch{}
+      }
+    }
+    return {nome:"",ccy:"",suffix:"",preco:null};
   };
   const addCustom=async cid=>{
     const t=nTick.trim().toUpperCase();if(!t)return;
