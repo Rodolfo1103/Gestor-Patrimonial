@@ -559,6 +559,218 @@ function EvolChart({histMensal,hist,showUSD,setShowUSD,hideVal}){
 }
 
 // Heatmap mensal: variacao % do patrimonio mes a mes
+// Componente que mostra rentabilidade do portfolio vs indices comparativos
+// histMensal: array dos snapshots do portfolio por mes
+// idxMensal: objeto {"YYYY-MM": {ibov, ifix, cdi, imab, sp500, nasdaq, poupanca}}
+function ComparativoChart({histMensal,idxMensal,hideVal}){
+  // Calcula rentabilidade do portfolio por mes: (Vfinal - Aporte) / Vinicial - 1
+  // Precisa de pelo menos 2 snapshots mensais para ter 1 retorno
+  if(!Array.isArray(histMensal)||histMensal.length<1)return null;
+  // Ordena por data crescente
+  const snaps=histMensal.slice().sort((a,b)=>new Date(a.date)-new Date(b.date));
+  // Calcula retornos mensais do portfolio
+  const retPortfolio={};// {"YYYY-MM": retorno%}
+  for(let i=1;i<snaps.length;i++){
+    const ant=snaps[i-1],atu=snaps[i];
+    if(!ant.totalPatrimBRL||!atu.totalPatrimBRL)continue;
+    const aporte=atu.apValue||0;
+    const ret=((atu.totalPatrimBRL-aporte)/ant.totalPatrimBRL-1)*100;
+    if(!isNaN(ret)){
+      const d=new Date(atu.date);
+      const k=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");
+      retPortfolio[k]=ret;
+    }
+  }
+  // Coleta todos os meses que tem dados (portfolio OU indices)
+  const todosM=new Set([...Object.keys(retPortfolio),...Object.keys(idxMensal||{})]);
+  const meses=Array.from(todosM).sort();
+  if(meses.length===0)return h("div",{style:{marginBottom:20,paddingTop:14,borderTop:"1px solid rgba(255,255,255,0.05)"}},
+    h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:8}},"Rentabilidade comparativa"),
+    h("div",{style:{padding:"14px",textAlign:"center",color:"#5A5550",fontSize:11,fontStyle:"italic",border:"1px solid rgba(255,255,255,0.05)",borderRadius:8}},"Aguardando dados. Sera populado nos proximos meses.")
+  );
+  // Mostra apenas os ultimos 12 meses na tabela (scroll vertical se mais)
+  const mesesExibidos=meses.slice(-12);
+  // Calcula acumulado de cada indice
+  const calcAcumulado=(serie,mesesArr)=>{
+    let acum=1;
+    mesesArr.forEach(k=>{const v=serie[k];if(typeof v==="number"&&!isNaN(v))acum*=(1+v/100);});
+    return (acum-1)*100;
+  };
+  // Constrói séries por indice
+  const cols=[
+    {key:"port",nome:"Portfolio",cor:"#C8A96E",get:(k)=>retPortfolio[k]},
+    {key:"ibov",nome:"IBOV",cor:"#4CAF82",get:(k)=>(idxMensal[k]||{}).ibov},
+    {key:"ifix",nome:"IFIX",cor:"#5B8FD4",get:(k)=>(idxMensal[k]||{}).ifix},
+    {key:"imab",nome:"IMA-B",cor:"#A56FD4",get:(k)=>(idxMensal[k]||{}).imab},
+    {key:"cdi",nome:"CDI",cor:"#E8C44A",get:(k)=>(idxMensal[k]||{}).cdi},
+    {key:"sp500",nome:"S&P 500",cor:"#7AC494",get:(k)=>(idxMensal[k]||{}).sp500},
+    {key:"nasdaq",nome:"NASDAQ",cor:"#E89060",get:(k)=>(idxMensal[k]||{}).nasdaq},
+    {key:"poup",nome:"Poup.",cor:"#7A7570",get:(k)=>(idxMensal[k]||{}).poupanca}
+  ];
+  // Acumulado de cada
+  const acums={};
+  cols.forEach(c=>{
+    const serieCol={};
+    meses.forEach(k=>{const v=c.get(k);if(typeof v==="number"&&!isNaN(v))serieCol[k]=v;});
+    acums[c.key]=calcAcumulado(serieCol,meses);
+  });
+  // Volatilidade e Sharpe (precisa de >=6 meses)
+  const calcVolSharpe=(c)=>{
+    const valores=meses.map(k=>c.get(k)).filter(v=>typeof v==="number"&&!isNaN(v));
+    if(valores.length<6)return {vol:null,sharpe:null};
+    const m=valores.reduce((s,v)=>s+v,0)/valores.length;
+    const var2=valores.reduce((s,v)=>s+Math.pow(v-m,2),0)/valores.length;
+    const sd=Math.sqrt(var2);
+    const volAnual=sd*Math.sqrt(12);
+    // Sharpe = (retornoMedio - CDI_medio) / volatilidade (anualizado)
+    const cdiVals=meses.map(k=>(idxMensal[k]||{}).cdi).filter(v=>typeof v==="number"&&!isNaN(v));
+    const cdiMedio=cdiVals.length>0?cdiVals.reduce((s,v)=>s+v,0)/cdiVals.length:0;
+    const sharpe=sd>0?((m-cdiMedio)*12)/volAnual:null;
+    return {vol:volAnual,sharpe};
+  };
+  const metricas={};
+  cols.forEach(c=>{metricas[c.key]=calcVolSharpe(c);});
+  // Formatador de cor por valor
+  const corCelula=(v)=>{
+    if(typeof v!=="number"||isNaN(v))return "#5A5550";
+    if(v>=2)return "#4CAF82";
+    if(v>=0)return "#7AC494";
+    if(v>=-2)return "#E89060";
+    return "#E05252";
+  };
+  const fmtPct=(v)=>{
+    if(typeof v!=="number"||isNaN(v))return "-";
+    return (v>=0?"+":"")+v.toFixed(2)+"%";
+  };
+  const fmtMes=(k)=>{
+    const [a,m]=k.split("-");
+    const meses=["jan","fev","mar","abr","mai","jun","jul","ago","set","out","nov","dez"];
+    return meses[parseInt(m)-1]+"/"+a.slice(2);
+  };
+  // === SVG: gráfico de retorno acumulado ===
+  const construirAcumulado=(c)=>{
+    // serie de acumulado mes a mes
+    let acum=1;
+    const arr=[];
+    meses.forEach(k=>{
+      const v=c.get(k);
+      if(typeof v==="number"&&!isNaN(v))acum*=(1+v/100);
+      arr.push((acum-1)*100);
+    });
+    return arr;
+  };
+  const seriesAcum={};
+  cols.forEach(c=>{seriesAcum[c.key]=construirAcumulado(c);});
+  const todosVals=Object.values(seriesAcum).flat().filter(v=>!isNaN(v));
+  const yMin=todosVals.length?Math.min(...todosVals,0):0;
+  const yMax=todosVals.length?Math.max(...todosVals,0):1;
+  const yRng=(yMax-yMin)||1;
+  const W=340,H=180,pL=36,pR=10,pT=10,pB=22,cW=W-pL-pR,cH=H-pB-pT;
+  const xScale=i=>meses.length<=1?pL+cW/2:pL+(i/(meses.length-1))*cW;
+  const yScale=v=>pT+cH-((v-yMin)/yRng)*cH;
+  // Eixo X com max 6 labels
+  const stepLabels=Math.max(1,Math.ceil(meses.length/6));
+  const idxLabels=[];for(let i=0;i<meses.length;i+=stepLabels)idxLabels.push(i);
+  if(idxLabels[idxLabels.length-1]!==meses.length-1)idxLabels.push(meses.length-1);
+
+  return h("div",{style:{marginBottom:20,paddingTop:14,borderTop:"1px solid rgba(255,255,255,0.05)"}},
+    h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:4}},"Rentabilidade comparativa"),
+    h("div",{style:{fontSize:9,color:"#5A5550",marginBottom:10,fontStyle:"italic"}},"Retorno time-weighted descontando aportes vs indices de mercado"),
+    // Grafico de acumulado
+    h("div",{style:{marginBottom:14,padding:"10px",background:"rgba(0,0,0,0.2)",border:"1px solid rgba(255,255,255,0.05)",borderRadius:8}},
+      h("div",{style:{fontSize:9,color:"#8A8070",marginBottom:6,fontFamily:"monospace",letterSpacing:1}},"RETORNO ACUMULADO (%) "+(meses.length>1?meses[0]+" \u2192 "+meses[meses.length-1]:meses[0])),
+      h("svg",{viewBox:"0 0 "+W+" "+H,style:{width:"100%",height:"auto",display:"block"}},
+        // grade
+        ...[0,0.25,0.5,0.75,1].map(f=>{
+          const y=pT+cH-f*cH,v=yMin+f*yRng;
+          return h(Fragment,{key:"g"+f},
+            h("line",{x1:pL,y1:y,x2:W-pR,y2:y,stroke:"rgba(255,255,255,0.04)",strokeWidth:"1"}),
+            h("text",{x:pL-3,y:y+3,textAnchor:"end",fill:"#5A5550",fontSize:"7",fontFamily:"monospace"},(v>=0?"+":"")+v.toFixed(0)+"%")
+          );
+        }),
+        // linha zero
+        Math.abs(yMin)>0.01&&h("line",{x1:pL,y1:yScale(0),x2:W-pR,y2:yScale(0),stroke:"rgba(255,255,255,0.15)",strokeWidth:"1",strokeDasharray:"3,2"}),
+        // Linhas das series
+        ...cols.map(c=>{
+          const pts=seriesAcum[c.key].map((v,i)=>({x:xScale(i),y:yScale(v)}));
+          if(pts.length===0)return null;
+          const d=pts.map((p,i)=>(i===0?"M":"L")+p.x.toFixed(1)+" "+p.y.toFixed(1)).join(" ");
+          const isPort=c.key==="port";
+          return h(Fragment,{key:c.key},
+            h("path",{d,fill:"none",stroke:c.cor,strokeWidth:isPort?"2.2":"1.1",opacity:isPort?"1":"0.55",strokeLinejoin:"round",strokeLinecap:"round"}),
+            // ponto final destacado so para portfolio
+            isPort&&pts.length>0&&h("circle",{cx:pts[pts.length-1].x.toFixed(1),cy:pts[pts.length-1].y.toFixed(1),r:"3",fill:c.cor,stroke:"#0D0F14",strokeWidth:"1.5"})
+          );
+        }),
+        // Labels eixo X
+        ...idxLabels.map(i=>{
+          const x=xScale(i);
+          return h("text",{key:"l"+i,x:x.toFixed(1),y:H-pB+12,textAnchor:"middle",fill:"#7A7060",fontSize:"7",fontFamily:"monospace"},fmtMes(meses[i]));
+        })
+      ),
+      // Legenda compacta
+      h("div",{style:{display:"flex",flexWrap:"wrap",gap:"8px 12px",marginTop:8,fontSize:8,fontFamily:"monospace"}},
+        ...cols.map(c=>h("div",{key:c.key,style:{display:"flex",alignItems:"center",gap:4}},
+          h("span",{style:{width:8,height:c.key==="port"?3:2,background:c.cor,borderRadius:1}}),
+          h("span",{style:{color:c.key==="port"?"#F0EAD8":"#8A8070",fontWeight:c.key==="port"?700:400}},c.nome)
+        ))
+      )
+    ),
+    // Tabela de retornos mensais
+    h("div",{style:{overflowX:"auto",WebkitOverflowScrolling:"touch",marginBottom:14}},
+      h("table",{style:{borderCollapse:"collapse",fontFamily:"monospace",fontSize:9,width:"100%",minWidth:Math.max(420,cols.length*60)}},
+        h("thead",{},
+          h("tr",{},
+            h("th",{style:{padding:"6px 6px",textAlign:"left",color:"#8A8070",borderBottom:"1px solid rgba(255,255,255,0.08)",fontSize:8,letterSpacing:1}},"MES"),
+            ...cols.map(c=>h("th",{key:c.key,style:{padding:"6px 6px",textAlign:"right",color:c.cor,borderBottom:"1px solid rgba(255,255,255,0.08)",fontSize:8,letterSpacing:1,fontWeight:c.key==="port"?700:600}},c.nome))
+          )
+        ),
+        h("tbody",{},
+          ...mesesExibidos.map(k=>h("tr",{key:k,style:{borderBottom:"1px solid rgba(255,255,255,0.03)"}},
+            h("td",{style:{padding:"5px 6px",color:"#9A9080",fontSize:9}},fmtMes(k)),
+            ...cols.map(c=>{
+              const v=c.get(k);
+              const isPort=c.key==="port";
+              return h("td",{key:c.key,style:{padding:"5px 6px",textAlign:"right",color:corCelula(v),fontWeight:isPort?700:500,background:isPort?"rgba(200,169,110,0.04)":"transparent"}},fmtPct(v));
+            })
+          )),
+          // Linha de acumulado
+          h("tr",{style:{borderTop:"2px solid rgba(200,169,110,0.25)",background:"rgba(200,169,110,0.04)"}},
+            h("td",{style:{padding:"7px 6px",color:"#C8A96E",fontSize:9,fontWeight:700,letterSpacing:1}},"ACUM"),
+            ...cols.map(c=>h("td",{key:c.key,style:{padding:"7px 6px",textAlign:"right",color:corCelula(acums[c.key]),fontWeight:700}},fmtPct(acums[c.key])))
+          )
+        )
+      )
+    ),
+    // Métricas de risco (apenas se >=6 meses)
+    meses.length>=6&&h("div",{style:{padding:"10px 12px",background:"rgba(91,143,212,0.04)",border:"1px solid rgba(91,143,212,0.15)",borderRadius:8}},
+      h("div",{style:{fontSize:9,color:"#5B8FD4",fontFamily:"monospace",letterSpacing:1,marginBottom:7}},"METRICAS DE RISCO (ANUALIZADAS)"),
+      h("div",{style:{overflowX:"auto",WebkitOverflowScrolling:"touch"}},
+        h("table",{style:{borderCollapse:"collapse",fontFamily:"monospace",fontSize:9,width:"100%",minWidth:380}},
+          h("thead",{},
+            h("tr",{},
+              h("th",{style:{padding:"4px 6px",textAlign:"left",color:"#7A7570",fontSize:8}},""),
+              ...cols.map(c=>h("th",{key:c.key,style:{padding:"4px 6px",textAlign:"right",color:c.cor,fontSize:8,fontWeight:600}},c.nome))
+            )
+          ),
+          h("tbody",{},
+            h("tr",{},
+              h("td",{style:{padding:"4px 6px",color:"#8A8070"}},"Volatilidade"),
+              ...cols.map(c=>h("td",{key:c.key,style:{padding:"4px 6px",textAlign:"right",color:"#B0A890"}},metricas[c.key].vol!==null?metricas[c.key].vol.toFixed(1)+"%":"-"))
+            ),
+            h("tr",{},
+              h("td",{style:{padding:"4px 6px",color:"#8A8070"}},"Sharpe"),
+              ...cols.map(c=>h("td",{key:c.key,style:{padding:"4px 6px",textAlign:"right",color:metricas[c.key].sharpe>0?"#4CAF82":metricas[c.key].sharpe<0?"#E05252":"#B0A890"}},metricas[c.key].sharpe!==null?metricas[c.key].sharpe.toFixed(2):"-"))
+            )
+          )
+        )
+      ),
+      h("div",{style:{fontSize:8,color:"#5A5550",marginTop:6,fontStyle:"italic"}},"Vol = desvio-padrao mensal anualizado. Sharpe = (retorno - CDI) / vol. Calculado sobre "+meses.length+" meses.")
+    ),
+    meses.length<6&&meses.length>=1&&h("div",{style:{padding:"8px 12px",background:"rgba(232,196,74,0.04)",border:"1px solid rgba(232,196,74,0.15)",borderRadius:6,fontSize:9,color:"#A89070",fontStyle:"italic"}},"Volatilidade e Sharpe disponiveis a partir de 6 meses de historico ("+meses.length+"/6)")
+  );
+}
+
 function HeatmapChart({hist}){
   const data=hist.filter(r=>r.totalPatrimBRL>0).slice().reverse();
   if(data.length<2)return null;
@@ -721,6 +933,10 @@ function App(){
   const [step,setStep]=useState("r");
   const [hist,setHist]=useState([]);
   const [histMensal,setHistMensal]=useState([]);// snapshots consolidados por mes (1 por mes, sem limite)
+  // Series mensais dos indices comparativos: {"YYYY-MM": {ibov, ifix, cdi, imab, sp500, nasdaq, poupanca}}
+  const [idxMensal,setIdxMensal]=useState({});
+  // Insight mensal IA: {mes:"YYYY-MM", texto:"...", ts:123456}
+  const [insightMensal,setInsightMensal]=useState(null);
   const [btcUsd,setBtcUsd]=useState(null);
   const [btcTs,setBtcTs]=useState(null);
   const [btcVar,setBtcVar]=useState(null);
@@ -929,6 +1145,8 @@ function App(){
         setPort(dd.port||{});setCustom(dd.custom||{});setHidden(dd.hidden||[]);
         setLastPU(dd.lastPU||null);setHist(dd.hist||[]);
         if(Array.isArray(dd.histMensal))setHistMensal(dd.histMensal);
+        if(dd.idxMensal&&typeof dd.idxMensal==="object")setIdxMensal(dd.idxMensal);
+        if(dd.insightMensal&&typeof dd.insightMensal==="object")setInsightMensal(dd.insightMensal);
         Object.entries(dd.custom||{}).forEach(([,list])=>{(list||[]).forEach(a=>{
           BCCY[a.ticker]=a.ccy||"BRL";
           if(a.label&&a.label!==a.ticker&&!NAMES[a.ticker])NAMES[a.ticker]=a.label;
@@ -966,12 +1184,12 @@ function App(){
     if(!inited||!aesKey)return;
     (async()=>{
       try{
-        const obj={port,custom,hidden,lastPU,hist,histMensal,fx:{...FX},btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,infIPCA,infIGPM,infINCC,infCPI};
+        const obj={port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,fx:{...FX},btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,infIPCA,infIGPM,infINCC,infCPI};
         const enc=await aesEncrypt(aesKey,obj);
         localStorage.setItem(SK_ENC,enc);
       }catch(e){}
     })();
-  },[port,custom,hidden,lastPU,hist,histMensal,btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,infIPCA,infIGPM,infINCC,infCPI,inited,aesKey]);
+  },[port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,infIPCA,infIGPM,infINCC,infCPI,inited,aesKey]);
 
   // Auto-lock por inatividade (15 min)
   useEffect(()=>{
@@ -1197,6 +1415,113 @@ function App(){
           setInfCPI({valor:v12,mensal:isNaN(vMes)?null:vMes,ref:meses[refMes.getMonth()]+"/"+String(refMes.getFullYear()).slice(2)});
         }
       }catch(e){}
+    })();
+    // Busca series mensais dos indices comparativos
+    (async()=>{
+      await new Promise(r=>setTimeout(r,4500));
+      if(cancelado)return;
+      const proxies=[
+        u=>"https://corsproxy.io/?url="+encodeURIComponent(u),
+        u=>"https://api.allorigins.win/raw?url="+encodeURIComponent(u),
+        u=>"https://api.codetabs.com/v1/proxy/?quest="+encodeURIComponent(u)
+      ];
+      const fetchProxy=async(url,ms)=>{
+        for(const mk of proxies){
+          if(cancelado)return null;
+          try{
+            const ctrl=new AbortController();
+            const tid=setTimeout(()=>ctrl.abort(),ms||7000);
+            const r=await fetch(mk(url),{signal:ctrl.signal});
+            clearTimeout(tid);
+            if(!r.ok)continue;
+            const text=await r.text();
+            if(!text||text.toLowerCase().includes("host not in allowlist"))continue;
+            return JSON.parse(text);
+          }catch(e){continue;}
+        }
+        return null;
+      };
+      // Series BCB SGS: cada serie retorna [{data:"DD/MM/YYYY", valor:"X.XX"}]
+      // CDI=12 (diaria), Poupanca=25 (mensal %), IBOV=7846 (mensal var %), IMAB=12466 (mensal var %)
+      // IFIX nao tem BCB - usa Yahoo Finance "IFIX.SA" (B3)
+      const buscaSerieBCB=async(serie,n)=>{
+        const url="https://api.bcb.gov.br/dados/serie/bcdata.sgs."+serie+"/dados/ultimos/"+(n||60)+"?formato=json";
+        return await fetchProxy(url,8000);
+      };
+      // Helper: agrega serie diaria em mensal (composta)
+      const diariasParaMensal=(arr)=>{
+        const porMes={};
+        arr.forEach(d=>{
+          const m=String(d.data).match(/(\d{2})\/(\d{2})\/(\d{4})/);
+          if(!m)return;
+          const k=m[3]+"-"+m[2];
+          const v=parseFloat(String(d.valor).replace(",","."));
+          if(isNaN(v))return;
+          if(!porMes[k])porMes[k]=1;
+          porMes[k]*=(1+v/100);
+        });
+        const result={};
+        Object.entries(porMes).forEach(([k,v])=>{result[k]=(v-1)*100;});
+        return result;
+      };
+      // Helper: serie mensal direta (cada item ja eh um mes)
+      const mensalDireta=(arr)=>{
+        const result={};
+        arr.forEach(d=>{
+          const m=String(d.data).match(/(\d{2})\/(\d{2})\/(\d{4})/);
+          if(!m)return;
+          const k=m[3]+"-"+m[2];
+          const v=parseFloat(String(d.valor).replace(",","."));
+          if(!isNaN(v))result[k]=v;
+        });
+        return result;
+      };
+      const novoIdx={};
+      // CDI (serie 12 - taxa diaria %)
+      try{
+        const d=await buscaSerieBCB(12,800);// ~3 anos de dias uteis
+        if(d&&Array.isArray(d)){const m=diariasParaMensal(d);Object.entries(m).forEach(([k,v])=>{novoIdx[k]=novoIdx[k]||{};novoIdx[k].cdi=v;});}
+      }catch(e){}
+      // Poupanca (serie 25 - rendimento %)
+      try{
+        const d=await buscaSerieBCB(25,36);
+        if(d&&Array.isArray(d)){const m=mensalDireta(d);Object.entries(m).forEach(([k,v])=>{novoIdx[k]=novoIdx[k]||{};novoIdx[k].poupanca=v;});}
+      }catch(e){}
+      // IBOV (serie 7846 - variacao mensal %)
+      try{
+        const d=await buscaSerieBCB(7846,36);
+        if(d&&Array.isArray(d)){const m=mensalDireta(d);Object.entries(m).forEach(([k,v])=>{novoIdx[k]=novoIdx[k]||{};novoIdx[k].ibov=v;});}
+      }catch(e){}
+      // IMA-B (serie 12466)
+      try{
+        const d=await buscaSerieBCB(12466,36);
+        if(d&&Array.isArray(d)){const m=mensalDireta(d);Object.entries(m).forEach(([k,v])=>{novoIdx[k]=novoIdx[k]||{};novoIdx[k].imab=v;});}
+      }catch(e){}
+      // IFIX e S&P 500 e NASDAQ via Yahoo Chart API
+      const buscaYahooMensal=async(ticker)=>{
+        const url="https://query1.finance.yahoo.com/v8/finance/chart/"+encodeURIComponent(ticker)+"?interval=1mo&range=3y";
+        return await fetchProxy(url,10000);
+      };
+      const procYahoo=(j,campo)=>{
+        if(!j||!j.chart||!j.chart.result||!j.chart.result[0])return;
+        const r=j.chart.result[0];
+        const ts=r.timestamp;
+        const closes=r.indicators&&r.indicators.quote&&r.indicators.quote[0]&&r.indicators.quote[0].close;
+        if(!ts||!closes||ts.length!==closes.length)return;
+        for(let i=1;i<ts.length;i++){
+          if(!closes[i]||!closes[i-1])continue;
+          const d=new Date(ts[i]*1000);
+          const k=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");
+          const ret=((closes[i]/closes[i-1])-1)*100;
+          if(!isNaN(ret)){novoIdx[k]=novoIdx[k]||{};novoIdx[k][campo]=ret;}
+        }
+      };
+      try{const j=await buscaYahooMensal("IFIX.SA");procYahoo(j,"ifix");}catch(e){}
+      try{const j=await buscaYahooMensal("%5EGSPC");procYahoo(j,"sp500");}catch(e){}
+      try{const j=await buscaYahooMensal("%5EIXIC");procYahoo(j,"nasdaq");}catch(e){}
+      if(!cancelado&&Object.keys(novoIdx).length>0){
+        setIdxMensal(prev=>({...prev,...novoIdx}));
+      }
     })();
     return()=>{cancelado=true;};
   },[inited]);
@@ -1896,6 +2221,99 @@ function App(){
   // Nao regenera ao abrir, nao regenera apos "ATUALIZAR PRECOS".
   // Buy & hold = analise estrategica, nao precisa ser frequente.
 
+  // === INSIGHT MENSAL: gerado automaticamente no fechamento do mes ===
+  // Loading state
+  const [insightMensalLoad,setInsightMensalLoad]=useState(false);
+  const [insightMensalErr,setInsightMensalErr]=useState("");
+  const genInsightMensal=useCallback(async(mesAlvo,forcar)=>{
+    if(!apiKey||insightMensalLoad)return;
+    if(!Array.isArray(histMensal)||histMensal.length<2)return;
+    // Constroi serie de retornos mensais do portfolio
+    const snaps=histMensal.slice().sort((a,b)=>new Date(a.date)-new Date(b.date));
+    const retP={};
+    for(let i=1;i<snaps.length;i++){
+      const ant=snaps[i-1],atu=snaps[i];
+      if(!ant.totalPatrimBRL||!atu.totalPatrimBRL)continue;
+      const ap=atu.apValue||0;
+      const ret=((atu.totalPatrimBRL-ap)/ant.totalPatrimBRL-1)*100;
+      const d=new Date(atu.date);
+      const k=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");
+      retP[k]=ret;
+    }
+    // Mes-alvo: passado como parametro ou usa o ultimo
+    const mesUsar=mesAlvo||Object.keys(retP).sort().pop();
+    if(!mesUsar)return;
+    // Se ja existe insight para esse mes e nao foi forcado, nao regenera
+    if(!forcar&&insightMensal&&insightMensal.mes===mesUsar)return;
+    // Composicao atual por classe
+    const composicaoAtual={};CL.forEach(c=>{composicaoAtual[c.tag]=(cw[c.id]||0).toFixed(1)+"%";});
+    // Contribuicao por classe: variacao do valor BRL de cada classe entre 2 ultimos snapshots
+    const contribClasses={};
+    if(snaps.length>=2){
+      const ult=snaps[snaps.length-1],pen=snaps[snaps.length-2];
+      CL.forEach(c=>{
+        const vAtu=((ult.composicao&&ult.composicao[c.id])||0)/100*(ult.totalPatrimBRL||0);
+        const vAnt=((pen.composicao&&pen.composicao[c.id])||0)/100*(pen.totalPatrimBRL||0);
+        const delta=vAtu-vAnt;
+        contribClasses[c.tag]={de:Math.round(vAnt),para:Math.round(vAtu),delta:Math.round(delta)};
+      });
+    }
+    // Retornos comparativos
+    const idxData=idxMensal[mesUsar]||{};
+    const dadosComp={
+      portfolio:retP[mesUsar],
+      ibov:idxData.ibov,ifix:idxData.ifix,imab:idxData.imab,cdi:idxData.cdi,
+      sp500:idxData.sp500,nasdaq:idxData.nasdaq,poupanca:idxData.poupanca
+    };
+    // Serie historica curta (ate 12 meses)
+    const meses=Object.keys(retP).sort().slice(-12);
+    const histRetornos=meses.map(k=>({mes:k,port:retP[k],ibov:(idxMensal[k]||{}).ibov,cdi:(idxMensal[k]||{}).cdi}));
+    // Volatilidade do portfolio (se >=6 meses)
+    let volStr="dados insuficientes";
+    const valores=meses.map(k=>retP[k]).filter(v=>typeof v==="number"&&!isNaN(v));
+    if(valores.length>=6){
+      const m=valores.reduce((s,v)=>s+v,0)/valores.length;
+      const sd=Math.sqrt(valores.reduce((s,v)=>s+Math.pow(v-m,2),0)/valores.length);
+      volStr=(sd*Math.sqrt(12)).toFixed(1)+"% (anualizada)";
+    }
+    const prompt="Analista patrimonial senior, filosofia 'quality at a reasonable price', Buy & Hold para aposentadoria.\\n"+
+      "FECHAMENTO DE MES: "+mesUsar+"\\n"+
+      "RETORNOS DO MES (%): "+JSON.stringify(dadosComp)+"\\n"+
+      "COMPOSICAO ATUAL: "+JSON.stringify(composicaoAtual)+"\\n"+
+      "CONTRIBUICAO POR CLASSE (BRL, valor anterior -> atual, delta): "+JSON.stringify(contribClasses)+"\\n"+
+      "SERIE HISTORICA RETORNOS (ate 12 meses): "+JSON.stringify(histRetornos)+"\\n"+
+      "VOLATILIDADE PORTFOLIO: "+volStr+"\\n\\n"+
+      "Gere ANALISE DO FECHAMENTO DO MES em 4 paragrafos curtos (max 80 palavras CADA), sem markdown:\\n"+
+      "1) DESEMPENHO: o portfolio bateu ou perdeu para CDI, IBOV, IMA-B no mes? Performance acumulada esta consistente?\\n"+
+      "2) CLASSES: quais classes mais contribuiram positivamente e negativamente? Algum sinal de alerta?\\n"+
+      "3) RISCO: a volatilidade do portfolio esta adequada ao perfil Buy & Hold de longo prazo? Existe concentracao excessiva?\\n"+
+      "4) DIAGNOSTICO: o portfolio esta no caminho certo da equacao qualidade x preco? Algum ajuste estrutural sugerido?\\n\\n"+
+      "Tom: direto, objetivo, dados concretos, sem rodeios. Use paragrafos separados por linha em branco.";
+    setInsightMensalLoad(true);setInsightMensalErr("");
+    try{
+      const txt=await callAPI([{role:"user",content:prompt}],apiKey);
+      setInsightMensal({mes:mesUsar,texto:txt,ts:Date.now()});
+    }catch(e){setInsightMensalErr(e.message||"Erro");}
+    setInsightMensalLoad(false);
+  },[apiKey,histMensal,idxMensal,cw,insightMensal,insightMensalLoad]);
+
+  // Trigger automatico: ao abrir o app, se ja temos snapshot do mes anterior e ainda nao geramos insight mensal pra ele, dispara
+  useEffect(()=>{
+    if(!inited||!apiKey||insightMensalLoad)return;
+    if(!Array.isArray(histMensal)||histMensal.length<2)return;
+    const snaps=histMensal.slice().sort((a,b)=>new Date(a.date)-new Date(b.date));
+    const ultSnap=snaps[snaps.length-1];
+    if(!ultSnap)return;
+    const d=new Date(ultSnap.date);
+    const k=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");
+    // Se ainda nao temos insight desse mes, gera
+    if(!insightMensal||insightMensal.mes!==k){
+      // Espera um pouco para que idxMensal tambem esteja populado
+      const t=setTimeout(()=>{genInsightMensal(k,false);},6000);
+      return ()=>clearTimeout(t);
+    }
+  },[inited,apiKey,histMensal,idxMensal,insightMensal,insightMensalLoad,genInsightMensal]);
+
   // Grava snapshot da composicao quando atualiza precos (para heatmap)
   useEffect(()=>{
     if(!inited||!hasPos||!lastPU)return;
@@ -2152,7 +2570,31 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         ),
         notifStatus==="granted"&&h("div",{style:{marginTop:6,fontSize:9,color:"#4CAF82",fontFamily:"monospace",letterSpacing:1}},"notificacoes ativas")
       ):null;
-      content=h("div",{},cards,aporteCard,insightCard,h(AllocChart,{cw}),h(CompareChart,{cw}),h(RiskChart,{cw}),h(EvolChart,{histMensal,hist,showUSD,setShowUSD,hideVal}),h(HeatmapChart,{hist}),h(CurrencyChart,{port,cls,hideVal}),topPos);
+      // Card do insight mensal IA (so aparece se tem >=2 snapshots mensais)
+      const insightMensalCard=(hasPos&&Array.isArray(histMensal)&&histMensal.length>=2)?h("div",{style:{marginBottom:18,padding:"14px",background:"linear-gradient(135deg,rgba(91,143,212,0.08),rgba(165,111,212,0.04))",border:"1px solid "+(insightMensalErr?"rgba(224,82,82,0.35)":"rgba(91,143,212,0.25)"),borderRadius:10}},
+        h("div",{style:{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:8,marginBottom:8,flexWrap:"wrap"}},
+          h("div",{},
+            h("div",{style:{fontSize:9,letterSpacing:3,color:"#5B8FD4",fontFamily:"monospace",textTransform:"uppercase"}},"Insight Mensal Claude IA"),
+            insightMensal&&insightMensal.mes&&h("div",{style:{fontSize:8,color:"#7A7570",fontFamily:"monospace",marginTop:2}},"fechamento de "+((m=>{const meses=["jan","fev","mar","abr","mai","jun","jul","ago","set","out","nov","dez"];const [a,mm]=m.split("-");return meses[parseInt(mm)-1]+"/"+a.slice(2);})(insightMensal.mes)))
+          ),
+          h("div",{style:{display:"flex",alignItems:"center",gap:7}},
+            insightMensal&&insightMensal.ts&&h("div",{style:{fontSize:8,color:"#5A5550",fontFamily:"monospace"}},"gerado: "+new Date(insightMensal.ts).toLocaleDateString("pt-BR")),
+            apiKey&&h("button",{onClick:()=>{
+              const snaps=histMensal.slice().sort((a,b)=>new Date(a.date)-new Date(b.date));
+              const ultSnap=snaps[snaps.length-1];if(!ultSnap)return;
+              const d=new Date(ultSnap.date);
+              const k=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");
+              genInsightMensal(k,true);
+            },disabled:insightMensalLoad,style:{background:"rgba(91,143,212,0.15)",border:"1px solid rgba(91,143,212,0.4)",borderRadius:4,color:"#5B8FD4",fontSize:9,padding:"3px 9px",cursor:insightMensalLoad?"not-allowed":"pointer",fontFamily:"monospace",letterSpacing:1}},insightMensalLoad?"gerando...":"atualizar")
+          )
+        ),
+        insightMensalErr?h("div",{style:{fontSize:11,color:"#E05252",fontStyle:"italic"}},"Erro: "+insightMensalErr):
+        !apiKey?h("div",{style:{fontSize:11,color:"#7A7570",fontStyle:"italic"}},"Cadastre sua chave API Anthropic (botao API no topo) para gerar insights mensais automaticos no fechamento de cada mes."):
+        insightMensalLoad?h("div",{style:{fontSize:11,color:"#7A7570",fontStyle:"italic"}},"Analisando desempenho do mes..."):
+        insightMensal&&insightMensal.texto?h("div",{style:{fontSize:11,color:"#C8C0B0",lineHeight:1.7,whiteSpace:"pre-wrap"}},insightMensal.texto):
+        h("div",{style:{fontSize:11,color:"#7A7570",fontStyle:"italic"}},"Sera gerado automaticamente no fechamento do proximo mes. Ou clique em atualizar para forcar agora.")
+      ):null;
+      content=h("div",{},cards,aporteCard,insightCard,h(AllocChart,{cw}),h(CompareChart,{cw}),h(RiskChart,{cw}),h(EvolChart,{histMensal,hist,showUSD,setShowUSD,hideVal}),h(ComparativoChart,{histMensal,idxMensal,hideVal}),insightMensalCard,h(HeatmapChart,{hist}),h(CurrencyChart,{port,cls,hideVal}),topPos);
     }
   }  // POSITIONS
   if(tab==="positions"){
