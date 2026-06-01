@@ -1922,20 +1922,59 @@ function App(){
   // Idade do cambio
   const fxIdadeMin=lastPU?Math.floor((Date.now()-new Date(lastPU).getTime())/60000):null;
   const fxAntigo=fxIdadeMin!==null&&fxIdadeMin>60;
+  // Calcula variacao do patrimonio desde o ultimo snapshot anterior
+  // hist[0] eh o mais recente. Buscamos o ultimo snapshot que tenha totalPatrimBRL>0 que NAO seja o "atual" (que sera registrado proximo refresh)
+  let deltaPatrim=null;
+  if(total>0&&Array.isArray(hist)&&hist.length>0){
+    // O snapshot mais antigo no array eh o de referencia para comparacao
+    // Usa o snapshot mais recente do historico que nao seja "do mesmo instante"
+    const candidato=hist.find(r=>r&&r.totalPatrimBRL>0);
+    if(candidato&&candidato.totalPatrimBRL>0){
+      const ref=candidato.totalPatrimBRL;
+      const pct=((total-ref)/ref)*100;
+      // Label da hora de referencia (HH:MM ou DD/MM se mais antigo)
+      const dataRef=new Date(candidato.date);
+      const agora=new Date();
+      const ehHoje=dataRef.toDateString()===agora.toDateString();
+      const refLabel=ehHoje
+        ? String(dataRef.getHours()).padStart(2,"0")+":"+String(dataRef.getMinutes()).padStart(2,"0")
+        : String(dataRef.getDate()).padStart(2,"0")+"/"+String(dataRef.getMonth()+1).padStart(2,"0");
+      // So mostra se variacao for relevante (>0.001%) e tempo for >0 minutos
+      if(Math.abs(pct)>=0.001){
+        deltaPatrim={pct,refLabel,refValor:ref};
+      }
+    }
+  }
   const header=h("div",{style:{background:"linear-gradient(180deg,rgba(200,169,110,0.08) 0%,transparent 100%)",borderBottom:"1px solid rgba(200,169,110,0.15)",padding:"14px 18px 10px"}},
     h("div",{style:{fontSize:9,letterSpacing:4,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:2}},"Planejamento Patrimonial - Buy & Hold"),
     h("div",{style:{display:"flex",alignItems:"flex-end",justifyContent:"space-between",gap:8,flexWrap:"wrap"}},
       h("div",{style:{flex:1,minWidth:0}},
         h("h1",{style:{margin:0,fontSize:20,fontWeight:400,color:"#F0EAD8"}},"Portfolio Patrimonial"),
-        hasPos&&h("div",{style:{display:"flex",alignItems:"center",gap:10,marginTop:2}},
+        hasPos&&h("div",{style:{display:"flex",alignItems:"center",gap:10,marginTop:2,flexWrap:"wrap"}},
           h("div",{style:{fontSize:24,color:"#C8A96E",fontFamily:"monospace",fontWeight:700}},MV(fB(total))),
-          h("button",{onClick:()=>setHideVal(v=>!v),style:{background:"none",border:"none",cursor:"pointer",padding:0,fontSize:18,color:"#C8A96E",opacity:0.7,lineHeight:1}},hideVal?"\u{1F441}":"\u{1F648}")
+          h("button",{onClick:()=>setHideVal(v=>!v),title:hideVal?"Mostrar valores":"Ocultar valores",style:{background:"none",border:"none",cursor:"pointer",padding:0,lineHeight:0,display:"inline-flex",alignItems:"center",justifyContent:"center"}},
+            hideVal
+              ? h("svg",{width:18,height:18,viewBox:"0 0 24 24",fill:"none",stroke:"#C8A96E",strokeWidth:"1.6",strokeLinecap:"round",strokeLinejoin:"round",opacity:"0.75"},
+                  h("path",{d:"M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"}),
+                  h("line",{x1:"1",y1:"1",x2:"23",y2:"23"})
+                )
+              : h("svg",{width:18,height:18,viewBox:"0 0 24 24",fill:"none",stroke:"#C8A96E",strokeWidth:"1.6",strokeLinecap:"round",strokeLinejoin:"round",opacity:"0.75"},
+                  h("path",{d:"M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"}),
+                  h("circle",{cx:"12",cy:"12",r:"3"})
+                )
+          ),
+          // Variacao do patrimonio desde o ultimo snapshot
+          !hideVal&&deltaPatrim&&h("div",{title:"Variacao desde "+deltaPatrim.refLabel,style:{display:"inline-flex",alignItems:"center",gap:3,fontSize:11,fontFamily:"monospace",padding:"2px 8px",borderRadius:4,background:deltaPatrim.pct>=0?"rgba(76,175,130,0.10)":"rgba(224,82,82,0.10)",border:"1px solid "+(deltaPatrim.pct>=0?"rgba(76,175,130,0.30)":"rgba(224,82,82,0.30)"),color:deltaPatrim.pct>=0?"#4CAF82":"#E05252",fontWeight:700}},
+            h("span",{style:{fontSize:10}},deltaPatrim.pct>=0?"\u25B2":"\u25BC"),
+            (deltaPatrim.pct>=0?"+":"")+deltaPatrim.pct.toFixed(2)+"%",
+            h("span",{style:{fontSize:8,opacity:0.7,marginLeft:3}},"desde "+deltaPatrim.refLabel)
+          )
         ),
         hasPos&&!hideVal&&valorEstrangeiroBRL>0&&h("div",{style:{fontSize:9,color:"#7A7570",fontFamily:"monospace",marginTop:3,lineHeight:1.4}},
           "BRL nativo: ",h("span",{style:{color:"#4CAF82"}},fB(valorBRLnativo))," + Convertido: ",h("span",{style:{color:"#5B8FD4"}},fB(valorEstrangeiroBRL))
         )
       ),
-      hasPos&&h("button",{onClick:refresh,disabled:loadP,style:{background:"rgba(200,169,110,0.1)",border:"1px solid rgba(200,169,110,0.3)",borderRadius:6,padding:"6px 12px",color:"#C8A96E",fontSize:10,fontFamily:"monospace",letterSpacing:2,cursor:"pointer",textTransform:"uppercase"}},loadP?"Buscando...":"Atualizar precos")
+      hasPos&&h("button",{onClick:refresh,disabled:loadP,style:{background:"rgba(200,169,110,0.1)",border:"1px solid rgba(200,169,110,0.3)",borderRadius:6,padding:"6px 12px",color:"#C8A96E",fontSize:10,fontFamily:"monospace",letterSpacing:2,cursor:"pointer",textTransform:"uppercase"}},loadP?"Buscando...":"Atualizar pre\u00e7os")
     ),
     (lastPU||pErr||btcUsd||xauBrl)&&h("div",{style:{fontSize:9,color:fxAntigo?"#E8C44A":"#5A5550",marginTop:3,fontFamily:"monospace"}},
       lastPU&&("Atualizado: "+new Date(lastPU).toLocaleString("pt-BR")+" - "),
