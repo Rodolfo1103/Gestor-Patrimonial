@@ -2340,26 +2340,41 @@ function App(){
   // Idade do cambio
   const fxIdadeMin=lastPU?Math.floor((Date.now()-new Date(lastPU).getTime())/60000):null;
   const fxAntigo=fxIdadeMin!==null&&fxIdadeMin>60;
-  // Calcula variacao do patrimonio desde o ultimo snapshot anterior
-  // hist[0] eh o mais recente. Buscamos o ultimo snapshot que tenha totalPatrimBRL>0 que NAO seja o "atual" (que sera registrado proximo refresh)
-  let deltaPatrim=null;
+  // Calcula variacoes do patrimonio:
+  // HOJE: vs primeiro snapshot do dia atual (intraday, reset as 00h)
+  // D-1: vs ultimo snapshot do dia anterior (overnight + dia anterior completo)
+  let deltaHoje=null,deltaD1=null;
   if(total>0&&Array.isArray(hist)&&hist.length>0){
-    // O snapshot mais antigo no array eh o de referencia para comparacao
-    // Usa o snapshot mais recente do historico que nao seja "do mesmo instante"
-    const candidato=hist.find(r=>r&&r.totalPatrimBRL>0);
-    if(candidato&&candidato.totalPatrimBRL>0){
-      const ref=candidato.totalPatrimBRL;
+    const agora=new Date();
+    const hojeStr=agora.toDateString();
+    // Encontra todos snapshots validos ordenados por data crescente
+    const validos=hist.filter(r=>r&&r.totalPatrimBRL>0).slice().reverse();// hist eh DESC, viramos pra ASC
+    // PRIMEIRO snapshot do dia atual
+    const primeiroHoje=validos.find(r=>new Date(r.date).toDateString()===hojeStr);
+    if(primeiroHoje&&primeiroHoje.totalPatrimBRL>0){
+      const ref=primeiroHoje.totalPatrimBRL;
       const pct=((total-ref)/ref)*100;
-      // Label da hora de referencia (HH:MM ou DD/MM se mais antigo)
-      const dataRef=new Date(candidato.date);
-      const agora=new Date();
-      const ehHoje=dataRef.toDateString()===agora.toDateString();
-      const refLabel=ehHoje
-        ? String(dataRef.getHours()).padStart(2,"0")+":"+String(dataRef.getMinutes()).padStart(2,"0")
-        : String(dataRef.getDate()).padStart(2,"0")+"/"+String(dataRef.getMonth()+1).padStart(2,"0");
-      // So mostra se variacao for relevante (>0.001%) e tempo for >0 minutos
+      const dataRef=new Date(primeiroHoje.date);
+      const refHora=String(dataRef.getHours()).padStart(2,"0")+":"+String(dataRef.getMinutes()).padStart(2,"0");
       if(Math.abs(pct)>=0.001){
-        deltaPatrim={pct,refLabel,refValor:ref};
+        deltaHoje={pct,refValor:ref,refHora};
+      }
+    }
+    // ULTIMO snapshot do dia anterior (qualquer dia anterior, pega o mais recente)
+    const ontemMs=agora.getTime()-86400000;
+    const ultDiaAnt=validos.filter(r=>{
+      const d=new Date(r.date);
+      return d.toDateString()!==hojeStr&&d.getTime()<=ontemMs+86400000;
+    });
+    const ultD1=ultDiaAnt.length>0?ultDiaAnt[ultDiaAnt.length-1]:null;
+    if(ultD1&&ultD1.totalPatrimBRL>0){
+      const ref=ultD1.totalPatrimBRL;
+      const pct=((total-ref)/ref)*100;
+      const dataRef=new Date(ultD1.date);
+      const refLabel=String(dataRef.getDate()).padStart(2,"0")+"/"+String(dataRef.getMonth()+1).padStart(2,"0");
+      const refHora=String(dataRef.getHours()).padStart(2,"0")+":"+String(dataRef.getMinutes()).padStart(2,"0");
+      if(Math.abs(pct)>=0.001){
+        deltaD1={pct,refLabel,refValor:ref,refHora};
       }
     }
   }
@@ -2381,11 +2396,20 @@ function App(){
                   h("circle",{cx:"12",cy:"12",r:"3"})
                 )
           ),
-          // Variacao do patrimonio desde o ultimo snapshot
-          !hideVal&&deltaPatrim&&h("div",{title:"Variacao desde "+deltaPatrim.refLabel,style:{display:"inline-flex",alignItems:"center",gap:3,fontSize:11,fontFamily:"monospace",padding:"2px 8px",borderRadius:4,background:deltaPatrim.pct>=0?"rgba(76,175,130,0.10)":"rgba(224,82,82,0.10)",border:"1px solid "+(deltaPatrim.pct>=0?"rgba(76,175,130,0.30)":"rgba(224,82,82,0.30)"),color:deltaPatrim.pct>=0?"#4CAF82":"#E05252",fontWeight:700}},
-            h("span",{style:{fontSize:10}},deltaPatrim.pct>=0?"\u25B2":"\u25BC"),
-            (deltaPatrim.pct>=0?"+":"")+deltaPatrim.pct.toFixed(2)+"%",
-            h("span",{style:{fontSize:8,opacity:0.7,marginLeft:3}},"desde "+deltaPatrim.refLabel)
+          // Card unificado: HOJE em destaque + D-1 secundario
+          !hideVal&&(deltaHoje||deltaD1)&&h("div",{style:{display:"inline-flex",flexDirection:"column",padding:"4px 9px 5px",borderRadius:5,background:"rgba(255,255,255,0.025)",border:"1px solid rgba(255,255,255,0.06)",lineHeight:1.1}},
+            deltaHoje
+              ? h("div",{title:"Variacao desde o primeiro update de hoje as "+deltaHoje.refHora,style:{display:"inline-flex",alignItems:"baseline",gap:4,color:deltaHoje.pct>=0?"#4CAF82":"#E05252",fontFamily:"monospace",fontWeight:700}},
+                  h("span",{style:{fontSize:11,lineHeight:1}},deltaHoje.pct>=0?"\u25B2":"\u25BC"),
+                  h("span",{style:{fontSize:15,lineHeight:1.1}},(deltaHoje.pct>=0?"+":"")+deltaHoje.pct.toFixed(2)+"%"),
+                  h("span",{style:{fontSize:8,opacity:0.7,fontWeight:400,marginLeft:2}},"hoje desde "+deltaHoje.refHora)
+                )
+              : h("div",{style:{fontSize:9,color:"#5A5550",fontStyle:"italic",fontFamily:"monospace"}},"sem ref de hoje"),
+            deltaD1&&h("div",{title:"Variacao vs snapshot de "+deltaD1.refLabel+" as "+deltaD1.refHora,style:{display:"inline-flex",alignItems:"baseline",gap:3,marginTop:2,color:deltaD1.pct>=0?"#5B8FD4":"#E89060",fontFamily:"monospace",fontWeight:600,opacity:0.85}},
+              h("span",{style:{fontSize:8,lineHeight:1}},deltaD1.pct>=0?"\u25B2":"\u25BC"),
+              h("span",{style:{fontSize:9,lineHeight:1}},(deltaD1.pct>=0?"+":"")+deltaD1.pct.toFixed(2)+"%"),
+              h("span",{style:{fontSize:7,opacity:0.7,fontWeight:400,marginLeft:2}},"vs "+deltaD1.refLabel+" "+deltaD1.refHora)
+            )
           )
         ),
         hasPos&&!hideVal&&valorEstrangeiroBRL>0&&h("div",{style:{fontSize:9,color:"#7A7570",fontFamily:"monospace",marginTop:3,lineHeight:1.4}},
