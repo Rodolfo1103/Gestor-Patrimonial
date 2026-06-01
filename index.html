@@ -458,14 +458,14 @@ function CurrencyChart({port,cls,hideVal}){
 }
 
 function RiskChart({cw,selicAtual,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,recalibrarRR_viaIA,calibracaoLoad,calibracaoErr,hasAjustesIA,apiKey}){
-  const W=300,H=175,pL=22,pB=22,pT=12,pR=12,cW=W-pL-pR,cH=H-pB-pT;
+  const W=300,H=170,pL=22,pB=18,pT=12,pR=12,cW=W-pL-pR,cH=H-pB-pT;
   // Calcula posicao do portfolio agregado (media ponderada de risco e retorno)
   let totW=0,wR=0,wE=0;
   CL.forEach(c=>{const p=RR[c.id],w=cw[c.id]||0;if(p&&w>0){totW+=w;wR+=p.r*w;wE+=p.e*w;}});
   const portR=totW>0?wR/totW:null,portE=totW>0?wE/totW:null;
   return h("div",{style:{marginBottom:20,paddingTop:14,borderTop:"1px solid rgba(255,255,255,0.05)"}},
     h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:4}},"Risco x Retorno esperado"),
-    h("div",{style:{fontSize:9,color:"#5A5550",marginBottom:6,fontStyle:"italic"}},"Estrela = portfolio agregado (indice de eficiencia no centro). Circulos = classes de ativos. Zonas indicam faixas de eficiencia retorno/risco."),
+    h("div",{style:{fontSize:9,color:"#5A5550",marginBottom:6,fontStyle:"italic"}},"Estrela = portfolio agregado (indice de eficiencia no centro). Circulos = classes de ativos. Linhas tracejadas separam zonas de eficiencia (ver legenda abaixo)."),
     h("svg",{viewBox:"0 0 "+W+" "+H,style:{width:"100%",height:"auto"}},
       // Definicao de filtro drop-shadow para a estrela
       h("defs",{},
@@ -519,22 +519,7 @@ function RiskChart({cw,selicAtual,calibracaoRR_TS,calibracaoRR_texto,calibracaoR
           const yRet=razao*xMax;
           elements.push(h("line",{key:"z"+razao,x1:pL,y1:pT+cH,x2:pL+(xMax/10)*cW,y2:pT+cH-(yRet/10)*cH,stroke:"rgba(255,215,0,0.15)",strokeWidth:"0.6",strokeDasharray:"2,4"}));
         });
-        // Labels: nomes completos das zonas, fontSize pequeno e elegante
-        // Posicionamento ajustado para evitar sobreposicao
-        const labels=[
-          {nome:"DESFAVORAVEL",cor:"#E0525288",razao:0.5,xPos:8.0,letterSp:"1.5"},
-          {nome:"EQUILIBRADA",cor:"#E8906088",razao:1.1,xPos:7.5,letterSp:"1"},
-          {nome:"BOA",cor:"#E8C44A88",razao:1.35,xPos:6.5,letterSp:"2"},
-          {nome:"OTIMA",cor:"#7AC49488",razao:1.65,xPos:5.5,letterSp:"2"},
-          {nome:"EXCELENTE",cor:"#4CAF8288",razao:2.0,xPos:4.3,letterSp:"1.2"}
-        ];
-        labels.forEach((z,i)=>{
-          const yRet=z.razao*z.xPos;
-          if(yRet<0.5||yRet>10)return;
-          const xPx=pL+(z.xPos/10)*cW;
-          const yPx=pT+cH-(yRet/10)*cH;
-          elements.push(h("text",{key:"zl"+i,x:xPx,y:yPx,textAnchor:"middle",fill:z.cor,fontSize:"5.5",fontFamily:"monospace",letterSpacing:z.letterSp,fontWeight:"500"},z.nome));
-        });
+        // (Labels das zonas foram movidas para FORA do grafico - veja legenda lateral)
         return elements;
       })(),
       // Grade extra-sutil
@@ -576,13 +561,34 @@ function RiskChart({cw,selicAtual,calibracaoRR_TS,calibracaoRR_texto,calibracaoR
           h("title",{},"Portfolio agregado - Risco "+portR.toFixed(1)+"/10 | Retorno esperado "+portE.toFixed(1)+"/10 | Eficiencia "+ratio.toFixed(2)),
           // Indice de eficiencia dentro da estrela (bem pequeno)
           h("text",{x:cx,y:cy+1.2,textAnchor:"middle",fill:"#0D0F14",fontSize:"4.5",fontWeight:"700",fontFamily:"monospace"},ratio.toFixed(2)),
-          // Label PORTFOLIO abaixo da estrela (pequeno, institucional)
-          h("text",{x:cx,y:cy+24,textAnchor:"middle",fill:"#C8A96E",fontSize:"6.5",fontFamily:"monospace",fontWeight:"600",letterSpacing:"2.5"},"PORTFOLIO")
+          // Label PORTFOLIO abaixo da estrela - elegante, sutil, proximo
+          h("text",{x:cx,y:cy+19,textAnchor:"middle",fill:"#C8A96E",fontSize:"4.5",fontFamily:"monospace",fontWeight:"500",letterSpacing:"1.8",opacity:"0.85"},"PORTFOLIO")
         );
       })(),
       h("line",{x1:pL,y1:pT+cH,x2:pL+cW,y2:pT+cH,stroke:"rgba(255,255,255,0.08)",strokeWidth:"1"}),
       h("line",{x1:pL,y1:pT,x2:pL,y2:pT+cH,stroke:"rgba(255,255,255,0.08)",strokeWidth:"1"})
     ),
+    // LEGENDA DAS ZONAS DE EFICIENCIA (fora do grafico, abaixo)
+    portR!==null&&(()=>{
+      const ratio=portE/portR;
+      const zonas=[
+        {nome:"EXCELENTE",cor:"#4CAF82",razao:">= 1.8",ativa:ratio>=1.8},
+        {nome:"OTIMA",cor:"#7AC494",razao:"1.5-1.8",ativa:ratio>=1.5&&ratio<1.8},
+        {nome:"BOA",cor:"#E8C44A",razao:"1.2-1.5",ativa:ratio>=1.2&&ratio<1.5},
+        {nome:"EQUILIBRADA",cor:"#E89060",razao:"1.0-1.2",ativa:ratio>=1.0&&ratio<1.2},
+        {nome:"DESFAVORAVEL",cor:"#E05252",razao:"< 1.0",ativa:ratio<1.0}
+      ];
+      return h("div",{style:{marginTop:8,padding:"7px 10px",background:"rgba(0,0,0,0.18)",border:"1px solid rgba(255,255,255,0.04)",borderRadius:5}},
+        h("div",{style:{fontSize:7,letterSpacing:2,color:"#7A7060",fontFamily:"monospace",marginBottom:5,textTransform:"uppercase"}},"Zonas de Eficiencia (retorno / risco)"),
+        h("div",{style:{display:"flex",flexWrap:"wrap",gap:"4px 10px",alignItems:"center"}},
+          ...zonas.map((z,i)=>h("div",{key:i,style:{display:"inline-flex",alignItems:"center",gap:5,opacity:z.ativa?1:0.55}},
+            h("span",{style:{width:z.ativa?9:6,height:z.ativa?9:6,borderRadius:"50%",background:z.cor,boxShadow:z.ativa?"0 0 6px "+z.cor+"66":"none"}}),
+            h("span",{style:{fontSize:8.5,color:z.cor,fontFamily:"monospace",fontWeight:z.ativa?700:500,letterSpacing:1}},z.nome),
+            h("span",{style:{fontSize:7.5,color:"#5A5550",fontFamily:"monospace"}},z.razao)
+          ))
+        )
+      );
+    })(),
     // CARD DE DIAGNOSTICO AUTOMATICO
     portR!==null&&portE!==null&&(()=>{
       // Avaliacao do risco
