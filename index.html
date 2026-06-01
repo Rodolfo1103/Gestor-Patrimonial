@@ -399,7 +399,7 @@ function RiskChart({cw}){
   const portR=totW>0?wR/totW:null,portE=totW>0?wE/totW:null;
   return h("div",{style:{marginBottom:20,paddingTop:14,borderTop:"1px solid rgba(255,255,255,0.05)"}},
     h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:4}},"Risco x Retorno esperado"),
-    h("div",{style:{fontSize:9,color:"#5A5550",marginBottom:6,fontStyle:"italic"}},"Estrela dourada = portfolio agregado. Circulos = classes."),
+    h("div",{style:{fontSize:9,color:"#5A5550",marginBottom:6,fontStyle:"italic"}},"Estrela dourada = portfolio agregado. Circulos = classes. Eixos em escala 0-10."),
     h("svg",{viewBox:"0 0 "+W+" "+H,style:{width:"100%",height:"auto"}},
       ...[0,2,4,6,8,10].map(v=>{
         const x=pL+(v/10)*cW,y=pT+cH-(v/10)*cH;
@@ -429,13 +429,98 @@ function RiskChart({cw}){
         }
         return h(Fragment,{key:"port"},
           h("polygon",{points:star.join(" "),fill:"#FFD700",fillOpacity:0.95,stroke:"#0D0F14",strokeWidth:"1.5"}),
+          h("title",{},"Portfolio agregado - Risco "+portR.toFixed(1)+"/10 | Retorno esperado "+portE.toFixed(1)+"/10"),
           h("text",{x:cx,y:cy-13,textAnchor:"middle",fill:"#FFD700",fontSize:"8",fontWeight:"bold"},"PORT"),
-          h("text",{x:cx,y:cy+18,textAnchor:"middle",fill:"#FFD700",fontSize:"7",fontFamily:"monospace"},"R:"+portR.toFixed(1)+" E:"+portE.toFixed(1))
+          h("text",{x:cx,y:cy+22,textAnchor:"middle",fill:"#FFD700",fontSize:"6.5",fontFamily:"monospace",opacity:"0.85"},"risco "+portR.toFixed(1)+" \u00b7 retorno "+portE.toFixed(1))
         );
       })(),
       h("line",{x1:pL,y1:pT+cH,x2:pL+cW,y2:pT+cH,stroke:"rgba(255,255,255,0.1)",strokeWidth:"1"}),
       h("line",{x1:pL,y1:pT,x2:pL,y2:pT+cH,stroke:"rgba(255,255,255,0.1)",strokeWidth:"1"})
-    )
+    ),
+    // CARD DE DIAGNOSTICO AUTOMATICO
+    portR!==null&&portE!==null&&(()=>{
+      // Avaliacao do risco
+      let riscoTxt,riscoColor;
+      if(portR<3){riscoTxt="conservador";riscoColor="#7AC494";}
+      else if(portR<5){riscoTxt="moderado";riscoColor="#4CAF82";}
+      else if(portR<7){riscoTxt="moderado-arrojado";riscoColor="#E8C44A";}
+      else if(portR<8.5){riscoTxt="arrojado";riscoColor="#E89060";}
+      else{riscoTxt="agressivo";riscoColor="#E05252";}
+      // Avaliacao do retorno
+      let retTxt,retColor;
+      if(portE<4){retTxt="baixo";retColor="#7A7570";}
+      else if(portE<6){retTxt="moderado";retColor="#5B8FD4";}
+      else if(portE<7.5){retTxt="alto";retColor="#7AC494";}
+      else if(portE<8.5){retTxt="muito alto";retColor="#4CAF82";}
+      else{retTxt="agressivo";retColor="#E8C44A";}
+      // Eficiencia da relacao (retorno por unidade de risco)
+      const ratio=portE/portR;
+      let eficienciaTxt,eficienciaColor;
+      if(ratio>=1.8){eficienciaTxt="EXCELENTE";eficienciaColor="#4CAF82";}
+      else if(ratio>=1.5){eficienciaTxt="OTIMA";eficienciaColor="#7AC494";}
+      else if(ratio>=1.2){eficienciaTxt="BOA";eficienciaColor="#E8C44A";}
+      else if(ratio>=1.0){eficienciaTxt="EQUILIBRADA";eficienciaColor="#E89060";}
+      else{eficienciaTxt="DESFAVORAVEL";eficienciaColor="#E05252";}
+      // Identifica principais contribuidores ao risco e retorno
+      const contribR=[],contribE=[];
+      CL.forEach(c=>{
+        const p=RR[c.id],w=(cw[c.id]||0);
+        if(p&&w>=2){
+          contribR.push({tag:c.tag,nome:c.name,r:p.r*w/100,peso:w});
+          contribE.push({tag:c.tag,nome:c.name,e:p.e*w/100,peso:w});
+        }
+      });
+      contribR.sort((a,b)=>b.r-a.r);
+      contribE.sort((a,b)=>b.e-a.e);
+      // Gera diagnostico textual
+      const linhas=[];
+      // Linha 1: situacao geral
+      linhas.push({label:"Situacao",valor:"Perfil "+riscoTxt+" com retorno esperado "+retTxt+"."});
+      // Linha 2: eficiencia
+      linhas.push({label:"Eficiencia R/R",valor:"Razao retorno/risco = "+ratio.toFixed(2)+" ("+eficienciaTxt.toLowerCase()+"). "+(ratio>=1.5?"Voce captura retorno superior por unidade de risco assumido.":ratio>=1.2?"Combinacao saudavel - retorno justifica o risco.":ratio>=1.0?"Equilibrio aceitavel, mas ha espaco para otimizacao.":"O risco assumido nao esta sendo bem remunerado.")});
+      // Linha 3: principais drivers
+      if(contribR.length>0&&contribE.length>0){
+        const topR=contribR.slice(0,2).map(x=>x.tag).join(" e ");
+        const topE=contribE.slice(0,2).map(x=>x.tag).join(" e ");
+        linhas.push({label:"Drivers",valor:"Principais geradores de retorno: "+topE+". Principais expositores de risco: "+topR+"."});
+      }
+      // Linha 4: observacao estrategica
+      let obs="";
+      if(portR<4&&portE<5){
+        obs="Portfolio muito defensivo. Considere aumentar gradualmente classes de maior retorno (BR, EXT, FII) respeitando seus aportes mensais.";
+      }else if(portR>7&&portE>7){
+        obs="Portfolio com risco/retorno elevados. Adequado para horizonte longo, mas avalie se a volatilidade nao excede sua tolerancia em momentos de stress.";
+      }else if(ratio>=1.5){
+        obs="Combinacao favoravel para Buy & Hold de longo prazo. Mantenha a disciplina de aportes regulares respeitando as bandas.";
+      }else if(ratio<1.0){
+        obs="Vale revisar a alocacao: ha classes assumindo risco sem retorno proporcional. Talvez SEL ou IMV estejam sub-otimizados na composicao.";
+      }else{
+        obs="Posicao razoavelmente equilibrada. Pequenos ajustes nas bandas-alvo podem otimizar a relacao R/R.";
+      }
+      linhas.push({label:"Diagnostico",valor:obs});
+      return h("div",{style:{marginTop:14,padding:"11px 13px",background:"linear-gradient(135deg,rgba(255,215,0,0.05),rgba(200,169,110,0.03))",border:"1px solid rgba(255,215,0,0.2)",borderRadius:8}},
+        h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:9,gap:8,flexWrap:"wrap"}},
+          h("div",{style:{fontSize:9,letterSpacing:3,color:"#FFD700",fontFamily:"monospace",textTransform:"uppercase"}},"Diagnostico Risco x Retorno"),
+          h("span",{style:{fontSize:9,color:eficienciaColor,fontFamily:"monospace",fontWeight:700,padding:"2px 8px",border:"1px solid "+eficienciaColor+"66",borderRadius:3,letterSpacing:1}},eficienciaTxt)
+        ),
+        // Linha de scores
+        h("div",{style:{display:"flex",gap:14,marginBottom:9,padding:"7px 9px",background:"rgba(0,0,0,0.2)",borderRadius:5,fontFamily:"monospace"}},
+          h("div",{},
+            h("div",{style:{fontSize:8,color:"#7A7570",letterSpacing:1,marginBottom:2}},"RISCO"),
+            h("div",{style:{display:"flex",alignItems:"baseline",gap:4}},h("span",{style:{fontSize:14,color:riscoColor,fontWeight:700}},portR.toFixed(1)),h("span",{style:{fontSize:9,color:"#5A5550"}},"/10"),h("span",{style:{fontSize:9,color:riscoColor,marginLeft:4}},riscoTxt))
+          ),
+          h("div",{style:{borderLeft:"1px solid rgba(255,255,255,0.05)",paddingLeft:14}},
+            h("div",{style:{fontSize:8,color:"#7A7570",letterSpacing:1,marginBottom:2}},"RETORNO ESPERADO"),
+            h("div",{style:{display:"flex",alignItems:"baseline",gap:4}},h("span",{style:{fontSize:14,color:retColor,fontWeight:700}},portE.toFixed(1)),h("span",{style:{fontSize:9,color:"#5A5550"}},"/10"),h("span",{style:{fontSize:9,color:retColor,marginLeft:4}},retTxt))
+          )
+        ),
+        // Diagnostico textual em linhas
+        ...linhas.map((l,i)=>h("div",{key:i,style:{display:"flex",gap:7,marginBottom:i===linhas.length-1?0:5,fontSize:10,lineHeight:1.5}},
+          h("span",{style:{minWidth:80,color:"#8A7050",fontFamily:"monospace",fontSize:8,letterSpacing:1,paddingTop:2}},l.label.toUpperCase()),
+          h("span",{style:{color:"#C0B8A8",flex:1}},l.valor)
+        ))
+      );
+    })()
   );
 }
 
