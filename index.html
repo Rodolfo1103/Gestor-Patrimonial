@@ -284,7 +284,7 @@ async function callAPI(messages,key){
 
 // SVG helpers
 function AllocChart({cw,ct,fB,MV,hideVal}){
-  const W=300,H=200,pL=30,pB=58,pT=34,pR=8,cW=W-pL-pR,cH=H-pB-pT;
+  const W=300,H=215,pL=30,pB=72,pT=34,pR=8,cW=W-pL-pR,cH=H-pB-pT;
   // Limite Y dinamico mas com piso minimo + teto folgado para evitar barras tocando o topo
   const maxPos=Math.max(...CL.map(c=>cw[c.id]||0));
   const mx=Math.max(35,Math.ceil(maxPos*1.18/5)*5);
@@ -337,11 +337,11 @@ function AllocChart({cw,ct,fB,MV,hideVal}){
             h("text",{x:xm,y:yPpText+6,textAnchor:"middle",fill:"#C8A96E",fontSize:"5.5",fontWeight:"700",fontFamily:"monospace",letterSpacing:"0.3"},setaTxt+desvio.toFixed(1)+"pp")
           ),
           // Tag da classe
-          h("text",{x:xm,y:H-pB+13,textAnchor:"middle",fill:c.color,fontSize:"8"},c.tag),
+          h("text",{x:xm,y:H-pB+14,textAnchor:"middle",fill:c.color,fontSize:"8",fontWeight:"600"},c.tag),
           // Banda alvo
-          h("text",{x:xm,y:H-pB+24,textAnchor:"middle",fill:"#6A6050",fontSize:"5.5",fontFamily:"monospace"},c.min+"-"+c.max+"%"),
-          // Valor R$ em dourado discreto
-          h("text",{x:xm,y:H-pB+36,textAnchor:"middle",fill:"#A8893E",fontSize:"6",fontFamily:"monospace",letterSpacing:"0.4",fontWeight:"500",opacity:"0.85"},valorTxt)
+          h("text",{x:xm,y:H-pB+26,textAnchor:"middle",fill:"#6A6050",fontSize:"5.5",fontFamily:"monospace"},c.min+"-"+c.max+"%"),
+          // Valor R$ em dourado discreto (mais espacado pra evitar sobreposicao)
+          h("text",{x:xm,y:H-pB+42,textAnchor:"middle",fill:"#A8893E",fontSize:"6.5",fontFamily:"monospace",letterSpacing:"0.3",fontWeight:"500",opacity:"0.9"},valorTxt)
         );
       }),
       h("line",{x1:pL,y1:pT+cH,x2:W-pR,y2:pT+cH,stroke:"rgba(255,255,255,0.08)",strokeWidth:"1"})
@@ -3024,10 +3024,8 @@ function App(){
   // Idade do cambio
   const fxIdadeMin=lastPU?Math.floor((Date.now()-new Date(lastPU).getTime())/60000):null;
   const fxAntigo=fxIdadeMin!==null&&fxIdadeMin>60;
-  // Calcula variacoes do patrimonio:
-  // HOJE: vs primeiro snapshot do dia atual (intraday, reset as 00h)
-  // D-1: vs ultimo snapshot do dia anterior (overnight + dia anterior completo)
-  let deltaHoje=null,deltaD1=null;
+  // Calcula variacao do patrimonio HOJE: vs primeiro snapshot do dia atual (intraday, reset as 00h)
+  let deltaHoje=null;
   if(total>0&&Array.isArray(hist)&&hist.length>0){
     const agora=new Date();
     const hojeStr=agora.toDateString();
@@ -3042,23 +3040,6 @@ function App(){
       const refHora=String(dataRef.getHours()).padStart(2,"0")+":"+String(dataRef.getMinutes()).padStart(2,"0");
       if(Math.abs(pct)>=0.001){
         deltaHoje={pct,refValor:ref,refHora};
-      }
-    }
-    // ULTIMO snapshot do dia anterior (qualquer dia anterior, pega o mais recente)
-    const ontemMs=agora.getTime()-86400000;
-    const ultDiaAnt=validos.filter(r=>{
-      const d=new Date(r.date);
-      return d.toDateString()!==hojeStr&&d.getTime()<=ontemMs+86400000;
-    });
-    const ultD1=ultDiaAnt.length>0?ultDiaAnt[ultDiaAnt.length-1]:null;
-    if(ultD1&&ultD1.totalPatrimBRL>0){
-      const ref=ultD1.totalPatrimBRL;
-      const pct=((total-ref)/ref)*100;
-      const dataRef=new Date(ultD1.date);
-      const refLabel=String(dataRef.getDate()).padStart(2,"0")+"/"+String(dataRef.getMonth()+1).padStart(2,"0");
-      const refHora=String(dataRef.getHours()).padStart(2,"0")+":"+String(dataRef.getMinutes()).padStart(2,"0");
-      if(Math.abs(pct)>=0.001){
-        deltaD1={pct,refLabel,refValor:ref,refHora};
       }
     }
   }
@@ -3080,20 +3061,11 @@ function App(){
                   h("circle",{cx:"12",cy:"12",r:"3"})
                 )
           ),
-          // Card unificado: HOJE em destaque + D-1 secundario
-          !hideVal&&(deltaHoje||deltaD1)&&h("div",{style:{display:"inline-flex",flexDirection:"column",padding:"4px 9px 5px",borderRadius:5,background:"rgba(255,255,255,0.025)",border:"1px solid rgba(255,255,255,0.06)",lineHeight:1.1}},
-            deltaHoje
-              ? h("div",{title:"Variacao desde o primeiro update de hoje as "+deltaHoje.refHora,style:{display:"inline-flex",alignItems:"baseline",gap:4,color:deltaHoje.pct>=0?"#4CAF82":"#E05252",fontFamily:"monospace",fontWeight:700}},
-                  h("span",{style:{fontSize:11,lineHeight:1}},deltaHoje.pct>=0?"\u25B2":"\u25BC"),
-                  h("span",{style:{fontSize:15,lineHeight:1.1}},(deltaHoje.pct>=0?"+":"")+deltaHoje.pct.toFixed(2)+"%"),
-                  h("span",{style:{fontSize:8,opacity:0.7,fontWeight:400,marginLeft:2}},"hoje desde "+deltaHoje.refHora)
-                )
-              : h("div",{style:{fontSize:9,color:"#5A5550",fontStyle:"italic",fontFamily:"monospace"}},"sem ref de hoje"),
-            deltaD1&&h("div",{title:"Variacao vs snapshot de "+deltaD1.refLabel+" as "+deltaD1.refHora,style:{display:"inline-flex",alignItems:"baseline",gap:3,marginTop:2,color:deltaD1.pct>=0?"#5B8FD4":"#E89060",fontFamily:"monospace",fontWeight:600,opacity:0.85}},
-              h("span",{style:{fontSize:8,lineHeight:1}},deltaD1.pct>=0?"\u25B2":"\u25BC"),
-              h("span",{style:{fontSize:9,lineHeight:1}},(deltaD1.pct>=0?"+":"")+deltaD1.pct.toFixed(2)+"%"),
-              h("span",{style:{fontSize:7,opacity:0.7,fontWeight:400,marginLeft:2}},"vs "+deltaD1.refLabel+" "+deltaD1.refHora)
-            )
+          // Card: apenas variacao HOJE (D-1 removido)
+          !hideVal&&deltaHoje&&h("div",{title:"Variacao desde o primeiro update de hoje as "+deltaHoje.refHora,style:{display:"inline-flex",alignItems:"baseline",gap:4,padding:"4px 9px 5px",borderRadius:5,background:"rgba(255,255,255,0.025)",border:"1px solid rgba(255,255,255,0.06)",color:deltaHoje.pct>=0?"#4CAF82":"#E05252",fontFamily:"monospace",fontWeight:700,lineHeight:1.1}},
+            h("span",{style:{fontSize:11,lineHeight:1}},deltaHoje.pct>=0?"\u25B2":"\u25BC"),
+            h("span",{style:{fontSize:15,lineHeight:1.1}},(deltaHoje.pct>=0?"+":"")+deltaHoje.pct.toFixed(2)+"%"),
+            h("span",{style:{fontSize:8,opacity:0.7,fontWeight:400,marginLeft:2}},"hoje desde "+deltaHoje.refHora)
           )
         ),
         hasPos&&!hideVal&&valorEstrangeiroBRL>0&&h("div",{style:{fontSize:9,color:"#7A7570",fontFamily:"monospace",marginTop:3,lineHeight:1.4}},
