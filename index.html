@@ -1529,7 +1529,7 @@ function App(){
           return p?{ticker:t,moeda:cc,qtd:p.qty,preco:p.price||0,valorBRL:(p.qty||0)*(p.price||0)*(FX[cc]||1)}:{ticker:t,moeda:cc};
         }).slice(0,7)
       }));
-      const msg="Analista Buy&Hold aposentadoria rigoroso. PORTFOLIO:"+JSON.stringify(ci)+"\\nAPORTE:R$"+v+"\\nPATRIMONIO_TOTAL:R$"+Math.round(total)+"\\nRegras: zero vendas, todas 8 classes (FII, BR, EXT, SEL, XAU, BTC, INF, AGRO) recebem min 2%, priorizar classes abaixo do alvo. IMOVEIS NAO RECEBEM APORTE (aquisicao manual). NENHUM ativo individual pode passar de 5% do patrimonio total apos o aporte. FIIs: P/VPA<=0.97 DY>=9%. Ciclicas: P/L<=10x. Compounders: P/L<=18x. Exterior value: P/L<=18x. Infra: DY>=9.5%. Fiagros: DY>=10% preferencial.\\nApos sugerir, AVALIE CRITICAMENTE o proprio aporte em 3 dimensoes: (1) eficiencia_rebalanceamento (o aporte realmente aproxima classes do alvo?), (2) margem_seguranca_valuation (os tickers escolhidos tem precos atrativos?), (3) limite_5pct (nenhum ticker passa de 5% do patrimonio?).\\nJSON sem markdown: {resumo:...,alertas:[],classes:[{id:fii,pct:25,valor:2500,ativos:[{ticker:HGLG11,score:COMPRA FORTE,metricas:P/VPA 0.91}]}],veredito:{eficiencia:{nota:OTIMO|BOM|REGULAR|RUIM,texto:explicacao curta},valuation:{nota:OTIMO|BOM|REGULAR|RUIM,texto:explicacao},limite5pct:{ok:true|false,texto:explicacao}}}";
+      const msg="Analista Buy&Hold aposentadoria rigoroso, filosofia 'quality at a reasonable price' (Charlie Munger, Terry Smith). PORTFOLIO:"+JSON.stringify(ci)+"\\nAPORTE:R$"+v+"\\nPATRIMONIO_TOTAL:R$"+Math.round(total)+"\\n\\nFILOSOFIA DE INVESTIMENTO DO INVESTIDOR (RESPEITAR INTEGRALMENTE):\\n1) Foco PRIMARIO em QUALIDADE do ativo: vantagem competitiva durável, capacidade de geração de caixa consistente, ROE/ROIC elevados e estáveis, gestão competente e alinhada, baixo risco de descontinuidade do negócio. Para FIIs: gestão experiente, ativos premium, vacância controlada, inquilinos AAA. Para infra/Fiagros: ativos estratégicos, contratos longos, baixo risco regulatório/operacional.\\n2) Aceitar pagar preço JUSTO por excelência: nao buscar pechincha cega. Preferir um ativo de qualidade no preço justo a um medíocre descontado. Value trap (negocio em decadencia barato) é o pior erro: ev-itar tickers cujo desconto reflete deterioração estrutural.\\n3) Preferencia natural: qualidade + desconto razoavel quando ambos estão disponíveis. Mas se nao houver desconto, qualidade no preço justo é aceitável.\\n4) Aportes contínuos: o tempo dilui pontos de entrada (dollar cost averaging). Não esperar minima absoluta de preço (que pode nunca chegar).\\n5) Disciplina anti-bolha: NUNCA pagar preço claramente acima de fundamentos. Use multiplos como teto, nao como meta.\\n\\nREGRAS OPERACIONAIS: zero vendas; todas 8 classes (FII,BR,EXT,SEL,XAU,BTC,INF,AGRO) recebem min 2%; priorizar classes abaixo do alvo; IMOVEIS nao recebem aporte; nenhum ticker individual passa de 5% do patrimonio após aporte.\\n\\nMULTIPLOS COMO TETOS (nao metas, podem ser ultrapassados para qualidade excepcional com justificativa explícita): FII P/VPA<=0.97 e DY>=9%; Ciclicas P/L<=10; Compounders P/L<=18; Exterior value P/L<=18; Infra DY>=9.5%; Fiagros DY>=10%. Se um ativo de qualidade superior estiver acima desses tetos mas ainda em preço justo, recomendar com nota explicando.\\n\\nApos sugerir, AVALIE CRITICAMENTE em 3 dimensoes: (1) eficiencia_rebalanceamento, (2) qualidade_dos_ativos_escolhidos (compounders solidos? FIIs com inquilinos AAA? sem value traps?), (3) limite_5pct.\\n\\nJSON sem markdown: {resumo:...,alertas:[],classes:[{id:fii,pct:25,valor:2500,ativos:[{ticker:HGLG11,score:COMPRA FORTE|COMPRA|JUSTO|EVITAR,metricas:'P/VPA 0.91 DY 9.2% - logistica premium AAA'}]}],veredito:{eficiencia:{nota:OTIMO|BOM|REGULAR|RUIM,texto:explicacao curta},qualidade:{nota:OTIMO|BOM|REGULAR|RUIM,texto:explicacao - alguma duvida de value trap? algum compounder pagando alem do justo?},limite5pct:{ok:true|false,texto:explicacao}}}";
       const txt=await callAPI([{role:"user",content:msg}],apiKey);
       const res=JSON.parse(txt);
       setApR({...res,apValue:v});setStep("r");
@@ -1585,7 +1585,7 @@ function App(){
     const portCtx=Object.entries(port).filter(([t,p])=>pv(t,p,ccy)>0).map(([t,p])=>({t,cls:cls[t],v:Math.round(pv(t,p,ccy))})).sort((a,b)=>b.v-a.v).slice(0,10);
     const allocCtx=apR?{valor:apR.apValue,resumo:apR.resumo}:null;
     const h8=chatM.slice(-8);
-    const prompt="Analista patrimonial senior Buy&Hold aposentadoria. PORTFOLIO:"+JSON.stringify(portCtx)+(allocCtx?"\\nULTIMA ANALISE:"+JSON.stringify(allocCtx):".")+"\\nResponda direto, max 4 paragrafos.\\nHistorico:\\n"+h8.map(m=>(m.role==="user"?"Investidor: ":"Analista: ")+m.content).join("\\n")+"\\nPergunta: "+msg;
+    const prompt="Analista patrimonial senior Buy&Hold aposentadoria. FILOSOFIA DO INVESTIDOR (respeitar integralmente): Quality at a reasonable price. Foco primario em QUALIDADE dos ativos (vantagem competitiva, gestao, geracao de caixa). Aceita pagar preco justo por excelencia. Receia value trap. Dollar cost averaging - tempo dilui pontos de entrada, nao espera minima absoluta. Nunca pagar preco claramente acima de fundamentos. PORTFOLIO:"+JSON.stringify(portCtx)+(allocCtx?"\\nULTIMA ANALISE:"+JSON.stringify(allocCtx):".")+"\\nResponda direto, max 4 paragrafos, com olhar critico tanto para descontos exagerados (value trap?) quanto para premios excessivos (bolha?).\\nHistorico:\\n"+h8.map(m=>(m.role==="user"?"Investidor: ":"Analista: ")+m.content).join("\\n")+"\\nPergunta: "+msg;
     try{
       const txt=await callAPI([{role:"user",content:prompt}],apiKey);
       setChatM(prev=>[...prev,{role:"assistant",content:txt}]);
@@ -1620,10 +1620,11 @@ function App(){
       "RETORNO esperado ponderado: "+portE.toFixed(2)+"/10\\n"+
       "EXPOSICAO CAMBIAL: "+JSON.stringify(ccyPct)+"\\n"+
       "Patrimonio total: R$ "+Math.round(total)+"\\n\\n"+
+      "FILOSOFIA DO INVESTIDOR (respeitar): Quality at a reasonable price. Foco PRIMARIO em QUALIDADE dos ativos (vantagem competitiva, gestao, geracao de caixa). Aceita pagar preco justo por excelencia. Receia value trap (negocio em decadencia barato). Aportes continuos com dollar cost averaging - tempo dilui pontos de entrada. NUNCA pagar preco claramente acima de fundamentos.\\n\\n"+
       "Gere um insight CURTO (3 paragrafos, max 80 palavras CADA) sobre:\\n"+
-      "1) Diagnostico da composicao atual (quais distorcoes principais)\\n"+
-      "2) Como OTIMIZAR a relacao risco x retorno (acoes concretas)\\n"+
-      "3) Riscos cambiais ou de concentracao relevantes\\n\\n"+
+      "1) Diagnostico da composicao atual (quais distorcoes principais e qualidade implicita)\\n"+
+      "2) Como OTIMIZAR (acoes concretas que priorizem qualidade ao preco justo, nao busca cega por desconto)\\n"+
+      "3) Riscos cambiais, de concentracao ou potencial value trap em alguma classe\\n\\n"+
       "Tom: direto, objetivo, sem rodeios. Sem markdown. Use paragrafos separados por linha em branco.";
     setInsightLoad(true);setInsightErr("");
     try{
@@ -2164,13 +2165,13 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             ),
             h("div",{style:{fontSize:10,color:"#8A8070",lineHeight:1.6}},(ver.eficiencia&&ver.eficiencia.texto)||"Sem avaliacao.")
           ),
-          // 2. Margem de seguranca no valuation
+          // 2. Qualidade dos ativos escolhidos
           h("div",{style:{marginBottom:9,paddingBottom:9,borderBottom:"1px solid rgba(255,255,255,0.05)"}},
             h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:3,gap:6}},
-              h("div",{style:{fontSize:10,color:"#B0A890",fontWeight:"bold"}},"2. Margem de seguranca (valuation)"),
-              h("span",{style:{fontSize:9,color:notaColor(ver.valuation&&ver.valuation.nota),fontFamily:"monospace",fontWeight:"bold",padding:"1px 7px",border:"1px solid "+notaColor(ver.valuation&&ver.valuation.nota)+"55",borderRadius:3}},(ver.valuation&&ver.valuation.nota)||"-")
+              h("div",{style:{fontSize:10,color:"#B0A890",fontWeight:"bold"}},"2. Qualidade dos ativos"),
+              h("span",{style:{fontSize:9,color:notaColor((ver.qualidade||ver.valuation)&&(ver.qualidade||ver.valuation).nota),fontFamily:"monospace",fontWeight:"bold",padding:"1px 7px",border:"1px solid "+notaColor((ver.qualidade||ver.valuation)&&(ver.qualidade||ver.valuation).nota)+"55",borderRadius:3}},((ver.qualidade||ver.valuation)&&(ver.qualidade||ver.valuation).nota)||"-")
             ),
-            h("div",{style:{fontSize:10,color:"#8A8070",lineHeight:1.6}},(ver.valuation&&ver.valuation.texto)||"Sem avaliacao.")
+            h("div",{style:{fontSize:10,color:"#8A8070",lineHeight:1.6}},((ver.qualidade||ver.valuation)&&(ver.qualidade||ver.valuation).texto)||"Sem avaliacao.")
           ),
           // 3. Limite 5% por ativo (verificacao matematica)
           h("div",{},
@@ -2229,7 +2230,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         return {...a,pctAporte,valorAporte};
       }).filter(s=>s.valorAporte>0.5);
       content=h("div",{},
-        h("div",{style:{fontSize:11,color:"#8A8070",marginBottom:12,lineHeight:1.7}},"A IA analisa composicao e valuation atual com margem de seguranca rigorosa. Todas as classes recebem aporte; os volumes refletem balanceamento e valuation."),
+        h("div",{style:{fontSize:11,color:"#8A8070",marginBottom:12,lineHeight:1.7}},"A IA analisa o portfolio priorizando QUALIDADE dos ativos (vantagem competitiva, gestao, geracao de caixa) sobre desconto puro, evitando value traps. Todas as classes recebem aporte; os volumes refletem balanceamento e oportunidades de qualidade ao preco justo."),
         // Heatmap de evolucao das bandas
         h(BandHeatmap,{hist,cw}),
         h("div",{style:{marginBottom:12}},...CL.filter(c=>c.id!=="imoveis").map(c=>{const w=cw[c.id]||0,s=w<c.min?"u":w>c.max&&!c.flex?"o":"k";if(s==="k")return null;return h("div",{key:c.id,style:{display:"flex",alignItems:"center",gap:6,marginBottom:4,padding:"4px 8px",background:s==="u"?"rgba(224,82,82,0.06)":"rgba(232,196,74,0.06)",border:"1px solid "+(s==="u"?"#E0525222":"#E8C44A22"),borderRadius:5}},h("span",{style:{fontSize:10,color:s==="u"?"#E05252":"#E8C44A"}},c.tag),h("span",{style:{fontSize:10,color:"#B0A890",flex:1}},c.name),h("span",{style:{fontFamily:"monospace",fontSize:9,color:s==="u"?"#E05252":"#E8C44A"}},pc(w)+" "+(s==="u"?"abaixo":"acima")));})),
