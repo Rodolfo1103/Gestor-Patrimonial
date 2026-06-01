@@ -284,13 +284,22 @@ async function callAPI(messages,key){
 
 // SVG helpers
 function AllocChart({cw}){
-  const W=300,H=180,pL=30,pB=42,pT=32,pR=8,cW=W-pL-pR,cH=H-pB-pT;
-  const mx=Math.max(35,...CL.map(c=>(cw[c.id]||0)*1.15));
+  const W=300,H=185,pL=30,pB=42,pT=34,pR=8,cW=W-pL-pR,cH=H-pB-pT;
+  // Limite Y dinamico mas com piso minimo + teto folgado para evitar barras tocando o topo
+  // Garante que mesmo a maior barra fique a >= 12% abaixo do topo do plot
+  const maxPos=Math.max(...CL.map(c=>cw[c.id]||0));
+  const mx=Math.max(35,Math.ceil(maxPos*1.18/5)*5);// arredonda pra multiplo de 5
+  // Linhas de grade adaptativas baseadas no mx
+  const gridLines=[];
+  const step=mx<=40?10:mx<=70?15:20;
+  for(let v=0;v<=mx-step;v+=step)gridLines.push(v);
+  if(!gridLines.includes(0))gridLines.unshift(0);
   const bW=Math.floor(cW/CL.length)-3;
   return h("div",{style:{marginBottom:20}},
     h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:4}},"Alocacao atual vs alvo"),
     h("svg",{viewBox:"0 0 "+W+" "+H,style:{width:"100%",height:"auto",overflow:"hidden"}},
-      ...[0,10,20,30].filter(v=>v<=mx).map(v=>{
+      // Grade horizontal
+      ...gridLines.map(v=>{
         const y=pT+cH-(v/mx)*cH;
         return h(Fragment,{key:v},h("line",{x1:pL,y1:y,x2:W-pR,y2:y,stroke:"rgba(255,255,255,0.05)",strokeWidth:"1"}),h("text",{x:pL-2,y:y+3,textAnchor:"end",fill:"#5A5550",fontSize:"6"},v+"%"));
       }),
@@ -299,29 +308,32 @@ function AllocChart({cw}){
         const bH=Math.max((w/mx)*cH,1),y=pT+cH-bH;
         const st=w<c.min?"u":w>c.max?"o":"k";
         const fill=st==="u"?"#E05252":st==="o"?"#E8C44A":c.color;
-        const xm=x+bW/2,yMin=pT+cH-(c.min/mx)*cH;
+        const xm=x+bW/2;
+        // Banda alvo: duas linhas (min e max) e area entre elas destacada
+        const yMin=pT+cH-(c.min/mx)*cH;
+        const yMax=pT+cH-(Math.min(c.max,mx)/mx)*cH;
+        const bandaH=yMin-yMax;
         const foraBanda=st!=="k";
         const desvio=st==="u"?(c.min-w):st==="o"?(w-c.max):0;
         const setaTxt=st==="u"?"\u2193":st==="o"?"\u2191":"";
-        // Posicoes do alerta: empilhado VERTICALMENTE bem acima da barra, com folga grande
-        // Triangulo em cima, pp logo abaixo, e numero da barra mais abaixo ainda
-        const yTriangulo=pT-4;// 4px acima do limite superior do plot (dentro do pT=32)
-        const yPpText=pT+4;// um pouco abaixo do triangulo
-        const yNum=y-3;// numero original da barra (-3 vs barra)
+        // Posicoes alinhadas no topo do plot
+        const yTriangulo=pT-12;// triangulo acima do plot
+        const yPpText=pT-3;// pp logo abaixo do triangulo
         return h(Fragment,{key:c.id},
-          // Linha tracejada da banda-alvo (renderizada ANTES da barra pra ficar atras com transparencia)
-          h("line",{x1:xm-bW*.55,y1:yMin,x2:xm+bW*.55,y2:yMin,stroke:c.color,strokeWidth:"1",strokeOpacity:".5",strokeDasharray:"3,2"}),
-          // Barra com transparencia maior para ver a linha tracejada por tras
-          h("rect",{x,y,width:bW,height:bH,fill,fillOpacity:".55",stroke:fill,strokeWidth:"0.8",strokeOpacity:".9",rx:"2"}),
-          // Numero da alocacao atual
-          h("text",{x:xm,y:yNum,textAnchor:"middle",fill,fontSize:"6.5",fontFamily:"monospace",fontWeight:"700"},w.toFixed(1)),
-          // ALERTA DOURADO: empilhado bem acima da barra (sem sobreposicao)
+          // Area da banda alvo (faixa retangular destacada entre min e max)
+          h("rect",{x:xm-bW*.6,y:yMax,width:bW*1.2,height:bandaH,fill:c.color,fillOpacity:"0.06",stroke:"none"}),
+          // Linha tracejada do MIN da banda
+          h("line",{x1:xm-bW*.6,y1:yMin,x2:xm+bW*.6,y2:yMin,stroke:c.color,strokeWidth:"1",strokeOpacity:".55",strokeDasharray:"3,2"}),
+          // Linha tracejada do MAX da banda
+          h("line",{x1:xm-bW*.6,y1:yMax,x2:xm+bW*.6,y2:yMax,stroke:c.color,strokeWidth:"1",strokeOpacity:".55",strokeDasharray:"3,2"}),
+          // Barra translucida (mostra linhas tracejadas por tras)
+          h("rect",{x,y,width:bW,height:bH,fill,fillOpacity:".50",stroke:fill,strokeWidth:"0.8",strokeOpacity:".9",rx:"2"}),
+          // Numero da alocacao atual logo acima da barra
+          h("text",{x:xm,y:y-3,textAnchor:"middle",fill,fontSize:"6.5",fontFamily:"monospace",fontWeight:"700"},w.toFixed(1)),
+          // ALERTA DOURADO no topo do plot (alinhado horizontalmente para todas as classes fora)
           foraBanda&&h(Fragment,{key:"al"+c.id},
-            // Triangulo SVG dourado
             h("path",{d:"M "+(xm-3.8)+" "+(yTriangulo+3.5)+" L "+xm+" "+(yTriangulo-3)+" L "+(xm+3.8)+" "+(yTriangulo+3.5)+" Z",fill:"#C8A96E",fillOpacity:"0.18",stroke:"#C8A96E",strokeWidth:"0.7",strokeLinejoin:"round"}),
-            // Ponto de exclamacao dourado no centro do triangulo
             h("text",{x:xm,y:yTriangulo+2.5,textAnchor:"middle",fill:"#C8A96E",fontSize:"4.5",fontWeight:"700",fontFamily:"monospace"},"!"),
-            // Texto pp abaixo do triangulo (com seta direcional)
             h("text",{x:xm,y:yPpText+6,textAnchor:"middle",fill:"#C8A96E",fontSize:"5.5",fontWeight:"700",fontFamily:"monospace",letterSpacing:"0.3"},setaTxt+desvio.toFixed(1)+"pp")
           ),
           h("text",{x:xm,y:H-pB+13,textAnchor:"middle",fill:c.color,fontSize:"8"},c.tag),
