@@ -1605,8 +1605,28 @@ function App(){
             let ccy=(meta.currency||"").toUpperCase();
             if(!allowedCcy.includes(ccy))ccy="";
             const preco=meta.regularMarketPrice||meta.previousClose;
-            // Nome curto da symbol (ex: "AAPL" -> "AAPL") - permite usuario editar manual depois
-            return {nome:symbol,ccy:ccy||ccyHint||"USD",suffix:suf,preco};
+            // Tenta buscar o nome via Yahoo Search (chamada extra leve)
+            let nome=symbol;
+            try{
+              const searchUrl="https://query2.finance.yahoo.com/v1/finance/search?q="+encodeURIComponent(symbol)+"&quotesCount=3";
+              for(const mk2 of proxies){
+                try{
+                  const ctrl2=new AbortController();const tid2=setTimeout(()=>ctrl2.abort(),5000);
+                  const r2=await fetch(mk2(searchUrl),{signal:ctrl2.signal});clearTimeout(tid2);
+                  if(!r2.ok)continue;
+                  const j2=await r2.json();
+                  if(j2&&Array.isArray(j2.quotes)){
+                    const q2=j2.quotes.find(x=>["EQUITY","ETF","MUTUALFUND"].includes(x.quoteType)&&(x.symbol===symbol||x.symbol===yhSym||x.symbol.startsWith(symbol+".")));
+                    if(q2&&(q2.longname||q2.shortname)){
+                      nome=(q2.longname||q2.shortname).trim().slice(0,40);
+                      break;
+                    }
+                  }
+                }catch{}
+                break;
+              }
+            }catch{}
+            return {nome,ccy:ccy||ccyHint||"USD",suffix:suf,preco};
           }
         }catch{}
         break;
@@ -1634,7 +1654,28 @@ function App(){
               const p=s&&parseFloat(s.close);
               if(p>0){
                 const ccyGuess=sq.endsWith(".us")?"USD":sq.endsWith(".uk")?"GBP":sq.endsWith(".de")||sq.endsWith(".f")?"EUR":(ccyHint||"USD");
-                return {nome:symbol,ccy:ccyGuess,suffix:"",preco:p};
+                // Tenta nome via Yahoo Search
+                let nome=symbol;
+                try{
+                  const searchUrl="https://query2.finance.yahoo.com/v1/finance/search?q="+encodeURIComponent(symbol)+"&quotesCount=3";
+                  for(const mk2 of proxies){
+                    try{
+                      const ctrl2=new AbortController();const tid2=setTimeout(()=>ctrl2.abort(),5000);
+                      const r2=await fetch(mk2(searchUrl),{signal:ctrl2.signal});clearTimeout(tid2);
+                      if(!r2.ok)continue;
+                      const j2=await r2.json();
+                      if(j2&&Array.isArray(j2.quotes)){
+                        const q2=j2.quotes.find(x=>["EQUITY","ETF","MUTUALFUND"].includes(x.quoteType));
+                        if(q2&&(q2.longname||q2.shortname)){
+                          nome=(q2.longname||q2.shortname).trim().slice(0,40);
+                          break;
+                        }
+                      }
+                    }catch{}
+                    break;
+                  }
+                }catch{}
+                return {nome,ccy:ccyGuess,suffix:"",preco:p};
               }
             }catch{}
             break;
