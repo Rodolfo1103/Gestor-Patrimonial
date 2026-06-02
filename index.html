@@ -2522,17 +2522,32 @@ function App(){
         await Promise.all(brFaltam.map(async t=>{
           try{
             const sym=t+".SA";
-            const target="https://query1.finance.yahoo.com/v8/finance/chart/"+encodeURIComponent(sym)+"?interval=1d&range=5d";
+            // range=2d garante que chartPreviousClose seja o fechamento da sessao anterior, nao 5 dias atras
+            const target="https://query1.finance.yahoo.com/v8/finance/chart/"+encodeURIComponent(sym)+"?interval=1d&range=2d";
             const d=await fetchViaProxy(target,15000);
             const res=d&&d.chart&&d.chart.result&&d.chart.result[0];
             const p=res&&res.meta&&(res.meta.regularMarketPrice||res.meta.previousClose);
             if(typeof p==="number"&&p>0){allPrices[t]=p;brN++;}
-            // Variacao % via Yahoo: previousClose (fechamento da sessao anterior) eh mais confiavel que chartPreviousClose
-            // chartPreviousClose pode ser o fechamento N dias atras (depende do range), nao serve para variacao diaria
-            const prev=res&&res.meta&&(res.meta.previousClose||res.meta.chartPreviousClose);
+            // Variacao via Yahoo - METODO ROBUSTO: usa array de closes do indicators
+            // Esse metodo evita confusao com previousClose vs chartPreviousClose
             const cur=res&&res.meta&&res.meta.regularMarketPrice;
-            if(typeof cur==="number"&&cur>0&&typeof prev==="number"&&prev>0&&prev!==cur){
-              allVars[t]=((cur-prev)/prev)*100;
+            let prevClose=null;
+            try{
+              const closes=res&&res.indicators&&res.indicators.quote&&res.indicators.quote[0]&&res.indicators.quote[0].close;
+              if(Array.isArray(closes)&&closes.length>=2){
+                // Pega o ultimo close VALIDO antes do atual
+                for(let i=closes.length-2;i>=0;i--){
+                  if(typeof closes[i]==="number"&&closes[i]>0){prevClose=closes[i];break;}
+                }
+              }
+            }catch{}
+            // Se array nao serviu, usa previousClose (NUNCA chartPreviousClose - esse pode ser de varios dias atras)
+            if(prevClose===null&&res&&res.meta&&typeof res.meta.previousClose==="number"&&res.meta.previousClose>0){
+              prevClose=res.meta.previousClose;
+            }
+            if(typeof cur==="number"&&cur>0&&typeof prevClose==="number"&&prevClose>0&&prevClose!==cur){
+              const vd=((cur-prevClose)/prevClose)*100;
+              if(Math.abs(vd)<50)allVars[t]=vd;
             }
           }catch{}
         }));
@@ -2545,16 +2560,28 @@ function App(){
         await Promise.all(fgnTickers.map(async t=>{
           try{
             const sym=YH[t];
-            const target="https://query1.finance.yahoo.com/v8/finance/chart/"+encodeURIComponent(sym)+"?interval=1d&range=5d";
+            const target="https://query1.finance.yahoo.com/v8/finance/chart/"+encodeURIComponent(sym)+"?interval=1d&range=2d";
             const d=await fetchViaProxy(target,15000);
             const res=d&&d.chart&&d.chart.result&&d.chart.result[0];
             const p=res&&res.meta&&(res.meta.regularMarketPrice||res.meta.previousClose);
             if(typeof p==="number"&&p>0){allPrices[t]=p;yhN++;}
-            // previousClose: fechamento da sessao anterior (correto para variacao diaria)
-            const prev=res&&res.meta&&(res.meta.previousClose||res.meta.chartPreviousClose);
+            // Mesma logica robusta de variacao
             const cur=res&&res.meta&&res.meta.regularMarketPrice;
-            if(typeof cur==="number"&&cur>0&&typeof prev==="number"&&prev>0&&prev!==cur){
-              allVars[t]=((cur-prev)/prev)*100;
+            let prevClose=null;
+            try{
+              const closes=res&&res.indicators&&res.indicators.quote&&res.indicators.quote[0]&&res.indicators.quote[0].close;
+              if(Array.isArray(closes)&&closes.length>=2){
+                for(let i=closes.length-2;i>=0;i--){
+                  if(typeof closes[i]==="number"&&closes[i]>0){prevClose=closes[i];break;}
+                }
+              }
+            }catch{}
+            if(prevClose===null&&res&&res.meta&&typeof res.meta.previousClose==="number"&&res.meta.previousClose>0){
+              prevClose=res.meta.previousClose;
+            }
+            if(typeof cur==="number"&&cur>0&&typeof prevClose==="number"&&prevClose>0&&prevClose!==cur){
+              const vd=((cur-prevClose)/prevClose)*100;
+              if(Math.abs(vd)<50)allVars[t]=vd;
             }
           }catch{}
         }));
@@ -3414,7 +3441,7 @@ h("button",{onClick:async()=>{
     msg+="  varDiaTs = "+(pos.varDiaTs?new Date(pos.varDiaTs).toLocaleString("pt-BR"):"(nao gravado)")+"\n\n";
   }else{msg+="NO APP: ticker nao encontrado no port\n\n";}
   // 2) Versao do codigo
-  msg+="VERSAO CODIGO (esperado: v2): v2-2026-06-02-yahoo-fallback-check\n\n";
+  msg+="VERSAO CODIGO (esperado: v3): v3-2026-06-02-yahoo-2d-array-closes\n\n";
   // 3) Busca Brapi crua
   if(brapiKey){
     try{
@@ -3431,9 +3458,9 @@ h("button",{onClick:async()=>{
       }else{msg+="BRAPI: sem resultado\n\n";}
     }catch(e){msg+="BRAPI erro: "+e.message+"\n\n";}
   }
-  // 4) Busca Yahoo crua (pra ver o chartPreviousClose)
+  // 4) Busca Yahoo crua (range=2d agora) - pra ver previousClose, chartPreviousClose e array
   try{
-    const target="https://query1.finance.yahoo.com/v8/finance/chart/"+tk+".SA?interval=1d&range=5d&_t="+Date.now();
+    const target="https://query1.finance.yahoo.com/v8/finance/chart/"+tk+".SA?interval=1d&range=2d&_t="+Date.now();
     const proxies=[
       u=>"https://corsproxy.io/?url="+encodeURIComponent(u),
       u=>"https://api.allorigins.win/raw?url="+encodeURIComponent(u)
@@ -3446,12 +3473,19 @@ h("button",{onClick:async()=>{
       }catch{}
     }
     if(yj&&yj.chart&&yj.chart.result&&yj.chart.result[0]){
-      const meta=yj.chart.result[0].meta;
-      msg+="YAHOO RAW:\n";
+      const res=yj.chart.result[0];
+      const meta=res.meta;
+      msg+="YAHOO RAW (range=2d):\n";
       msg+="  regularMarketPrice = "+meta.regularMarketPrice+"\n";
       msg+="  previousClose = "+meta.previousClose+"\n";
-      msg+="  chartPreviousClose = "+meta.chartPreviousClose+"\n\n";
-      // 5) Calculos hipoteticos
+      msg+="  chartPreviousClose = "+meta.chartPreviousClose+"\n";
+      // Array de closes
+      try{
+        const closes=res.indicators&&res.indicators.quote&&res.indicators.quote[0]&&res.indicators.quote[0].close;
+        msg+="  closes[] = "+(Array.isArray(closes)?JSON.stringify(closes):"(N/A)")+"\n";
+      }catch{msg+="  closes[] = (erro)\n";}
+      msg+="\n";
+      // Calculos hipoteticos
       const p=meta.regularMarketPrice;
       if(p){
         if(meta.previousClose)msg+="  (p-prevClose)/prevClose = "+(((p-meta.previousClose)/meta.previousClose)*100).toFixed(4)+"%\n";
