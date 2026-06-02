@@ -3555,6 +3555,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
               h("div",{style:{flex:1,minWidth:0}},
                 h("div",{style:{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}},
                   h("span",{style:{fontSize:10,color:has?"#F0EAD8":"#5A5550",fontFamily:"monospace",fontWeight:700}},ticker),
+                  val>0&&total>0&&h("span",{style:{fontSize:8.5,color:c.color,fontFamily:"monospace",opacity:0.85,fontWeight:500},title:"Participacao no patrimonio total"},"("+((val/total)*100).toFixed(2)+"%)"),
                   (NAMES[ticker]||lbl[ticker])&&h("span",{style:{fontSize:9,color:has?"#9A9080":"#4A4840",lineHeight:1.2}},NAMES[ticker]||lbl[ticker]),
                   isCustom&&h("span",{style:{fontSize:6,color:c.color,border:"1px solid "+c.color+"55",borderRadius:2,padding:"1px 3px",fontFamily:"monospace"}},"+"),
                   isHid&&h("span",{style:{fontSize:6,color:"#8A8070",border:"1px solid #8A807044",borderRadius:2,padding:"1px 3px",fontFamily:"monospace"}},"oculto")
