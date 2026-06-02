@@ -1462,6 +1462,7 @@ function App(){
   // MVRV-Z Score (atualizacao diaria via BGeometrics)
   const [mvrvZ,setMvrvZ]=useState(null);// numero
   const [mvrvZTs,setMvrvZTs]=useState(null);// timestamp da ultima busca
+  const [mvrvZErr,setMvrvZErr]=useState("");// debug: erro ao buscar
   const [tab,setTab]=useState("dashboard");
   const [port,setPort]=useState({});
   const [custom,setCustom]=useState({});
@@ -2026,48 +2027,97 @@ function App(){
         const idade=Date.now()-mvrvZTs;
         if(idade<12*3600*1000)return;// cache valido
       }
-      // BGeometrics: endpoint do MVRV-Z Score
-      // Tenta endpoints conhecidos do free tier
+      // BGeometrics: enumera multiplas combinacoes de endpoint + auth para encontrar o que funciona
+      // Documentacao referencia 'https://api.bgeometrics.com/v1/mvrv?token=...' e 'https://bitcoin-data.com/v1/...'
       const endpoints=[
+        // bitcoin-data.com (domínio recomendado)
+        "https://bitcoin-data.com/api/v1/mvrv-zscore/last",
         "https://bitcoin-data.com/v1/mvrv-zscore/last",
-        "https://bitcoin-data.com/api/v1/mvrv-zscore/last"
+        "https://bitcoin-data.com/api/v1/mvrvzscore/last",
+        "https://bitcoin-data.com/v1/mvrvzscore/last",
+        "https://bitcoin-data.com/api/v1/mvrv-z-score/last",
+        "https://bitcoin-data.com/v1/mvrv-z-score/last",
+        "https://bitcoin-data.com/api/v1/mvrv_zscore/last",
+        "https://bitcoin-data.com/v1/mvrv_zscore/last",
+        // api.bgeometrics.com
+        "https://api.bgeometrics.com/v1/mvrv-zscore/last",
+        "https://api.bgeometrics.com/v1/mvrvzscore/last",
+        "https://api.bgeometrics.com/v1/mvrv-zscore",
+        "https://api.bgeometrics.com/v1/mvrvzscore"
       ];
+      // Formatos de autenticacao para tentar
+      const authVariants=[
+        {name:"x-api-key",mk:(url,key)=>({url,headers:{"x-api-key":key,"accept":"application/json"}})},
+        {name:"X-API-Key",mk:(url,key)=>({url,headers:{"X-API-Key":key,"accept":"application/json"}})},
+        {name:"Authorization Bearer",mk:(url,key)=>({url,headers:{"Authorization":"Bearer "+key,"accept":"application/json"}})},
+        {name:"query token",mk:(url,key)=>({url:url+(url.includes("?")?"&":"?")+"token="+encodeURIComponent(key),headers:{"accept":"application/json"}})},
+        {name:"query api_key",mk:(url,key)=>({url:url+(url.includes("?")?"&":"?")+"api_key="+encodeURIComponent(key),headers:{"accept":"application/json"}})}
+      ];
+      const erros=[];
+      let achou=false;
       for(const url of endpoints){
-        if(cancelado)return;
-        try{
-          const ctrl=new AbortController();
-          const tid=setTimeout(()=>ctrl.abort(),8000);
-          const r=await fetch(url,{
-            signal:ctrl.signal,
-            headers:{"x-api-key":bgKey,"accept":"application/json"}
-          });
-          clearTimeout(tid);
-          if(!r.ok)continue;
-          const j=await r.json();
-          // Estrutura esperada: pode vir como {mvrvZscore: X.XX} ou {value: X.XX} ou {data: ...}
-          let v=null;
-          if(typeof j==="number")v=j;
-          else if(j&&typeof j.mvrvZscore==="number")v=j.mvrvZscore;
-          else if(j&&typeof j.mvrv_zscore==="number")v=j.mvrv_zscore;
-          else if(j&&typeof j.value==="number")v=j.value;
-          else if(j&&j.data){
-            // Pode vir como array [[date, value]] ou {value}
-            if(Array.isArray(j.data)&&j.data.length>0){
-              const last=j.data[j.data.length-1];
-              if(Array.isArray(last)&&last.length>=2)v=parseFloat(last[1]);
-              else if(typeof last==="number")v=last;
-              else if(last&&typeof last.value==="number")v=last.value;
-            }else if(typeof j.data==="number")v=j.data;
-          }
-          // Sanity check: MVRV-Z historico fica entre -1 e 12
-          if(typeof v==="number"&&v>-3&&v<15){
-            if(!cancelado){
-              setMvrvZ(v);
-              setMvrvZTs(Date.now());
+        if(cancelado||achou)break;
+        for(const auth of authVariants){
+          if(cancelado||achou)break;
+          try{
+            const cfg=auth.mk(url,bgKey);
+            const ctrl=new AbortController();
+            const tid=setTimeout(()=>ctrl.abort(),7000);
+            const r=await fetch(cfg.url,{signal:ctrl.signal,headers:cfg.headers});
+            clearTimeout(tid);
+            if(!r.ok){
+              // Se 401/403 nao adianta tentar outras auth no mesmo endpoint? Sim, tenta - pode ser nome diferente
+              if(r.status===429){erros.push("RATE LIMIT");achou=true;break;}
+              continue;
             }
-            break;
-          }
-        }catch(e){continue;}
+            const txt=await r.text();
+            let j;
+            try{j=JSON.parse(txt);}catch{continue;}
+            // Tenta extrair valor numerico de varias estruturas
+            let v=null;
+            if(typeof j==="number")v=j;
+            else if(j&&typeof j.mvrvZscore==="number")v=j.mvrvZscore;
+            else if(j&&typeof j["mvrv-zscore"]==="number")v=j["mvrv-zscore"];
+            else if(j&&typeof j.mvrv_zscore==="number")v=j.mvrv_zscore;
+            else if(j&&typeof j.value==="number")v=j.value;
+            else if(j&&typeof j.mvrv==="number")v=j.mvrv;
+            else if(j&&typeof j.mvrvz==="number")v=j.mvrvz;
+            else if(j&&typeof j.score==="number")v=j.score;
+            else if(j&&j.data){
+              if(Array.isArray(j.data)&&j.data.length>0){
+                const last=j.data[j.data.length-1];
+                if(Array.isArray(last)&&last.length>=2)v=parseFloat(last[1]);
+                else if(typeof last==="number")v=last;
+                else if(last&&typeof last.value==="number")v=last.value;
+                else if(last&&typeof last.mvrvZscore==="number")v=last.mvrvZscore;
+              }else if(typeof j.data==="number")v=j.data;
+              else if(j.data&&typeof j.data.value==="number")v=j.data.value;
+            }
+            // Tenta extrair de qualquer chave numerica do objeto raiz como ultima opcao
+            if(v===null&&j&&typeof j==="object"){
+              const keys=Object.keys(j);
+              for(const k of keys){
+                const val=j[k];
+                if(typeof val==="number"&&val>-5&&val<20){v=val;break;}
+                if(typeof val==="string"){const n=parseFloat(val);if(!isNaN(n)&&n>-5&&n<20){v=n;break;}}
+              }
+            }
+            // Sanity check: MVRV-Z historico fica entre -3 e 15
+            if(typeof v==="number"&&v>-3&&v<15){
+              if(!cancelado){
+                setMvrvZ(v);
+                setMvrvZTs(Date.now());
+                setMvrvZErr("");
+              }
+              achou=true;
+              break;
+            }
+          }catch(e){erros.push(auth.name+":"+(e.message||"err"));}
+        }
+      }
+      if(!achou&&!cancelado){
+        // Salva mensagem de erro pra mostrar no UI
+        setMvrvZErr(erros.length?erros[0]:"Nenhum endpoint funcionou. Verifique a chave em portal.bgeometrics.com");
       }
     })();
     // Busca series mensais dos indices comparativos
@@ -3238,6 +3288,10 @@ function App(){
         h("span",{style:{color:"#6A6050",fontSize:7.5}},z.tag),
         h("span",{style:{color:"#6A6050",fontSize:7.5,fontStyle:"italic"}},"\u00b7 "+z.desc)
       ))
+    ),
+    // Linha de erro/debug do MVRV-Z (so quando ha chave BG cadastrada mas falhou)
+    bgKey&&typeof mvrvZ!=="number"&&mvrvZErr&&h("div",{style:{fontSize:8,color:"#E89060",marginTop:3,fontFamily:"monospace",fontStyle:"italic"}},
+      "MVRV-Z: chave BG cadastrada mas API nao respondeu - ",mvrvZErr
     )
   );
 
