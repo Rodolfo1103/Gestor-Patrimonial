@@ -3379,6 +3379,45 @@ h("button",{onClick:()=>{
   },style:{background:"none",border:"none",color:"#3A3830",fontSize:10,cursor:"pointer",padding:"6px 4px",fontFamily:"monospace",flexShrink:0}},"IMP"),
 h("button",{onClick:()=>{const k=window.prompt("Cole o token Brapi.dev (para cotacoes B3 / Fiagros). Cadastre gratis em brapi.dev/dashboard:",brapiKey||"");if(k===null)return;const lim=k.trim();if(!lim){if(aesKey)saveBrapiKey(aesKey,"");setBrapiKeyS("");alert("Token Brapi removido.");return;}if(lim.length<10){alert("Token muito curto. Verifique se copiou inteiro.");return;}setBrapiKeyS(lim);if(aesKey)saveBrapiKey(aesKey,lim);alert("Token Brapi salvo!");},style:{marginLeft:"auto",background:"none",border:"none",color:brapiKey?"#C8A96E":"#3A3830",fontSize:10,cursor:"pointer",padding:"6px 4px",fontFamily:"monospace",flexShrink:0}},"BRAPI"),
 h("button",{onClick:()=>{const k=window.prompt("Cole sua API key BGeometrics (para MVRV-Z Score do Bitcoin). Cadastre gratis em portal.bgeometrics.com/login:",bgKey||"");if(k===null)return;const lim=k.trim();if(!lim){if(aesKey)saveBgKey(aesKey,"");setBgKeyS("");setMvrvZ(null);setMvrvZTs(null);alert("Chave BGeometrics removida.");return;}if(lim.length<10){alert("Chave muito curta. Verifique se copiou inteira.");return;}setBgKeyS(lim);if(aesKey)saveBgKey(aesKey,lim);alert("Chave BGeometrics salva! O MVRV-Z sera buscado em background.");},style:{background:"none",border:"none",color:bgKey?"#C8A96E":"#3A3830",fontSize:10,cursor:"pointer",padding:"6px 4px",fontFamily:"monospace",flexShrink:0}},"BG"),
+h("button",{onClick:async()=>{
+  const t=window.prompt("Ticker para diagnosticar variacao % (ex: HSML11):","HSML11");
+  if(!t)return;
+  const tk=t.trim().toUpperCase();
+  let msg="DIAGNOSTICO "+tk+"\n\n";
+  // 1) O que esta gravado no port?
+  const pos=port[tk];
+  if(pos){
+    msg+="NO APP (port):\n";
+    msg+="  price = "+pos.price+"\n";
+    msg+="  varDia = "+(typeof pos.varDia==="number"?pos.varDia.toFixed(4)+"%":"(nao gravado)")+"\n";
+    msg+="  varDiaTs = "+(pos.varDiaTs?new Date(pos.varDiaTs).toLocaleString("pt-BR"):"(nao gravado)")+"\n\n";
+  }else{msg+="NO APP: ticker nao encontrado no port\n\n";}
+  // 2) Busca Brapi crua
+  if(brapiKey){
+    try{
+      const url="https://brapi.dev/api/quote/"+tk+"?token="+encodeURIComponent(brapiKey);
+      const r=await fetch(url);
+      const j=await r.json();
+      if(j&&j.results&&j.results[0]){
+        const q=j.results[0];
+        msg+="BRAPI RAW:\n";
+        msg+="  regularMarketPrice = "+q.regularMarketPrice+"\n";
+        msg+="  regularMarketPreviousClose = "+q.regularMarketPreviousClose+"\n";
+        msg+="  regularMarketChange = "+q.regularMarketChange+"\n";
+        msg+="  regularMarketChangePercent = "+q.regularMarketChangePercent+"\n";
+        msg+="  regularMarketTime = "+q.regularMarketTime+"\n";
+        msg+="  regularMarketOpen = "+q.regularMarketOpen+"\n\n";
+        // 3) Calculo manual
+        const cur=q.regularMarketPrice,prev=q.regularMarketPreviousClose;
+        if(typeof cur==="number"&&typeof prev==="number"&&prev>0){
+          const calc=((cur-prev)/prev)*100;
+          msg+="CALCULO (price-prev)/prev:\n  "+calc.toFixed(4)+"%\n\n";
+        }
+      }else{msg+="BRAPI: sem resultado\n\n";}
+    }catch(e){msg+="BRAPI erro: "+e.message+"\n\n";}
+  }else{msg+="(Brapi nao configurada)\n\n";}
+  alert(msg);
+},style:{background:"none",border:"none",color:"#5B8FD4",fontSize:10,cursor:"pointer",padding:"6px 4px",fontFamily:"monospace",flexShrink:0}},"DBG"),
 h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (sk-ant-...):");if(k&&k.length>20){setApiKeyS(k);if(aesKey)saveApiKey(aesKey,k);alert("Chave salva!");}else if(k!==null){alert("Chave invalida. Cole a chave completa.");}},style:{background:"none",border:"none",color:apiKey?"#C8A96E":"#3A3830",fontSize:10,cursor:"pointer",padding:"6px 0",fontFamily:"monospace",flexShrink:0}},"API")
   );
 
@@ -3587,11 +3626,13 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                 h("div",{style:{fontSize:10,color:"#F0EAD8",fontFamily:"monospace"}},MV(fB(val))),
                 // Badge variacao % do pregao (so para tickers com cotacao em tempo real - exclui imoveis e tesouro)
                 pos&&typeof pos.varDia==="number"&&!VB.includes(ticker)&&!GB.includes(ticker)&&h("div",{
-                  title:"Variacao no pregao"+(pos.varDiaTs?" (atualizado "+new Date(pos.varDiaTs).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"})+")":""),
+                  title:"Variacao no pregao: "+pos.varDia.toFixed(4)+"%"+(pos.varDiaTs?"\nAtualizado: "+new Date(pos.varDiaTs).toLocaleString("pt-BR")+"\nIdade: "+Math.round((Date.now()-pos.varDiaTs)/60000)+" min":"\n(sem timestamp - valor antigo!)"),
                   style:{display:"inline-flex",alignItems:"center",gap:2,marginTop:2,fontSize:8.5,fontFamily:"monospace",fontWeight:700,color:pos.varDia>=0?"#4CAF82":"#E05252",letterSpacing:0.3}
                 },
                   h("span",{style:{fontSize:7,lineHeight:1}},pos.varDia>=0?"\u25B2":"\u25BC"),
-                  (pos.varDia>=0?"+":"")+pos.varDia.toFixed(2)+"%"
+                  (pos.varDia>=0?"+":"")+pos.varDia.toFixed(2)+"%",
+                  // DEBUG: mostra idade em min se > 30 min (alerta visual de dado stale)
+                  pos.varDiaTs&&(Date.now()-pos.varDiaTs)>30*60*1000&&h("span",{style:{fontSize:6,color:"#E89060",fontWeight:400,marginLeft:2,opacity:0.7}},"["+Math.round((Date.now()-pos.varDiaTs)/60000)+"min]")
                 )
               ),
               isCustom?h("button",{onClick:e=>{e.stopPropagation();removeCustom(c.id,ticker);},style:{background:"none",border:"none",color:"#E05252",fontSize:15,cursor:"pointer",padding:"0 2px",flexShrink:0}},"x"):h("span",{style:{color:"#3A3830",fontSize:12}},">")
