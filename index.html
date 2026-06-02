@@ -2486,9 +2486,12 @@ function App(){
               if(!r||!r.symbol)return;
               const p=r.regularMarketPrice||r.previousClose;
               if(typeof p==="number"&&p>0){allPrices[r.symbol]=p;bN++;}
-              // Variacao % do pregao
-              if(typeof r.regularMarketChangePercent==="number"){
-                allVars[r.symbol]=r.regularMarketChangePercent;
+              // Variacao % do pregao: calcula manualmente vs previousClose
+              // (mais confiavel que regularMarketChangePercent, que durante pregao pode ter inconsistencias)
+              const prev=r.regularMarketPreviousClose||r.previousClose;
+              const cur=r.regularMarketPrice;
+              if(typeof cur==="number"&&cur>0&&typeof prev==="number"&&prev>0&&prev!==cur){
+                allVars[r.symbol]=((cur-prev)/prev)*100;
               }
             });
             dbg.push("Brapi:"+bN+"/"+brTickers.length);
@@ -2507,10 +2510,12 @@ function App(){
             const res=d&&d.chart&&d.chart.result&&d.chart.result[0];
             const p=res&&res.meta&&(res.meta.regularMarketPrice||res.meta.previousClose);
             if(typeof p==="number"&&p>0){allPrices[t]=p;brN++;}
-            // Variacao % via Yahoo: usa chartPreviousClose se disponivel
-            const prev=res&&res.meta&&res.meta.chartPreviousClose;
-            if(typeof p==="number"&&p>0&&typeof prev==="number"&&prev>0){
-              allVars[t]=((p-prev)/prev)*100;
+            // Variacao % via Yahoo: previousClose (fechamento da sessao anterior) eh mais confiavel que chartPreviousClose
+            // chartPreviousClose pode ser o fechamento N dias atras (depende do range), nao serve para variacao diaria
+            const prev=res&&res.meta&&(res.meta.previousClose||res.meta.chartPreviousClose);
+            const cur=res&&res.meta&&res.meta.regularMarketPrice;
+            if(typeof cur==="number"&&cur>0&&typeof prev==="number"&&prev>0&&prev!==cur){
+              allVars[t]=((cur-prev)/prev)*100;
             }
           }catch{}
         }));
@@ -2528,9 +2533,11 @@ function App(){
             const res=d&&d.chart&&d.chart.result&&d.chart.result[0];
             const p=res&&res.meta&&(res.meta.regularMarketPrice||res.meta.previousClose);
             if(typeof p==="number"&&p>0){allPrices[t]=p;yhN++;}
-            const prev=res&&res.meta&&res.meta.chartPreviousClose;
-            if(typeof p==="number"&&p>0&&typeof prev==="number"&&prev>0){
-              allVars[t]=((p-prev)/prev)*100;
+            // previousClose: fechamento da sessao anterior (correto para variacao diaria)
+            const prev=res&&res.meta&&(res.meta.previousClose||res.meta.chartPreviousClose);
+            const cur=res&&res.meta&&res.meta.regularMarketPrice;
+            if(typeof cur==="number"&&cur>0&&typeof prev==="number"&&prev>0&&prev!==cur){
+              allVars[t]=((cur-prev)/prev)*100;
             }
           }catch{}
         }));
