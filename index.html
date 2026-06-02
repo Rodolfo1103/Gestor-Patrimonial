@@ -2486,12 +2486,22 @@ function App(){
               if(!r||!r.symbol)return;
               const p=r.regularMarketPrice||r.previousClose;
               if(typeof p==="number"&&p>0){allPrices[r.symbol]=p;bN++;}
-              // Variacao % do pregao: calcula manualmente vs previousClose
-              // (mais confiavel que regularMarketChangePercent, que durante pregao pode ter inconsistencias)
-              const prev=r.regularMarketPreviousClose||r.previousClose;
+              // Variacao % do pregao - estrategia em cascata:
+              // 1) Calcular manualmente: (regularMarketPrice - regularMarketPreviousClose) / regularMarketPreviousClose
+              // 2) Fallback: usar regularMarketChangePercent direto (se calculo manual nao funcionou)
               const cur=r.regularMarketPrice;
+              const prev=r.regularMarketPreviousClose;
+              let vd=null;
               if(typeof cur==="number"&&cur>0&&typeof prev==="number"&&prev>0&&prev!==cur){
-                allVars[r.symbol]=((cur-prev)/prev)*100;
+                vd=((cur-prev)/prev)*100;
+              }
+              // Fallback: regularMarketChangePercent (mas so se calculo manual falhou)
+              if(vd===null&&typeof r.regularMarketChangePercent==="number"&&!isNaN(r.regularMarketChangePercent)){
+                vd=r.regularMarketChangePercent;
+              }
+              // Sanity check: rejeita valores absurdos (>50% num pregao normal eh suspeito)
+              if(vd!==null&&Math.abs(vd)<50){
+                allVars[r.symbol]=vd;
               }
             });
             dbg.push("Brapi:"+bN+"/"+brTickers.length);
@@ -2582,11 +2592,15 @@ function App(){
                 np[tImv]={...np[tImv],totalBRL:novo,price:novo,dataAvaliacao:new Date().toISOString()};
               }
             }else if(np[t]){
-              // Aplica preco e variacao % do pregao se houver
+              // Aplica preco e variacao % do pregao
               const upd={...np[t],price:v};
               if(typeof allVars[t]==="number"&&!isNaN(allVars[t])){
                 upd.varDia=allVars[t];
                 upd.varDiaTs=Date.now();
+              }else{
+                // Novo preco chegou mas variacao nao veio: limpa varDia stale para nao mostrar valor desatualizado
+                delete upd.varDia;
+                delete upd.varDiaTs;
               }
               np[t]=upd;
             }
