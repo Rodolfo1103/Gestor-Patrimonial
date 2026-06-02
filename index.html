@@ -3413,30 +3413,52 @@ h("button",{onClick:async()=>{
     msg+="  varDia = "+(typeof pos.varDia==="number"?pos.varDia.toFixed(4)+"%":"(nao gravado)")+"\n";
     msg+="  varDiaTs = "+(pos.varDiaTs?new Date(pos.varDiaTs).toLocaleString("pt-BR"):"(nao gravado)")+"\n\n";
   }else{msg+="NO APP: ticker nao encontrado no port\n\n";}
-  // 2) Busca Brapi crua
+  // 2) Versao do codigo
+  msg+="VERSAO CODIGO (esperado: v2): v2-2026-06-02-yahoo-fallback-check\n\n";
+  // 3) Busca Brapi crua
   if(brapiKey){
     try{
-      const url="https://brapi.dev/api/quote/"+tk+"?token="+encodeURIComponent(brapiKey);
-      const r=await fetch(url);
+      const url="https://brapi.dev/api/quote/"+tk+"?token="+encodeURIComponent(brapiKey)+"&_t="+Date.now();
+      const r=await fetch(url,{cache:"no-store"});
       const j=await r.json();
       if(j&&j.results&&j.results[0]){
         const q=j.results[0];
         msg+="BRAPI RAW:\n";
         msg+="  regularMarketPrice = "+q.regularMarketPrice+"\n";
         msg+="  regularMarketPreviousClose = "+q.regularMarketPreviousClose+"\n";
-        msg+="  regularMarketChange = "+q.regularMarketChange+"\n";
         msg+="  regularMarketChangePercent = "+q.regularMarketChangePercent+"\n";
-        msg+="  regularMarketTime = "+q.regularMarketTime+"\n";
-        msg+="  regularMarketOpen = "+q.regularMarketOpen+"\n\n";
-        // 3) Calculo manual
-        const cur=q.regularMarketPrice,prev=q.regularMarketPreviousClose;
-        if(typeof cur==="number"&&typeof prev==="number"&&prev>0){
-          const calc=((cur-prev)/prev)*100;
-          msg+="CALCULO (price-prev)/prev:\n  "+calc.toFixed(4)+"%\n\n";
-        }
+        msg+="  regularMarketTime = "+q.regularMarketTime+"\n\n";
       }else{msg+="BRAPI: sem resultado\n\n";}
     }catch(e){msg+="BRAPI erro: "+e.message+"\n\n";}
-  }else{msg+="(Brapi nao configurada)\n\n";}
+  }
+  // 4) Busca Yahoo crua (pra ver o chartPreviousClose)
+  try{
+    const target="https://query1.finance.yahoo.com/v8/finance/chart/"+tk+".SA?interval=1d&range=5d&_t="+Date.now();
+    const proxies=[
+      u=>"https://corsproxy.io/?url="+encodeURIComponent(u),
+      u=>"https://api.allorigins.win/raw?url="+encodeURIComponent(u)
+    ];
+    let yj=null;
+    for(const px of proxies){
+      try{
+        const r=await fetch(px(target),{cache:"no-store"});
+        if(r.ok){yj=await r.json();break;}
+      }catch{}
+    }
+    if(yj&&yj.chart&&yj.chart.result&&yj.chart.result[0]){
+      const meta=yj.chart.result[0].meta;
+      msg+="YAHOO RAW:\n";
+      msg+="  regularMarketPrice = "+meta.regularMarketPrice+"\n";
+      msg+="  previousClose = "+meta.previousClose+"\n";
+      msg+="  chartPreviousClose = "+meta.chartPreviousClose+"\n\n";
+      // 5) Calculos hipoteticos
+      const p=meta.regularMarketPrice;
+      if(p){
+        if(meta.previousClose)msg+="  (p-prevClose)/prevClose = "+(((p-meta.previousClose)/meta.previousClose)*100).toFixed(4)+"%\n";
+        if(meta.chartPreviousClose)msg+="  (p-chartPrev)/chartPrev = "+(((p-meta.chartPreviousClose)/meta.chartPreviousClose)*100).toFixed(4)+"%\n";
+      }
+    }else{msg+="YAHOO: sem resultado\n";}
+  }catch(e){msg+="YAHOO erro: "+e.message+"\n";}
   setDbgInfo(msg);
 },style:{background:"none",border:"none",color:"#5B8FD4",fontSize:10,cursor:"pointer",padding:"6px 4px",fontFamily:"monospace",flexShrink:0}},"DBG"),
 h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (sk-ant-...):");if(k&&k.length>20){setApiKeyS(k);if(aesKey)saveApiKey(aesKey,k);alert("Chave salva!");}else if(k!==null){alert("Chave invalida. Cole a chave completa.");}},style:{background:"none",border:"none",color:apiKey?"#C8A96E":"#3A3830",fontSize:10,cursor:"pointer",padding:"6px 0",fontFamily:"monospace",flexShrink:0}},"API")
