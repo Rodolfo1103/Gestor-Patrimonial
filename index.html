@@ -34,7 +34,8 @@ const {createElement:h,useState,useEffect,useCallback,useRef,Fragment} = React;
 const CL=[
   {id:"fii",      name:"FIIs Brasil",   tag:"FII", min:28,max:30,color:"#C8A96E"},
   {id:"acoes_br", name:"Acoes Brasil",  tag:"BR",  min:13,max:15,color:"#4CAF82"},
-  {id:"acoes_ext",name:"Acoes Ext",     tag:"EXT", min:28,max:30,color:"#5B8FD4"},
+  {id:"acoes_ext",name:"Acoes Ext",     tag:"EXT", min:26,max:28,color:"#5B8FD4"},
+  {id:"reits",    name:"REITs",         tag:"REIT",min:2, max:4, color:"#D4796A"},
   {id:"selic",    name:"Tesouro Selic", tag:"SEL", min:5, max:8, color:"#9B9B9B",flex:true},
   {id:"ouro",     name:"Ouro",          tag:"XAU", min:3, max:5, color:"#E8C44A"},
   {id:"bitcoin",  name:"Bitcoin",       tag:"BTC", min:3, max:5, color:"#F7931A"},
@@ -45,7 +46,8 @@ const CL=[
 const BASE={
   fii:["HGRU11","RBVA11","ALZR11","TRXF11","FIIB11","BTLG11","HGLG11","XPIN11","JFLL11","TEPP11","PVBI11","TGAR11","HSML11","XPML11","RECR11","KNHY11","KNUQ11","KNIP11","AFHI11"],
   acoes_br:["PSSA3","EGIE3","WEGE3","BBAS3","ITUB3","KLBN4","CXSE3","MULT3","CMIN3","FRAS3","TAEE11"],
-  acoes_ext:["MSFT","APH","MU","AMAT","GOOGL","WM","O","BRKB","DHR","PH","LIN","ECL","ADBE","PEP","XOM","AOS","PANW","CTVA","SIE","SAP","NSIS_B","HLMA","KOG","GMEXICOB","ASML","ABBN","TSE8058","TSE8031","NDIA","REA","HKG0700","HKG1299","J36","HKG0001","HKG0087","WES"],
+  acoes_ext:["MSFT","APH","MU","AMAT","GOOGL","WM","BRKB","DHR","PH","LIN","ECL","ADBE","PEP","XOM","AOS","PANW","CTVA","SIE","SAP","NSIS_B","HLMA","KOG","GMEXICOB","ASML","ABBN","TSE8058","TSE8031","NDIA","REA","HKG0700","HKG1299","J36","HKG0001","HKG0087","WES"],
+  reits:["O","FPI"],
   selic:["SELIC2031"],ouro:["OURO_FISICO","AAAU"],bitcoin:["BTC"],infra:["BRZP11","AZIN11","KDIF11"],imoveis:[],agro:[],
 };
 const NAMES={
@@ -60,7 +62,7 @@ const NAMES={
   ITUB3:"Itau Unibanco",KLBN4:"Klabin",CXSE3:"Caixa Seguridade",MULT3:"Multiplan",
   CMIN3:"CSN Mineracao",FRAS3:"Fras-le",TAEE11:"Taesa",
   MSFT:"Microsoft",APH:"Amphenol",MU:"Micron Technology",AMAT:"Applied Materials",
-  GOOGL:"Alphabet Google",WM:"Waste Management",O:"Realty Income",
+  GOOGL:"Alphabet Google",WM:"Waste Management",O:"Realty Income",FPI:"Farmland Partners",
   BRKB:"Berkshire Hathaway",DHR:"Danaher",PH:"Parker-Hannifin",LIN:"Linde",
   ECL:"Ecolab",ADBE:"Adobe",PEP:"PepsiCo",XOM:"Exxon Mobil",AOS:"A.O. Smith",
   PANW:"Palo Alto Networks",CTVA:"Corteva",NDIA:"Global X India ETF",
@@ -78,7 +80,7 @@ const BCCY={
   RECR11:"BRL",KNHY11:"BRL",KNUQ11:"BRL",KNIP11:"BRL",AFHI11:"BRL",
   PSSA3:"BRL",EGIE3:"BRL",WEGE3:"BRL",BBAS3:"BRL",ITUB3:"BRL",KLBN4:"BRL",
   CXSE3:"BRL",MULT3:"BRL",CMIN3:"BRL",FRAS3:"BRL",TAEE11:"BRL",
-  MSFT:"USD",APH:"USD",MU:"USD",AMAT:"USD",GOOGL:"USD",WM:"USD",O:"USD",BRKB:"USD",
+  MSFT:"USD",APH:"USD",MU:"USD",AMAT:"USD",GOOGL:"USD",WM:"USD",O:"USD",FPI:"USD",BRKB:"USD",
   DHR:"USD",PH:"USD",LIN:"USD",ECL:"USD",ADBE:"USD",PEP:"USD",XOM:"USD",AOS:"USD",
   PANW:"USD",CTVA:"USD",NDIA:"USD",SIE:"EUR",SAP:"EUR",ASML:"EUR",ABBN:"CHF",
   NSIS_B:"DKK",HLMA:"GBP",KOG:"NOK",GMEXICOB:"MXN",TSE8058:"JPY",TSE8031:"JPY",
@@ -91,7 +93,7 @@ const IMB=true; // flag indicando que IMV usa ativos custom (cadastrados pelo us
 const FX={BRL:1,USD:5.01,EUR:5.7,GBP:6.8,CHF:6.1,JPY:0.034,AUD:3.25,HKD:0.64,SGD:3.85,DKK:0.76,NOK:0.49,MXN:0.26};
 // Premissas BASE de risco e retorno por classe (escala 0-10)
 // Valores ancorados em cenario Selic = 10% a.a. (normalizada)
-const RR_BASE={fii:{r:3.5,e:7.5},acoes_br:{r:6.5,e:8.5},acoes_ext:{r:5.5,e:8.0},selic:{r:1.0,e:4.5},ouro:{r:4.0,e:5.5},bitcoin:{r:9.5,e:9.0},infra:{r:2.5,e:7.0},imoveis:{r:2.0,e:6.0},agro:{r:3.0,e:8.0}};
+const RR_BASE={fii:{r:3.5,e:7.5},acoes_br:{r:6.5,e:8.5},acoes_ext:{r:5.5,e:8.0},reits:{r:4.5,e:7.2},selic:{r:1.0,e:4.5},ouro:{r:4.0,e:5.5},bitcoin:{r:9.5,e:9.0},infra:{r:2.5,e:7.0},imoveis:{r:2.0,e:6.0},agro:{r:3.0,e:8.0}};
 const SELIC_ANCORA=10;// Selic % a.a. considerada na premissa base
 // RR efetivo: comeca como base, depois eh recalibrado por Selic + IA
 // Mutavel apenas via funcao recalibrarRR (nao mutar diretamente)
@@ -126,6 +128,9 @@ function recalibrarRR(selicAtual,ajustesIA){
   // Acoes exteriores: pouco impacto da Selic BR (diferencial cambial pode ate beneficiar com Selic alta atraindo capital)
   const novoExtE=c(RR_BASE.acoes_ext.e);
   const novoExtR=c(RR_BASE.acoes_ext.r);
+  // REITs americanos: similares a EXT em sensibilidade a Selic BR (baixa), mas com leve viés dividend (sofre um pouco quando Selic BR alta cria custo de oportunidade local)
+  const novoReitE=c(RR_BASE.reits.e-Math.max(0,delta)*0.08);
+  const novoReitR=c(RR_BASE.reits.r+Math.max(0,delta)*0.05);
   // Ouro: hedge - retorno esperado pouco sensivel, risco neutro
   const novoOuroE=c(RR_BASE.ouro.e);
   const novoOuroR=c(RR_BASE.ouro.r);
@@ -137,6 +142,7 @@ function recalibrarRR(selicAtual,ajustesIA){
     fii:{r:novoFiiR,e:novoFiiE},
     acoes_br:{r:novoBrR,e:novoBrE},
     acoes_ext:{r:novoExtR,e:novoExtE},
+    reits:{r:novoReitR,e:novoReitE},
     selic:{r:novoSelR,e:novoSelE},
     ouro:{r:novoOuroR,e:novoOuroE},
     bitcoin:{r:novoBtcR,e:novoBtcE},
@@ -1589,7 +1595,7 @@ function App(){
     salvarBandas();
   };
   const resetBandas=()=>{
-    const original={fii:[28,30],acoes_br:[13,15],acoes_ext:[28,30],selic:[5,8],ouro:[3,5],bitcoin:[3,5],infra:[5,7],imoveis:[5,8],agro:[5,7]};
+    const original={fii:[28,30],acoes_br:[13,15],acoes_ext:[26,28],reits:[2,4],selic:[5,8],ouro:[3,5],bitcoin:[3,5],infra:[5,7],imoveis:[5,8],agro:[5,7]};
     CL.forEach(c=>{if(original[c.id]){c.min=original[c.id][0];c.max=original[c.id][1];}});
     salvarBandas();
   };
@@ -2027,97 +2033,97 @@ function App(){
         const idade=Date.now()-mvrvZTs;
         if(idade<12*3600*1000)return;// cache valido
       }
-      // BGeometrics: enumera multiplas combinacoes de endpoint + auth para encontrar o que funciona
-      // Documentacao referencia 'https://api.bgeometrics.com/v1/mvrv?token=...' e 'https://bitcoin-data.com/v1/...'
-      const endpoints=[
-        // bitcoin-data.com (domínio recomendado)
+      // Endpoints possiveis (multiplas convencoes que vi na doc)
+      const baseUrls=[
         "https://bitcoin-data.com/api/v1/mvrv-zscore/last",
         "https://bitcoin-data.com/v1/mvrv-zscore/last",
-        "https://bitcoin-data.com/api/v1/mvrvzscore/last",
-        "https://bitcoin-data.com/v1/mvrvzscore/last",
-        "https://bitcoin-data.com/api/v1/mvrv-z-score/last",
-        "https://bitcoin-data.com/v1/mvrv-z-score/last",
-        "https://bitcoin-data.com/api/v1/mvrv_zscore/last",
-        "https://bitcoin-data.com/v1/mvrv_zscore/last",
-        // api.bgeometrics.com
         "https://api.bgeometrics.com/v1/mvrv-zscore/last",
-        "https://api.bgeometrics.com/v1/mvrvzscore/last",
         "https://api.bgeometrics.com/v1/mvrv-zscore",
-        "https://api.bgeometrics.com/v1/mvrvzscore"
+        "https://bitcoin-data.com/api/v1/mvrv-zscore",
+        "https://bitcoin-data.com/v1/mvrv-zscore"
       ];
-      // Formatos de autenticacao para tentar
+      // Formatos de autenticacao
       const authVariants=[
         {name:"x-api-key",mk:(url,key)=>({url,headers:{"x-api-key":key,"accept":"application/json"}})},
-        {name:"X-API-Key",mk:(url,key)=>({url,headers:{"X-API-Key":key,"accept":"application/json"}})},
-        {name:"Authorization Bearer",mk:(url,key)=>({url,headers:{"Authorization":"Bearer "+key,"accept":"application/json"}})},
-        {name:"query token",mk:(url,key)=>({url:url+(url.includes("?")?"&":"?")+"token="+encodeURIComponent(key),headers:{"accept":"application/json"}})},
-        {name:"query api_key",mk:(url,key)=>({url:url+(url.includes("?")?"&":"?")+"api_key="+encodeURIComponent(key),headers:{"accept":"application/json"}})}
+        {name:"Bearer",mk:(url,key)=>({url,headers:{"Authorization":"Bearer "+key,"accept":"application/json"}})},
+        {name:"?token=",mk:(url,key)=>({url:url+(url.includes("?")?"&":"?")+"token="+encodeURIComponent(key),headers:{"accept":"application/json"}})},
+        {name:"?api_key=",mk:(url,key)=>({url:url+(url.includes("?")?"&":"?")+"api_key="+encodeURIComponent(key),headers:{"accept":"application/json"}})}
+      ];
+      // Wrappers de proxy CORS (caso o browser bloqueie diretamente)
+      const proxies=[
+        {name:"direct",wrap:u=>u},
+        {name:"corsproxy.io",wrap:u=>"https://corsproxy.io/?url="+encodeURIComponent(u)},
+        {name:"allorigins",wrap:u=>"https://api.allorigins.win/raw?url="+encodeURIComponent(u)},
+        {name:"codetabs",wrap:u=>"https://api.codetabs.com/v1/proxy/?quest="+encodeURIComponent(u)}
       ];
       const erros=[];
       let achou=false;
-      for(const url of endpoints){
+      for(const baseUrl of baseUrls){
         if(cancelado||achou)break;
         for(const auth of authVariants){
           if(cancelado||achou)break;
-          try{
-            const cfg=auth.mk(url,bgKey);
-            const ctrl=new AbortController();
-            const tid=setTimeout(()=>ctrl.abort(),7000);
-            const r=await fetch(cfg.url,{signal:ctrl.signal,headers:cfg.headers});
-            clearTimeout(tid);
-            if(!r.ok){
-              // Se 401/403 nao adianta tentar outras auth no mesmo endpoint? Sim, tenta - pode ser nome diferente
-              if(r.status===429){erros.push("RATE LIMIT");achou=true;break;}
-              continue;
-            }
-            const txt=await r.text();
-            let j;
-            try{j=JSON.parse(txt);}catch{continue;}
-            // Tenta extrair valor numerico de varias estruturas
-            let v=null;
-            if(typeof j==="number")v=j;
-            else if(j&&typeof j.mvrvZscore==="number")v=j.mvrvZscore;
-            else if(j&&typeof j["mvrv-zscore"]==="number")v=j["mvrv-zscore"];
-            else if(j&&typeof j.mvrv_zscore==="number")v=j.mvrv_zscore;
-            else if(j&&typeof j.value==="number")v=j.value;
-            else if(j&&typeof j.mvrv==="number")v=j.mvrv;
-            else if(j&&typeof j.mvrvz==="number")v=j.mvrvz;
-            else if(j&&typeof j.score==="number")v=j.score;
-            else if(j&&j.data){
-              if(Array.isArray(j.data)&&j.data.length>0){
-                const last=j.data[j.data.length-1];
-                if(Array.isArray(last)&&last.length>=2)v=parseFloat(last[1]);
-                else if(typeof last==="number")v=last;
-                else if(last&&typeof last.value==="number")v=last.value;
-                else if(last&&typeof last.mvrvZscore==="number")v=last.mvrvZscore;
-              }else if(typeof j.data==="number")v=j.data;
-              else if(j.data&&typeof j.data.value==="number")v=j.data.value;
-            }
-            // Tenta extrair de qualquer chave numerica do objeto raiz como ultima opcao
-            if(v===null&&j&&typeof j==="object"){
-              const keys=Object.keys(j);
-              for(const k of keys){
-                const val=j[k];
-                if(typeof val==="number"&&val>-5&&val<20){v=val;break;}
-                if(typeof val==="string"){const n=parseFloat(val);if(!isNaN(n)&&n>-5&&n<20){v=n;break;}}
+          const cfg=auth.mk(baseUrl,bgKey);
+          for(const px of proxies){
+            if(cancelado||achou)break;
+            try{
+              const proxiedUrl=px.wrap(cfg.url);
+              const ctrl=new AbortController();
+              const tid=setTimeout(()=>ctrl.abort(),7000);
+              // Proxies que reencaminham headers podem nao funcionar; melhor usar query string com proxy
+              const useHeaders=px.name==="direct"?cfg.headers:{"accept":"application/json"};
+              const r=await fetch(proxiedUrl,{signal:ctrl.signal,headers:useHeaders});
+              clearTimeout(tid);
+              if(!r.ok){
+                if(r.status===429){erros.push("RATE LIMIT - aguarde 1h");achou=true;break;}
+                if(r.status===401||r.status===403){erros.push("401/403 (chave invalida ou auth errada)");continue;}
+                continue;
               }
-            }
-            // Sanity check: MVRV-Z historico fica entre -3 e 15
-            if(typeof v==="number"&&v>-3&&v<15){
-              if(!cancelado){
-                setMvrvZ(v);
-                setMvrvZTs(Date.now());
-                setMvrvZErr("");
+              const txt=await r.text();
+              // Se vier vazio ou for "host not in allowlist", proxy bloqueou
+              if(!txt||txt.toLowerCase().includes("host not in allowlist")||txt.toLowerCase().includes("not allowed"))continue;
+              let j;
+              try{j=JSON.parse(txt);}catch{continue;}
+              // Extrai valor numerico
+              let v=null;
+              if(typeof j==="number")v=j;
+              else if(j&&typeof j.mvrvZscore==="number")v=j.mvrvZscore;
+              else if(j&&typeof j["mvrv-zscore"]==="number")v=j["mvrv-zscore"];
+              else if(j&&typeof j.mvrv_zscore==="number")v=j.mvrv_zscore;
+              else if(j&&typeof j.value==="number")v=j.value;
+              else if(j&&typeof j.mvrv==="number")v=j.mvrv;
+              else if(j&&j.data){
+                if(Array.isArray(j.data)&&j.data.length>0){
+                  const last=j.data[j.data.length-1];
+                  if(Array.isArray(last)&&last.length>=2)v=parseFloat(last[1]);
+                  else if(typeof last==="number")v=last;
+                  else if(last&&typeof last.value==="number")v=last.value;
+                  else if(last&&typeof last.mvrvZscore==="number")v=last.mvrvZscore;
+                }else if(typeof j.data==="number")v=j.data;
+                else if(j.data&&typeof j.data.value==="number")v=j.data.value;
               }
-              achou=true;
-              break;
-            }
-          }catch(e){erros.push(auth.name+":"+(e.message||"err"));}
+              if(v===null&&j&&typeof j==="object"){
+                const keys=Object.keys(j);
+                for(const k of keys){
+                  const val=j[k];
+                  if(typeof val==="number"&&val>-5&&val<20){v=val;break;}
+                  if(typeof val==="string"){const n=parseFloat(val);if(!isNaN(n)&&n>-5&&n<20){v=n;break;}}
+                }
+              }
+              if(typeof v==="number"&&v>-3&&v<15){
+                if(!cancelado){
+                  setMvrvZ(v);
+                  setMvrvZTs(Date.now());
+                  setMvrvZErr("");
+                }
+                achou=true;
+                break;
+              }
+            }catch(e){erros.push(px.name+":"+(e.message||"err").slice(0,30));}
+          }
         }
       }
       if(!achou&&!cancelado){
-        // Salva mensagem de erro pra mostrar no UI
-        setMvrvZErr(erros.length?erros[0]:"Nenhum endpoint funcionou. Verifique a chave em portal.bgeometrics.com");
+        setMvrvZErr(erros.length?erros[0]:"Nenhuma combinacao funcionou");
       }
     })();
     // Busca series mensais dos indices comparativos
@@ -2440,7 +2446,7 @@ function App(){
       }
       // Mapeamento de tickers para Yahoo Finance
       const YH={
-        MSFT:"MSFT",APH:"APH",MU:"MU",AMAT:"AMAT",GOOGL:"GOOGL",WM:"WM",O:"O",BRKB:"BRK-B",
+        MSFT:"MSFT",APH:"APH",MU:"MU",AMAT:"AMAT",GOOGL:"GOOGL",WM:"WM",O:"O",FPI:"FPI",BRKB:"BRK-B",
         DHR:"DHR",PH:"PH",LIN:"LIN",ECL:"ECL",ADBE:"ADBE",PEP:"PEP",XOM:"XOM",AOS:"AOS",
         PANW:"PANW",CTVA:"CTVA",NDIA:"NDIA",AAAU:"AAAU",
         SIE:"SIE.DE",SAP:"SAP.DE",ASML:"ASML.AS",ABBN:"ABBN.SW",NSIS_B:"NOVO-B.CO",
@@ -2518,7 +2524,7 @@ function App(){
       // Stooq fallback
       const STQ={
         MSFT:"msft.us",APH:"aph.us",MU:"mu.us",AMAT:"amat.us",GOOGL:"googl.us",WM:"wm.us",
-        O:"o.us",BRKB:"brk-b.us",DHR:"dhr.us",PH:"ph.us",LIN:"lin.us",ECL:"ecl.us",
+        O:"o.us",FPI:"fpi.us",BRKB:"brk-b.us",DHR:"dhr.us",PH:"ph.us",LIN:"lin.us",ECL:"ecl.us",
         ADBE:"adbe.us",PEP:"pep.us",XOM:"xom.us",AOS:"aos.us",PANW:"panw.us",CTVA:"ctva.us",
         NDIA:"ndia.us",AAAU:"aaau.us",
         SIE:"sie.de",SAP:"sap.de",ASML:"asml.nl",ABBN:"abbn.ch",HLMA:"hlma.uk",KOG:"kog.no",
@@ -2613,7 +2619,7 @@ function App(){
     let sufixos;
     if(isBR){
       sufixos=[".SA"];
-    }else if(cid==="acoes_ext"){
+    }else if(cid==="acoes_ext"||cid==="reits"){
       // Comeca pelo sufixo da moeda hint (se houver), depois testa os demais
       const porMoeda={USD:"",EUR:".DE",GBP:".L",CHF:".SW",DKK:".CO",NOK:".OL",MXN:".MX",JPY:".T",AUD:".AX",HKD:".HK",SGD:".SI"};
       sufixos=[porMoeda[ccyHint]||"","",".L",".DE",".SW",".T",".AX",".HK",".AS",".PA",".MI",".MX",".SI",".CO",".OL",".TO",".F",".AT",".VI",".OL"];
@@ -2643,7 +2649,7 @@ function App(){
     const allowedCcy=["USD","EUR","GBP","CHF","JPY","AUD","HKD","SGD","DKK","NOK","MXN","BRL"];
     // ESTRATEGIA 1: Yahoo Search API descobre o ticker certo (e o sufixo) automaticamente
     // Util quando o usuario digita um ticker sem saber em qual bolsa esta listado
-    if(cid==="acoes_ext"){
+    if(cid==="acoes_ext"||cid==="reits"){
       try{
         const searchUrl="https://query2.finance.yahoo.com/v1/finance/search?q="+encodeURIComponent(symbol)+"&quotesCount=5&newsCount=0";
         for(const mk of proxies){
@@ -2740,7 +2746,7 @@ function App(){
       }
     }
     // ESTRATEGIA 4: Stooq (fallback final - util pra US/EU)
-    if(cid==="acoes_ext"){
+    if(cid==="acoes_ext"||cid==="reits"){
       const stooqMaps=[
         symbol.toLowerCase()+".us",
         symbol.toLowerCase()+".uk",
@@ -2797,14 +2803,14 @@ function App(){
     if(allT(cid).includes(t)){alert("Ja existe");return;}
     let label=nLbl.trim();
     let ccyFinal=nCcy;
-    // Busca info no Yahoo se: nome vazio OU acoes_ext (para validar moeda)
-    if(!label||cid==="acoes_ext"){
+    // Busca info no Yahoo se: nome vazio OU acoes_ext/reits (para validar moeda)
+    if(!label||cid==="acoes_ext"||cid==="reits"){
       setLoadP(true);
       try{
         const info=await fetchTickerInfo(t,cid,nCcy);
         if(!label&&info.nome)label=info.nome;
-        // Se eh acao exterior e descobrimos a moeda real, usa ela
-        if(cid==="acoes_ext"&&info.ccy)ccyFinal=info.ccy;
+        // Se eh acao exterior ou REIT e descobrimos a moeda real, usa ela
+        if((cid==="acoes_ext"||cid==="reits")&&info.ccy)ccyFinal=info.ccy;
       }catch{}
       setLoadP(false);
     }
@@ -3032,14 +3038,15 @@ function App(){
         "- IPCA e IGP-M = inflacao 12m, refletem pressao de precos no Brasil. Inflacao alta favorece IMA-B, IPCA+ e ativos reais (imoveis, agro).\\n"+
         "- CPI EUA = inflacao americana, influencia juros do FED e BTC.\\n"+
         "- BTC USD = se em alta, momento favoravel; em queda profunda, oportunidade ou risco aumentado.\\n"+
-        "- Ouro: hedge cambial e geopolitico.\\n\\n"+
+        "- Ouro: hedge cambial e geopolitico.\\n"+
+        "- REITs (Realty Income, FPI etc.) = imoveis americanos cotados em USD. Sensiveis a juros do FED (yield alto compete com Treasury), mas oferecem dividend yield + protecao real. Risco intermediario entre FII brasileiro e acoes ext puras.\\n\\n"+
         "REGRAS RIGIDAS:\\n"+
         "1. Score r (risco) e e (retorno esperado) em escala 0-10, decimal permitido.\\n"+
         "2. Mudancas devem ser FUNDAMENTADAS pelo cenario, nao opinioes pessoais.\\n"+
         "3. Mantenha logica relativa: BTC continua sendo classe de maior risco; SEL continua a de menor risco; FII tem retorno moderado-alto via DY; etc.\\n"+
         "4. Buy&Hold de longo prazo: nao reaja a movimentos de curto prazo. Atualize premissas estruturais.\\n"+
         "5. Sem markdown. Sem texto extra. APENAS JSON valido:\\n"+
-        "{\"ajustes\":{\"fii\":{\"r\":3.5,\"e\":7.5},\"acoes_br\":{\"r\":6.5,\"e\":8.5},\"acoes_ext\":{\"r\":5.5,\"e\":8.0},\"selic\":{\"r\":1.0,\"e\":4.5},\"ouro\":{\"r\":4.0,\"e\":5.5},\"bitcoin\":{\"r\":9.5,\"e\":9.0},\"infra\":{\"r\":2.5,\"e\":7.0},\"imoveis\":{\"r\":2.0,\"e\":6.0},\"agro\":{\"r\":3.0,\"e\":8.0}},\"explicacao\":\"Texto curto (max 60 palavras) explicando por que os scores foram ajustados conforme o cenario macro.\"}";
+        "{\"ajustes\":{\"fii\":{\"r\":3.5,\"e\":7.5},\"acoes_br\":{\"r\":6.5,\"e\":8.5},\"acoes_ext\":{\"r\":5.5,\"e\":8.0},\"reits\":{\"r\":4.5,\"e\":7.2},\"selic\":{\"r\":1.0,\"e\":4.5},\"ouro\":{\"r\":4.0,\"e\":5.5},\"bitcoin\":{\"r\":9.5,\"e\":9.0},\"infra\":{\"r\":2.5,\"e\":7.0},\"imoveis\":{\"r\":2.0,\"e\":6.0},\"agro\":{\"r\":3.0,\"e\":8.0}},\"explicacao\":\"Texto curto (max 60 palavras) explicando por que os scores foram ajustados conforme o cenario macro.\"}";
       const txt=await callAPI([{role:"user",content:prompt}],apiKey);
       // Tenta extrair JSON da resposta
       let parsed;
@@ -3267,7 +3274,7 @@ function App(){
     ),
     // Terceira linha: interpretacao do MVRV-Z (so aparece se temos o valor)
     typeof mvrvZ==="number"&&h("div",{style:{fontSize:9,color:"#5A5550",marginTop:3,fontFamily:"monospace",display:"flex",flexWrap:"wrap",gap:"2px 7px",alignItems:"center"}},
-      h("span",{style:{fontSize:8,color:"#7A7060",letterSpacing:1.5,marginRight:2}},"MVRV-Z:"),
+      h("span",{style:{fontSize:9,color:"#C8A96E",letterSpacing:1.5,marginRight:2,fontWeight:700}},"MVRV-Z "+mvrvZ.toFixed(2)+":"),
       ...[
         {tag:"<0",nome:"FUNDO",desc:"compra",cor:"#4CAF82",ativa:mvrvZ<0},
         {tag:"0-2",nome:"NEUTRO",desc:"equilibrio",cor:"#E8C44A",ativa:mvrvZ>=0&&mvrvZ<2},
@@ -3558,7 +3565,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             ...[ ["TICKER",nTick,v2=>setNTick(v2.toUpperCase()),"ex: PETR4"], ["Nome (opcional - auto)",nLbl,setNLbl,"deixe vazio para buscar"] ].map(([l,v2,s2,p2])=>h("div",{key:l,style:{marginBottom:7}},h("div",{style:{fontSize:8,color:"#8A8070",fontFamily:"monospace",marginBottom:2}},l),h("input",{type:"text",value:v2,onChange:e=>s2(e.target.value),placeholder:p2,maxLength:40,style:{width:"100%",background:"rgba(0,0,0,0.3)",border:"1px solid "+c.color+"44",borderRadius:4,padding:"7px 9px",color:"#F0EAD8",fontSize:13,fontFamily:"monospace",outline:"none",boxSizing:"border-box"}}))),
             h("div",{style:{marginBottom:10}},h("div",{style:{fontSize:8,color:"#8A8070",fontFamily:"monospace",marginBottom:5}},"MOEDA"),h("div",{style:{display:"flex",flexWrap:"wrap",gap:4}},...["BRL","USD","EUR","GBP","CHF","JPY","AUD","HKD","SGD","NOK","DKK","MXN"].map(cc2=>h("button",{key:cc2,onClick:()=>setNCcy(cc2),style:{padding:"2px 8px",borderRadius:3,fontFamily:"monospace",fontSize:10,background:nCcy===cc2?c.color:"transparent",border:"1px solid "+c.color+"44",color:nCcy===cc2?"#0D0F14":"#8A8070",cursor:"pointer"}},cc2)))),
             h("div",{style:{display:"flex",gap:7}},h("button",{onClick:()=>addCustom(c.id),style:{flex:1,padding:"9px",background:"linear-gradient(135deg,"+c.color+","+c.color+"BB)",border:"none",borderRadius:5,color:"#0D0F14",fontSize:11,fontWeight:700,cursor:"pointer"}},"Adicionar"),h("button",{onClick:()=>{setAddTo(null);setNTick("");setNLbl("");setNCcy("BRL");},style:{padding:"9px 12px",background:"transparent",border:"1px solid rgba(255,255,255,0.1)",borderRadius:5,color:"#8A8070",fontSize:11,cursor:"pointer"}},"Cancelar"))
-          ):h("button",{onClick:()=>{setAddTo(c.id);setNTick("");setNLbl("");setNCcy(c.id==="acoes_ext"?"USD":"BRL");},style:{width:"100%",padding:"6px",background:"transparent",border:"1px dashed "+c.color+"44",borderRadius:5,color:c.color+"88",fontSize:10,cursor:"pointer",marginTop:3}},"+  Adicionar ativo")
+          ):h("button",{onClick:()=>{setAddTo(c.id);setNTick("");setNLbl("");setNCcy((c.id==="acoes_ext"||c.id==="reits")?"USD":"BRL");},style:{width:"100%",padding:"6px",background:"transparent",border:"1px dashed "+c.color+"44",borderRadius:5,color:c.color+"88",fontSize:10,cursor:"pointer",marginTop:3}},"+  Adicionar ativo")
         );
       });
       // Bloco de configuracao de bandas
