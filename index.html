@@ -1707,7 +1707,22 @@ function App(){
         }
       }catch(e){console.error("Erro ao descriptografar:",e);}
       if(dd){
-        setPort(dd.port||{});setCustom(dd.custom||{});setHidden(dd.hidden||[]);
+        // Migracao silenciosa: se BASE mudou (ex: ticker movido para outra classe), atualiza p.classId
+        // Construi um mapa ticker -> classe atual baseado em BASE
+        const baseClsMap={};
+        Object.entries(BASE).forEach(([cid,ts])=>ts.forEach(t=>{baseClsMap[t]=cid;}));
+        // Atualiza port com a classe correta de cada ticker
+        const portMigrado={...(dd.port||{})};
+        let migrouAlgum=false;
+        Object.keys(portMigrado).forEach(t=>{
+          const correto=baseClsMap[t];
+          if(correto&&portMigrado[t]&&portMigrado[t].classId&&portMigrado[t].classId!==correto){
+            portMigrado[t]={...portMigrado[t],classId:correto};
+            migrouAlgum=true;
+          }
+        });
+        if(migrouAlgum)console.log("Migrados tickers para nova estrutura de classes.");
+        setPort(portMigrado);setCustom(dd.custom||{});setHidden(dd.hidden||[]);
         setLastPU(dd.lastPU||null);setHist(dd.hist||[]);
         if(Array.isArray(dd.histMensal))setHistMensal(dd.histMensal);
         if(dd.idxMensal&&typeof dd.idxMensal==="object")setIdxMensal(dd.idxMensal);
