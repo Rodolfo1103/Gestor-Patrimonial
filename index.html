@@ -2402,6 +2402,8 @@ function App(){
       const brTickers=tickers.filter(isBR);
       const fgnTickers=tickers.filter(t=>YH[t]);
       // Brasil - PRIMEIRO tenta Brapi.dev (se token configurado): cobertura completa B3 incluindo FIAGROS
+      // allVars: variacao % do pregao por ticker (capturada junto com o preco)
+      const allVars={};
       if(brTickers.length&&brapiKey){
         try{
           const tickersList=brTickers.join(",");
@@ -2413,6 +2415,10 @@ function App(){
               if(!r||!r.symbol)return;
               const p=r.regularMarketPrice||r.previousClose;
               if(typeof p==="number"&&p>0){allPrices[r.symbol]=p;bN++;}
+              // Variacao % do pregao
+              if(typeof r.regularMarketChangePercent==="number"){
+                allVars[r.symbol]=r.regularMarketChangePercent;
+              }
             });
             dbg.push("Brapi:"+bN+"/"+brTickers.length);
           }else dbg.push("Brapi:sem-results");
@@ -2430,6 +2436,11 @@ function App(){
             const res=d&&d.chart&&d.chart.result&&d.chart.result[0];
             const p=res&&res.meta&&(res.meta.regularMarketPrice||res.meta.previousClose);
             if(typeof p==="number"&&p>0){allPrices[t]=p;brN++;}
+            // Variacao % via Yahoo: usa chartPreviousClose se disponivel
+            const prev=res&&res.meta&&res.meta.chartPreviousClose;
+            if(typeof p==="number"&&p>0&&typeof prev==="number"&&prev>0){
+              allVars[t]=((p-prev)/prev)*100;
+            }
           }catch{}
         }));
         dbg.push("YH-BR:"+brN+"/"+brFaltam.length);
@@ -2446,6 +2457,10 @@ function App(){
             const res=d&&d.chart&&d.chart.result&&d.chart.result[0];
             const p=res&&res.meta&&(res.meta.regularMarketPrice||res.meta.previousClose);
             if(typeof p==="number"&&p>0){allPrices[t]=p;yhN++;}
+            const prev=res&&res.meta&&res.meta.chartPreviousClose;
+            if(typeof p==="number"&&p>0&&typeof prev==="number"&&prev>0){
+              allVars[t]=((p-prev)/prev)*100;
+            }
           }catch{}
         }));
         dbg.push("YH:"+yhN+"/"+fgnTickers.length);
@@ -2489,7 +2504,13 @@ function App(){
                 np[tImv]={...np[tImv],totalBRL:novo,price:novo,dataAvaliacao:new Date().toISOString()};
               }
             }else if(np[t]){
-              np[t]={...np[t],price:v};
+              // Aplica preco e variacao % do pregao se houver
+              const upd={...np[t],price:v};
+              if(typeof allVars[t]==="number"&&!isNaN(allVars[t])){
+                upd.varDia=allVars[t];
+                upd.varDiaTs=Date.now();
+              }
+              np[t]=upd;
             }
           });
           return np;
@@ -3464,7 +3485,17 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                 ),
                 has&&pos&&h("div",{style:{fontSize:8,color:"#8A8070",marginTop:2}},VB.includes(ticker)?MV(fB(pos.totalBRL||0)):GB.includes(ticker)?(fN(pos.qty,3)+" g x R$ "+fN(pos.price||0,2)):(fN(pos.qty,pos.qty<100?4:0)+" x "+(cc!="BRL"?cc+" ":"R$ ")+fN(pos.price||0,2)))
               ),
-              val>0&&h("div",{style:{textAlign:"right",flexShrink:0}},h("div",{style:{fontSize:10,color:"#F0EAD8",fontFamily:"monospace"}},MV(fB(val)))),
+              val>0&&h("div",{style:{textAlign:"right",flexShrink:0}},
+                h("div",{style:{fontSize:10,color:"#F0EAD8",fontFamily:"monospace"}},MV(fB(val))),
+                // Badge variacao % do pregao (so para tickers com cotacao em tempo real - exclui imoveis e tesouro)
+                pos&&typeof pos.varDia==="number"&&!VB.includes(ticker)&&!GB.includes(ticker)&&h("div",{
+                  title:"Variacao no pregao"+(pos.varDiaTs?" (atualizado "+new Date(pos.varDiaTs).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"})+")":""),
+                  style:{display:"inline-flex",alignItems:"center",gap:2,marginTop:2,fontSize:8.5,fontFamily:"monospace",fontWeight:700,color:pos.varDia>=0?"#4CAF82":"#E05252",letterSpacing:0.3}
+                },
+                  h("span",{style:{fontSize:7,lineHeight:1}},pos.varDia>=0?"\u25B2":"\u25BC"),
+                  (pos.varDia>=0?"+":"")+pos.varDia.toFixed(2)+"%"
+                )
+              ),
               isCustom?h("button",{onClick:e=>{e.stopPropagation();removeCustom(c.id,ticker);},style:{background:"none",border:"none",color:"#E05252",fontSize:15,cursor:"pointer",padding:"0 2px",flexShrink:0}},"x"):h("span",{style:{color:"#3A3830",fontSize:12}},">")
             );
           }),
