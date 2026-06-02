@@ -2480,29 +2480,34 @@ function App(){
       if(brTickers.length&&brapiKey){
         try{
           const tickersList=brTickers.join(",");
-          const url="https://brapi.dev/api/quote/"+encodeURIComponent(tickersList)+"?token="+encodeURIComponent(brapiKey);
-          const d=await fetchJSON(url,12000);
+          const url="https://brapi.dev/api/quote/"+encodeURIComponent(tickersList)+"?token="+encodeURIComponent(brapiKey)+"&_t="+Date.now();
+          // Forca no-store pra eliminar cache de browser/service-worker
+          const ctrl=new AbortController();
+          const tid=setTimeout(()=>ctrl.abort(),12000);
+          const resp=await fetch(url,{signal:ctrl.signal,cache:"no-store",headers:{"cache-control":"no-cache","pragma":"no-cache"}});
+          clearTimeout(tid);
+          const d=resp.ok?await resp.json():null;
           if(d&&Array.isArray(d.results)){
             let bN=0;
             d.results.forEach(r=>{
               if(!r||!r.symbol)return;
               const p=r.regularMarketPrice||r.previousClose;
               if(typeof p==="number"&&p>0){allPrices[r.symbol]=p;bN++;}
-              // Variacao % do pregao - estrategia em cascata:
-              // 1) Calcular manualmente: (regularMarketPrice - regularMarketPreviousClose) / regularMarketPreviousClose
-              // 2) Fallback: usar regularMarketChangePercent direto (se calculo manual nao funcionou)
-              const cur=r.regularMarketPrice;
-              const prev=r.regularMarketPreviousClose;
+              // Variacao % do pregao - PRIORIDADE: regularMarketChangePercent direto da Brapi
+              // (calculo manual via regularMarketPreviousClose mostrou-se inconsistente em testes)
               let vd=null;
-              if(typeof cur==="number"&&cur>0&&typeof prev==="number"&&prev>0&&prev!==cur){
-                vd=((cur-prev)/prev)*100;
-              }
-              // Fallback: regularMarketChangePercent (mas so se calculo manual falhou)
-              if(vd===null&&typeof r.regularMarketChangePercent==="number"&&!isNaN(r.regularMarketChangePercent)){
+              if(typeof r.regularMarketChangePercent==="number"&&!isNaN(r.regularMarketChangePercent)){
                 vd=r.regularMarketChangePercent;
+              }else{
+                // Fallback: calculo manual
+                const cur=r.regularMarketPrice;
+                const prev=r.regularMarketPreviousClose;
+                if(typeof cur==="number"&&cur>0&&typeof prev==="number"&&prev>0&&prev!==cur){
+                  vd=((cur-prev)/prev)*100;
+                }
               }
-              // Sanity check: rejeita valores absurdos (>50% num pregao normal eh suspeito)
-              if(vd!==null&&Math.abs(vd)<50){
+              // Sanity check
+              if(vd!==null&&!isNaN(vd)&&Math.abs(vd)<50){
                 allVars[r.symbol]=vd;
               }
             });
@@ -3381,6 +3386,20 @@ h("button",{onClick:()=>{
   },style:{background:"none",border:"none",color:"#3A3830",fontSize:10,cursor:"pointer",padding:"6px 4px",fontFamily:"monospace",flexShrink:0}},"IMP"),
 h("button",{onClick:()=>{const k=window.prompt("Cole o token Brapi.dev (para cotacoes B3 / Fiagros). Cadastre gratis em brapi.dev/dashboard:",brapiKey||"");if(k===null)return;const lim=k.trim();if(!lim){if(aesKey)saveBrapiKey(aesKey,"");setBrapiKeyS("");alert("Token Brapi removido.");return;}if(lim.length<10){alert("Token muito curto. Verifique se copiou inteiro.");return;}setBrapiKeyS(lim);if(aesKey)saveBrapiKey(aesKey,lim);alert("Token Brapi salvo!");},style:{marginLeft:"auto",background:"none",border:"none",color:brapiKey?"#C8A96E":"#3A3830",fontSize:10,cursor:"pointer",padding:"6px 4px",fontFamily:"monospace",flexShrink:0}},"BRAPI"),
 h("button",{onClick:()=>{const k=window.prompt("Cole sua API key BGeometrics (para MVRV-Z Score do Bitcoin). Cadastre gratis em portal.bgeometrics.com/login:",bgKey||"");if(k===null)return;const lim=k.trim();if(!lim){if(aesKey)saveBgKey(aesKey,"");setBgKeyS("");setMvrvZ(null);setMvrvZTs(null);alert("Chave BGeometrics removida.");return;}if(lim.length<10){alert("Chave muito curta. Verifique se copiou inteira.");return;}setBgKeyS(lim);if(aesKey)saveBgKey(aesKey,lim);alert("Chave BGeometrics salva! O MVRV-Z sera buscado em background.");},style:{background:"none",border:"none",color:bgKey?"#C8A96E":"#3A3830",fontSize:10,cursor:"pointer",padding:"6px 4px",fontFamily:"monospace",flexShrink:0}},"BG"),
+h("button",{onClick:async()=>{
+  if(!confirm("Limpar cache do app? Isso vai desregistrar service workers e limpar caches do browser. Voce vai precisar recarregar a pagina."))return;
+  try{
+    if("serviceWorker" in navigator){
+      const regs=await navigator.serviceWorker.getRegistrations();
+      for(const r of regs){await r.unregister();}
+    }
+    if("caches" in window){
+      const ks=await caches.keys();
+      for(const k of ks){await caches.delete(k);}
+    }
+    alert("Cache limpo! Recarregue a pagina (puxe pra baixo ou feche e abra de novo).");
+  }catch(e){alert("Erro ao limpar cache: "+e.message);}
+},style:{background:"none",border:"none",color:"#E89060",fontSize:10,cursor:"pointer",padding:"6px 4px",fontFamily:"monospace",flexShrink:0}},"CACHE"),
 h("button",{onClick:async()=>{
   const t=window.prompt("Ticker para diagnosticar variacao % (ex: HSML11):","HSML11");
   if(!t)return;
