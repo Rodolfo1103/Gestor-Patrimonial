@@ -534,6 +534,33 @@ async function callAPI(messages,key){
 }
 
 // SVG helpers
+function ChatPanel({chatM,setChatM,chatIn,setChatIn,chatL,sendChat,apR}){
+  const endRef=useRef(null);
+  useEffect(()=>{
+    if(endRef.current){
+      try{endRef.current.scrollIntoView({behavior:"smooth"});}catch(e){}
+    }
+  },[chatM,chatL]);
+  const SUGG=apR?["Por que esse ativo e nao outro da mesma classe?","Qual o principal risco desta alocacao?","O valuation esta realmente atrativo?","Ha ativo com melhor margem de seguranca?"]:["Como esta o valuation dos FIIs brasileiros?","Perspectiva para acoes brasileiras neste ciclo?","Como avaliar margem de seguranca em FIIs de papel?","Quando alocar mais em Bitcoin num portfolio patrimonial?"];
+  return h("div",{style:{display:"flex",flexDirection:"column",height:"calc(100vh - 160px)"}},
+    h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}},h("div",{},h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase"}},"Debate de Valuation"),h("div",{style:{fontSize:11,color:"#5A5550",marginTop:2}},apR?"Ultima analise carregada":"Portfolio atual como contexto")),chatM.length>0&&h("button",{onClick:()=>setChatM([]),style:{background:"none",border:"1px solid rgba(255,255,255,0.08)",borderRadius:5,color:"#5A5550",fontSize:10,padding:"4px 8px",cursor:"pointer"}},"limpar")),
+    h("div",{style:{flex:1,overflowY:"auto",paddingRight:4,marginBottom:10}},
+      chatM.length===0&&h("div",{},
+        h("div",{style:{padding:"12px",background:"rgba(200,169,110,0.05)",border:"1px solid rgba(200,169,110,0.15)",borderRadius:10,marginBottom:14,fontSize:12,color:"#B0A890",lineHeight:1.7}},"Ola. Sou seu analista Buy & Hold. Posso debater recomendacoes, discutir valuation e analisar riscos.",apR&&h("span",{style:{color:"#C8A96E"}}," Ultima analise carregada.")),
+        h("div",{style:{fontSize:9,color:"#5A5550",fontFamily:"monospace",textTransform:"uppercase",letterSpacing:2,marginBottom:8}},"Sugestoes"),
+        ...SUGG.map((s,i)=>h("button",{key:i,onClick:()=>sendChat(s),style:{display:"block",width:"100%",textAlign:"left",background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:8,padding:"9px 11px",color:"#9A9080",fontSize:12,cursor:"pointer",marginBottom:5,lineHeight:1.5}},s))
+      ),
+      ...chatM.map((m,i)=>h("div",{key:i,style:{display:"flex",flexDirection:"column",alignItems:m.role==="user"?"flex-end":"flex-start",marginBottom:10}},h("div",{style:{maxWidth:"88%",padding:"9px 12px",background:m.role==="user"?"rgba(200,169,110,0.12)":"rgba(255,255,255,0.04)",border:"1px solid "+(m.role==="user"?"rgba(200,169,110,0.25)":"rgba(255,255,255,0.07)"),borderRadius:m.role==="user"?"12px 12px 4px 12px":"12px 12px 12px 4px"}},h("div",{style:{fontSize:12,color:m.role==="user"?"#F0EAD8":"#C8C0B0",lineHeight:1.7,whiteSpace:"pre-wrap"}},m.content)),h("div",{style:{fontSize:9,color:"#3A3830",marginTop:2,fontFamily:"monospace"}},m.role==="user"?"voce":"analista"))),
+      chatL&&h("div",{className:"dp",style:{padding:"10px 12px",background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:"12px 12px 12px 4px",display:"inline-flex",marginBottom:10}},h("span"),h("span"),h("span")),
+      h("div",{ref:endRef})
+    ),
+    h("div",{style:{display:"flex",gap:8,alignItems:"flex-end",background:"rgba(0,0,0,0.3)",border:"1px solid rgba(200,169,110,0.2)",borderRadius:12,padding:"8px 10px"}},
+      h("textarea",{value:chatIn,onChange:e=>setChatIn(e.target.value),onKeyDown:e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();if(chatIn.trim())sendChat(chatIn);}},placeholder:"Questione uma recomendacao ou peca analise...",rows:2,style:{flex:1,background:"transparent",border:"none",outline:"none",color:"#F0EAD8",fontSize:13,resize:"none",lineHeight:1.5,maxHeight:80}}),
+      h("button",{onClick:()=>{if(chatIn.trim())sendChat(chatIn);},disabled:chatL||!chatIn.trim(),style:{flexShrink:0,width:36,height:36,background:chatL||!chatIn.trim()?"rgba(200,169,110,0.1)":"linear-gradient(135deg,#C8A96E,#A8893E)",border:"none",borderRadius:8,cursor:chatL||!chatIn.trim()?"not-allowed":"pointer",color:"#0D0F14",fontSize:16}},"^")
+    )
+  );
+}
+
 function BolsasCard({port,cls}){
   const [tick,setTick]=useState(0);
   const [expanded,setExpanded]=useState(false);
@@ -1887,13 +1914,6 @@ function App(){
   const [chatM,setChatM]=useState([]);
   const [chatIn,setChatIn]=useState("");
   const [chatL,setChatL]=useState(false);
-  // Ref e effect para scroll do chat - PRECISA estar no nivel global (regra dos hooks)
-  const chatEndRef=useRef(null);
-  useEffect(()=>{
-    if(tab==="chat"&&chatEndRef.current){
-      chatEndRef.current.scrollIntoView({behavior:"smooth"});
-    }
-  },[chatM,chatL,tab]);
   const [hideVal,setHideVal]=useState(false);
   const [showUSD,setShowUSD]=useState(false);
   const [inited,setInited]=useState(false);
@@ -4449,32 +4469,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
 
   // CHAT
   if(tab==="chat"){
-    try{
-    const SUGG=apR?["Por que esse ativo e nao outro da mesma classe?","Qual o principal risco desta alocacao?","O valuation esta realmente atrativo?","Ha ativo com melhor margem de seguranca?"]:["Como esta o valuation dos FIIs brasileiros?","Perspectiva para acoes brasileiras neste ciclo?","Como avaliar margem de seguranca em FIIs de papel?","Quando alocar mais em Bitcoin num portfolio patrimonial?"];
-    content=h("div",{style:{display:"flex",flexDirection:"column",height:"calc(100vh - 160px)"}},
-      h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}},h("div",{},h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase"}},"Debate de Valuation"),h("div",{style:{fontSize:11,color:"#5A5550",marginTop:2}},apR?"Ultima analise carregada":"Portfolio atual como contexto")),chatM.length>0&&h("button",{onClick:()=>setChatM([]),style:{background:"none",border:"1px solid rgba(255,255,255,0.08)",borderRadius:5,color:"#5A5550",fontSize:10,padding:"4px 8px",cursor:"pointer"}},"limpar")),
-      h("div",{style:{flex:1,overflowY:"auto",paddingRight:4,marginBottom:10}},
-        chatM.length===0&&h("div",{},
-          h("div",{style:{padding:"12px",background:"rgba(200,169,110,0.05)",border:"1px solid rgba(200,169,110,0.15)",borderRadius:10,marginBottom:14,fontSize:12,color:"#B0A890",lineHeight:1.7}},"Ola. Sou seu analista Buy & Hold. Posso debater recomendacoes, discutir valuation e analisar riscos.",apR&&h("span",{style:{color:"#C8A96E"}}," Ultima analise carregada.")),
-          h("div",{style:{fontSize:9,color:"#5A5550",fontFamily:"monospace",textTransform:"uppercase",letterSpacing:2,marginBottom:8}},"Sugestoes"),
-          ...SUGG.map((s,i)=>h("button",{key:i,onClick:()=>sendChat(s),style:{display:"block",width:"100%",textAlign:"left",background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:8,padding:"9px 11px",color:"#9A9080",fontSize:12,cursor:"pointer",marginBottom:5,lineHeight:1.5}},s))
-        ),
-        ...chatM.map((m,i)=>h("div",{key:i,style:{display:"flex",flexDirection:"column",alignItems:m.role==="user"?"flex-end":"flex-start",marginBottom:10}},h("div",{style:{maxWidth:"88%",padding:"9px 12px",background:m.role==="user"?"rgba(200,169,110,0.12)":"rgba(255,255,255,0.04)",border:"1px solid "+(m.role==="user"?"rgba(200,169,110,0.25)":"rgba(255,255,255,0.07)"),borderRadius:m.role==="user"?"12px 12px 4px 12px":"12px 12px 12px 4px"}},h("div",{style:{fontSize:12,color:m.role==="user"?"#F0EAD8":"#C8C0B0",lineHeight:1.7,whiteSpace:"pre-wrap"}},m.content)),h("div",{style:{fontSize:9,color:"#3A3830",marginTop:2,fontFamily:"monospace"}},m.role==="user"?"voce":"analista"))),
-        chatL&&h("div",{className:"dp",style:{padding:"10px 12px",background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:"12px 12px 12px 4px",display:"inline-flex",marginBottom:10}},h("span"),h("span"),h("span")),
-        h("div",{ref:chatEndRef})
-      ),
-      h("div",{style:{display:"flex",gap:8,alignItems:"flex-end",background:"rgba(0,0,0,0.3)",border:"1px solid rgba(200,169,110,0.2)",borderRadius:12,padding:"8px 10px"}},
-        h("textarea",{value:chatIn,onChange:e=>setChatIn(e.target.value),onKeyDown:e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();if(chatIn.trim())sendChat(chatIn);}},placeholder:"Questione uma recomendacao ou peca analise...",rows:2,style:{flex:1,background:"transparent",border:"none",outline:"none",color:"#F0EAD8",fontSize:13,resize:"none",lineHeight:1.5,maxHeight:80}}),
-        h("button",{onClick:()=>{if(chatIn.trim())sendChat(chatIn);},disabled:chatL||!chatIn.trim(),style:{flexShrink:0,width:36,height:36,background:chatL||!chatIn.trim()?"rgba(200,169,110,0.1)":"linear-gradient(135deg,#C8A96E,#A8893E)",border:"none",borderRadius:8,cursor:chatL||!chatIn.trim()?"not-allowed":"pointer",color:"#0D0F14",fontSize:16}},"^")
-      )
-    );
-    }catch(e){
-      console.error("Erro renderizando CHAT:",e);
-      content=h("div",{style:{padding:"24px 16px",background:"rgba(224,82,82,0.06)",border:"1px solid rgba(224,82,82,0.25)",borderRadius:8,marginTop:12}},
-        h("div",{style:{fontSize:11,color:"#E05252",fontFamily:"monospace",fontWeight:700,marginBottom:8}},"\u26A0 Erro ao renderizar Analise"),
-        h("div",{style:{fontSize:10,color:"#9A9080",lineHeight:1.6,fontFamily:"monospace",whiteSpace:"pre-wrap"}},e&&e.message?e.message:String(e))
-      );
-    }
+    content=h(ChatPanel,{chatM,setChatM,chatIn,setChatIn,chatL,sendChat,apR});
   }
 
   // MPT (Modern Portfolio Theory)
