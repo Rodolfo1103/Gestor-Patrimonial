@@ -7416,7 +7416,22 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             ),
             h("button",{onClick:buscarProventos,disabled:proventosLoading,style:{padding:"8px 14px",background:proventosLoading?"rgba(76,175,130,0.2)":"linear-gradient(135deg,#4CAF82,#2E8B5C)",border:"none",borderRadius:6,color:proventosLoading?"#7A7060":"#FFF",fontSize:11,fontFamily:"monospace",fontWeight:700,cursor:proventosLoading?"wait":"pointer",letterSpacing:1}},proventosLoading?"BUSCANDO...":"\u21BB ATUALIZAR PROVENTOS")
           ),
-          !brapiKey&&h("div",{style:{fontSize:9,color:"#E89060",marginTop:8,padding:"6px 9px",background:"rgba(232,144,96,0.08)",borderRadius:5,fontStyle:"italic",lineHeight:1.5}},"\u26A0 BRAPI token nao configurado. Para buscar proventos de ativos B3 (FII, acoes BR, infra, agro), configure o token no Dashboard (botao BRAPI).")
+          !brapiKey&&h("div",{style:{fontSize:9,color:"#E89060",marginTop:8,padding:"8px 10px",background:"rgba(232,144,96,0.08)",borderRadius:5,lineHeight:1.55}},
+            h("div",{style:{marginBottom:6}},"\u26A0 ",h("strong",{},"BRAPI token nao detectado para a busca de proventos.")),
+            h("div",{style:{fontSize:8.5,fontStyle:"italic",marginBottom:8}},
+              "Se suas cotacoes BR estao atualizando, o token existe mas pode nao ter sido carregado nesta sessao. Configure novamente abaixo para sincronizar."
+            ),
+            h("button",{onClick:()=>{
+              const k=window.prompt("Cole o token Brapi.dev (mesmo do Dashboard) para buscar proventos:",brapiKey||"");
+              if(k===null)return;
+              const lim=k.trim();
+              if(!lim){alert("Token vazio - operacao cancelada.");return;}
+              if(lim.length<10){alert("Token muito curto. Verifique se copiou inteiro.");return;}
+              setBrapiKeyS(lim);
+              if(aesKey)saveBrapiKey(aesKey,lim);
+              alert("Token Brapi salvo! Agora clique em ATUALIZAR PROVENTOS.");
+            },style:{padding:"6px 12px",background:"linear-gradient(135deg,#E89060,#C87040)",border:"none",borderRadius:5,color:"#0D0F14",fontSize:10,fontFamily:"monospace",fontWeight:700,cursor:"pointer",letterSpacing:1}},"\u{1F511} CONFIGURAR TOKEN BRAPI")
+          )
         ),
 
         // ===== LEGENDA EXPLICATIVA =====
