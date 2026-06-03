@@ -4780,10 +4780,85 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                 h("div",{style:{position:"relative",height:8,background:"rgba(255,255,255,0.04)",borderRadius:4,overflow:"hidden",marginBottom:6}},
                   h("div",{style:{position:"absolute",top:0,left:0,height:"100%",width:scoreDiv+"%",background:"linear-gradient(90deg,"+corDiv+"AA,"+corDiv+")",borderRadius:4}})
                 ),
-                h("div",{style:{fontSize:8,color:"#7A7060",fontStyle:"italic",lineHeight:1.5}},
-                  "Correlacao media ponderada: ",h("strong",{},corrMediaPond.toFixed(3)),
+                h("div",{style:{fontSize:8,color:"#7A7060",fontStyle:"italic",lineHeight:1.5,marginBottom:9}},
+                  "Correlacao media ponderada: ",h("strong",{style:{color:"#E8E2D5"}},corrMediaPond.toFixed(3)),
                   ". Quanto mais proximo de 0 ou negativo, melhor a diversificacao do conjunto."
-                )
+                ),
+
+                // ===== ESCALA DE BANDAS DE CORRELACAO COM INDICADOR =====
+                (()=>{
+                  // Bandas de correlacao (intervalos)
+                  const bandas=[
+                    {min:-1.0,max:-0.5,nome:"FORTE NEGATIVA",cor:"#1F8A78",bg:"rgba(31,138,120,0.50)",interp:"Otima diversificacao - movimentos opostos"},
+                    {min:-0.5,max:-0.2,nome:"MODERADA NEG.",cor:"#4CAF82",bg:"rgba(76,175,130,0.40)",interp:"Excelente diversificacao"},
+                    {min:-0.2,max:0.0,nome:"BAIXA NEG.",cor:"#7DD17D",bg:"rgba(125,209,125,0.35)",interp:"Boa diversificacao"},
+                    {min:0.0,max:0.2,nome:"NEUTRA",cor:"#C8A96E",bg:"rgba(200,169,110,0.30)",interp:"Diversificacao adequada"},
+                    {min:0.2,max:0.4,nome:"BAIXA POS.",cor:"#E8C44A",bg:"rgba(232,196,74,0.35)",interp:"Diversificacao limitada"},
+                    {min:0.4,max:0.7,nome:"MODERADA POS.",cor:"#E89060",bg:"rgba(232,144,96,0.40)",interp:"Risco de concentracao"},
+                    {min:0.7,max:1.0,nome:"FORTE POSITIVA",cor:"#E05252",bg:"rgba(224,82,82,0.50)",interp:"Diversificacao falha - classes andam juntas"}
+                  ];
+
+                  // Identifica banda do portfolio
+                  const bandaPort=bandas.find(b=>corrMediaPond>=b.min&&corrMediaPond<=b.max)||bandas[3];
+
+                  // Calcula posicao percentual na escala [-1, +1] -> [0%, 100%]
+                  const posPct=Math.max(0,Math.min(100,(corrMediaPond+1)/2*100));
+
+                  return h("div",{style:{background:"rgba(0,0,0,0.20)",borderRadius:6,padding:"10px 12px"}},
+                    h("div",{style:{fontSize:8,letterSpacing:1.5,color:"#8A8070",fontFamily:"monospace",fontWeight:700,marginBottom:8}},"\u{1F3AF} BANDA DE CORRELACAO DO PORTFOLIO"),
+
+                    // Barra das bandas
+                    h("div",{style:{position:"relative",height:24,borderRadius:4,overflow:"hidden",display:"flex",marginBottom:6}},
+                      ...bandas.map((b,i)=>{
+                        const wPct=((b.max-b.min)/2)*100;// largura percentual da banda
+                        return h("div",{key:"bnd"+i,style:{width:wPct+"%",background:b.bg,display:"flex",alignItems:"center",justifyContent:"center",borderRight:i<bandas.length-1?"1px solid rgba(0,0,0,0.3)":"none"}});
+                      })
+                    ),
+
+                    // Indicador do portfolio (triangulo apontando para cima + valor)
+                    h("div",{style:{position:"relative",height:28,marginBottom:6}},
+                      // Linha vertical do indicador
+                      h("div",{style:{position:"absolute",left:"calc("+posPct+"% - 1px)",top:-31,width:2,height:30,background:"#FFF",boxShadow:"0 0 4px rgba(255,255,255,0.6)"}}),
+                      // Triangulo apontando para cima
+                      h("div",{style:{position:"absolute",left:"calc("+posPct+"% - 6px)",top:-2,width:0,height:0,borderLeft:"6px solid transparent",borderRight:"6px solid transparent",borderBottom:"8px solid #FFF",filter:"drop-shadow(0 0 3px rgba(255,255,255,0.6))"}}),
+                      // Label do valor abaixo do indicador
+                      h("div",{style:{position:"absolute",left:"calc("+posPct+"% - 35px)",top:10,width:70,textAlign:"center",fontSize:9,color:"#FFF",fontFamily:"monospace",fontWeight:700,background:"rgba(0,0,0,0.7)",borderRadius:3,padding:"2px 4px",border:"1px solid "+bandaPort.cor}},corrMediaPond.toFixed(3))
+                    ),
+
+                    // Marcadores -1, 0, +1
+                    h("div",{style:{display:"flex",justifyContent:"space-between",fontSize:7,color:"#6A6050",fontFamily:"monospace",marginBottom:8}},
+                      h("span",{},"-1.0"),
+                      h("span",{},"-0.5"),
+                      h("span",{},"-0.2"),
+                      h("span",{style:{color:"#C8A96E",fontWeight:700}},"0.0"),
+                      h("span",{},"+0.2"),
+                      h("span",{},"+0.4"),
+                      h("span",{},"+0.7"),
+                      h("span",{},"+1.0")
+                    ),
+
+                    // Legenda das bandas (chips)
+                    h("div",{style:{display:"flex",flexWrap:"wrap",gap:3,marginBottom:9}},
+                      ...bandas.map((b,i)=>{
+                        const isAtual=b===bandaPort;
+                        return h("div",{key:"chip"+i,style:{fontSize:7,fontFamily:"monospace",fontWeight:isAtual?700:400,padding:"3px 6px",background:isAtual?b.bg:"transparent",border:"1px solid "+(isAtual?b.cor:"rgba(255,255,255,0.06)"),borderRadius:3,color:isAtual?"#FFF":b.cor,letterSpacing:0.5,boxShadow:isAtual?"0 0 5px "+b.cor+"66":"none"}},
+                          isAtual?"\u25B6 ":"",
+                          b.nome
+                        );
+                      })
+                    ),
+
+                    // Card destacando a banda atual
+                    h("div",{style:{background:"linear-gradient(135deg,"+bandaPort.cor+"22,"+bandaPort.cor+"08)",border:"1px solid "+bandaPort.cor+"66",borderRadius:5,padding:"8px 10px"}},
+                      h("div",{style:{fontSize:7,color:bandaPort.cor,fontFamily:"monospace",fontWeight:700,letterSpacing:1.5,marginBottom:4}},"BANDA ATUAL DO SEU PORTFOLIO"),
+                      h("div",{style:{display:"flex",alignItems:"baseline",justifyContent:"space-between",gap:8,marginBottom:3}},
+                        h("div",{style:{fontSize:11,color:bandaPort.cor,fontFamily:"monospace",fontWeight:700,letterSpacing:1}},bandaPort.nome),
+                        h("div",{style:{fontSize:8,color:"#8A8070",fontFamily:"monospace"}},"["+bandaPort.min.toFixed(1)+" a "+bandaPort.max.toFixed(1)+"]")
+                      ),
+                      h("div",{style:{fontSize:9,color:"#E8E2D5",lineHeight:1.5,fontStyle:"italic"}},bandaPort.interp,".")
+                    )
+                  );
+                })()
               ),
 
               // MATRIZ VISUAL DE CORRELACAO
