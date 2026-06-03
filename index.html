@@ -4712,7 +4712,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         if(!alvoFront)return null;
         // Compara pesos: atual vs alvo da fronteira
         const ajustes=MPT_CLS.map((cid,i)=>{
-          const wAt=wAtualAW[i]*100;
+          const wAt=wAtual[i]*100;
           const wFr=alvoFront.w[i]*100;
           return{cid,atual:wAt,alvo:wFr,diff:wFr-wAt};
         }).filter(x=>Math.abs(x.diff)>=0.5).sort((a,b)=>Math.abs(b.diff)-Math.abs(a.diff));
