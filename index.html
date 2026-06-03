@@ -559,30 +559,30 @@ function BolsasCard({port,cls}){
         naoMapeados.push(t);
       }
     });
-    // Diagnostico visivel: se nao tem bolsas, mostra info ao inves de retornar null
-    if(bolsasAtivas.size===0){
-      return h("div",{style:{marginBottom:14,padding:"12px 13px",background:"rgba(232,144,96,0.06)",border:"1px solid rgba(232,144,96,0.25)",borderRadius:10}},
-        h("div",{style:{fontSize:9,letterSpacing:3,color:"#E89060",fontFamily:"monospace",textTransform:"uppercase",marginBottom:8}},"BOLSAS DE VALORES (v4)"),
-        h("div",{style:{fontSize:9,color:"#9A9080",lineHeight:1.6}},
-          "Nenhuma bolsa detectada. Ativos processados: ",h("strong",{},totalProc),
-          ". Nao mapeados: ",h("strong",{},naoMapeados.length>0?naoMapeados.join(", "):"(nenhum)")
-        )
-      );
-    }
-    const bolsasLista=BOLSAS.filter(b=>bolsasAtivas.has(b.id));
+    // Sempre mostra as 14 bolsas, independente de ter ativos
+    // Mostra TODAS as bolsas (mesmo sem ativos cadastrados)
+    const bolsasLista=BOLSAS.slice();
     const now=new Date();
-    const comStatus=bolsasLista.map(b=>({b,st:statusBolsa(b,now)}));
+    const comStatus=bolsasLista.map(b=>({b,st:statusBolsa(b,now),temAtivos:bolsasAtivas.has(b.id)}));
     comStatus.sort((a,b)=>{
-      const pri=s=>s.status==="ABERTA"?0:s.status==="INTERVALO"?1:s.status==="FERIADO"?3:s.status==="FIM DE SEMANA"?4:2;
-      return pri(a.st)-pri(b.st);
+      // Ordena: 1) abertas com ativos, 2) abertas sem ativos, 3) intervalo, 4) fechadas com ativos, 5) fechadas sem ativos, 6) fim de semana/feriado
+      const pri=x=>{
+        const s=x.st.status;
+        if(s==="ABERTA")return x.temAtivos?0:1;
+        if(s==="INTERVALO")return x.temAtivos?2:3;
+        if(s==="FECHADA")return x.temAtivos?4:5;
+        return 6;
+      };
+      return pri(a)-pri(b);
     });
     const abertas=comStatus.filter(x=>x.st.status==="ABERTA").length;
+    const comAtivos=comStatus.filter(x=>x.temAtivos).length;
     return h("div",{style:{marginBottom:14,padding:"12px 13px",background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:10}},
       h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10,gap:6}},
         h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase"}},"Bolsas de Valores (v4)"),
         h("div",{style:{display:"flex",alignItems:"center",gap:8}},
           h("div",{style:{fontSize:8,color:"#8A8070",fontFamily:"monospace"}},
-            h("span",{style:{color:"#4CAF82",fontWeight:700}},abertas)," abertas / ",h("span",{},comStatus.length)," total"
+            h("span",{style:{color:"#4CAF82",fontWeight:700}},abertas),"/",h("span",{},comStatus.length)," abertas \u00B7 ",h("span",{style:{color:"#C8A96E",fontWeight:700}},comAtivos)," com ativos"
           ),
           h("button",{onClick:()=>{
             // Constroi relatorio detalhado
@@ -613,7 +613,6 @@ function BolsasCard({port,cls}){
               linhas.push(t+" | classId: "+(cid||"?")+" | qty: "+(p.qty||0)+" | bolsa: "+(bid||"NAO MAPEADA"));
             });
             const texto=linhas.join("\n");
-            // Mostra em alert ou copia para clipboard
             if(navigator.clipboard&&navigator.clipboard.writeText){
               navigator.clipboard.writeText(texto).then(()=>{
                 alert("Diagnostico copiado!\n\nCole na conversa para analise.\n\nPrimeiras linhas:\n\n"+texto.split("\n").slice(0,15).join("\n"));
@@ -625,13 +624,13 @@ function BolsasCard({port,cls}){
         )
       ),
       h("div",{style:{display:"flex",flexDirection:"column",gap:6}},
-        ...comStatus.map(({b,st})=>h("div",{key:b.id,style:{display:"flex",alignItems:"center",gap:8,padding:"7px 9px",background:"rgba(0,0,0,0.18)",borderRadius:6,borderLeft:"3px solid "+st.cor}},
+        ...comStatus.map(({b,st,temAtivos})=>h("div",{key:b.id,style:{display:"flex",alignItems:"center",gap:8,padding:"7px 9px",background:temAtivos?"rgba(0,0,0,0.18)":"rgba(0,0,0,0.08)",borderRadius:6,borderLeft:"3px solid "+st.cor,opacity:temAtivos?1:0.6}},
           h("span",{style:{fontSize:18,lineHeight:1,flexShrink:0}},b.flag),
           h("div",{style:{flex:1,minWidth:0}},
             h("div",{style:{display:"flex",alignItems:"baseline",gap:6,flexWrap:"wrap"}},
               h("span",{style:{fontSize:10,color:"#F0EAD8",fontWeight:700,fontFamily:"monospace"}},b.nome),
               h("span",{style:{fontSize:8,color:"#6A6050",fontStyle:"italic"}},b.pais),
-              tickersPorBolsa[b.id]&&tickersPorBolsa[b.id].length>0&&h("span",{title:tickersPorBolsa[b.id].join(", "),style:{fontSize:7,color:"#C8A96E",fontFamily:"monospace",border:"1px solid #C8A96E44",borderRadius:3,padding:"1px 4px"}},tickersPorBolsa[b.id].length+" ativo"+(tickersPorBolsa[b.id].length>1?"s":""))
+              temAtivos&&tickersPorBolsa[b.id]&&tickersPorBolsa[b.id].length>0?h("span",{title:tickersPorBolsa[b.id].join(", "),style:{fontSize:7,color:"#C8A96E",fontFamily:"monospace",border:"1px solid #C8A96E44",borderRadius:3,padding:"1px 4px"}},tickersPorBolsa[b.id].length+" ativo"+(tickersPorBolsa[b.id].length>1?"s":"")):h("span",{style:{fontSize:7,color:"#5A5550",fontFamily:"monospace",fontStyle:"italic"}},"sem ativos")
             ),
             h("div",{style:{fontSize:8,color:"#7A7060",fontFamily:"monospace",marginTop:1}},
               "Local ",h("span",{style:{color:"#9A9080",fontWeight:700}},st.horaLocal)," (",b.abre,"-",b.fecha,")"
@@ -647,7 +646,7 @@ function BolsasCard({port,cls}){
         h("strong",{},"\u26A0 "+naoMapeados.length+" ticker(s) sem bolsa: "),naoMapeados.join(", ")
       ),
       h("div",{style:{fontSize:7,color:"#5A5550",fontStyle:"italic",lineHeight:1.4,marginTop:8,paddingTop:8,borderTop:"1px solid rgba(255,255,255,0.04)"}},
-        "Horarios e feriados 2026 hardcoded. Atualiza a cada 30s."
+        "Horarios e feriados 2026 hardcoded. Bolsas sem ativos aparecem em opacidade reduzida. Atualiza a cada 30s."
       )
     );
   }catch(e){
