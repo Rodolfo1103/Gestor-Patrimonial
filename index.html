@@ -3469,6 +3469,18 @@ function App(){
   const buscarProventos=async()=>{
     setProventosLoading(true);
     try{
+      // Tenta multiplas fontes do token BRAPI (fallback robusto)
+      let tokenBR=brapiKey;
+      if(!tokenBR&&aesKey){
+        // Tenta carregar diretamente do localStorage criptografado
+        try{
+          const recarregado=await loadBrapiKey(aesKey);
+          if(recarregado&&recarregado.length>=10){
+            tokenBR=recarregado;
+            setBrapiKeyS(recarregado);// sincroniza o estado React
+          }
+        }catch(e){console.warn("Recarga brapi falhou:",e);}
+      }
       const novos={};
       const inicioTs=new Date(RENDA_INICIO+"-01").getTime();
       const tickers=Object.keys(port||{}).filter(t=>{
@@ -3483,11 +3495,11 @@ function App(){
         const cid=(port[t]&&port[t].classId)||cls[t];
         return["fii","acoes_br","infra","agro"].includes(cid);
       });
-      if(brapiKey&&tickersBR.length>0){
+      if(tokenBR&&tickersBR.length>0){
         // BRAPI suporta endpoint /api/quote/:ticker?dividends=true
         for(const t of tickersBR){
           try{
-            const url="https://brapi.dev/api/quote/"+encodeURIComponent(t)+"?dividends=true&range=2y&token="+encodeURIComponent(brapiKey);
+            const url="https://brapi.dev/api/quote/"+encodeURIComponent(t)+"?dividends=true&range=2y&token="+encodeURIComponent(tokenBR);
             const resp=await fetch(url);
             if(!resp.ok)continue;
             const j=await resp.json();
@@ -3523,6 +3535,26 @@ function App(){
         }
       }
       // YAHOO - tickers internacionais (acoes_ext, reits)
+      // Mapeamento ticker -> simbolo Yahoo (com sufixo de bolsa quando necessario)
+      const YH_MAP={
+        // US (sem sufixo)
+        MSFT:"MSFT",APH:"APH",MU:"MU",AMAT:"AMAT",GOOGL:"GOOGL",WM:"WM",O:"O",FPI:"FPI",BRKB:"BRK-B",
+        DHR:"DHR",PH:"PH",LIN:"LIN",ECL:"ECL",ADBE:"ADBE",PEP:"PEP",XOM:"XOM",AOS:"AOS",
+        PANW:"PANW",CTVA:"CTVA",NDIA:"NDIA",TSN:"TSN",ADM:"ADM",
+        // Europa
+        SIE:"SIE.DE",SAP:"SAP.DE",ASML:"ASML.AS",ABBN:"ABBN.SW",NSIS_B:"NOVO-B.CO",
+        HLMA:"HLMA.L",KOG:"KOG.OL",
+        // Mexico
+        GMEXICOB:"GMEXICOB.MX",
+        // Japao
+        TSE8058:"8058.T",TSE8031:"8031.T",
+        // Australia
+        REA:"REA.AX",WES:"WES.AX",
+        // Hong Kong
+        HKG0700:"0700.HK",HKG1299:"1299.HK",HKG0001:"0001.HK",HKG0087:"0087.HK",
+        // Singapura
+        J36:"J36.SI"
+      };
       const tickersEXT=tickers.filter(t=>{
         const cid=(port[t]&&port[t].classId)||cls[t];
         return["acoes_ext","reits"].includes(cid);
@@ -3530,7 +3562,8 @@ function App(){
       for(const t of tickersEXT){
         try{
           // Yahoo events=div retorna historico de dividendos
-          const sym=t;// assumir que ticker ja esta no formato Yahoo
+          // Mapeia ticker do app -> simbolo Yahoo (com sufixo .DE, .AS, .T, etc)
+          const sym=YH_MAP[t]||t;
           const url="https://query1.finance.yahoo.com/v8/finance/chart/"+encodeURIComponent(sym)+"?interval=1d&range=2y&events=div";
           const resp=await fetch(url);
           if(!resp.ok)continue;
@@ -3570,7 +3603,15 @@ function App(){
       if(tickersEXT.length>0){
         // Yahoo aceita ate ~50 tickers por chamada
         try{
-          const sym=tickersEXT.join(",");
+          // Constroi lista de simbolos Yahoo (com sufixo correto) e mantem mapa reverso
+          const simbolosYH=[];
+          const simParaTicker={};
+          tickersEXT.forEach(t=>{
+            const sym=YH_MAP[t]||t;
+            simbolosYH.push(sym);
+            simParaTicker[sym]=t;
+          });
+          const sym=simbolosYH.join(",");
           const url="https://query1.finance.yahoo.com/v7/finance/quote?symbols="+encodeURIComponent(sym);
           const resp=await fetch(url);
           if(resp.ok){
@@ -3578,7 +3619,8 @@ function App(){
             const results=(j.quoteResponse&&j.quoteResponse.result)||[];
             for(const r of results){
               try{
-                const ticker=r.symbol;
+                // Retorna o ticker original do app (reverso do mapeamento)
+                const ticker=simParaTicker[r.symbol]||r.symbol;
                 const dividendDate=r.dividendDate;// timestamp em segundos do proximo ex-date
                 const dividendRate=r.dividendRate||r.trailingAnnualDividendRate||0;// valor anual ou ultimo dividendo
                 const moeda=r.currency||"USD";
@@ -7417,12 +7459,12 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             h("button",{onClick:buscarProventos,disabled:proventosLoading,style:{padding:"8px 14px",background:proventosLoading?"rgba(76,175,130,0.2)":"linear-gradient(135deg,#4CAF82,#2E8B5C)",border:"none",borderRadius:6,color:proventosLoading?"#7A7060":"#FFF",fontSize:11,fontFamily:"monospace",fontWeight:700,cursor:proventosLoading?"wait":"pointer",letterSpacing:1}},proventosLoading?"BUSCANDO...":"\u21BB ATUALIZAR PROVENTOS")
           ),
           !brapiKey&&h("div",{style:{fontSize:9,color:"#E89060",marginTop:8,padding:"8px 10px",background:"rgba(232,144,96,0.08)",borderRadius:5,lineHeight:1.55}},
-            h("div",{style:{marginBottom:6}},"\u26A0 ",h("strong",{},"BRAPI token nao detectado para a busca de proventos.")),
-            h("div",{style:{fontSize:8.5,fontStyle:"italic",marginBottom:8}},
-              "Se suas cotacoes BR estao atualizando, o token existe mas pode nao ter sido carregado nesta sessao. Configure novamente abaixo para sincronizar."
+            h("div",{style:{marginBottom:6}},"\u26A0 ",h("strong",{},"BRAPI token nao detectado no estado atual.")),
+            h("div",{style:{fontSize:8.5,fontStyle:"italic",marginBottom:8,lineHeight:1.5}},
+              "Se suas cotacoes BR estao atualizando normalmente, o token EXISTE salvo localmente mas pode nao ter sido carregado nesta sessao. Ao clicar em \"ATUALIZAR PROVENTOS\" o app vai tentar recarregar automaticamente do armazenamento criptografado. Se mesmo assim falhar, configure manualmente:"
             ),
             h("button",{onClick:()=>{
-              const k=window.prompt("Cole o token Brapi.dev (mesmo do Dashboard) para buscar proventos:",brapiKey||"");
+              const k=window.prompt("Cole o token Brapi.dev (mesmo do Dashboard) para buscar proventos brasileiros:",brapiKey||"");
               if(k===null)return;
               const lim=k.trim();
               if(!lim){alert("Token vazio - operacao cancelada.");return;}
@@ -7430,7 +7472,10 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
               setBrapiKeyS(lim);
               if(aesKey)saveBrapiKey(aesKey,lim);
               alert("Token Brapi salvo! Agora clique em ATUALIZAR PROVENTOS.");
-            },style:{padding:"6px 12px",background:"linear-gradient(135deg,#E89060,#C87040)",border:"none",borderRadius:5,color:"#0D0F14",fontSize:10,fontFamily:"monospace",fontWeight:700,cursor:"pointer",letterSpacing:1}},"\u{1F511} CONFIGURAR TOKEN BRAPI")
+            },style:{padding:"6px 12px",background:"linear-gradient(135deg,#E89060,#C87040)",border:"none",borderRadius:5,color:"#0D0F14",fontSize:10,fontFamily:"monospace",fontWeight:700,cursor:"pointer",letterSpacing:1}},"\u{1F511} CONFIGURAR TOKEN MANUALMENTE"),
+            h("div",{style:{fontSize:8,color:"#7A7060",marginTop:8,fontStyle:"italic",lineHeight:1.5}},
+              "Independente do BRAPI, proventos dos ativos INTERNACIONAIS (NYSE, Xetra, TSE, etc) serao buscados via Yahoo Finance automaticamente."
+            )
           )
         ),
 
