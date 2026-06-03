@@ -4917,6 +4917,113 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         );
       }),
 
+      // ========== GRAFICO DE 4 QUADRANTES ==========
+      (()=>{
+        // Calcula coordenadas X,Y para portfolio ATUAL e AW
+        // X = crescimento (positivo = preparado para crescimento alto)
+        // Y = inflacao (positivo = preparado para inflacao alta)
+        const calcXY=wVec=>{
+          // Protecoes em cada cenario
+          const p={c1:0,c2:0,c3:0,c4:0};
+          MPT_CLS.forEach((cid,i)=>{
+            const w=wVec[i]||0;
+            p.c1+=w*(AW_CEN[cid].c1||0);
+            p.c2+=w*(AW_CEN[cid].c2||0);
+            p.c3+=w*(AW_CEN[cid].c3||0);
+            p.c4+=w*(AW_CEN[cid].c4||0);
+          });
+          // X = (cenarios de crescimento alto) - (cenarios de crescimento baixo)
+          const xRaw=(p.c1+p.c2)-(p.c3+p.c4);
+          // Y = (cenarios de inflacao alta) - (cenarios de inflacao baixa)
+          const yRaw=(p.c1+p.c3)-(p.c2+p.c4);
+          // Normaliza para -1..1 (escala empirica: typical max ~0.6)
+          return{x:Math.max(-1,Math.min(1,xRaw/0.6)),y:Math.max(-1,Math.min(1,yRaw/0.6)),p};
+        };
+        const ptAtual=calcXY(wAtualAW);
+        const ptAW=calcXY(wAW);
+        // Identifica quadrante dominante do portfolio atual
+        const protecs=[
+          {q:"c1",nome:"Crescimento\u2191 + Inflacao\u2191",icon:"\u{1F525}",cor:"#E89060",valor:ptAtual.p.c1},
+          {q:"c2",nome:"Crescimento\u2191 + Inflacao\u2193",icon:"\u{1F331}",cor:"#4CAF82",valor:ptAtual.p.c2},
+          {q:"c3",nome:"Crescimento\u2193 + Inflacao\u2191",icon:"\u26A1",cor:"#E05252",valor:ptAtual.p.c3},
+          {q:"c4",nome:"Crescimento\u2193 + Inflacao\u2193",icon:"\u2744",cor:"#5B8FD4",valor:ptAtual.p.c4}
+        ];
+        const dominante=protecs.slice().sort((a,b)=>b.valor-a.valor)[0];
+        const menor=protecs.slice().sort((a,b)=>a.valor-b.valor)[0];
+        // Calcula equilibrio (desvio padrao das 4 protecoes - quanto menor, mais "all weather")
+        const media=protecs.reduce((s,p)=>s+p.valor,0)/4;
+        const desv=Math.sqrt(protecs.reduce((s,p)=>s+Math.pow(p.valor-media,2),0)/4);
+        const equil=Math.max(0,1-desv*4)*100;// 0-100%
+
+        // SVG
+        const W=300,H=300,cx=W/2,cy=H/2,r=110;
+        const xOf=v=>cx+v*r;
+        const yOf=v=>cy-v*r;// y invertido (positivo pra cima)
+
+        return h("div",{style:{background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:8,padding:"12px 8px",marginBottom:13}},
+          h("div",{style:{fontSize:8,letterSpacing:2,color:"#2EBFA5",fontFamily:"monospace",marginBottom:6,paddingLeft:5}},"MAPA DE PROJECAO MACROECONOMICA"),
+          h("div",{style:{fontSize:7,color:"#6A6050",fontStyle:"italic",marginBottom:6,paddingLeft:5}},"Onde sua carteira se posiciona nos 4 cenarios Dalio"),
+          h("svg",{width:W,height:H,style:{display:"block",margin:"0 auto"}},
+            // Fundos dos quadrantes (sutis)
+            h("rect",{x:cx,y:cy-r,width:r,height:r,fill:"#E8906015"}),// Q1 sup dir: crescimento+inflacao
+            h("rect",{x:cx-r,y:cy-r,width:r,height:r,fill:"#E0525215"}),// Q2 sup esq: crescimento-inflacao+
+            h("rect",{x:cx-r,y:cy,width:r,height:r,fill:"#5B8FD415"}),// Q3 inf esq: crescimento-inflacao-
+            h("rect",{x:cx,y:cy,width:r,height:r,fill:"#4CAF8215"}),// Q4 inf dir: crescimento+inflacao-
+            // Grid linhas tracejadas
+            ...[-0.5,0.5].map((v,i)=>h(Fragment,{key:"g"+i},
+              h("line",{x1:xOf(v),y1:cy-r,x2:xOf(v),y2:cy+r,stroke:"#3A3830",strokeWidth:1,strokeDasharray:"2,3",opacity:0.5}),
+              h("line",{x1:cx-r,y1:yOf(v),x2:cx+r,y2:yOf(v),stroke:"#3A3830",strokeWidth:1,strokeDasharray:"2,3",opacity:0.5})
+            )),
+            // Eixos centrais
+            h("line",{x1:cx,y1:cy-r,x2:cx,y2:cy+r,stroke:"#5A5550",strokeWidth:1.5}),
+            h("line",{x1:cx-r,y1:cy,x2:cx+r,y2:cy,stroke:"#5A5550",strokeWidth:1.5}),
+            // Borda externa
+            h("rect",{x:cx-r,y:cy-r,width:r*2,height:r*2,fill:"none",stroke:"#3A3830",strokeWidth:1}),
+            // Labels dos quadrantes (icones grandes nos cantos)
+            h("text",{x:cx+r-10,y:cy-r+18,textAnchor:"end",fontSize:18,opacity:0.6},"\u{1F525}"),
+            h("text",{x:cx-r+10,y:cy-r+18,textAnchor:"start",fontSize:18,opacity:0.6},"\u26A1"),
+            h("text",{x:cx-r+10,y:cy+r-6,textAnchor:"start",fontSize:18,opacity:0.6},"\u2744"),
+            h("text",{x:cx+r-10,y:cy+r-6,textAnchor:"end",fontSize:18,opacity:0.6},"\u{1F331}"),
+            // Labels dos eixos (extremos)
+            h("text",{x:cx,y:cy-r-4,textAnchor:"middle",fill:"#8A8070",fontSize:9,fontFamily:"monospace",letterSpacing:1.5,fontWeight:700},"INFLACAO \u2191"),
+            h("text",{x:cx,y:cy+r+14,textAnchor:"middle",fill:"#8A8070",fontSize:9,fontFamily:"monospace",letterSpacing:1.5,fontWeight:700},"INFLACAO \u2193"),
+            h("text",{x:cx+r+4,y:cy+3,textAnchor:"start",fill:"#8A8070",fontSize:9,fontFamily:"monospace",letterSpacing:1.5,fontWeight:700,transform:"rotate(0)"},"\u2192"),
+            h("text",{x:cx+r+8,y:cy-12,textAnchor:"start",fill:"#8A8070",fontSize:7,fontFamily:"monospace"},"CRESC."),
+            h("text",{x:cx+r+8,y:cy-3,textAnchor:"start",fill:"#8A8070",fontSize:7,fontFamily:"monospace"},"ALTA"),
+            h("text",{x:cx-r-4,y:cy+3,textAnchor:"end",fill:"#8A8070",fontSize:9,fontFamily:"monospace",letterSpacing:1.5,fontWeight:700},"\u2190"),
+            h("text",{x:cx-r-8,y:cy-12,textAnchor:"end",fill:"#8A8070",fontSize:7,fontFamily:"monospace"},"CRESC."),
+            h("text",{x:cx-r-8,y:cy-3,textAnchor:"end",fill:"#8A8070",fontSize:7,fontFamily:"monospace"},"BAIXA"),
+            // Linha tracejada VOCE -> AW
+            h("line",{x1:xOf(ptAtual.x),y1:yOf(ptAtual.y),x2:xOf(ptAW.x),y2:yOf(ptAW.y),stroke:"#FFF",strokeWidth:1,strokeDasharray:"3,3",opacity:0.25}),
+            // Ponto AW (verde-azulado, no centro idealmente)
+            h("circle",{cx:xOf(ptAW.x),cy:yOf(ptAW.y),r:8,fill:"#2EBFA5",stroke:"#FFF",strokeWidth:2,opacity:0.95}),
+            h("text",{x:xOf(ptAW.x)+11,y:yOf(ptAW.y)+3,fill:"#2EBFA5",fontSize:9,fontFamily:"monospace",fontWeight:700},"AW"),
+            // Ponto VOCE (vermelho)
+            h("circle",{cx:xOf(ptAtual.x),cy:yOf(ptAtual.y),r:9,fill:"#E05252",stroke:"#FFF",strokeWidth:2}),
+            h("text",{x:xOf(ptAtual.x)+12,y:yOf(ptAtual.y)+3,fill:"#E05252",fontSize:10,fontFamily:"monospace",fontWeight:700},"VOCE")
+          ),
+          // INSIGHT abaixo do grafico
+          h("div",{style:{padding:"10px 12px",marginTop:6,background:"rgba(0,0,0,0.18)",borderLeft:"3px solid "+dominante.cor,borderRadius:"0 5px 5px 0"}},
+            h("div",{style:{display:"flex",alignItems:"center",gap:6,marginBottom:5}},
+              h("span",{style:{fontSize:14}},dominante.icon),
+              h("div",{style:{fontSize:8,letterSpacing:1.5,color:dominante.cor,fontFamily:"monospace",fontWeight:700}},"CARTEIRA MAIS PROJETADA PARA:")
+            ),
+            h("div",{style:{fontSize:11,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700,marginBottom:6}},dominante.nome),
+            h("p",{style:{fontSize:9,color:"#9A9080",lineHeight:1.55,margin:0}},
+              "Sua maior protecao (",(dominante.valor*100).toFixed(0),"%) esta neste cenario, enquanto a menor (",(menor.valor*100).toFixed(0),"%, ",menor.nome.toLowerCase(),") representa sua maior vulnerabilidade. ",
+              equil>=70?h("span",{style:{color:"#4CAF82"}},"Sua carteira esta bem balanceada entre cenarios (",equil.toFixed(0),"% de equilibrio)."):
+              equil>=50?h("span",{style:{color:"#E8C44A"}},"Equilibrio moderado entre cenarios (",equil.toFixed(0),"%). Diversificacao razoavel."):
+              h("span",{style:{color:"#E89060"}},"Concentracao em um cenario especifico (equilibrio ",equil.toFixed(0),"%). All Weather puro recomendaria maior balance.")
+            )
+          ),
+          // Legenda
+          h("div",{style:{display:"flex",justifyContent:"center",gap:14,marginTop:8,fontSize:8,fontFamily:"monospace",fontStyle:"italic",color:"#6A6050"}},
+            h("span",{},h("span",{style:{color:"#E05252",fontWeight:700}},"\u25CF VOCE"),": carteira atual"),
+            h("span",{},h("span",{style:{color:"#2EBFA5",fontWeight:700}},"\u25CF AW"),": all weather ideal")
+          )
+        );
+      })(),
+
       // ========== INTERPRETACAO ==========
       h("div",{style:{background:"rgba(46,191,165,0.05)",border:"1px solid rgba(46,191,165,0.20)",borderRadius:8,padding:"12px 13px",marginBottom:13,marginTop:8}},
         h("div",{style:{fontSize:8,letterSpacing:2,color:"#2EBFA5",fontFamily:"monospace",marginBottom:8}},"COMPARATIVO"),
