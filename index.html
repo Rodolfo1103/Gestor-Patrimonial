@@ -542,11 +542,12 @@ function BolsasCard({port,cls}){
     return ()=>clearInterval(id);
   },[]);
   // Descobre quais bolsas tem ativos no portfolio + rastreia tickers por bolsa
+  // Inclui ativos cadastrados mesmo com qty=0 (usuario pode estar planejando comprar)
   const bolsasAtivas=new Set();
   const tickersPorBolsa={};
   const naoMapeados=[];
   Object.entries(port||{}).forEach(([t,p])=>{
-    if(!p||!p.qty||p.qty<=0)return;
+    if(!p)return;
     const cid=p.classId||cls[t];
     if(cid==="selic"||cid==="ouro"||cid==="bitcoin"||cid==="imoveis")return;
     const bid=bolsaDoTicker(t,cid);
@@ -4485,6 +4486,85 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         "Analise quantitativa baseada em Markowitz (1952). Retornos esperados anualizados em BRL, volatilidades anualizadas e matriz de correlacao calibrada com dados historicos."
       ),
 
+      // ========== NOTA DE EFICIENCIA ==========
+      (()=>{
+        // Eficiencia absoluta: % do Sharpe otimo
+        const efAbs=Math.max(0,Math.min(100,(sharpeAtual/Math.max(0.01,bestSharpe.sharpe))*100));
+        // Eficiencia de fronteira: dado a volatilidade atual, quanto retorno voce captura do maximo possivel?
+        // Procura no Monte Carlo o portfolio com volatilidade similar (margem 1.5%) e maior retorno
+        let maxRetSimVol=statsAtual.ret;
+        for(const p of mcResult){
+          if(Math.abs(p.vol-statsAtual.vol)<0.015&&p.ret>maxRetSimVol)maxRetSimVol=p.ret;
+        }
+        // Compara seu retorno com o melhor retorno alcancavel naquela vol
+        const efFront=Math.max(0,Math.min(100,(statsAtual.ret/Math.max(0.001,maxRetSimVol))*100));
+        // Nota combinada (media ponderada): 60% fronteira + 40% absoluta
+        const notaFinal=(efFront*0.6+efAbs*0.4);
+        // Conceito A-F estilo escolar
+        let conceito,corConceito,descConceito;
+        if(notaFinal>=85){conceito="A";corConceito="#4CAF82";descConceito="Excelente";}
+        else if(notaFinal>=75){conceito="B";corConceito="#7DD17D";descConceito="Muito bom";}
+        else if(notaFinal>=65){conceito="C";corConceito="#E8C44A";descConceito="Bom";}
+        else if(notaFinal>=50){conceito="D";corConceito="#E89060";descConceito="Regular";}
+        else{conceito="F";corConceito="#E05252";descConceito="Insatisfatorio";}
+        // Distancia da fronteira (em retorno % - gap p/ capturar)
+        const gapRet=(maxRetSimVol-statsAtual.ret)*100;
+        return h("div",{style:{background:"linear-gradient(135deg,rgba(200,169,110,0.10),"+corConceito+"15)",border:"1px solid "+corConceito+"55",borderRadius:10,padding:"14px 16px",marginBottom:13}},
+          h("div",{style:{display:"flex",alignItems:"center",gap:14}},
+            // Nota grande
+            h("div",{style:{flexShrink:0,width:90,height:90,borderRadius:"50%",background:"radial-gradient(circle,"+corConceito+"30,"+corConceito+"10)",border:"3px solid "+corConceito,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}},
+              h("div",{style:{fontSize:36,color:corConceito,fontFamily:"Georgia,serif",fontWeight:700,lineHeight:1}},conceito),
+              h("div",{style:{fontSize:9,color:corConceito,fontFamily:"monospace",fontWeight:700,marginTop:2,letterSpacing:1}},notaFinal.toFixed(0)+"%")
+            ),
+            // Detalhes
+            h("div",{style:{flex:1,minWidth:0}},
+              h("div",{style:{display:"flex",alignItems:"center",gap:6,marginBottom:4}},
+                h("span",{style:{fontSize:8,letterSpacing:2,color:"#C8A96E",fontFamily:"monospace",fontWeight:700}},"NOTA DE EFICIENCIA"),
+                h("span",{style:{fontSize:8,color:corConceito,fontFamily:"monospace",fontWeight:700,padding:"1px 5px",borderRadius:3,background:corConceito+"22",border:"1px solid "+corConceito+"66"}},descConceito)
+              ),
+              h("p",{style:{fontSize:9,color:"#9A9080",margin:"0 0 8px",lineHeight:1.55,fontStyle:"italic"}},
+                "Score combinado (fronteira 60% + Sharpe absoluto 40%) que mede a eficiencia da sua alocacao na relacao risco/retorno."
+              ),
+              // Mini barra com 2 sub-notas + explicacao
+              h("div",{style:{display:"flex",flexDirection:"column",gap:9}},
+                // SUB-NOTA 1: FRONTEIRA
+                h("div",{},
+                  h("div",{style:{display:"grid",gridTemplateColumns:"75px 1fr 38px",gap:6,alignItems:"center",fontSize:8,fontFamily:"monospace",marginBottom:3}},
+                    h("span",{title:"Quanto retorno voce captura do maximo possivel para o nivel de risco que voce assumiu",style:{color:"#8A8070",fontWeight:700}},"FRONTEIRA"),
+                    h("div",{style:{position:"relative",height:5,background:"rgba(255,255,255,0.04)",borderRadius:3}},
+                      h("div",{style:{position:"absolute",top:0,left:0,height:"100%",width:efFront+"%",background:efFront>=80?"#4CAF82":efFront>=60?"#E8C44A":"#E89060",borderRadius:3}})
+                    ),
+                    h("span",{style:{textAlign:"right",color:"#9A9080",fontWeight:700}},efFront.toFixed(0)+"%")
+                  ),
+                  h("div",{style:{fontSize:7.5,color:"#6A6050",fontStyle:"italic",paddingLeft:2,lineHeight:1.4}},
+                    "Para a SUA volatilidade, captura ",efFront.toFixed(0),"% do retorno teorico maximo. Mede eficiencia dentro do seu perfil de risco."
+                  )
+                ),
+                // SUB-NOTA 2: vs OTIMO
+                h("div",{},
+                  h("div",{style:{display:"grid",gridTemplateColumns:"75px 1fr 38px",gap:6,alignItems:"center",fontSize:8,fontFamily:"monospace",marginBottom:3}},
+                    h("span",{title:"Razao entre seu Sharpe e o Sharpe do portfolio otimo absoluto",style:{color:"#8A8070",fontWeight:700}},"vs OTIMO"),
+                    h("div",{style:{position:"relative",height:5,background:"rgba(255,255,255,0.04)",borderRadius:3}},
+                      h("div",{style:{position:"absolute",top:0,left:0,height:"100%",width:efAbs+"%",background:efAbs>=80?"#4CAF82":efAbs>=60?"#E8C44A":"#E89060",borderRadius:3}})
+                    ),
+                    h("span",{style:{textAlign:"right",color:"#9A9080",fontWeight:700}},efAbs.toFixed(0)+"%")
+                  ),
+                  h("div",{style:{fontSize:7.5,color:"#6A6050",fontStyle:"italic",paddingLeft:2,lineHeight:1.4}},
+                    "Seu Sharpe (",sharpeAtual.toFixed(2),") atinge ",efAbs.toFixed(0),"% do Sharpe absoluto otimo (",bestSharpe.sharpe.toFixed(2),"). Comparacao com o melhor portfolio possivel."
+                  )
+                )
+              )
+            )
+          ),
+          // Interpretacao curta
+          h("div",{style:{fontSize:9,color:"#9A9080",marginTop:10,paddingTop:10,borderTop:"1px solid rgba(255,255,255,0.05)",lineHeight:1.6}},
+            efFront>=85?h("span",{},"\u2728 Para a volatilidade que voce assumiu (",(statsAtual.vol*100).toFixed(1),"%), seu portfolio captura ",h("strong",{style:{color:"#4CAF82"}},efFront.toFixed(0)+"%")," do retorno teorico possivel. Voce esta quase na fronteira eficiente."):
+            efFront>=70?h("span",{},"\u26A1 Para a volatilidade que voce assumiu (",(statsAtual.vol*100).toFixed(1),"%), voce captura ",h("strong",{style:{color:"#E8C44A"}},efFront.toFixed(0)+"%")," do retorno teorico. Ha espaco para otimizar (",gapRet.toFixed(1),"pp de retorno deixados na mesa)."):
+            h("span",{},"\u26A0 Ha gap relevante: voce poderia ter ",h("strong",{style:{color:"#E05252"}},"+"+gapRet.toFixed(1)+"pp")," de retorno com a mesma volatilidade. Rebalanceamento pode aumentar significativamente a eficiencia.")
+          )
+        );
+      })(),
+
       // ========== INSIGHT GLOBAL ==========
       (()=>{
         // Calcula posicao relativa: melhor/pior em cada metrica
@@ -4717,6 +4797,31 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           })(),
           // Linha tracejada VOCE -> ALVO (mostra o caminho)
           h("line",{x1:xOf(statsAtual.vol),y1:yOf(statsAtual.ret),x2:xOf(statsAlvo.vol),y2:yOf(statsAlvo.ret),stroke:"#5B8FD4",strokeWidth:1,strokeDasharray:"3,3",opacity:0.4}),
+          // ===== LINHA DE DISTANCIA ATE A FRONTEIRA EFICIENTE =====
+          // Acha o melhor retorno alcancavel na mesma volatilidade (margem 1.5%)
+          (()=>{
+            let melhorNaVol=statsAtual;
+            for(const p of mcResult){
+              if(Math.abs(p.vol-statsAtual.vol)<0.015&&p.ret>melhorNaVol.ret){
+                melhorNaVol={vol:p.vol,ret:p.ret};
+              }
+            }
+            const gapPP=(melhorNaVol.ret-statsAtual.ret)*100;
+            // So renderiza se ha gap relevante (>0.1pp) - senao polui
+            if(gapPP<0.1)return null;
+            const x1=xOf(statsAtual.vol);
+            const y1=yOf(statsAtual.ret);
+            const x2=xOf(melhorNaVol.vol);
+            const y2=yOf(melhorNaVol.ret);
+            return h(Fragment,{},
+              // Linha vertical tracejada
+              h("line",{x1:x1,y1:y1,x2:x2,y2:y2,stroke:"#E89060",strokeWidth:1.5,strokeDasharray:"4,3",opacity:0.75}),
+              // X marcando o ponto-alvo na fronteira
+              h("path",{d:"M "+(x2-4)+" "+(y2-4)+" L "+(x2+4)+" "+(y2+4)+" M "+(x2-4)+" "+(y2+4)+" L "+(x2+4)+" "+(y2-4),stroke:"#E89060",strokeWidth:2,fill:"none"}),
+              // Texto "↑ Xpp" indicando gap (posicionado no meio da linha)
+              h("text",{x:x1+8,y:(y1+y2)/2+3,fill:"#E89060",fontSize:9,fontFamily:"monospace",fontWeight:700},"\u2191 "+gapPP.toFixed(1)+"pp")
+            );
+          })(),
           // Ponto: SEU PORTFOLIO (em destaque)
           h("circle",{cx:xOf(statsAtual.vol),cy:yOf(statsAtual.ret),r:7,fill:"#E05252",stroke:"#FFF",strokeWidth:2}),
           (()=>{
@@ -4730,7 +4835,8 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           h("span",{style:{color:"#5B8FD4",fontWeight:700}},"\u25CF ALVO"),": bandas medias. ",
           h("span",{style:{color:"#2EBFA5",fontWeight:700}},"\u25CF AW"),": All Weather. ",
           h("span",{style:{color:"#C8A96E",fontWeight:700}},"\u25CF OTIMO"),": max Sharpe. ",
-          h("span",{style:{color:"#9B9B9B",fontWeight:700}},"\u25CB SELIC"),": livre risco."
+          h("span",{style:{color:"#9B9B9B",fontWeight:700}},"\u25CB SELIC"),": livre risco. ",
+          h("span",{style:{color:"#E89060",fontWeight:700}},"\u2191 gap"),": retorno faltante para fronteira."
         ),
         // ===== LEGENDA EXPLICATIVA EXPANDIDA =====
         (()=>{
