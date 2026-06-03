@@ -578,10 +578,50 @@ function BolsasCard({port,cls}){
     });
     const abertas=comStatus.filter(x=>x.st.status==="ABERTA").length;
     return h("div",{style:{marginBottom:14,padding:"12px 13px",background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:10}},
-      h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}},
+      h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10,gap:6}},
         h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase"}},"Bolsas de Valores (v4)"),
-        h("div",{style:{fontSize:8,color:"#8A8070",fontFamily:"monospace"}},
-          h("span",{style:{color:"#4CAF82",fontWeight:700}},abertas)," abertas / ",h("span",{},comStatus.length)," total"
+        h("div",{style:{display:"flex",alignItems:"center",gap:8}},
+          h("div",{style:{fontSize:8,color:"#8A8070",fontFamily:"monospace"}},
+            h("span",{style:{color:"#4CAF82",fontWeight:700}},abertas)," abertas / ",h("span",{},comStatus.length)," total"
+          ),
+          h("button",{onClick:()=>{
+            // Constroi relatorio detalhado
+            const linhas=[];
+            linhas.push("=== DIAGNOSTICO BOLSAS ===");
+            linhas.push("Total ativos processados: "+Object.keys(port||{}).length);
+            linhas.push("Bolsas detectadas: "+bolsasAtivas.size);
+            linhas.push("");
+            linhas.push("=== POR BOLSA ===");
+            Object.entries(tickersPorBolsa).forEach(([bid,ts])=>{
+              const b=BOLSAS.find(x=>x.id===bid);
+              linhas.push((b?b.nome:bid)+" ("+ts.length+"): "+ts.join(", "));
+            });
+            if(naoMapeados.length>0){
+              linhas.push("");
+              linhas.push("=== NAO MAPEADOS ("+naoMapeados.length+") ===");
+              naoMapeados.forEach(t=>{
+                const p=port[t];
+                linhas.push(t+" | classId: "+(p?(p.classId||"?"):"sem objeto")+" | qty: "+(p?(p.qty||0):"?"));
+              });
+            }
+            linhas.push("");
+            linhas.push("=== TODOS OS TICKERS NO PORTFOLIO ===");
+            Object.entries(port||{}).forEach(([t,p])=>{
+              if(!p)return;
+              const cid=p.classId||cls[t];
+              const bid=bolsaDoTicker(t,cid);
+              linhas.push(t+" | classId: "+(cid||"?")+" | qty: "+(p.qty||0)+" | bolsa: "+(bid||"NAO MAPEADA"));
+            });
+            const texto=linhas.join("\n");
+            // Mostra em alert ou copia para clipboard
+            if(navigator.clipboard&&navigator.clipboard.writeText){
+              navigator.clipboard.writeText(texto).then(()=>{
+                alert("Diagnostico copiado!\n\nCole na conversa para analise.\n\nPrimeiras linhas:\n\n"+texto.split("\n").slice(0,15).join("\n"));
+              }).catch(()=>alert(texto));
+            }else{
+              alert(texto);
+            }
+          },style:{background:"none",border:"1px solid rgba(200,169,110,0.4)",borderRadius:4,padding:"3px 8px",color:"#C8A96E",fontSize:8,fontFamily:"monospace",cursor:"pointer",letterSpacing:1}},"DBG")
         )
       ),
       h("div",{style:{display:"flex",flexDirection:"column",gap:6}},
