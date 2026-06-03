@@ -124,6 +124,122 @@ const AW_CEN={
   imoveis:{c1:0.7,c2:0.4,c3:0.7,c4:0.4},
   agro:   {c1:0.85,c2:0.4,c3:0.7,c4:0.3}
 };
+
+// ===== Bolsas de Valores - horarios e feriados =====
+// Horarios em HH:MM no fuso local da bolsa. Intervalo opcional [hh1,hh2].
+// tz: IANA timezone (resolve DST automaticamente via Intl.DateTimeFormat)
+// feriados2026: array de "MM-DD" no calendario local
+const BOLSAS=[
+  {id:"b3",nome:"B3",pais:"Brasil",flag:"\u{1F1E7}\u{1F1F7}",tz:"America/Sao_Paulo",abre:"10:00",fecha:"17:00",
+   tickers:["FII","BR"],
+   feriados2026:["01-01","02-16","02-17","04-03","04-21","05-01","06-04","09-07","10-12","11-02","11-15","11-20","12-24","12-25","12-31"]},
+  {id:"nyse",nome:"NYSE/Nasdaq",pais:"EUA",flag:"\u{1F1FA}\u{1F1F8}",tz:"America/New_York",abre:"09:30",fecha:"16:00",
+   tickers:["EXT-US","REIT"],
+   feriados2026:["01-01","01-19","02-16","04-03","05-25","06-19","07-03","09-07","11-26","12-25"]},
+  {id:"lse",nome:"LSE Londres",pais:"Reino Unido",flag:"\u{1F1EC}\u{1F1E7}",tz:"Europe/London",abre:"08:00",fecha:"16:30",
+   tickers:["UK"],
+   feriados2026:["01-01","04-03","04-06","05-04","05-25","08-31","12-25","12-28"]},
+  {id:"xetra",nome:"Xetra Frankfurt",pais:"Alemanha",flag:"\u{1F1E9}\u{1F1EA}",tz:"Europe/Berlin",abre:"09:00",fecha:"17:30",
+   tickers:["DE"],
+   feriados2026:["01-01","04-03","04-06","05-01","12-24","12-25","12-31"]},
+  {id:"euronext",nome:"Euronext",pais:"Paris/Amsterda",flag:"\u{1F1EA}\u{1F1FA}",tz:"Europe/Paris",abre:"09:00",fecha:"17:30",
+   tickers:["NL","FR"],
+   feriados2026:["01-01","04-03","04-06","05-01","12-25","12-26"]},
+  {id:"six",nome:"SIX Suica",pais:"Suica",flag:"\u{1F1E8}\u{1F1ED}",tz:"Europe/Zurich",abre:"09:00",fecha:"17:30",
+   tickers:["CH"],
+   feriados2026:["01-01","01-02","04-03","04-06","05-01","05-14","05-25","08-01","12-24","12-25","12-26","12-31"]},
+  {id:"omx",nome:"Nasdaq Copenhagen",pais:"Dinamarca",flag:"\u{1F1E9}\u{1F1F0}",tz:"Europe/Copenhagen",abre:"09:00",fecha:"17:00",
+   tickers:["DK"],
+   feriados2026:["01-01","04-02","04-03","04-06","05-01","05-14","05-25","06-05","12-24","12-25","12-31"]},
+  {id:"oslo",nome:"Oslo Bors",pais:"Noruega",flag:"\u{1F1F3}\u{1F1F4}",tz:"Europe/Oslo",abre:"09:00",fecha:"16:30",
+   tickers:["NO"],
+   feriados2026:["01-01","04-02","04-03","04-06","05-01","05-14","05-17","05-25","12-24","12-25","12-31"]},
+  {id:"tse",nome:"TSE Toquio",pais:"Japao",flag:"\u{1F1EF}\u{1F1F5}",tz:"Asia/Tokyo",abre:"09:00",fecha:"15:00",intervalo:["11:30","12:30"],
+   tickers:["JP"],
+   feriados2026:["01-01","01-02","01-03","01-12","02-11","02-23","03-20","04-29","05-04","05-05","05-06","07-20","08-11","09-21","09-23","10-12","11-03","11-23","12-31"]},
+  {id:"hkex",nome:"HKEX Hong Kong",pais:"Hong Kong",flag:"\u{1F1ED}\u{1F1F0}",tz:"Asia/Hong_Kong",abre:"09:30",fecha:"16:00",intervalo:["12:00","13:00"],
+   tickers:["HK"],
+   feriados2026:["01-01","02-17","02-18","02-19","04-03","04-06","04-07","05-01","05-25","07-01","09-25","10-01","10-19","12-25","12-26"]},
+  {id:"asx",nome:"ASX Australia",pais:"Australia",flag:"\u{1F1E6}\u{1F1FA}",tz:"Australia/Sydney",abre:"10:00",fecha:"16:00",
+   tickers:["AU"],
+   feriados2026:["01-01","01-26","04-03","04-06","04-25","06-08","12-25","12-28"]},
+  {id:"sgx",nome:"SGX Cingapura",pais:"Cingapura",flag:"\u{1F1F8}\u{1F1EC}",tz:"Asia/Singapore",abre:"09:00",fecha:"17:00",intervalo:["12:00","13:00"],
+   tickers:["SG"],
+   feriados2026:["01-01","02-17","02-18","04-03","05-01","05-31","08-10","11-08","12-25"]},
+  {id:"bmv",nome:"BMV Mexico",pais:"Mexico",flag:"\u{1F1F2}\u{1F1FD}",tz:"America/Mexico_City",abre:"08:30",fecha:"15:00",
+   tickers:["MX"],
+   feriados2026:["01-01","02-02","03-16","04-02","04-03","05-01","09-16","11-02","11-16","12-12","12-25"]},
+  {id:"nse",nome:"NSE India",pais:"India",flag:"\u{1F1EE}\u{1F1F3}",tz:"Asia/Kolkata",abre:"09:15",fecha:"15:30",
+   tickers:["IN"],
+   feriados2026:["01-26","02-19","03-03","03-31","04-03","04-14","05-01","08-15","10-02","10-21","11-04","12-25"]}
+];
+// Mapeia ticker para id da bolsa baseado em sufixo/prefixo
+function bolsaDoTicker(ticker,cid){
+  if(!ticker)return null;
+  if(cid==="fii"||cid==="acoes_br"||cid==="infra"||cid==="agro")return"b3";
+  if(ticker.endsWith(".L"))return"lse";
+  if(ticker.endsWith(".DE")||ticker==="SIE"||ticker==="SAP")return"xetra";
+  if(ticker.endsWith(".AS")||ticker.endsWith(".PA")||ticker==="ASML")return"euronext";
+  if(ticker.endsWith(".SW")||ticker==="ABBN")return"six";
+  if(ticker.endsWith(".CO")||ticker==="NSIS_B")return"omx";
+  if(ticker.endsWith(".OL")||ticker==="KOG")return"oslo";
+  if(ticker.endsWith(".T")||ticker.startsWith("TSE"))return"tse";
+  if(ticker.startsWith("HKG")||ticker.endsWith(".HK"))return"hkex";
+  if(ticker.endsWith(".AX")||ticker==="REA")return"asx";
+  if(ticker.endsWith(".SI")||ticker==="J36"||ticker==="WES")return"sgx";
+  if(ticker.endsWith(".MX")||ticker==="GMEXICOB")return"bmv";
+  if(ticker==="NDIA")return"nse";
+  if(cid==="acoes_ext"||cid==="reits")return"nyse";
+  return null;
+}
+// Calcula status atual de uma bolsa
+function statusBolsa(bolsa,now){
+  const tz=bolsa.tz;
+  // Obtem hora/dia da semana local da bolsa
+  const dtf=new Intl.DateTimeFormat("en-US",{timeZone:tz,weekday:"short",hour:"2-digit",minute:"2-digit",hour12:false,month:"2-digit",day:"2-digit"});
+  const parts=dtf.formatToParts(now);
+  const get=k=>{const p=parts.find(x=>x.type===k);return p?p.value:"";};
+  const wd=get("weekday");// Mon, Tue, ...
+  const hh=parseInt(get("hour"),10);
+  const mm=parseInt(get("minute"),10);
+  const mes=get("month"),dia=get("day");
+  const dataLocal=mes+"-"+dia;
+  const horaLocal=String(hh).padStart(2,"0")+":"+String(mm).padStart(2,"0");
+  const minNow=hh*60+mm;
+  // Final de semana
+  const ehFimDeSemana=(wd==="Sat"||wd==="Sun");
+  // Feriado
+  const ehFeriado=bolsa.feriados2026.includes(dataLocal);
+  // Parse horarios
+  const parseHM=s=>{const[h,m]=s.split(":");return parseInt(h,10)*60+parseInt(m,10);};
+  const abreMin=parseHM(bolsa.abre);
+  const fechaMin=parseHM(bolsa.fecha);
+  let intervalo=null;
+  if(bolsa.intervalo){
+    intervalo=[parseHM(bolsa.intervalo[0]),parseHM(bolsa.intervalo[1])];
+  }
+  let status="FECHADA",cor="#E05252",detalhe="";
+  if(ehFimDeSemana){
+    status="FIM DE SEMANA";cor="#6A6050";
+  }else if(ehFeriado){
+    status="FERIADO";cor="#A56FD4";
+  }else if(minNow<abreMin){
+    status="FECHADA";cor="#E05252";
+    const m=abreMin-minNow;
+    detalhe="abre em "+(m>=60?Math.floor(m/60)+"h"+(m%60>0?(m%60)+"m":""):m+"m");
+  }else if(minNow>=fechaMin){
+    status="FECHADA";cor="#E05252";detalhe="fechou";
+  }else if(intervalo&&minNow>=intervalo[0]&&minNow<intervalo[1]){
+    status="INTERVALO";cor="#E89060";
+    const m=intervalo[1]-minNow;
+    detalhe="volta em "+(m>=60?Math.floor(m/60)+"h"+(m%60>0?(m%60)+"m":""):m+"m");
+  }else{
+    status="ABERTA";cor="#4CAF82";
+    const m=fechaMin-minNow;
+    detalhe="fecha em "+(m>=60?Math.floor(m/60)+"h"+(m%60>0?(m%60)+"m":""):m+"m");
+  }
+  return{status,cor,detalhe,horaLocal,wd};
+}
 const MPT_COR=[
   // fii   br    ext   reit  sel   xau   btc   inf   imv   agr
   [ 1.00, 0.38, 0.20, 0.50,-0.15,-0.10, 0.15, 0.40, 0.30, 0.45], // fii
@@ -393,6 +509,63 @@ async function callAPI(messages,key){
 }
 
 // SVG helpers
+function BolsasCard({port,cls}){
+  const [tick,setTick]=useState(0);
+  useEffect(()=>{
+    // Atualiza a cada 30 segundos (countdown e status)
+    const id=setInterval(()=>setTick(t=>t+1),30000);
+    return ()=>clearInterval(id);
+  },[]);
+  // Descobre quais bolsas tem ativos no portfolio
+  const bolsasAtivas=new Set();
+  Object.entries(port||{}).forEach(([t,p])=>{
+    if(!p||!p.qty||p.qty<=0)return;
+    const cid=p.classId||cls[t];
+    if(cid==="selic"||cid==="ouro"||cid==="bitcoin"||cid==="imoveis")return;
+    const bid=bolsaDoTicker(t,cid);
+    if(bid)bolsasAtivas.add(bid);
+  });
+  if(bolsasAtivas.size===0)return null;
+  const bolsasLista=BOLSAS.filter(b=>bolsasAtivas.has(b.id));
+  const now=new Date();
+  // Ordena: abertas primeiro, depois por proximidade de abertura
+  const comStatus=bolsasLista.map(b=>({b,st:statusBolsa(b,now)}));
+  comStatus.sort((a,b)=>{
+    const pri=s=>s.status==="ABERTA"?0:s.status==="INTERVALO"?1:s.status==="FERIADO"?3:s.status==="FIM DE SEMANA"?4:2;
+    return pri(a.st)-pri(b.st);
+  });
+  const abertas=comStatus.filter(x=>x.st.status==="ABERTA").length;
+  return h("div",{style:{marginBottom:14,padding:"12px 13px",background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:10}},
+    h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}},
+      h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase"}},"Bolsas de Valores"),
+      h("div",{style:{fontSize:8,color:"#8A8070",fontFamily:"monospace"}},
+        h("span",{style:{color:"#4CAF82",fontWeight:700}},abertas)," abertas / ",h("span",{},comStatus.length)," total"
+      )
+    ),
+    h("div",{style:{display:"flex",flexDirection:"column",gap:6}},
+      ...comStatus.map(({b,st})=>h("div",{key:b.id,style:{display:"flex",alignItems:"center",gap:8,padding:"7px 9px",background:"rgba(0,0,0,0.18)",borderRadius:6,borderLeft:"3px solid "+st.cor}},
+        h("span",{style:{fontSize:18,lineHeight:1,flexShrink:0}},b.flag),
+        h("div",{style:{flex:1,minWidth:0}},
+          h("div",{style:{display:"flex",alignItems:"baseline",gap:6,flexWrap:"wrap"}},
+            h("span",{style:{fontSize:10,color:"#F0EAD8",fontWeight:700,fontFamily:"monospace"}},b.nome),
+            h("span",{style:{fontSize:8,color:"#6A6050",fontStyle:"italic"}},b.pais)
+          ),
+          h("div",{style:{fontSize:8,color:"#7A7060",fontFamily:"monospace",marginTop:1}},
+            "Local ",h("span",{style:{color:"#9A9080",fontWeight:700}},st.horaLocal)," (",b.abre,"-",b.fecha,")"
+          )
+        ),
+        h("div",{style:{textAlign:"right",flexShrink:0}},
+          h("div",{style:{fontSize:9,color:st.cor,fontFamily:"monospace",fontWeight:700,letterSpacing:0.5}},st.status),
+          st.detalhe&&h("div",{style:{fontSize:7,color:"#6A6050",fontStyle:"italic",marginTop:1}},st.detalhe)
+        )
+      ))
+    ),
+    h("div",{style:{fontSize:7,color:"#5A5550",fontStyle:"italic",lineHeight:1.4,marginTop:8,paddingTop:8,borderTop:"1px solid rgba(255,255,255,0.04)"}},
+      "Horarios e feriados 2026 hardcoded. Atualiza a cada 30s. Confirme feriados regionais no broker antes de operar."
+    )
+  );
+}
+
 function AllocChart({cw,ct,fB,MV,hideVal}){
   const W=300,H=215,pL=30,pB=72,pT=34,pR=8,cW=W-pL-pR,cH=H-pB-pT;
   // Limite Y dinamico mas com piso minimo + teto folgado para evitar barras tocando o topo
@@ -3732,7 +3905,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         insightMensal&&insightMensal.texto?h("div",{style:{fontSize:11,color:"#C8C0B0",lineHeight:1.7,whiteSpace:"pre-wrap"}},insightMensal.texto):
         h("div",{style:{fontSize:11,color:"#7A7570",fontStyle:"italic"}},"Sera gerado automaticamente no fechamento do proximo mes. Ou clique em atualizar para forcar agora.")
       ):null;
-      content=h("div",{},aporteCard,insightCard,h(AllocChart,{cw,ct,fB,MV,hideVal}),h(RiskChart,{cw,selicAtual,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,recalibrarRR_viaIA,calibracaoLoad,calibracaoErr,hasAjustesIA:!!ajustesRR_IA,apiKey}),h(EvolChart,{histMensal,hist,showUSD,setShowUSD,hideVal}),h(ComparativoChart,{histMensal,idxMensal,hideVal}),insightMensalCard,h(HeatmapChart,{hist}),h(CurrencyChart,{port,cls,hideVal}),topPos);
+      content=h("div",{},hasPos&&h(BolsasCard,{port,cls}),aporteCard,insightCard,h(AllocChart,{cw,ct,fB,MV,hideVal}),h(RiskChart,{cw,selicAtual,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,recalibrarRR_viaIA,calibracaoLoad,calibracaoErr,hasAjustesIA:!!ajustesRR_IA,apiKey}),h(EvolChart,{histMensal,hist,showUSD,setShowUSD,hideVal}),h(ComparativoChart,{histMensal,idxMensal,hideVal}),insightMensalCard,h(HeatmapChart,{hist}),h(CurrencyChart,{port,cls,hideVal}),topPos);
     }
   }  // POSITIONS
   if(tab==="positions"){
@@ -4661,9 +4834,44 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
       ),
       ...CENARIOS.map((cen,idx)=>{
         const cs=cenStats[idx];
+        // Top classes protetoras (peso AW * fator do cenario) para mostrar no AW
         const ranking=MPT_CLS.map(cid=>({cid,score:AW_CEN[cid][cen.id]*AW_W[cid]})).filter(x=>x.score>0).sort((a,b)=>b.score-a.score).slice(0,4);
+        // ===== CALCULA INSIGHT DO PORTFOLIO ATUAL NESTE CENARIO =====
+        // Protecao atual (soma ponderada da sua alocacao * fatores de protecao)
+        let protAtual=0;
+        MPT_CLS.forEach(cid=>{
+          const w=wAtualAW[MPT_CLS.indexOf(cid)]||0;
+          protAtual+=w*(AW_CEN[cid][cen.id]||0);
+        });
+        const gapAW=cs.prot-protAtual;
+        // Ranking por contribuicao do PORTFOLIO ATUAL no cenario
+        const minhasContribs=MPT_CLS.map(cid=>{
+          const i=MPT_CLS.indexOf(cid);
+          const w=wAtualAW[i]||0;
+          return{cid,w,fator:AW_CEN[cid][cen.id]||0,contrib:w*(AW_CEN[cid][cen.id]||0)};
+        }).filter(x=>x.w>0.005);
+        const meuMaior=minhasContribs.slice().sort((a,b)=>b.contrib-a.contrib)[0];
+        // Classes que voce TEM mas protegem pouco neste cenario (peso alto, fator baixo)
+        const vulnerab=minhasContribs.filter(x=>x.fator<0.4&&x.w>0.05).sort((a,b)=>b.w-a.w)[0];
+        // Classes que voce NAO TEM (ou tem pouco) que protegem bem
+        const oportunidade=MPT_CLS.map(cid=>{
+          const i=MPT_CLS.indexOf(cid);
+          const w=wAtualAW[i]||0;
+          return{cid,w,fator:AW_CEN[cid][cen.id]||0};
+        }).filter(x=>x.fator>=0.7&&x.w<0.05).sort((a,b)=>b.fator-a.fator)[0];
+        // Constroi mensagem do insight
+        const meuMaiorCL=meuMaior?CL.find(c=>c.id===meuMaior.cid):null;
+        const vulnerabCL=vulnerab?CL.find(c=>c.id===vulnerab.cid):null;
+        const oportunidadeCL=oportunidade?CL.find(c=>c.id===oportunidade.cid):null;
+        // Avaliacao geral (compara com 50% como referencia neutra)
+        let avaliacao,corAval;
+        if(protAtual>=0.55){avaliacao="BEM POSICIONADO";corAval="#4CAF82";}
+        else if(protAtual>=0.45){avaliacao="POSICIONAMENTO MODERADO";corAval="#E8C44A";}
+        else if(protAtual>=0.35){avaliacao="EXPOSICAO LIMITADA";corAval="#E89060";}
+        else{avaliacao="VULNERAVEL";corAval="#E05252";}
         return h("div",{key:cen.id,style:{background:"rgba(255,255,255,0.02)",border:"1px solid "+cen.cor+"33",borderRadius:8,padding:"11px 12px",marginBottom:10}},
-          h("div",{style:{display:"flex",alignItems:"center",gap:8,marginBottom:6}},
+          // Header com icone, nome e duas protecoes (ATUAL vs AW)
+          h("div",{style:{display:"flex",alignItems:"center",gap:8,marginBottom:7}},
             h("span",{style:{fontSize:20}},cen.icon),
             h("div",{style:{flex:1}},
               h("div",{style:{fontSize:9,letterSpacing:1.5,color:cen.cor,fontFamily:"monospace",fontWeight:700}},cen.nome),
@@ -4671,10 +4879,29 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             ),
             h("div",{style:{textAlign:"right"}},
               h("div",{style:{fontSize:7,color:"#8A8070"}},"PROTECAO"),
-              h("div",{style:{fontSize:13,color:cen.cor,fontFamily:"monospace",fontWeight:700}},(cs.prot*100).toFixed(0)+"%")
+              h("div",{style:{display:"flex",gap:6,alignItems:"baseline",justifyContent:"flex-end"}},
+                h("span",{style:{fontSize:13,color:"#E05252",fontFamily:"monospace",fontWeight:700,title:"ATUAL"}},(protAtual*100).toFixed(0)+"%"),
+                h("span",{style:{fontSize:9,color:"#6A6050"}},"/"),
+                h("span",{style:{fontSize:11,color:"#2EBFA5",fontFamily:"monospace",fontWeight:700,opacity:0.85,title:"AW ideal"}},(cs.prot*100).toFixed(0)+"%")
+              ),
+              h("div",{style:{fontSize:6.5,color:"#6A6050",fontFamily:"monospace",marginTop:1}},"atual / AW")
             )
           ),
-          h("div",{style:{fontSize:8,color:"#8A8070",marginBottom:5,fontFamily:"monospace"}},"CLASSES PROTETORAS:"),
+          // INSIGHT DO PORTFOLIO ATUAL NESTE CENARIO
+          h("div",{style:{background:"rgba(0,0,0,0.18)",borderLeft:"3px solid "+corAval,borderRadius:"0 5px 5px 0",padding:"7px 10px",marginBottom:7}},
+            h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:3}},
+              h("span",{style:{fontSize:7,letterSpacing:1.5,color:corAval,fontFamily:"monospace",fontWeight:700}},"SUA EXPOSICAO: "+avaliacao),
+              gapAW!==0&&h("span",{style:{fontSize:7,color:Math.abs(gapAW)<0.05?"#6A6050":gapAW>0?"#E89060":"#4CAF82",fontFamily:"monospace"}},
+                gapAW>0?"\u2193 "+(gapAW*100).toFixed(0)+"pp vs AW":"\u2191 "+(Math.abs(gapAW)*100).toFixed(0)+"pp vs AW"
+              )
+            ),
+            h("p",{style:{fontSize:9,color:"#9A9080",lineHeight:1.55,margin:0}},
+              meuMaiorCL&&h("span",{},"Sua maior protecao vem de ",h("strong",{style:{color:meuMaiorCL.color}},meuMaiorCL.tag)," (",(meuMaior.w*100).toFixed(1),"% da carteira). "),
+              vulnerabCL&&h("span",{},"Atencao a sua alocacao em ",h("strong",{style:{color:vulnerabCL.color}},vulnerabCL.tag)," (",(vulnerab.w*100).toFixed(1),"%): protege pouco aqui. "),
+              oportunidadeCL&&gapAW>0.05&&h("span",{},"Considere aumentar ",h("strong",{style:{color:oportunidadeCL.color}},oportunidadeCL.tag)," para melhor hedge. ")
+            )
+          ),
+          h("div",{style:{fontSize:8,color:"#8A8070",marginBottom:5,fontFamily:"monospace"}},"CLASSES MAIS PROTETORAS NO AW:"),
           h("div",{style:{display:"flex",flexWrap:"wrap",gap:6}},
             ...ranking.map(r=>{
               const cl=CL.find(c=>c.id===r.cid);
