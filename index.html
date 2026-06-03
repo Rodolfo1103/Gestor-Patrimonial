@@ -183,6 +183,24 @@ const PROJ_INFL=0.04;// 4% a.a. inflacao esperada (IPCA medio longo prazo)
 const PROJ_APORTES=[20000,50000,70000,100000];// valores em R$ mensais
 const PROJ_JANELAS=[5,10,15,20];// anos
 
+// ===== RENDA PASSIVA - DY estimado por classe (% anual) =====
+// Usado para projecao de renda futura quando nao ha histor reais
+// Pes / Base / Oti em decimal sobre valor de mercado
+const RENDA_DY={
+  fii:     {pes:0.085,base:0.10,oti:0.115},
+  acoes_br:{pes:0.04,base:0.055,oti:0.07},// payout medio acoes BR
+  acoes_ext:{pes:0.015,base:0.025,oti:0.035},// SP500 yield medio
+  reits:   {pes:0.045,base:0.055,oti:0.065},
+  selic:   {pes:0,base:0,oti:0},// nao paga juros mensais por padrao (juros reinvestidos)
+  ouro:    {pes:0,base:0,oti:0},
+  bitcoin: {pes:0,base:0,oti:0},
+  infra:   {pes:0.085,base:0.10,oti:0.115},
+  imoveis: {pes:0.04,base:0.06,oti:0.08},
+  agro:    {pes:0.09,base:0.105,oti:0.12}
+};
+// Inicio da serie historica de proventos
+const RENDA_INICIO="2026-06";
+
 // ===== Bolsas de Valores - horarios e feriados =====
 // Horarios em HH:MM no fuso local da bolsa. Intervalo opcional [hh1,hh2].
 // tz: IANA timezone (resolve DST automaticamente via Intl.DateTimeFormat)
@@ -1947,6 +1965,12 @@ function App(){
   const [idxMensal,setIdxMensal]=useState({});
   // Insight mensal IA: {mes:"YYYY-MM", texto:"...", ts:123456}
   const [insightMensal,setInsightMensal]=useState(null);
+  // Proventos: { "ticker": [{date:"YYYY-MM-DD", valor:0.85, moeda:"BRL", tipo:"dividendo"}, ...] }
+  const [proventos,setProventos]=useState({});
+  // Anuncios futuros: { "ticker": {date, valor, moeda, tipo:"anunciado"} }
+  const [proventosAnunciados,setProventosAnunciados]=useState({});
+  const [proventosTs,setProventosTs]=useState(null);
+  const [proventosLoading,setProventosLoading]=useState(false);
   // Selic atual buscada do BCB (taxa de meta - serie 432)
   const [selicAtual,setSelicAtual]=useState(null);
   // Ajustes IA dos scores de risco/retorno por classe (sobrescreve a recalibracao por Selic)
@@ -1975,6 +1999,9 @@ function App(){
   // Projecao
   const [projAporte,setProjAporte]=useState(20000);
   const [projModo,setProjModo]=useState("real");// real ou nominal
+  // Renda
+  const [rendaExpHist,setRendaExpHist]=useState(false);
+  const [rendaProjAporte,setRendaProjAporte]=useState(20000);
   const [hideVal,setHideVal]=useState(false);
   const [showUSD,setShowUSD]=useState(false);
   const [inited,setInited]=useState(false);
@@ -2182,6 +2209,9 @@ function App(){
         if(Array.isArray(dd.histMensal))setHistMensal(dd.histMensal);
         if(dd.idxMensal&&typeof dd.idxMensal==="object")setIdxMensal(dd.idxMensal);
         if(dd.insightMensal&&typeof dd.insightMensal==="object")setInsightMensal(dd.insightMensal);
+        if(dd.proventos&&typeof dd.proventos==="object")setProventos(dd.proventos);
+        if(dd.proventosAnunciados&&typeof dd.proventosAnunciados==="object")setProventosAnunciados(dd.proventosAnunciados);
+        if(dd.proventosTs)setProventosTs(dd.proventosTs);
         if(typeof dd.selicAtual==="number"&&dd.selicAtual>0)setSelicAtual(dd.selicAtual);
         if(dd.ajustesRR_IA&&typeof dd.ajustesRR_IA==="object")setAjustesRR_IA(dd.ajustesRR_IA);
         if(typeof dd.calibracaoRR_TS==="number")setCalibracaoRR_TS(dd.calibracaoRR_TS);
@@ -2229,12 +2259,12 @@ function App(){
     if(!inited||!aesKey)return;
     (async()=>{
       try{
-        const obj={port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,selicAtual,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,fx:{...FX},btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,infIPCA,infIGPM,infINCC,infCPI};
+        const obj={port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,proventos,proventosAnunciados,proventosTs,selicAtual,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,fx:{...FX},btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,infIPCA,infIGPM,infINCC,infCPI};
         const enc=await aesEncrypt(aesKey,obj);
         localStorage.setItem(SK_ENC,enc);
       }catch(e){}
     })();
-  },[port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,selicAtual,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,infIPCA,infIGPM,infINCC,infCPI,inited,aesKey]);
+  },[port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,proventos,proventosAnunciados,proventosTs,selicAtual,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,infIPCA,infIGPM,infINCC,infCPI,inited,aesKey]);
 
   // Auto-lock por inatividade (15 min)
   useEffect(()=>{
@@ -3402,6 +3432,211 @@ function App(){
     setTimeout(()=>setRefreshMsg(""),2500);
   };
 
+  // ===== POSICAO HISTORICA DE UM TICKER NA DATA =====
+  // Reconstroi a quantidade que voce TINHA do ticker numa data especifica
+  // Premissa: portfolio inicial (qty atual menos compras posteriores) ja existia em 2026-06-01
+  // Compras em 'hist' subtraem da posicao atual quando sao posteriores a dataAlvo
+  const posicaoHistorica=(ticker,dataAlvoStr)=>{
+    const p=port[ticker];
+    if(!p)return 0;
+    const qtyAtual=p.qty||0;
+    if(qtyAtual<=0)return 0;
+    const dataAlvo=new Date(dataAlvoStr+"T00:00:00").getTime();
+    // Soma compras de 'hist' que ocorreram APOS a data alvo
+    let compradoApos=0;
+    if(Array.isArray(hist)){
+      for(const rec of hist){
+        if(!rec||!rec.date)continue;
+        const dataRec=new Date(rec.date).getTime();
+        if(isNaN(dataRec))continue;
+        if(dataRec<=dataAlvo)continue;// compras anteriores ou na propria data nao subtraem
+        const purchases=Array.isArray(rec.purchases)?rec.purchases:[];
+        for(const pur of purchases){
+          if(pur&&pur.ticker===ticker&&typeof pur.qty==="number"){
+            compradoApos+=pur.qty;
+          }
+        }
+      }
+    }
+    // Posicao na data = atual - compras posteriores (assumindo zero vendas, B&H)
+    const qtyNaData=Math.max(0,qtyAtual-compradoApos);
+    return qtyNaData;
+  };
+
+  // ===== BUSCAR PROVENTOS - BRAPI (B3) + Yahoo (internacionais) =====
+  // Salva em proventos: { ticker: [{date, valor, moeda, tipo}, ...] }
+  // So registra pagamentos a partir de RENDA_INICIO (2026-06)
+  const buscarProventos=async()=>{
+    setProventosLoading(true);
+    try{
+      const novos={};
+      const inicioTs=new Date(RENDA_INICIO+"-01").getTime();
+      const tickers=Object.keys(port||{}).filter(t=>{
+        const p=port[t];
+        if(!p||!(p.qty>0))return false;
+        const cid=p.classId||cls[t];
+        // Apenas classes que pagam proventos
+        return["fii","acoes_br","acoes_ext","reits","infra","agro"].includes(cid);
+      });
+      // BRAPI - tickers BR (FII, acoes_br, infra, agro) - so se tem brapi key
+      const tickersBR=tickers.filter(t=>{
+        const cid=(port[t]&&port[t].classId)||cls[t];
+        return["fii","acoes_br","infra","agro"].includes(cid);
+      });
+      if(brapiKey&&tickersBR.length>0){
+        // BRAPI suporta endpoint /api/quote/:ticker?dividends=true
+        for(const t of tickersBR){
+          try{
+            const url="https://brapi.dev/api/quote/"+encodeURIComponent(t)+"?dividends=true&range=2y&token="+encodeURIComponent(brapiKey);
+            const resp=await fetch(url);
+            if(!resp.ok)continue;
+            const j=await resp.json();
+            const results=j.results||[];
+            if(results.length===0)continue;
+            const r=results[0];
+            // dividendsData pode vir em formats diferentes
+            const divs=(r.dividendsData&&r.dividendsData.cashDividends)||(r.dividendsData&&r.dividendsData.dividends)||[];
+            if(!Array.isArray(divs))continue;
+            const lista=[];
+            for(const d of divs){
+              try{
+                const dataStr=d.paymentDate||d.lastDatePrior||d.assetIssued||d.date;
+                if(!dataStr)continue;
+                const dataObj=new Date(dataStr);
+                if(isNaN(dataObj))continue;
+                if(dataObj.getTime()<inicioTs)continue;// ignora antes de RENDA_INICIO
+                const valor=parseFloat(d.rate||d.value||d.amount||0);
+                if(!valor||valor<=0)continue;
+                lista.push({
+                  date:dataObj.toISOString().slice(0,10),
+                  valor,
+                  moeda:"BRL",
+                  tipo:d.label||d.relatedTo||"dividendo",
+                  qtyNaData:posicaoHistorica(t,dataObj.toISOString().slice(0,10))
+                });
+              }catch(e){}
+            }
+            if(lista.length>0)novos[t]=lista;
+          }catch(e){console.warn("BRAPI proventos erro",t,e);}
+          // Delay leve para nao estourar rate limit
+          await new Promise(r=>setTimeout(r,200));
+        }
+      }
+      // YAHOO - tickers internacionais (acoes_ext, reits)
+      const tickersEXT=tickers.filter(t=>{
+        const cid=(port[t]&&port[t].classId)||cls[t];
+        return["acoes_ext","reits"].includes(cid);
+      });
+      for(const t of tickersEXT){
+        try{
+          // Yahoo events=div retorna historico de dividendos
+          const sym=t;// assumir que ticker ja esta no formato Yahoo
+          const url="https://query1.finance.yahoo.com/v8/finance/chart/"+encodeURIComponent(sym)+"?interval=1d&range=2y&events=div";
+          const resp=await fetch(url);
+          if(!resp.ok)continue;
+          const j=await resp.json();
+          const events=j.chart&&j.chart.result&&j.chart.result[0]&&j.chart.result[0].events;
+          const divs=events&&events.dividends;
+          if(!divs)continue;
+          // Moeda
+          const moeda=(j.chart.result[0].meta&&j.chart.result[0].meta.currency)||"USD";
+          const lista=[];
+          Object.values(divs).forEach(d=>{
+            try{
+              const tsMs=(d.date||0)*1000;
+              if(tsMs<inicioTs)return;
+              const valor=parseFloat(d.amount||0);
+              if(!valor||valor<=0)return;
+              const dataStr=new Date(tsMs).toISOString().slice(0,10);
+              lista.push({
+                date:dataStr,
+                valor,
+                moeda,
+                tipo:"dividendo",
+                qtyNaData:posicaoHistorica(t,dataStr)
+              });
+            }catch(e){}
+          });
+          if(lista.length>0)novos[t]=lista;
+        }catch(e){console.warn("Yahoo proventos erro",t,e);}
+        await new Promise(r=>setTimeout(r,200));
+      }
+
+      // ===== BUSCAR ANUNCIOS FUTUROS (proximos ex-dates / pagamentos) =====
+      // Usa endpoint /v7/finance/quote que retorna dividendDate (proximo ex-date)
+      // e trailingAnnualDividendRate (valor anual). Estimamos o proximo dividendo
+      // pela frequencia tipica (trimestral=4, mensal=12, anual=1)
+      const anunciados={};// { ticker: {date, valor, moeda, tipo:"anunciado"} }
+      if(tickersEXT.length>0){
+        // Yahoo aceita ate ~50 tickers por chamada
+        try{
+          const sym=tickersEXT.join(",");
+          const url="https://query1.finance.yahoo.com/v7/finance/quote?symbols="+encodeURIComponent(sym);
+          const resp=await fetch(url);
+          if(resp.ok){
+            const j=await resp.json();
+            const results=(j.quoteResponse&&j.quoteResponse.result)||[];
+            for(const r of results){
+              try{
+                const ticker=r.symbol;
+                const dividendDate=r.dividendDate;// timestamp em segundos do proximo ex-date
+                const dividendRate=r.dividendRate||r.trailingAnnualDividendRate||0;// valor anual ou ultimo dividendo
+                const moeda=r.currency||"USD";
+                if(!dividendDate)continue;
+                const dateMs=dividendDate*1000;
+                // So registra se for futuro ou no mes atual
+                const hoje=new Date();
+                const inicioMes=new Date(hoje.getFullYear(),hoje.getMonth(),1).getTime();
+                if(dateMs<inicioMes)continue;
+                // Estima valor do proximo pagamento baseado na frequencia
+                // Maioria das acoes US/EU paga trimestralmente
+                // Tentamos detectar pelo historico
+                let valorEstimado=dividendRate;
+                if(novos[ticker]&&novos[ticker].length>=2){
+                  // Usa o ultimo pagamento como estimativa (mais preciso)
+                  const ultimos=novos[ticker].slice().sort((a,b)=>b.date.localeCompare(a.date));
+                  valorEstimado=ultimos[0].valor;
+                }else if(dividendRate>0){
+                  // Sem historico: assume trimestral para US (mais comum)
+                  valorEstimado=dividendRate/4;
+                }
+                if(!valorEstimado||valorEstimado<=0)continue;
+                anunciados[ticker]={
+                  date:new Date(dateMs).toISOString().slice(0,10),
+                  valor:valorEstimado,
+                  moeda,
+                  tipo:"anunciado"
+                };
+              }catch(e){}
+            }
+          }
+        }catch(e){console.warn("Yahoo anuncios erro",e);}
+      }
+
+      // Merge com proventos existentes - novos sobreescrevem por ticker
+      const merged={...proventos,...novos};
+      // MIGRACAO: recalcular qtyNaData para TODOS os pagamentos (corrige snapshots inflados)
+      Object.keys(merged).forEach(t=>{
+        if(!Array.isArray(merged[t]))return;
+        merged[t]=merged[t].map(pag=>{
+          if(!pag||!pag.date)return pag;
+          return{...pag,qtyNaData:posicaoHistorica(t,pag.date)};
+        });
+      });
+      // Anuncios sao salvos separadamente (sobrescrevem apenas os de mesmo ticker)
+      setProventos(merged);
+      setProventosAnunciados(anunciados);
+      setProventosTs(Date.now());
+      setRefreshMsg("Proventos: "+Object.keys(novos).length+" tickers (historico) + "+Object.keys(anunciados).length+" anuncios");
+      setTimeout(()=>setRefreshMsg(""),4000);
+    }catch(e){
+      console.error("Erro buscar proventos:",e);
+      setRefreshMsg("Erro ao buscar proventos: "+(e.message||"desconhecido"));
+      setTimeout(()=>setRefreshMsg(""),3500);
+    }
+    setProventosLoading(false);
+  };
+
   const genAlloc=async()=>{
     const v=pN(apV);if(v<=0)return;
     setLoadA(true);setAErr("");
@@ -3909,7 +4144,7 @@ function App(){
 
   // TABS
   const tabs=h("div",{style:{display:"flex",borderBottom:"1px solid rgba(255,255,255,0.06)",marginBottom:18,marginTop:10,overflowX:"auto"}},
-    ...[{id:"dashboard",label:"Dashboard"},{id:"positions",label:"Posicoes"},{id:"aporte",label:"Aporte"},{id:"chat",label:"Analise"},{id:"mpt",label:"MPT"},{id:"aw",label:"All Weather"},{id:"stress",label:"Stress Test"},{id:"projecao",label:"Projecoes"},{id:"history",label:"Historico"}].map(t=>
+    ...[{id:"dashboard",label:"Dashboard"},{id:"positions",label:"Posicoes"},{id:"aporte",label:"Aporte"},{id:"chat",label:"Analise"},{id:"mpt",label:"MPT"},{id:"aw",label:"All Weather"},{id:"stress",label:"Stress Test"},{id:"projecao",label:"Projecoes"},{id:"renda",label:"Renda Passiva"},{id:"history",label:"Historico"}].map(t=>
       h("button",{key:t.id,onClick:()=>{setTab(t.id);if(t.id!=="aporte"){setApR(null);setStep("r");}},style:{background:"none",border:"none",borderBottom:tab===t.id?"2px solid #C8A96E":"2px solid transparent",color:tab===t.id?"#C8A96E":"#8A8070",padding:"6px 10px",cursor:"pointer",fontSize:12,marginBottom:-1,flexShrink:0,whiteSpace:"nowrap"}},t.label)
     ),
     h("button",{onClick:()=>{
@@ -4391,8 +4626,248 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           h("button",{onClick:salvarImovel,style:{padding:"8px",background:"linear-gradient(135deg,#D17A22,#A45A12)",border:"none",borderRadius:5,color:"#0D0F14",fontSize:11,fontWeight:700,letterSpacing:2,textTransform:"uppercase",cursor:"pointer",fontFamily:"monospace"}},imvForm.id?"Atualizar":"Cadastrar imovel")
         )
       );
+
+      // ===== CARD DE CORRELACAO ENTRE CLASSES (colapsivel) =====
+      const correlacaoBlock=(()=>{
+        try{
+          // Pesos atuais por classe (normalizados)
+          const wAt=MPT_CLS.map(cid=>(cw[cid]||0)/100);
+          const somaW=wAt.reduce((a,b)=>a+b,0);
+          if(somaW>0)for(let i=0;i<wAt.length;i++)wAt[i]/=somaW;
+
+          // Helper: nome curto e cor da classe
+          const classeInfo=(cid)=>{
+            const c=CL.find(x=>x.id===cid);
+            return{nome:c?c.name:cid,cor:c?c.color:"#8A8070"};
+          };
+
+          // Lista de pares (i<j) com correlacao e peso combinado
+          const pares=[];
+          for(let i=0;i<MPT_CLS.length;i++){
+            for(let j=i+1;j<MPT_CLS.length;j++){
+              const cid1=MPT_CLS[i],cid2=MPT_CLS[j];
+              const cor=MPT_COR[i]&&MPT_COR[i][j];
+              if(typeof cor!=="number")continue;
+              const peso1=wAt[i]*100,peso2=wAt[j]*100;
+              if(peso1<1&&peso2<1)continue;// ignora pares irrelevantes
+              pares.push({
+                cid1,cid2,
+                nome1:classeInfo(cid1).nome,nome2:classeInfo(cid2).nome,
+                cor1:classeInfo(cid1).cor,cor2:classeInfo(cid2).cor,
+                correlacao:cor,
+                peso1,peso2,
+                pesoMin:Math.min(peso1,peso2),// determina quanto o par eh relevante
+                pesoComb:peso1+peso2
+              });
+            }
+          }
+
+          // Top 5 mais correlacionados (positiva alta) - relevantes se ambos pesam
+          const maisCorr=pares.slice().filter(p=>p.pesoMin>=2).sort((a,b)=>b.correlacao-a.correlacao).slice(0,5);
+          // Top 5 mais descorrelacionados (zero ou negativa) - boa diversificacao
+          const maisDescor=pares.slice().filter(p=>p.pesoMin>=2).sort((a,b)=>a.correlacao-b.correlacao).slice(0,5);
+
+          // Indicador de diversificacao efetiva (correlacao media ponderada do portfolio)
+          let corrPondTotal=0,pesoTotalPares=0;
+          pares.forEach(p=>{
+            const peso=(p.peso1/100)*(p.peso2/100);
+            corrPondTotal+=p.correlacao*peso;
+            pesoTotalPares+=peso;
+          });
+          const corrMediaPond=pesoTotalPares>0?corrPondTotal/pesoTotalPares:0;
+          // Diversificacao: 0 = totalmente correlacionado, 1 = totalmente diversificado
+          // Convertemos correlacao media [-1,1] em score [0,100]: score = (1 - corrMedia) / 2 * 100
+          const scoreDiv=Math.max(0,Math.min(100,(1-corrMediaPond)/2*100));
+          const corDiv=scoreDiv>=70?"#4CAF82":scoreDiv>=55?"#7DD17D":scoreDiv>=40?"#E8C44A":scoreDiv>=25?"#E89060":"#E05252";
+          const lblDiv=scoreDiv>=70?"EXCELENTE":scoreDiv>=55?"BOA":scoreDiv>=40?"REGULAR":scoreDiv>=25?"BAIXA":"INSUFICIENTE";
+
+          // Cor da celula de correlacao (escala vermelho -> branco -> verde)
+          const corCorrel=(c)=>{
+            if(c>=0.7)return"rgba(224,82,82,0.55)";// forte positiva = ruim diversific
+            if(c>=0.4)return"rgba(232,144,96,0.45)";
+            if(c>=0.15)return"rgba(232,196,74,0.30)";
+            if(c>=-0.15)return"rgba(255,255,255,0.04)";// neutra
+            if(c>=-0.4)return"rgba(125,209,125,0.30)";
+            return"rgba(76,175,130,0.50)";// negativa = excelente
+          };
+          const txtCorCorrel=(c)=>{
+            if(c>=0.7)return"#FFE5E5";
+            if(c<=-0.4)return"#E5FFF0";
+            return"#9A9080";
+          };
+
+          return h("details",{style:{marginBottom:14}},
+            h("summary",{style:{cursor:"pointer",padding:"11px 13px",background:"rgba(156,125,194,0.04)",border:"1px solid rgba(156,125,194,0.25)",borderRadius:8,listStyle:"none",userSelect:"none"}},
+              h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}},
+                h("div",{style:{display:"flex",alignItems:"center",gap:8}},
+                  h("span",{style:{fontSize:14}},"\u{1F517}"),
+                  h("div",{},
+                    h("div",{style:{fontSize:9,letterSpacing:2,color:"#9C7DC2",fontFamily:"monospace",fontWeight:700}},"CORRELACAO E DIVERSIFICACAO"),
+                    h("div",{style:{fontSize:9,color:"#7A7060",marginTop:2,fontStyle:"italic"}},"clique para expandir analise completa")
+                  )
+                ),
+                h("div",{style:{textAlign:"right",display:"flex",alignItems:"center",gap:8}},
+                  h("div",{},
+                    h("div",{style:{fontSize:7,color:"#8A8070",fontFamily:"monospace",letterSpacing:1.2}},"DIVERSIFICACAO"),
+                    h("div",{style:{fontSize:13,color:corDiv,fontWeight:700,fontFamily:"monospace"}},lblDiv," ",scoreDiv.toFixed(0),"/100")
+                  )
+                )
+              )
+            ),
+            // Conteudo expandido
+            h("div",{style:{padding:"12px 14px",background:"rgba(156,125,194,0.02)",borderLeft:"1px solid rgba(156,125,194,0.20)",borderRight:"1px solid rgba(156,125,194,0.20)",borderBottom:"1px solid rgba(156,125,194,0.20)",borderRadius:"0 0 8px 8px",marginTop:-1}},
+              // Legenda explicativa
+              h("div",{style:{background:"rgba(0,0,0,0.18)",borderRadius:5,padding:"8px 10px",marginBottom:11}},
+                h("div",{style:{fontSize:7,letterSpacing:1.5,color:"#8A8070",fontFamily:"monospace",fontWeight:700,marginBottom:5}},"\u{1F4D6} O QUE E CORRELACAO"),
+                h("div",{style:{fontSize:9,color:"#9A9080",lineHeight:1.65}},
+                  h("div",{style:{marginBottom:4}},"Correlacao mede como duas classes se ",h("strong",{},"movimentam juntas"),". Varia de -1 (movimentos OPOSTOS) a +1 (movimentos identicos)."),
+                  h("div",{style:{marginBottom:4}},h("strong",{style:{color:"#E05252"}},"Alta (+0.7 a +1.0)"),": as classes sobem e descem juntas. Diversificacao FRACA - ambas sofrem na mesma crise."),
+                  h("div",{style:{marginBottom:4}},h("strong",{style:{color:"#E8C44A"}},"Media (-0.3 a +0.4)"),": comportamento parcialmente independente. Diversificacao MEDIA."),
+                  h("div",{style:{marginBottom:4}},h("strong",{style:{color:"#4CAF82"}},"Baixa ou negativa (-1.0 a -0.3)"),": quando uma cai, a outra tende a subir ou ficar lateral. Diversificacao OTIMA."),
+                  h("div",{},h("strong",{style:{color:"#C8A96E"}},"Score de Diversificacao"),": media ponderada das correlacoes pelos seus pesos. Quanto MENOS correlacionado seu portfolio, MAIOR o score.")
+                )
+              ),
+
+              // Score com barra visual
+              h("div",{style:{background:"rgba(0,0,0,0.20)",borderRadius:6,padding:"10px 12px",marginBottom:11}},
+                h("div",{style:{display:"flex",alignItems:"baseline",justifyContent:"space-between",marginBottom:7,gap:8}},
+                  h("div",{style:{fontSize:8,letterSpacing:1.5,color:"#8A8070",fontFamily:"monospace",fontWeight:700}},"SCORE DE DIVERSIFICACAO EFETIVA"),
+                  h("div",{style:{fontSize:11,color:corDiv,fontWeight:700,fontFamily:"monospace"}},scoreDiv.toFixed(0),"/100 \u00B7 ",lblDiv)
+                ),
+                // Barra
+                h("div",{style:{position:"relative",height:8,background:"rgba(255,255,255,0.04)",borderRadius:4,overflow:"hidden",marginBottom:6}},
+                  h("div",{style:{position:"absolute",top:0,left:0,height:"100%",width:scoreDiv+"%",background:"linear-gradient(90deg,"+corDiv+"AA,"+corDiv+")",borderRadius:4}})
+                ),
+                h("div",{style:{fontSize:8,color:"#7A7060",fontStyle:"italic",lineHeight:1.5}},
+                  "Correlacao media ponderada: ",h("strong",{},corrMediaPond.toFixed(3)),
+                  ". Quanto mais proximo de 0 ou negativo, melhor a diversificacao do conjunto."
+                )
+              ),
+
+              // MATRIZ VISUAL DE CORRELACAO
+              h("div",{style:{marginBottom:11}},
+                h("div",{style:{fontSize:8,letterSpacing:1.5,color:"#8A8070",fontFamily:"monospace",fontWeight:700,marginBottom:6}},"\u{1F4CA} MATRIZ DE CORRELACAO"),
+                h("p",{style:{fontSize:8,color:"#7A7060",lineHeight:1.5,margin:"0 0 8px",fontStyle:"italic"}},"Linhas e colunas: 10 classes do portfolio. Verde = descorrelacionado (bom). Vermelho = correlacionado (concentracao de risco)."),
+                h("div",{style:{overflowX:"auto"}},
+                  h("table",{style:{width:"100%",borderCollapse:"separate",borderSpacing:1,fontSize:7,fontFamily:"monospace"}},
+                    h("thead",{},
+                      h("tr",{},
+                        h("th",{style:{padding:"3px 4px",textAlign:"left",color:"#6A6050",fontSize:6,letterSpacing:1}},""),
+                        ...MPT_CLS.map(cid=>{
+                          const c=classeInfo(cid);
+                          return h("th",{key:"th"+cid,style:{padding:"3px 2px",textAlign:"center",fontSize:6,color:c.cor,letterSpacing:0.5,minWidth:28,writingMode:"vertical-rl",transform:"rotate(180deg)",height:36}},c.nome.slice(0,8));
+                        })
+                      )
+                    ),
+                    h("tbody",{},
+                      ...MPT_CLS.map((cid1,i)=>{
+                        const c1=classeInfo(cid1);
+                        return h("tr",{key:"tr"+cid1},
+                          h("td",{style:{padding:"3px 5px",color:c1.cor,fontWeight:700,fontSize:7,textAlign:"left",borderRight:"1px solid rgba(255,255,255,0.04)"}},c1.nome.slice(0,10)),
+                          ...MPT_CLS.map((cid2,j)=>{
+                            const c=MPT_COR[i]&&MPT_COR[i][j];
+                            const cVal=typeof c==="number"?c:0;
+                            const isSelf=i===j;
+                            return h("td",{key:"cell"+i+"-"+j,style:{padding:"4px 2px",textAlign:"center",background:isSelf?"rgba(200,169,110,0.15)":corCorrel(cVal),color:isSelf?"#C8A96E":txtCorCorrel(cVal),fontWeight:Math.abs(cVal)>=0.5?700:400,fontSize:7.5,borderRadius:2}},isSelf?"1.0":cVal.toFixed(2));
+                          })
+                        );
+                      })
+                    )
+                  )
+                ),
+                // Legenda da matriz
+                h("div",{style:{display:"flex",justifyContent:"center",gap:5,fontSize:6.5,fontFamily:"monospace",marginTop:8,color:"#6A6050",flexWrap:"wrap",alignItems:"center"}},
+                  h("span",{},"-1.0"),
+                  h("span",{style:{width:18,height:9,background:"rgba(76,175,130,0.50)",borderRadius:1}}),
+                  h("span",{style:{width:18,height:9,background:"rgba(125,209,125,0.30)",borderRadius:1}}),
+                  h("span",{style:{width:18,height:9,background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:1}}),
+                  h("span",{style:{width:18,height:9,background:"rgba(232,196,74,0.30)",borderRadius:1}}),
+                  h("span",{style:{width:18,height:9,background:"rgba(232,144,96,0.45)",borderRadius:1}}),
+                  h("span",{style:{width:18,height:9,background:"rgba(224,82,82,0.55)",borderRadius:1}}),
+                  h("span",{},"+1.0")
+                )
+              ),
+
+              // PARES MAIS CORRELACIONADOS E DESCORRELACIONADOS
+              h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:11}},
+                // Mais correlacionados (atencao)
+                h("div",{style:{background:"rgba(224,82,82,0.04)",border:"1px solid rgba(224,82,82,0.20)",borderRadius:6,padding:"9px 10px"}},
+                  h("div",{style:{fontSize:7,letterSpacing:1.5,color:"#E05252",fontFamily:"monospace",fontWeight:700,marginBottom:6}},"\u26A0 MAIS CORRELACIONADOS"),
+                  h("div",{style:{fontSize:7.5,color:"#6A6050",marginBottom:5,fontStyle:"italic",lineHeight:1.4}},"Pares com maior risco de mover juntos em crises:"),
+                  maisCorr.length===0?h("div",{style:{fontSize:8,color:"#6A6050",fontStyle:"italic"}},"Nenhum par relevante."):
+                  maisCorr.map((p,i)=>h("div",{key:"mc"+i,style:{padding:"4px 0",borderTop:i>0?"1px solid rgba(255,255,255,0.04)":"none"}},
+                    h("div",{style:{display:"flex",alignItems:"center",gap:4,fontSize:8.5,marginBottom:2}},
+                      h("span",{style:{width:6,height:6,borderRadius:"50%",background:p.cor1,flexShrink:0}}),
+                      h("span",{style:{color:"#E8E2D5"}},p.nome1.slice(0,11)),
+                      h("span",{style:{color:"#5A5550",fontSize:7}},"x"),
+                      h("span",{style:{width:6,height:6,borderRadius:"50%",background:p.cor2,flexShrink:0}}),
+                      h("span",{style:{color:"#E8E2D5"}},p.nome2.slice(0,11))
+                    ),
+                    h("div",{style:{display:"flex",justifyContent:"space-between",fontSize:7,color:"#7A7060",fontFamily:"monospace"}},
+                      h("span",{},p.peso1.toFixed(0),"% x ",p.peso2.toFixed(0),"%"),
+                      h("span",{style:{color:"#E05252",fontWeight:700}},"corr ",p.correlacao.toFixed(2))
+                    )
+                  ))
+                ),
+                // Mais descorrelacionados (boa diversific)
+                h("div",{style:{background:"rgba(76,175,130,0.04)",border:"1px solid rgba(76,175,130,0.20)",borderRadius:6,padding:"9px 10px"}},
+                  h("div",{style:{fontSize:7,letterSpacing:1.5,color:"#4CAF82",fontFamily:"monospace",fontWeight:700,marginBottom:6}},"\u2705 MAIS DESCORRELACIONADOS"),
+                  h("div",{style:{fontSize:7.5,color:"#6A6050",marginBottom:5,fontStyle:"italic",lineHeight:1.4}},"Pares que se protegem mutuamente:"),
+                  maisDescor.length===0?h("div",{style:{fontSize:8,color:"#6A6050",fontStyle:"italic"}},"Nenhum par relevante."):
+                  maisDescor.map((p,i)=>h("div",{key:"md"+i,style:{padding:"4px 0",borderTop:i>0?"1px solid rgba(255,255,255,0.04)":"none"}},
+                    h("div",{style:{display:"flex",alignItems:"center",gap:4,fontSize:8.5,marginBottom:2}},
+                      h("span",{style:{width:6,height:6,borderRadius:"50%",background:p.cor1,flexShrink:0}}),
+                      h("span",{style:{color:"#E8E2D5"}},p.nome1.slice(0,11)),
+                      h("span",{style:{color:"#5A5550",fontSize:7}},"x"),
+                      h("span",{style:{width:6,height:6,borderRadius:"50%",background:p.cor2,flexShrink:0}}),
+                      h("span",{style:{color:"#E8E2D5"}},p.nome2.slice(0,11))
+                    ),
+                    h("div",{style:{display:"flex",justifyContent:"space-between",fontSize:7,color:"#7A7060",fontFamily:"monospace"}},
+                      h("span",{},p.peso1.toFixed(0),"% x ",p.peso2.toFixed(0),"%"),
+                      h("span",{style:{color:"#4CAF82",fontWeight:700}},"corr ",p.correlacao.toFixed(2))
+                    )
+                  ))
+                )
+              ),
+
+              // INSIGHT
+              (()=>{
+                // Detecta pares "concentracao alta + alta correlacao" como alerta
+                const alertas=maisCorr.filter(p=>p.correlacao>=0.6&&p.pesoMin>=5);
+                return h("div",{style:{background:"linear-gradient(135deg,rgba(200,169,110,0.06),rgba(156,125,194,0.04))",border:"1px solid rgba(200,169,110,0.20)",borderRadius:6,padding:"10px 11px"}},
+                  h("div",{style:{fontSize:8,letterSpacing:1.5,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,marginBottom:6}},"\u{1F4A1} INSIGHT"),
+                  alertas.length>0?h("div",{style:{fontSize:9,color:"#E8E2D5",lineHeight:1.65}},
+                    h("p",{style:{margin:"0 0 6px"}},
+                      h("strong",{style:{color:"#E89060"}},"Atencao"),": ",alertas.length===1?"o par":"os pares"," ",
+                      alertas.map((p,i)=>h("span",{key:"alr"+i},h("strong",{},p.nome1+" / "+p.nome2),i<alertas.length-1?(i===alertas.length-2?" e ":", "):"")),
+                      " concentra",alertas.length===1?"":"m"," pesos relevantes (",alertas[0].peso1.toFixed(0)+"% e "+alertas[0].peso2.toFixed(0)+"%) com alta correlacao (",alertas[0].correlacao.toFixed(2),"). Em crises, ambas tendem a cair juntas."
+                    ),
+                    h("p",{style:{margin:0,fontStyle:"italic",color:"#9A9080"}},
+                      "Considere classes mais descorrelacionadas para futuros aportes (",
+                      maisDescor.length>0?maisDescor[0].nome1+" / "+maisDescor[0].nome2:"ouro / selic",
+                      " sao bons exemplos do seu portfolio)."
+                    )
+                  ):h("p",{style:{margin:0,fontSize:9,color:"#E8E2D5",lineHeight:1.65}},
+                    "Sua composicao apresenta boa diversificacao entre as principais classes. Os pares de maior peso nao estao excessivamente correlacionados - bom equilibrio para Buy & Hold de longo prazo."
+                  )
+                );
+              })(),
+
+              // AVISO sobre limitacao
+              h("div",{style:{fontSize:8,color:"#7A7060",fontStyle:"italic",lineHeight:1.5,marginTop:10,padding:"7px 9px",background:"rgba(232,196,74,0.04)",borderLeft:"3px solid #E8C44A",borderRadius:"0 4px 4px 0"}},
+                "\u26A0 Correlacoes mudam em crises. Durante 2008 e 2020, classes tipicamente descorrelacionadas convergiram para +1.0 (",h("em",{},"\"diversification fails when you need it most\""),"). Use esta matriz como referencia de longo prazo, nao como protecao garantida em curto prazo."
+              )
+            )
+          );
+        }catch(e){
+          console.error("Erro correlacaoBlock:",e);
+          return null;
+        }
+      })();
+
       content=h("div",{},
         bandsBlock,
+        correlacaoBlock,
         aporteConfBlock,
         imoveisBlock,
         manutencaoBlock,
@@ -6771,6 +7246,461 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
       console.error("Erro renderizando PROJECAO:",e);
       content=h("div",{style:{padding:"24px 16px",background:"rgba(224,82,82,0.06)",border:"1px solid rgba(224,82,82,0.25)",borderRadius:8,marginTop:12}},
         h("div",{style:{fontSize:11,color:"#E05252",fontFamily:"monospace",fontWeight:700,marginBottom:8}},"\u26A0 Erro ao renderizar Projecoes"),
+        h("div",{style:{fontSize:10,color:"#9A9080",lineHeight:1.6,fontFamily:"monospace",whiteSpace:"pre-wrap"}},e&&e.message?e.message:String(e))
+      );
+    }
+  }
+
+  // RENDA PASSIVA
+  if(tab==="renda"){
+    try{
+      const hoje=new Date();
+      const mesAtual=hoje.toISOString().slice(0,7);// YYYY-MM
+      const anoAtual=hoje.getFullYear();
+      const mesNum=hoje.getMonth();// 0-11
+      // Helper formato compacto BR
+      const fmtBRComp=v=>{
+        if(v>=1e9)return"R$ "+(v/1e9).toFixed(2)+"B";
+        if(v>=1e6)return"R$ "+(v/1e6).toFixed(2)+"M";
+        if(v>=1e3)return"R$ "+(v/1e3).toFixed(1)+"k";
+        return"R$ "+v.toFixed(2);
+      };
+      const fmtUSDComp=v=>{
+        if(v>=1e6)return"US$ "+(v/1e6).toFixed(2)+"M";
+        if(v>=1e3)return"US$ "+(v/1e3).toFixed(1)+"k";
+        return"US$ "+v.toFixed(2);
+      };
+
+      // Helper: pega proventos do ticker multiplicados pela quantidade
+      const proventosDoTicker=(ticker)=>{
+        const p=port[ticker];
+        if(!p||!proventos[ticker])return[];
+        return proventos[ticker].map(d=>{
+          // Usa qtyNaData salvo no pagamento (snapshot historico).
+          // Fallback: se nao houver (dados muito antigos), recalcula sob demanda
+          const qtyHistorica=typeof d.qtyNaData==="number"?d.qtyNaData:posicaoHistorica(ticker,d.date);
+          return{
+            ...d,
+            ticker,
+            qtyNaData:qtyHistorica,
+            recebido:d.valor*qtyHistorica// valor por cota * quantidade na data do pagamento
+          };
+        });
+      };
+
+      // Todos os proventos (achatados, com info do ticker)
+      const todosProventos=[];
+      Object.keys(proventos).forEach(t=>{
+        todosProventos.push(...proventosDoTicker(t));
+      });
+      todosProventos.sort((a,b)=>b.date.localeCompare(a.date));// mais recente primeiro
+
+      // Separa por moeda
+      const proventosBRL=todosProventos.filter(p=>p.moeda==="BRL");
+      const proventosUSD=todosProventos.filter(p=>p.moeda==="USD");
+      const proventosEUR=todosProventos.filter(p=>p.moeda==="EUR");
+
+      // Calendario do mes atual - proventos com payDate no mes vigente
+      const calMesBRL=proventosBRL.filter(p=>p.date.startsWith(mesAtual));
+      const calMesUSD=proventosUSD.filter(p=>p.date.startsWith(mesAtual));
+      const calMesEUR=proventosEUR.filter(p=>p.date.startsWith(mesAtual));
+      // Totais do mes (so confirmados)
+      const totMesBRL=calMesBRL.reduce((a,b)=>a+b.recebido,0);
+      const totMesUSD=calMesUSD.reduce((a,b)=>a+b.recebido,0);
+      const totMesEUR=calMesEUR.reduce((a,b)=>a+b.recebido,0);
+
+      // ANUNCIOS FUTUROS - filtra os do mes atual e calcula valor*qty na DATA COM
+      // Data com = dia limite pra ter direito ao provento. Heuristica: ~5 dias corridos antes da data de pagamento
+      // (cobre record date + fim de semana). Yahoo dividendDate e a data de pagamento.
+      const anunciosDoMes=[];
+      Object.entries(proventosAnunciados||{}).forEach(([t,anuncio])=>{
+        if(!anuncio||!anuncio.date)return;
+        if(!anuncio.date.startsWith(mesAtual))return;
+        const p=port[t];
+        if(!p||!(p.qty>0))return;
+        // So inclui se ainda nao houver pagamento confirmado para esse ticker neste mes
+        const jaPagou=todosProventos.some(pv=>pv.ticker===t&&pv.date.startsWith(mesAtual));
+        if(jaPagou)return;
+        // Estima a data com: 5 dias corridos antes da data de pagamento
+        const pagamentoDt=new Date(anuncio.date+"T00:00:00");
+        const dataComDt=new Date(pagamentoDt.getTime()-5*24*60*60*1000);
+        const dataComStr=dataComDt.toISOString().slice(0,10);
+        // Quantidade que voce TINHA (ou tera) na data com estimada
+        const qtyNaDataCom=posicaoHistorica(t,dataComStr);
+        if(qtyNaDataCom<=0)return;// sem direito
+        anunciosDoMes.push({
+          ...anuncio,
+          ticker:t,
+          dataCom:dataComStr,
+          qtyNaDataCom,
+          recebido:anuncio.valor*qtyNaDataCom
+        });
+      });
+      const anuncMesBRL=anunciosDoMes.filter(a=>a.moeda==="BRL");
+      const anuncMesUSD=anunciosDoMes.filter(a=>a.moeda==="USD");
+      const totAnuncBRL=anuncMesBRL.reduce((a,b)=>a+b.recebido,0);
+      const totAnuncUSD=anuncMesUSD.reduce((a,b)=>a+b.recebido,0);
+
+      // Acumulado por mes (para grafico de barras) - ultimos 12 meses
+      const mesesGrafico=[];
+      for(let i=11;i>=0;i--){
+        const d=new Date(anoAtual,mesNum-i,1);
+        mesesGrafico.push({
+          chave:d.toISOString().slice(0,7),
+          label:d.toLocaleDateString("pt-BR",{month:"short",year:"2-digit"})
+        });
+      }
+      const acumMensalBRL={};
+      const acumMensalUSD={};
+      mesesGrafico.forEach(m=>{
+        acumMensalBRL[m.chave]=0;
+        acumMensalUSD[m.chave]=0;
+      });
+      proventosBRL.forEach(p=>{
+        const mes=p.date.slice(0,7);
+        if(acumMensalBRL[mes]!==undefined)acumMensalBRL[mes]+=p.recebido;
+      });
+      proventosUSD.forEach(p=>{
+        const mes=p.date.slice(0,7);
+        if(acumMensalUSD[mes]!==undefined)acumMensalUSD[mes]+=p.recebido;
+      });
+
+      // Acumulado total desde RENDA_INICIO
+      const totalAcumBRL=proventosBRL.reduce((a,b)=>a+b.recebido,0);
+      const totalAcumUSD=proventosUSD.reduce((a,b)=>a+b.recebido,0);
+
+      // ===== PROJECAO DE RENDA FUTURA =====
+      // Pesos atuais por classe
+      const wAtualR={};
+      MPT_CLS.forEach(cid=>{wAtualR[cid]=(cw[cid]||0)/100;});
+      const aporteSel=rendaProjAporte;
+      const totalAporteAnualReal=aporteSel*12;
+      // Projecao de renda anual (em R$ reais) por janela e cenario
+      const projetarRendaAnual=(anos,cenario)=>{
+        // Capital projetado em REAL (poder de compra hoje)
+        // Usa retorno real do PROJ_RET para cada classe ponderado
+        let capital=total;
+        for(let a=1;a<=anos;a++){
+          let retPort=0;
+          MPT_CLS.forEach(cid=>{
+            const r=PROJ_RET[cid];
+            if(r)retPort+=(wAtualR[cid]||0)*(r[cenario]||r.base);
+          });
+          capital=capital*(1+retPort)+totalAporteAnualReal;
+        }
+        // Calcula renda anual usando DY medio ponderado
+        let dyMedio=0;
+        MPT_CLS.forEach(cid=>{
+          const dy=RENDA_DY[cid];
+          if(dy)dyMedio+=(wAtualR[cid]||0)*(dy[cenario]||dy.base);
+        });
+        return{capital,renda:capital*dyMedio,dyMedio};
+      };
+
+      // ===== RENDER =====
+      content=h("div",{},
+        // ===== HEADER =====
+        h("div",{style:{marginBottom:14}},
+          h("div",{style:{fontSize:9,letterSpacing:3,color:"#4CAF82",fontFamily:"monospace",textTransform:"uppercase",marginBottom:4}},"\u{1F4B0} RENDA PASSIVA"),
+          h("p",{style:{fontSize:11,color:"#9A9080",lineHeight:1.6,margin:0}},"Acompanhamento da renda gerada pelo portfolio: proventos do mes, historico mensal por moeda, acumulado desde junho/2026 e projecao futura. Atualize via botao abaixo para buscar pagamentos via BRAPI (B3) e Yahoo (internacionais).")
+        ),
+
+        // ===== CONTROLE: BOTAO ATUALIZAR =====
+        h("div",{style:{background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:9,padding:"12px 14px",marginBottom:14}},
+          h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap"}},
+            h("div",{},
+              h("div",{style:{fontSize:8,letterSpacing:1.5,color:"#8A8070",fontFamily:"monospace",fontWeight:700,marginBottom:3}},"DADOS DE PROVENTOS"),
+              h("div",{style:{fontSize:9,color:"#7A7060",fontStyle:"italic",lineHeight:1.5}},
+                proventosTs?"Ultima atualizacao: "+new Date(proventosTs).toLocaleDateString("pt-BR",{day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"}):"Nunca atualizado - clique para buscar"
+              )
+            ),
+            h("button",{onClick:buscarProventos,disabled:proventosLoading,style:{padding:"8px 14px",background:proventosLoading?"rgba(76,175,130,0.2)":"linear-gradient(135deg,#4CAF82,#2E8B5C)",border:"none",borderRadius:6,color:proventosLoading?"#7A7060":"#FFF",fontSize:11,fontFamily:"monospace",fontWeight:700,cursor:proventosLoading?"wait":"pointer",letterSpacing:1}},proventosLoading?"BUSCANDO...":"\u21BB ATUALIZAR PROVENTOS")
+          ),
+          !brapiKey&&h("div",{style:{fontSize:9,color:"#E89060",marginTop:8,padding:"6px 9px",background:"rgba(232,144,96,0.08)",borderRadius:5,fontStyle:"italic",lineHeight:1.5}},"\u26A0 BRAPI token nao configurado. Para buscar proventos de ativos B3 (FII, acoes BR, infra, agro), configure o token no Dashboard (botao BRAPI).")
+        ),
+
+        // ===== LEGENDA EXPLICATIVA =====
+        h("div",{style:{background:"rgba(0,0,0,0.18)",borderRadius:6,padding:"10px 12px",marginBottom:14}},
+          h("div",{style:{fontSize:8,letterSpacing:1.5,color:"#8A8070",fontFamily:"monospace",fontWeight:700,marginBottom:6}},"\u{1F4D6} COMO FUNCIONA"),
+          h("div",{style:{fontSize:9,color:"#9A9080",lineHeight:1.65}},
+            h("div",{style:{marginBottom:4}},h("strong",{style:{color:"#4CAF82"}},"Fonte"),": pagamentos via BRAPI (B3) e Yahoo Finance (internacionais). Apenas valores ja pagos confirmados - APIs gratuitas nao fornecem anuncios futuros confiaveis."),
+            h("div",{style:{marginBottom:4}},h("strong",{style:{color:"#4CAF82"}},"Periodo"),": serie historica comeca em ",h("strong",{},"junho/2026"),". Pagamentos anteriores nao sao contabilizados."),
+            h("div",{style:{marginBottom:4}},h("strong",{style:{color:"#4CAF82"}},"Moedas"),": BRL e USD separados nos graficos. Quantidade x valor por cota = total recebido."),
+            h("div",{},h("strong",{style:{color:"#4CAF82"}},"Atualizacao"),": manual via botao acima. Recomenda-se atualizar 1x por semana ou apos receber emails de pagamento.")
+          )
+        ),
+
+        // ===== CARD 1: CALENDARIO DO MES ATUAL =====
+        h("div",{style:{background:"linear-gradient(135deg,rgba(76,175,130,0.08),rgba(76,175,130,0.02))",border:"1px solid rgba(76,175,130,0.25)",borderRadius:9,padding:"13px 14px",marginBottom:14}},
+          h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:9,gap:8}},
+            h("div",{},
+              h("div",{style:{fontSize:9,letterSpacing:2,color:"#4CAF82",fontFamily:"monospace",fontWeight:700}},"\u{1F4C5} CALENDARIO DO MES"),
+              h("div",{style:{fontSize:9,color:"#9A9080",marginTop:2}},hoje.toLocaleDateString("pt-BR",{month:"long",year:"numeric"}))
+            ),
+            h("div",{style:{textAlign:"right"}},
+              (totMesBRL>0||totAnuncBRL>0)&&h("div",{style:{fontSize:13,color:"#4CAF82",fontFamily:"monospace",fontWeight:700}},
+                fmtBRComp(totMesBRL+totAnuncBRL),
+                totAnuncBRL>0&&h("span",{style:{fontSize:8,color:"#7A7060",fontWeight:400,marginLeft:4}},"(",fmtBRComp(totMesBRL)," + ~",fmtBRComp(totAnuncBRL),")")
+              ),
+              (totMesUSD>0||totAnuncUSD>0)&&h("div",{style:{fontSize:10,color:"#4CAF82",fontFamily:"monospace",fontWeight:700,marginTop:2}},
+                fmtUSDComp(totMesUSD+totAnuncUSD),
+                totAnuncUSD>0&&h("span",{style:{fontSize:7,color:"#7A7060",fontWeight:400,marginLeft:4}},"(",fmtUSDComp(totMesUSD)," + ~",fmtUSDComp(totAnuncUSD),")")
+              )
+            )
+          ),
+          // Legenda de status
+          (calMesBRL.length>0||calMesUSD.length>0||anuncMesBRL.length>0||anuncMesUSD.length>0)&&h("div",{style:{display:"flex",gap:12,fontSize:8,fontFamily:"monospace",marginBottom:8,padding:"5px 8px",background:"rgba(0,0,0,0.15)",borderRadius:4}},
+            h("div",{style:{display:"flex",alignItems:"center",gap:4}},h("span",{style:{color:"#4CAF82",fontSize:10}},"\u2713"),h("span",{style:{color:"#8A8070"}},"PAGO")),
+            h("div",{style:{display:"flex",alignItems:"center",gap:4}},h("span",{style:{color:"#E8C44A",fontSize:10}},"\u{1F4C5}"),h("span",{style:{color:"#8A8070"}},"ANUNCIADO (estimativa)"))
+          ),
+          // Pagamentos confirmados + anuncios futuros do mes
+          (calMesBRL.length===0&&calMesUSD.length===0&&anuncMesBRL.length===0&&anuncMesUSD.length===0)?h("div",{style:{textAlign:"center",padding:"20px 0",color:"#6A6050",fontStyle:"italic",fontSize:10}},
+            todosProventos.length===0&&Object.keys(proventosAnunciados||{}).length===0?"Nenhum provento registrado. Clique em ATUALIZAR PROVENTOS para buscar.":"Nenhum pagamento ou anuncio registrado neste mes."
+          ):h("div",{style:{display:"flex",flexDirection:"column",gap:5}},
+            // Junta confirmados (com flag confirmado=true) + anuncios (confirmado=false)
+            ...[
+              ...[...calMesBRL,...calMesUSD,...calMesEUR].map(p=>({...p,confirmado:true})),
+              ...[...anuncMesBRL,...anuncMesUSD].map(p=>({...p,confirmado:false}))
+            ].sort((a,b)=>a.date.localeCompare(b.date)).map((p,i)=>{
+              const dataObj=new Date(p.date+"T00:00:00");
+              const cl=CL.find(c=>c.id===(port[p.ticker]&&port[p.ticker].classId||cls[p.ticker]));
+              return h("div",{key:"cm"+i,style:{display:"grid",gridTemplateColumns:"22px 55px 1fr auto",gap:7,alignItems:"center",padding:"6px 9px",background:p.confirmado?"rgba(0,0,0,0.18)":"rgba(232,196,74,0.06)",borderRadius:5,borderLeft:"3px solid "+(cl?cl.color:"#8A8070")}},
+                h("div",{style:{fontSize:11,textAlign:"center",color:p.confirmado?"#4CAF82":"#E8C44A"}},p.confirmado?"\u2713":"\u{1F4C5}"),
+                h("div",{style:{fontSize:9,color:p.confirmado?"#C8A96E":"#B0A070",fontFamily:"monospace",fontWeight:700}},dataObj.toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"})),
+                h("div",{style:{minWidth:0}},
+                  h("div",{style:{fontSize:10,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700}},p.ticker),
+                  h("div",{style:{fontSize:8,color:"#7A7060",fontStyle:"italic"}},
+                    p.tipo," \u00B7 ",p.valor.toFixed(4)+"/cota",
+                    // Confirmados: mostra qty na data
+                    p.confirmado&&typeof p.qtyNaData==="number"&&p.qtyNaData>0&&h("span",{style:{color:"#5A5550",marginLeft:5}},"\u00D7 ",p.qtyNaData.toLocaleString("pt-BR"),"cotas"),
+                    // Anuncios: mostra qty na data com e a data
+                    !p.confirmado&&typeof p.qtyNaDataCom==="number"&&p.qtyNaDataCom>0&&h("span",{style:{color:"#5A5550",marginLeft:5}},"\u00D7 ",p.qtyNaDataCom.toLocaleString("pt-BR")," (data com ~",p.dataCom?new Date(p.dataCom+"T00:00:00").toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"}):"?",")")
+                  )
+                ),
+                h("div",{style:{textAlign:"right",fontSize:10,color:p.confirmado?"#4CAF82":"#E8C44A",fontFamily:"monospace",fontWeight:700}},
+                  p.confirmado?"":"\u223C",
+                  p.moeda==="BRL"?fmtBRComp(p.recebido):p.moeda==="USD"?fmtUSDComp(p.recebido):p.recebido.toFixed(2)+" "+p.moeda
+                )
+              );
+            })
+          ),
+          // Nota informativa
+          (anuncMesBRL.length>0||anuncMesUSD.length>0)&&h("div",{style:{fontSize:8,color:"#7A7060",fontStyle:"italic",marginTop:8,padding:"6px 8px",background:"rgba(232,196,74,0.04)",borderLeft:"3px solid #E8C44A",borderRadius:"0 4px 4px 0",lineHeight:1.5}},
+            "\u{1F4A1} Anuncios futuros vem do Yahoo Finance (ativos internacionais). Valor estimado: ultimo dividendo \u00D7 quantidade na ",h("strong",{},"data com")," (estimada ~5 dias antes da data de pagamento). FIIs/BR/Agro/Infra so aparecerao apos pagamento confirmado via BRAPI."
+          )
+        ),
+
+        // ===== CARD 2: GRAFICO MENSAL HISTORICO =====
+        (()=>{
+          const W=340,H=220,padL=55,padR=15,padT=15,padB=45;
+          const iw=W-padL-padR,ih=H-padT-padB;
+          const maxValBRL=Math.max(0.01,...Object.values(acumMensalBRL));
+          const maxValUSD=Math.max(0.01,...Object.values(acumMensalUSD));
+          const barW=iw/mesesGrafico.length*0.7;
+          const passoX=iw/mesesGrafico.length;
+          return h("div",{},
+            // Header
+            h("div",{style:{fontSize:9,letterSpacing:2,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,marginBottom:4}},"\u{1F4CA} HISTORICO MENSAL POR MOEDA"),
+            h("p",{style:{fontSize:9,color:"#7A7060",lineHeight:1.5,margin:"0 0 10px",fontStyle:"italic"}},"Ultimos 12 meses. Cada barra mostra o total recebido naquele mes. Mes vigente em destaque."),
+            // Legenda
+            h("div",{style:{background:"rgba(0,0,0,0.18)",borderRadius:5,padding:"8px 10px",marginBottom:10}},
+              h("div",{style:{fontSize:7,letterSpacing:1.5,color:"#8A8070",fontFamily:"monospace",fontWeight:700,marginBottom:5}},"\u{1F4D6} COMO LER"),
+              h("div",{style:{fontSize:9,color:"#9A9080",lineHeight:1.65}},
+                h("div",{style:{marginBottom:3}},h("strong",{style:{color:"#C8A96E"}},"Verde escuro (BRL)"),": dividendos de ativos da B3 - FIIs, acoes BR, infra, agro."),
+                h("div",{style:{marginBottom:3}},h("strong",{style:{color:"#5B8FD4"}},"Azul (USD)"),": dividendos de ativos internacionais - acoes EXT, REITs."),
+                h("div",{},h("strong",{style:{color:"#E89060"}},"Mes vigente"),": destacado com borda dourada (pagamentos podem ainda ocorrer ate o fim do mes).")
+              )
+            ),
+            // Grafico BRL
+            h("div",{style:{background:"rgba(76,175,130,0.04)",border:"1px solid rgba(76,175,130,0.20)",borderRadius:8,padding:"11px 12px",marginBottom:10}},
+              h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:7}},
+                h("div",{style:{fontSize:8,color:"#4CAF82",letterSpacing:1.5,fontFamily:"monospace",fontWeight:700}},"\u{1F1E7}\u{1F1F7} BRL (B3)"),
+                h("div",{style:{fontSize:9,color:"#7A7060",fontFamily:"monospace"}},"12 meses: ",h("strong",{style:{color:"#4CAF82"}},fmtBRComp(Object.values(acumMensalBRL).reduce((a,b)=>a+b,0))))
+              ),
+              h("div",{style:{display:"flex",justifyContent:"center"}},
+                h("svg",{width:W,height:H,style:{maxWidth:"100%",height:"auto"}},
+                  h("defs",{},
+                    h("linearGradient",{id:"barRendaBRL",x1:"0%",y1:"0%",x2:"0%",y2:"100%"},
+                      h("stop",{offset:"0%","stop-color":"#4CAF82","stop-opacity":"1"}),
+                      h("stop",{offset:"100%","stop-color":"#2E8B5C","stop-opacity":"0.85"})
+                    )
+                  ),
+                  // Grid horizontal
+                  ...[0,0.25,0.5,0.75,1].map((p,i)=>{
+                    const y=padT+ih*p;
+                    const v=maxValBRL*(1-p);
+                    return h("g",{key:"ghbrl"+i},
+                      h("line",{x1:padL,y1:y,x2:W-padR,y2:y,stroke:"#2A2820",strokeWidth:0.5,strokeDasharray:"2,2"}),
+                      h("text",{x:padL-5,y:y+3,textAnchor:"end",fontSize:8,fill:"#5A5550",fontFamily:"monospace"},fmtBRComp(v))
+                    );
+                  }),
+                  // Barras
+                  ...mesesGrafico.map((m,i)=>{
+                    const v=acumMensalBRL[m.chave]||0;
+                    const x=padL+passoX*i+(passoX-barW)/2;
+                    const y=padT+ih*(1-v/maxValBRL);
+                    const barH=H-padB-y;
+                    const isAtual=m.chave===mesAtual;
+                    return h("g",{key:"brlb"+i},
+                      v>0&&h("rect",{x,y,width:barW,height:barH,fill:"url(#barRendaBRL)",rx:2,stroke:isAtual?"#C8A96E":"none",strokeWidth:isAtual?1.5:0,style:{filter:"drop-shadow(0 1px 2px rgba(0,0,0,0.3))"}}),
+                      // Label do mes
+                      h("text",{x:padL+passoX*i+passoX/2,y:H-padB+13,textAnchor:"middle",fontSize:7,fill:isAtual?"#C8A96E":"#6A6050",fontFamily:"monospace",fontWeight:isAtual?700:400,transform:"rotate(-30 "+(padL+passoX*i+passoX/2)+" "+(H-padB+13)+")"},m.label),
+                      // Valor acima
+                      v>0&&barH>20&&h("text",{x:padL+passoX*i+passoX/2,y:y-3,textAnchor:"middle",fontSize:6.5,fill:"#4CAF82",fontFamily:"monospace",fontWeight:700},fmtBRComp(v).replace("R$ ",""))
+                    );
+                  })
+                )
+              )
+            ),
+            // Grafico USD (so mostra se ha dados USD)
+            (Object.values(acumMensalUSD).reduce((a,b)=>a+b,0)>0||proventosUSD.length>0)&&h("div",{style:{background:"rgba(91,143,212,0.04)",border:"1px solid rgba(91,143,212,0.20)",borderRadius:8,padding:"11px 12px",marginBottom:14}},
+              h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:7}},
+                h("div",{style:{fontSize:8,color:"#5B8FD4",letterSpacing:1.5,fontFamily:"monospace",fontWeight:700}},"\u{1F1FA}\u{1F1F8} USD (Internacionais)"),
+                h("div",{style:{fontSize:9,color:"#7A7060",fontFamily:"monospace"}},"12 meses: ",h("strong",{style:{color:"#5B8FD4"}},fmtUSDComp(Object.values(acumMensalUSD).reduce((a,b)=>a+b,0))))
+              ),
+              h("div",{style:{display:"flex",justifyContent:"center"}},
+                h("svg",{width:W,height:H,style:{maxWidth:"100%",height:"auto"}},
+                  h("defs",{},
+                    h("linearGradient",{id:"barRendaUSD",x1:"0%",y1:"0%",x2:"0%",y2:"100%"},
+                      h("stop",{offset:"0%","stop-color":"#5B8FD4","stop-opacity":"1"}),
+                      h("stop",{offset:"100%","stop-color":"#3A6FA8","stop-opacity":"0.85"})
+                    )
+                  ),
+                  ...[0,0.25,0.5,0.75,1].map((p,i)=>{
+                    const y=padT+ih*p;
+                    const v=maxValUSD*(1-p);
+                    return h("g",{key:"ghusd"+i},
+                      h("line",{x1:padL,y1:y,x2:W-padR,y2:y,stroke:"#2A2820",strokeWidth:0.5,strokeDasharray:"2,2"}),
+                      h("text",{x:padL-5,y:y+3,textAnchor:"end",fontSize:8,fill:"#5A5550",fontFamily:"monospace"},fmtUSDComp(v))
+                    );
+                  }),
+                  ...mesesGrafico.map((m,i)=>{
+                    const v=acumMensalUSD[m.chave]||0;
+                    const x=padL+passoX*i+(passoX-barW)/2;
+                    const y=padT+ih*(1-v/maxValUSD);
+                    const barH=H-padB-y;
+                    const isAtual=m.chave===mesAtual;
+                    return h("g",{key:"usdb"+i},
+                      v>0&&h("rect",{x,y,width:barW,height:barH,fill:"url(#barRendaUSD)",rx:2,stroke:isAtual?"#C8A96E":"none",strokeWidth:isAtual?1.5:0,style:{filter:"drop-shadow(0 1px 2px rgba(0,0,0,0.3))"}}),
+                      h("text",{x:padL+passoX*i+passoX/2,y:H-padB+13,textAnchor:"middle",fontSize:7,fill:isAtual?"#C8A96E":"#6A6050",fontFamily:"monospace",fontWeight:isAtual?700:400,transform:"rotate(-30 "+(padL+passoX*i+passoX/2)+" "+(H-padB+13)+")"},m.label),
+                      v>0&&barH>20&&h("text",{x:padL+passoX*i+passoX/2,y:y-3,textAnchor:"middle",fontSize:6.5,fill:"#5B8FD4",fontFamily:"monospace",fontWeight:700},fmtUSDComp(v).replace("US$ ",""))
+                    );
+                  })
+                )
+              )
+            )
+          );
+        })(),
+
+        // ===== CARD 3: ACUMULADO TOTAL (collapsible) =====
+        h("div",{style:{background:"linear-gradient(135deg,rgba(200,169,110,0.06),rgba(200,169,110,0.02))",border:"1px solid rgba(200,169,110,0.25)",borderRadius:9,padding:"13px 14px",marginBottom:14}},
+          h("div",{onClick:()=>setRendaExpHist(!rendaExpHist),style:{cursor:"pointer",userSelect:"none"}},
+            h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}},
+              h("div",{style:{display:"flex",alignItems:"center",gap:6}},
+                h("span",{style:{fontSize:10,color:"#C8A96E",fontFamily:"monospace",transform:rendaExpHist?"rotate(90deg)":"rotate(0deg)",transition:"transform 0.2s",display:"inline-block"}},"\u25B6"),
+                h("div",{},
+                  h("div",{style:{fontSize:9,letterSpacing:2,color:"#C8A96E",fontFamily:"monospace",fontWeight:700}},"\u{1F4B5} ACUMULADO TOTAL"),
+                  h("div",{style:{fontSize:9,color:"#9A9080",marginTop:2}},"desde junho/2026 \u00B7 ",h("strong",{},todosProventos.length+" pagamentos"))
+                )
+              ),
+              h("div",{style:{textAlign:"right"}},
+                totalAcumBRL>0&&h("div",{style:{fontSize:14,color:"#C8A96E",fontFamily:"Georgia,serif",fontWeight:700}},fmtBRComp(totalAcumBRL)),
+                totalAcumUSD>0&&h("div",{style:{fontSize:11,color:"#5B8FD4",fontFamily:"monospace",fontWeight:700,marginTop:2}},fmtUSDComp(totalAcumUSD))
+              )
+            )
+          ),
+          // Conteudo expandido: todos os pagamentos
+          rendaExpHist&&h("div",{style:{marginTop:12,paddingTop:12,borderTop:"1px solid rgba(255,255,255,0.06)"}},
+            h("div",{style:{fontSize:8,letterSpacing:1.5,color:"#8A8070",fontFamily:"monospace",fontWeight:700,marginBottom:8}},"TODOS OS PAGAMENTOS RECEBIDOS"),
+            todosProventos.length===0?h("div",{style:{textAlign:"center",padding:"15px 0",color:"#6A6050",fontStyle:"italic",fontSize:10}},"Nenhum pagamento ainda. Atualize os proventos."):
+            h("div",{style:{maxHeight:400,overflowY:"auto",display:"flex",flexDirection:"column",gap:4}},
+              ...todosProventos.map((p,i)=>{
+                const dataObj=new Date(p.date+"T00:00:00");
+                const cl=CL.find(c=>c.id===(port[p.ticker]&&port[p.ticker].classId||cls[p.ticker]));
+                return h("div",{key:"hp"+i,style:{display:"grid",gridTemplateColumns:"70px 1fr auto",gap:8,alignItems:"center",padding:"5px 8px",background:i%2===0?"rgba(0,0,0,0.10)":"rgba(0,0,0,0.05)",borderRadius:4,borderLeft:"2px solid "+(cl?cl.color:"#8A8070")}},
+                  h("div",{style:{fontSize:8.5,color:"#8A8070",fontFamily:"monospace"}},dataObj.toLocaleDateString("pt-BR",{day:"2-digit",month:"short",year:"2-digit"})),
+                  h("div",{style:{minWidth:0,display:"flex",alignItems:"baseline",gap:6,flexWrap:"wrap"}},
+                    h("span",{style:{fontSize:9.5,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700}},p.ticker),
+                    h("span",{style:{fontSize:7.5,color:"#5A5550",fontStyle:"italic"}},
+                      p.tipo," \u00B7 ",p.valor.toFixed(4),"/cota",
+                      typeof p.qtyNaData==="number"&&p.qtyNaData>0&&" \u00D7 "+p.qtyNaData.toLocaleString("pt-BR")
+                    )
+                  ),
+                  h("div",{style:{textAlign:"right",fontSize:9.5,color:p.moeda==="BRL"?"#4CAF82":"#5B8FD4",fontFamily:"monospace",fontWeight:700}},
+                    p.moeda==="BRL"?fmtBRComp(p.recebido):p.moeda==="USD"?fmtUSDComp(p.recebido):p.recebido.toFixed(2)+" "+p.moeda
+                  )
+                );
+              })
+            )
+          )
+        ),
+
+        // ===== CARD 4: PROJECAO DE RENDA FUTURA =====
+        h("div",{style:{background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:9,padding:"13px 14px",marginBottom:14}},
+          h("div",{style:{fontSize:9,letterSpacing:2,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,marginBottom:4}},"\u{1F52E} PROJECAO DE RENDA FUTURA"),
+          h("p",{style:{fontSize:9,color:"#7A7060",lineHeight:1.5,margin:"0 0 10px",fontStyle:"italic"}},"Quanto seu portfolio gerara de renda passiva ANUAL nas janelas de 5/10/15/20 anos, mantendo a alocacao atual e aportando mensalmente. Faixa pessimista / base / otimista."),
+          // Seletor de aporte
+          h("div",{style:{marginBottom:12}},
+            h("div",{style:{fontSize:9,color:"#9A9080",marginBottom:5}},"Aporte mensal (em poder de compra de hoje):"),
+            h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:5}},
+              ...PROJ_APORTES.map(v=>h("button",{key:"raporte"+v,onClick:()=>setRendaProjAporte(v),style:{padding:"6px 4px",background:rendaProjAporte===v?"linear-gradient(135deg,#C8A96E,#A8893E)":"rgba(255,255,255,0.04)",border:"1px solid "+(rendaProjAporte===v?"#C8A96E":"rgba(255,255,255,0.08)"),borderRadius:5,color:rendaProjAporte===v?"#0D0F14":"#9A9080",fontSize:10,fontFamily:"monospace",fontWeight:rendaProjAporte===v?700:400,cursor:"pointer"}},"R$ "+(v/1000)+"k"))
+            )
+          ),
+          // Legenda
+          h("div",{style:{background:"rgba(0,0,0,0.18)",borderRadius:5,padding:"8px 10px",marginBottom:10}},
+            h("div",{style:{fontSize:7,letterSpacing:1.5,color:"#8A8070",fontFamily:"monospace",fontWeight:700,marginBottom:5}},"\u{1F4D6} COMO INTERPRETAR"),
+            h("div",{style:{fontSize:9,color:"#9A9080",lineHeight:1.65}},
+              h("div",{style:{marginBottom:3}},h("strong",{style:{color:"#C8A96E"}},"Renda anual"),": dividendos que o portfolio gerara em 1 ano naquela janela. Para mensal medio: dividir por 12."),
+              h("div",{style:{marginBottom:3}},h("strong",{style:{color:"#C8A96E"}},"Cenarios"),": pessimista (DY conservador), base (mediana), otimista (DY favoravel)."),
+              h("div",{},h("strong",{style:{color:"#C8A96E"}},"Patrimonio"),": valor projetado em REAL (poder de compra de hoje) na janela.")
+            )
+          ),
+          // Tabela
+          h("div",{style:{overflowX:"auto"}},
+            h("table",{style:{width:"100%",borderCollapse:"separate",borderSpacing:3,fontSize:9,fontFamily:"monospace"}},
+              h("thead",{},
+                h("tr",{},
+                  h("th",{style:{textAlign:"left",padding:"5px 7px",color:"#8A8070",letterSpacing:1.2,fontWeight:700}},"JANELA"),
+                  h("th",{style:{textAlign:"center",padding:"5px 4px",color:"#E89060",letterSpacing:1,fontWeight:700,fontSize:7,minWidth:60}},"PESSIMISTA"),
+                  h("th",{style:{textAlign:"center",padding:"5px 4px",color:"#C8A96E",letterSpacing:1,fontWeight:700,fontSize:7,minWidth:60}},"BASE"),
+                  h("th",{style:{textAlign:"center",padding:"5px 4px",color:"#4CAF82",letterSpacing:1,fontWeight:700,fontSize:7,minWidth:60}},"OTIMISTA")
+                )
+              ),
+              h("tbody",{},
+                ...PROJ_JANELAS.map(anos=>{
+                  const pes=projetarRendaAnual(anos,"pes");
+                  const base=projetarRendaAnual(anos,"base");
+                  const oti=projetarRendaAnual(anos,"oti");
+                  return h("tr",{key:"rt"+anos},
+                    h("td",{style:{padding:"7px 7px",color:"#9A9080",fontWeight:700,letterSpacing:1.2,background:"rgba(0,0,0,0.15)",borderRadius:4}},anos+" ANOS"),
+                    ...[{c:"pes",d:pes,cor:"#E89060",bg:"rgba(232,144,96,0.05)"},{c:"base",d:base,cor:"#C8A96E",bg:"rgba(200,169,110,0.06)"},{c:"oti",d:oti,cor:"#4CAF82",bg:"rgba(76,175,130,0.05)"}].map(({c,d,cor,bg})=>h("td",{key:"rtc"+anos+c,style:{textAlign:"center",padding:"6px 4px",background:bg,borderRadius:4}},
+                      h("div",{style:{color:cor,fontSize:10,fontWeight:700,marginBottom:2}},fmtBRComp(d.renda)+"/ano"),
+                      h("div",{style:{fontSize:7,color:"#8A8070"}},fmtBRComp(d.renda/12)+"/mes"),
+                      h("div",{style:{fontSize:7,color:"#5A5550",fontStyle:"italic",marginTop:2}},"DY ",(d.dyMedio*100).toFixed(1),"%")
+                    ))
+                  );
+                })
+              )
+            )
+          )
+        ),
+
+        // ===== DISCLAIMER =====
+        h("div",{style:{background:"rgba(224,82,82,0.05)",border:"1px solid rgba(224,82,82,0.25)",borderRadius:7,padding:"10px 12px",marginBottom:14}},
+          h("div",{style:{display:"flex",alignItems:"flex-start",gap:8}},
+            h("span",{style:{fontSize:14,lineHeight:1,flexShrink:0}},"\u26A0\uFE0F"),
+            h("div",{style:{flex:1}},
+              h("div",{style:{fontSize:9,color:"#E05252",fontFamily:"monospace",fontWeight:700,letterSpacing:1.2,marginBottom:4}},"AVISO"),
+              h("p",{style:{fontSize:9.5,color:"#E8E2D5",lineHeight:1.6,margin:0,fontWeight:600}},"RENDIMENTOS PASSADOS NAO GARANTEM PROVENTOS FUTUROS."),
+              h("p",{style:{fontSize:9,color:"#9A9080",lineHeight:1.5,margin:"4px 0 0",fontStyle:"italic"}},"DYs podem variar significativamente. FIIs reduzem distribuicao em crises, empresas suspendem dividendos. Projecoes sao referencias direcionais baseadas em DY medio historico.")
+            )
+          )
+        )
+      );
+    }catch(e){
+      console.error("Erro renderizando RENDA:",e);
+      content=h("div",{style:{padding:"24px 16px",background:"rgba(224,82,82,0.06)",border:"1px solid rgba(224,82,82,0.25)",borderRadius:8,marginTop:12}},
+        h("div",{style:{fontSize:11,color:"#E05252",fontFamily:"monospace",fontWeight:700,marginBottom:8}},"\u26A0 Erro ao renderizar Renda Passiva"),
         h("div",{style:{fontSize:10,color:"#9A9080",lineHeight:1.6,fontFamily:"monospace",whiteSpace:"pre-wrap"}},e&&e.message?e.message:String(e))
       );
     }
