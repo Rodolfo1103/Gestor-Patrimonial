@@ -611,7 +611,7 @@ function BolsasCard({port,cls}){
         h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:6}},
           h("div",{style:{display:"flex",alignItems:"center",gap:6}},
             h("span",{style:{fontSize:10,color:"#8A8070",fontFamily:"monospace",transform:expanded?"rotate(90deg)":"rotate(0deg)",transition:"transform 0.2s",display:"inline-block"}},"\u25B6"),
-            h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase"}},"Bolsas de Valores (v4)")
+            h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase"}},"Bolsas de Valores")
           ),
           h("div",{style:{display:"flex",alignItems:"center",gap:8}},
             h("div",{style:{fontSize:8,color:"#8A8070",fontFamily:"monospace"}},
@@ -692,7 +692,7 @@ function BolsasCard({port,cls}){
     );
   }catch(e){
     return h("div",{style:{marginBottom:14,padding:"12px 13px",background:"rgba(224,82,82,0.08)",border:"1px solid rgba(224,82,82,0.3)",borderRadius:10}},
-      h("div",{style:{fontSize:9,color:"#E05252",fontFamily:"monospace",fontWeight:700,marginBottom:6}},"\u26A0 ERRO BOLSAS (v4)"),
+      h("div",{style:{fontSize:9,color:"#E05252",fontFamily:"monospace",fontWeight:700,marginBottom:6}},"\u26A0 ERRO BOLSAS"),
       h("div",{style:{fontSize:9,color:"#9A9080",fontFamily:"monospace",lineHeight:1.5,whiteSpace:"pre-wrap"}},e&&e.message?e.message:String(e))
     );
   }
@@ -3354,10 +3354,81 @@ function App(){
           return p?{ticker:t,moeda:cc,qtd:p.qty,preco:p.price||0,valorBRL:(p.qty||0)*(p.price||0)*(FX[cc]||1)}:{ticker:t,moeda:cc};
         }).slice(0,7)
       }));
-      const msg="Analista Buy&Hold aposentadoria rigoroso, filosofia 'quality at a reasonable price' (Charlie Munger, Terry Smith). PORTFOLIO:"+JSON.stringify(ci)+"\\nAPORTE:R$"+v+"\\nPATRIMONIO_TOTAL:R$"+Math.round(total)+"\\n\\nFILOSOFIA DE INVESTIMENTO DO INVESTIDOR (RESPEITAR INTEGRALMENTE):\\n1) Foco PRIMARIO em QUALIDADE do ativo: vantagem competitiva durável, capacidade de geração de caixa consistente, ROE/ROIC elevados e estáveis, gestão competente e alinhada, baixo risco de descontinuidade do negócio. Para FIIs: gestão experiente, ativos premium, vacância controlada, inquilinos AAA. Para infra/Fiagros: ativos estratégicos, contratos longos, baixo risco regulatório/operacional.\\n2) Aceitar pagar preço JUSTO por excelência: nao buscar pechincha cega. Preferir um ativo de qualidade no preço justo a um medíocre descontado. Value trap (negocio em decadencia barato) é o pior erro: evitar tickers cujo desconto reflete deterioração estrutural.\\n3) Preferencia natural: qualidade + desconto razoavel quando ambos estão disponíveis. Mas se nao houver desconto, qualidade no preço justo é aceitável.\\n4) Aportes contínuos: o tempo dilui pontos de entrada (dollar cost averaging). Não esperar minima absoluta de preço (que pode nunca chegar).\\n5) Disciplina anti-bolha: NUNCA pagar preço claramente acima de fundamentos que nao se justifique.\\n\\nREGRAS OPERACIONAIS RIGIDAS (devem sempre ser respeitadas): zero vendas; todas 8 classes (FII,BR,EXT,SEL,XAU,BTC,INF,AGRO) recebem min 2%; priorizar classes abaixo do alvo; IMOVEIS nao recebem aporte; NENHUM ticker individual pode passar de 5% do patrimonio após aporte (limite duro inviolavel).\\n\\nMULTIPLOS COMO PREFERENCIA, NAO REGRA PROIBITIVA: FII P/VPA<=0.97 e DY>=9%; Ciclicas P/L<=10; Compounders P/L<=18; Exterior value P/L<=18; Infra DY>=9.5%; Fiagros DY>=10%. Estes valores sao apenas REFERENCIAS preferenciais - um ativo de qualidade pode ser recomendado mesmo fora desses parametros se houver justificativa em fundamentos solidos, mencionando explicitamente o porque na metrica.\\n\\nRANKING UNICO POR CLASSE (1, 2, 3): Para CADA classe que receba aporte, sugira EXATAMENTE 3 ativos em ORDEM DE PREFERENCIA - apenas UMA lista ordenada por classe (NAO dois rankings separados, NAO uma lista por qualidade e outra por preco).\\n\\nA POSICAO de cada ativo (1, 2 ou 3) reflete o RESULTADO COMBINADO da equacao QUALIDADE x PRECO no momento atual:\\n- Ativo #1 (TOP PICK): melhor combinacao geral entre qualidade do ativo e preco atual\\n- Ativo #2: boa combinacao, mas com algum trade-off em relacao ao #1\\n- Ativo #3: alternativa valida com trade-off maior\\n\\nNo campo 'porque_essa_posicao' de cada ativo, EXPLIQUE em uma frase POR QUE ele esta naquela posicao - mencionando como qualidade e preco se equilibraram.\\n\\nANALISE DE PRECO DETALHADA - para CADA ativo do ranking, preencher:\\n- 'tir_implicita': TIR estimada do ativo dado o preco ATUAL (string com % e breve composicao). Ex FII: '11.8% (DY 9.2% + crescimento real 2.6%)'; Acao: '14% (EY 8% + crescimento 6%)'; Tesouro IPCA+: '7.3% real garantida'.\\n- 'tir_minima_exigida': TIR minima que VOCE julga adequada para o RISCO especifico daquele ativo (proponha caso a caso). Ex: 'FII logistico de qualidade: 11% (CDI longo + 2 a 3pp pelo risco imobiliario)'; 'Ciclica sem moat: 18 a 20%'; 'Compounder com moat: 13 a 15%'.\\n- 'adequacao_risco_retorno': SIM ou NAO - a tir_implicita atende ou supera a tir_minima_exigida? Texto curto explicando: 'SIM - TIR 12% supera 11% exigida, com folga modesta' ou 'NAO - TIR 13% abaixo dos 18% exigidos para ciclica'.\\n- 'margem_seguranca': % de desconto vs preco-teto (= preco em que TIR ficaria igual ao minimo). Ex: 'aprox 8% de margem (preco-teto R$ 135, atual R$ 124)'. Para aportes regulares aceitar margens de ~10%; reforços em momentos de pânico exigem 20-30%.\\n- 'red_flag': APENAS QUANDO houver deterioracao estrutural identificada (vacancia subindo, ROE caindo, divida crescendo, perda de market share, mudanca de gestao, perda de inquilino-ancora, etc). Se nao houver red flag, OMITIR este campo (nao incluir no JSON). Quando incluir, ser direto: 'Vacancia subiu de 4% para 12% em 6 meses - monitorar' ou 'ROE caiu de 18% para 11% em 3 anos - perda de eficiencia operacional'.\\n\\nO valor monetario do aporte na classe e distribuido com #1 recebendo o maior valor, #2 valor intermediario, #3 menor valor (mas todos os 3 com valor>0 caso o investidor queira diversificar). Use o campo 'rank' (1, 2 ou 3).\\n\\nApos sugerir, AVALIE CRITICAMENTE em 3 dimensoes: (1) eficiencia_rebalanceamento, (2) qualidade_dos_ativos_escolhidos (compounders solidos? FIIs com inquilinos AAA? sem value traps? algum ativo com premio excessivo sem justificativa fundamentalista?), (3) limite_5pct.\\n\\nJSON sem markdown: {resumo:...,alertas:[],classes:[{id:fii,pct:25,valor:2500,ativos:[{rank:1,ticker:HGLG11,valor:1200,score:COMPRA FORTE|COMPRA|JUSTO,metricas:'P/VPA 0.91 DY 9.2%',porque_essa_posicao:'gestao premium + desconto modesto',tir_implicita:'11.8% (DY 9.2% + crescimento real 2.6%)',tir_minima_exigida:'10.5% para FII logistico de qualidade',adequacao_risco_retorno:'SIM - retorno supera exigencia com folga',margem_seguranca:'aprox 12% vs preco-teto'},{rank:2,ticker:KNCR11,valor:800,score:COMPRA,metricas:'...',porque_essa_posicao:'...',tir_implicita:'...',tir_minima_exigida:'...',adequacao_risco_retorno:'SIM/NAO ...',margem_seguranca:'...'},{rank:3,ticker:XPLG11,valor:500,score:JUSTO,metricas:'...',porque_essa_posicao:'...',tir_implicita:'...',tir_minima_exigida:'...',adequacao_risco_retorno:'...',margem_seguranca:'...',red_flag:'(SO SE HOUVER) vacancia em alta'}]}],veredito:{eficiencia:{nota:OTIMO|BOM|REGULAR|RUIM,texto:explicacao curta},qualidade:{nota:OTIMO|BOM|REGULAR|RUIM,texto:explicacao - alguma duvida de value trap? algum compounder pagando alem do justo? algum ativo com red flag merece atencao?},limite5pct:{ok:true|false,texto:explicacao}}}";
+
+      // ===== CALCULA DADOS MPT + ALL WEATHER PARA ENRIQUECER A SUGESTAO =====
+      // Pesos atuais normalizados
+      const wAporte=MPT_CLS.map(cid=>(cw[cid]||0)/100);
+      const somaAporte=wAporte.reduce((a,b)=>a+b,0);
+      if(somaAporte>0)for(let i=0;i<wAporte.length;i++)wAporte[i]/=somaAporte;
+      const rfAporte=(typeof selicAtual==="number"&&selicAtual>0?selicAtual:10)/100;
+      const statsAporte=mptStats(wAporte);
+      const sharpeAporte=mptSharpe(statsAporte.ret,statsAporte.vol,rfAporte);
+      // Acha melhor retorno na mesma volatilidade (alvo fronteira)
+      let maxRetMesmaVol=statsAporte.ret;
+      let pesosFronteira=wAporte.slice();
+      for(const p of mptCache){
+        if(Math.abs(p.vol-statsAporte.vol)<0.015&&p.ret>maxRetMesmaVol){
+          maxRetMesmaVol=p.ret;
+          pesosFronteira=p.w;
+        }
+      }
+      const efFronteira=Math.max(0,Math.min(100,(statsAporte.ret/Math.max(0.001,maxRetMesmaVol))*100));
+      const gapFronteiraPP=(maxRetMesmaVol-statsAporte.ret)*100;
+      // Diferenca atual vs fronteira (por classe, em pp)
+      const ajustesFronteira=MPT_CLS.map((cid,i)=>{
+        const wAt=wAporte[i]*100;
+        const wFr=pesosFronteira[i]*100;
+        return{classe:cid,atual_pct:Math.round(wAt*10)/10,alvo_fronteira_pct:Math.round(wFr*10)/10,diff_pp:Math.round((wFr-wAt)*10)/10};
+      }).filter(x=>Math.abs(x.diff_pp)>=0.5).sort((a,b)=>Math.abs(b.diff_pp)-Math.abs(a.diff_pp));
+      // Posicao no mapa 4 quadrantes (AW)
+      const protCen={c1:0,c2:0,c3:0,c4:0};
+      MPT_CLS.forEach((cid,i)=>{
+        const w=wAporte[i]||0;
+        protCen.c1+=w*(AW_CEN[cid].c1||0);
+        protCen.c2+=w*(AW_CEN[cid].c2||0);
+        protCen.c3+=w*(AW_CEN[cid].c3||0);
+        protCen.c4+=w*(AW_CEN[cid].c4||0);
+      });
+      const protAW={c1:0,c2:0,c3:0,c4:0};
+      MPT_CLS.forEach(cid=>{
+        const w=AW_W[cid]||0;
+        protAW.c1+=w*(AW_CEN[cid].c1||0);
+        protAW.c2+=w*(AW_CEN[cid].c2||0);
+        protAW.c3+=w*(AW_CEN[cid].c3||0);
+        protAW.c4+=w*(AW_CEN[cid].c4||0);
+      });
+      // Ajustes pra AW (por classe)
+      const ajustesAW=MPT_CLS.map(cid=>{
+        const wAt=(cw[cid]||0);
+        const wAw=(AW_W[cid]||0)*100;
+        return{classe:cid,atual_pct:Math.round(wAt*10)/10,alvo_aw_pct:Math.round(wAw*10)/10,diff_pp:Math.round((wAw-wAt)*10)/10};
+      }).filter(x=>Math.abs(x.diff_pp)>=1).sort((a,b)=>Math.abs(b.diff_pp)-Math.abs(a.diff_pp));
+      // Cenario com menor protecao (vulnerabilidade atual)
+      const cenLabel={c1:"Crescimento alto + Inflacao alta",c2:"Crescimento alto + Inflacao baixa",c3:"Crescimento baixo + Inflacao alta",c4:"Crescimento baixo + Inflacao baixa"};
+      const cenarioFraco=Object.entries(protCen).sort((a,b)=>a[1]-b[1])[0];
+      const cenarioForte=Object.entries(protCen).sort((a,b)=>b[1]-a[1])[0];
+      // Bloco MPT/AW para incluir no prompt
+      const blocoMPT_AW=
+        "\\n\\n=== DADOS QUANTITATIVOS MPT + ALL WEATHER (USAR COMO FATOR DE DESEMPATE) ===\\n"+
+        "Eficiencia atual da fronteira eficiente: "+efFronteira.toFixed(0)+"% (gap de "+gapFronteiraPP.toFixed(1)+"pp de retorno possivel mantendo a mesma volatilidade).\\n"+
+        "Sharpe atual: "+sharpeAporte.toFixed(2)+".\\n"+
+        "Protecao por cenario macro: c1 (cresc+infl+) "+(protCen.c1*100).toFixed(0)+"%, c2 (cresc+infl-) "+(protCen.c2*100).toFixed(0)+"%, c3 (cresc-infl+) "+(protCen.c3*100).toFixed(0)+"%, c4 (cresc-infl-) "+(protCen.c4*100).toFixed(0)+"%.\\n"+
+        "Cenario MAIS VULNERAVEL: "+cenLabel[cenarioFraco[0]]+" (protecao "+(cenarioFraco[1]*100).toFixed(0)+"%).\\n"+
+        "Cenario MAIS PROTEGIDO: "+cenLabel[cenarioForte[0]]+" (protecao "+(cenarioForte[1]*100).toFixed(0)+"%).\\n"+
+        "Para AW ideal: c1 "+(protAW.c1*100).toFixed(0)+"%, c2 "+(protAW.c2*100).toFixed(0)+"%, c3 "+(protAW.c3*100).toFixed(0)+"%, c4 "+(protAW.c4*100).toFixed(0)+"%.\\n\\n"+
+        "AJUSTES SUGERIDOS PARA APROXIMAR DA FRONTEIRA EFICIENTE (mesma volatilidade, max retorno):\\n"+
+        JSON.stringify(ajustesFronteira.slice(0,5))+"\\n\\n"+
+        "AJUSTES SUGERIDOS PARA APROXIMAR DO ALL WEATHER (resiliencia macro):\\n"+
+        JSON.stringify(ajustesAW.slice(0,5))+"\\n\\n"+
+        "INSTRUCAO: Use esses dados como FATOR DE DESEMPATE moderado, NAO como regra absoluta. As bandas alvo, qualidade dos ativos e margem de seguranca PERMANECEM PRIORIDADES PRIMARIAS. "+
+        "Quando duas classes ou ativos forem equivalentes em qualidade/preco, prefira o que reduz mais o gap MPT/AW simultaneamente. "+
+        "Voce DECIDE como balancear MPT (retorno otimo) vs AW (resiliencia macro) conforme o cenario economico atual - explique brevemente no campo 'estrategia_macro' do veredito.\\n";
+
+      const msg="Analista Buy&Hold aposentadoria rigoroso, filosofia 'quality at a reasonable price' (Charlie Munger, Terry Smith). PORTFOLIO:"+JSON.stringify(ci)+"\\nAPORTE:R$"+v+"\\nPATRIMONIO_TOTAL:R$"+Math.round(total)+"\\n\\nFILOSOFIA DE INVESTIMENTO DO INVESTIDOR (RESPEITAR INTEGRALMENTE):\\n1) Foco PRIMARIO em QUALIDADE do ativo: vantagem competitiva durável, capacidade de geração de caixa consistente, ROE/ROIC elevados e estáveis, gestão competente e alinhada, baixo risco de descontinuidade do negócio. Para FIIs: gestão experiente, ativos premium, vacância controlada, inquilinos AAA. Para infra/Fiagros: ativos estratégicos, contratos longos, baixo risco regulatório/operacional.\\n2) Aceitar pagar preço JUSTO por excelência: nao buscar pechincha cega. Preferir um ativo de qualidade no preço justo a um medíocre descontado. Value trap (negocio em decadencia barato) é o pior erro: evitar tickers cujo desconto reflete deterioração estrutural.\\n3) Preferencia natural: qualidade + desconto razoavel quando ambos estão disponíveis. Mas se nao houver desconto, qualidade no preço justo é aceitável.\\n4) Aportes contínuos: o tempo dilui pontos de entrada (dollar cost averaging). Não esperar minima absoluta de preço (que pode nunca chegar).\\n5) Disciplina anti-bolha: NUNCA pagar preço claramente acima de fundamentos que nao se justifique.\\n\\nREGRAS OPERACIONAIS RIGIDAS (devem sempre ser respeitadas): zero vendas; todas 8 classes (FII,BR,EXT,SEL,XAU,BTC,INF,AGRO) recebem min 2%; priorizar classes abaixo do alvo; IMOVEIS nao recebem aporte; NENHUM ticker individual pode passar de 5% do patrimonio após aporte (limite duro inviolavel).\\n\\nMULTIPLOS COMO PREFERENCIA, NAO REGRA PROIBITIVA: FII P/VPA<=0.97 e DY>=9%; Ciclicas P/L<=10; Compounders P/L<=18; Exterior value P/L<=18; Infra DY>=9.5%; Fiagros DY>=10%. Estes valores sao apenas REFERENCIAS preferenciais - um ativo de qualidade pode ser recomendado mesmo fora desses parametros se houver justificativa em fundamentos solidos, mencionando explicitamente o porque na metrica.\\n\\nRANKING UNICO POR CLASSE (1, 2, 3): Para CADA classe que receba aporte, sugira EXATAMENTE 3 ativos em ORDEM DE PREFERENCIA - apenas UMA lista ordenada por classe (NAO dois rankings separados, NAO uma lista por qualidade e outra por preco).\\n\\nA POSICAO de cada ativo (1, 2 ou 3) reflete o RESULTADO COMBINADO da equacao QUALIDADE x PRECO no momento atual:\\n- Ativo #1 (TOP PICK): melhor combinacao geral entre qualidade do ativo e preco atual\\n- Ativo #2: boa combinacao, mas com algum trade-off em relacao ao #1\\n- Ativo #3: alternativa valida com trade-off maior\\n\\nNo campo 'porque_essa_posicao' de cada ativo, EXPLIQUE em uma frase POR QUE ele esta naquela posicao - mencionando como qualidade e preco se equilibraram.\\n\\nANALISE DE PRECO DETALHADA - para CADA ativo do ranking, preencher:\\n- 'tir_implicita': TIR estimada do ativo dado o preco ATUAL (string com % e breve composicao). Ex FII: '11.8% (DY 9.2% + crescimento real 2.6%)'; Acao: '14% (EY 8% + crescimento 6%)'; Tesouro IPCA+: '7.3% real garantida'.\\n- 'tir_minima_exigida': TIR minima que VOCE julga adequada para o RISCO especifico daquele ativo (proponha caso a caso). Ex: 'FII logistico de qualidade: 11% (CDI longo + 2 a 3pp pelo risco imobiliario)'; 'Ciclica sem moat: 18 a 20%'; 'Compounder com moat: 13 a 15%'.\\n- 'adequacao_risco_retorno': SIM ou NAO - a tir_implicita atende ou supera a tir_minima_exigida? Texto curto explicando: 'SIM - TIR 12% supera 11% exigida, com folga modesta' ou 'NAO - TIR 13% abaixo dos 18% exigidos para ciclica'.\\n- 'margem_seguranca': % de desconto vs preco-teto (= preco em que TIR ficaria igual ao minimo). Ex: 'aprox 8% de margem (preco-teto R$ 135, atual R$ 124)'. Para aportes regulares aceitar margens de ~10%; reforços em momentos de pânico exigem 20-30%.\\n- 'red_flag': APENAS QUANDO houver deterioracao estrutural identificada (vacancia subindo, ROE caindo, divida crescendo, perda de market share, mudanca de gestao, perda de inquilino-ancora, etc). Se nao houver red flag, OMITIR este campo (nao incluir no JSON). Quando incluir, ser direto: 'Vacancia subiu de 4% para 12% em 6 meses - monitorar' ou 'ROE caiu de 18% para 11% em 3 anos - perda de eficiencia operacional'.\\n\\nO valor monetario do aporte na classe e distribuido com #1 recebendo o maior valor, #2 valor intermediario, #3 menor valor (mas todos os 3 com valor>0 caso o investidor queira diversificar). Use o campo 'rank' (1, 2 ou 3).\\n\\nApos sugerir, AVALIE CRITICAMENTE em 3 dimensoes: (1) eficiencia_rebalanceamento, (2) qualidade_dos_ativos_escolhidos (compounders solidos? FIIs com inquilinos AAA? sem value traps? algum ativo com premio excessivo sem justificativa fundamentalista?), (3) limite_5pct."+blocoMPT_AW+"\\n\\nJSON sem markdown: {resumo:...,alertas:[],classes:[{id:fii,pct:25,valor:2500,ativos:[{rank:1,ticker:HGLG11,valor:1200,score:COMPRA FORTE|COMPRA|JUSTO,metricas:'P/VPA 0.91 DY 9.2%',porque_essa_posicao:'gestao premium + desconto modesto',tir_implicita:'11.8% (DY 9.2% + crescimento real 2.6%)',tir_minima_exigida:'10.5% para FII logistico de qualidade',adequacao_risco_retorno:'SIM - retorno supera exigencia com folga',margem_seguranca:'aprox 12% vs preco-teto'},{rank:2,ticker:KNCR11,valor:800,score:COMPRA,metricas:'...',porque_essa_posicao:'...',tir_implicita:'...',tir_minima_exigida:'...',adequacao_risco_retorno:'SIM/NAO ...',margem_seguranca:'...'},{rank:3,ticker:XPLG11,valor:500,score:JUSTO,metricas:'...',porque_essa_posicao:'...',tir_implicita:'...',tir_minima_exigida:'...',adequacao_risco_retorno:'...',margem_seguranca:'...',red_flag:'(SO SE HOUVER) vacancia em alta'}]}],veredito:{eficiencia:{nota:OTIMO|BOM|REGULAR|RUIM,texto:explicacao curta},qualidade:{nota:OTIMO|BOM|REGULAR|RUIM,texto:explicacao - alguma duvida de value trap? algum compounder pagando alem do justo? algum ativo com red flag merece atencao?},limite5pct:{ok:true|false,texto:explicacao},estrategia_macro:'breve explicacao de como voce balanceou MPT (fronteira eficiente) e AW (resiliencia macro) na sugestao - em 1-2 frases'}}";
       const txt=await callAPI([{role:"user",content:msg}],apiKey);
       const res=JSON.parse(txt);
-      setApR({...res,apValue:v});setStep("r");
+      // Salva tambem snapshot MPT/AW para mostrar impacto antes/depois
+      setApR({...res,apValue:v,mptSnapshot:{efFronteira,sharpe:sharpeAporte,ret:statsAporte.ret,vol:statsAporte.vol,gapPP:gapFronteiraPP,protCen}});setStep("r");
       const ent={};(res.classes||[]).forEach(cl=>(cl.ativos||[]).forEach(a=>{ent[a.ticker]={qty:"",price:port[a.ticker]&&port[a.ticker].price?String(port[a.ticker].price):"",done:false};}));
       setExecE(ent);
     }catch(e){setAErr(e.message||"Erro");}
@@ -4332,6 +4403,85 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
       content=h("div",{},
         h("button",{onClick:()=>{setApR(null);setStep("r");},style:{background:"none",border:"none",color:"#8A8070",cursor:"pointer",fontSize:12,padding:0,marginBottom:12}},"<- Novo aporte"),
         h("div",{style:{background:"linear-gradient(135deg,rgba(200,169,110,0.08),rgba(200,169,110,0.02))",border:"1px solid rgba(200,169,110,0.2)",borderRadius:9,padding:"14px",marginBottom:12}},h("div",{style:{fontSize:8,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:5}},"Analise Fundamentalista"),h("div",{style:{fontSize:22,color:"#F0EAD8",marginBottom:7}},fB(apR.apValue)),h("p",{style:{margin:0,fontSize:11,color:"#B0A890",fontStyle:"italic",lineHeight:1.7}},apR.resumo)),
+
+        // ===== IMPACTO NA NOTA MPT (antes / projetado) =====
+        apR.mptSnapshot&&(()=>{
+          const snap=apR.mptSnapshot;
+          // Simula pesos pos-aporte: distribui o aporte conforme a sugestao da IA
+          const novosPesos=MPT_CLS.map(cid=>{
+            const valorClasse=(apR.classes||[]).find(c=>c.id===cid);
+            const aporte=valorClasse?(valorClasse.valor||0):0;
+            const atualBRL=(cw[cid]||0)/100*total;
+            const novoBRL=atualBRL+aporte;
+            const novoTotal=total+apR.apValue;
+            return novoTotal>0?novoBRL/novoTotal:0;
+          });
+          // Stats pos-aporte
+          const statsPos=mptStats(novosPesos);
+          const sharpePos=mptSharpe(statsPos.ret,statsPos.vol,(typeof selicAtual==="number"&&selicAtual>0?selicAtual:10)/100);
+          // Eficiencia fronteira pos
+          let maxRetPos=statsPos.ret;
+          for(const p of mptCache){
+            if(Math.abs(p.vol-statsPos.vol)<0.015&&p.ret>maxRetPos)maxRetPos=p.ret;
+          }
+          const efPos=Math.max(0,Math.min(100,(statsPos.ret/Math.max(0.001,maxRetPos))*100));
+          // Conceito A-F
+          const conceitoLetra=ef=>ef>=85?"A":ef>=75?"B":ef>=65?"C":ef>=50?"D":"F";
+          const conceitoCor=ef=>ef>=85?"#4CAF82":ef>=75?"#7DD17D":ef>=65?"#E8C44A":ef>=50?"#E89060":"#E05252";
+          const cAntes=conceitoLetra(snap.efFronteira),cDepois=conceitoLetra(efPos);
+          const corAntes=conceitoCor(snap.efFronteira),corDepois=conceitoCor(efPos);
+          const delta=efPos-snap.efFronteira;
+          const melhorou=delta>0.2;
+          return h("div",{style:{background:"rgba(76,175,130,0.04)",border:"1px solid rgba(76,175,130,0.20)",borderRadius:8,padding:"12px 14px",marginBottom:12}},
+            h("div",{style:{display:"flex",alignItems:"center",gap:6,marginBottom:10}},
+              h("span",{style:{fontSize:14}},"\u{1F3AF}"),
+              h("div",{style:{fontSize:9,letterSpacing:2,color:"#4CAF82",fontFamily:"monospace",fontWeight:700}},"IMPACTO NA EFICIENCIA (MPT)")
+            ),
+            // Antes -> Depois visual
+            h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,marginBottom:10}},
+              // ANTES
+              h("div",{style:{flex:1,textAlign:"center",padding:"9px 7px",background:"rgba(0,0,0,0.18)",borderRadius:6}},
+                h("div",{style:{fontSize:7,color:"#8A8070",fontFamily:"monospace",letterSpacing:1.5,marginBottom:3}},"ANTES"),
+                h("div",{style:{display:"flex",alignItems:"baseline",justifyContent:"center",gap:5}},
+                  h("span",{style:{fontSize:22,color:corAntes,fontFamily:"Georgia,serif",fontWeight:700,lineHeight:1}},cAntes),
+                  h("span",{style:{fontSize:11,color:corAntes,fontFamily:"monospace",fontWeight:700}},snap.efFronteira.toFixed(0)+"%")
+                )
+              ),
+              h("div",{style:{fontSize:20,color:melhorou?"#4CAF82":Math.abs(delta)<0.2?"#8A8070":"#E89060",fontFamily:"monospace",fontWeight:700}},melhorou?"\u2192":Math.abs(delta)<0.2?"=":"\u2192"),
+              // DEPOIS
+              h("div",{style:{flex:1,textAlign:"center",padding:"9px 7px",background:"rgba(76,175,130,0.10)",borderRadius:6,border:"1px solid rgba(76,175,130,0.25)"}},
+                h("div",{style:{fontSize:7,color:"#8A8070",fontFamily:"monospace",letterSpacing:1.5,marginBottom:3}},"APOS APORTE"),
+                h("div",{style:{display:"flex",alignItems:"baseline",justifyContent:"center",gap:5}},
+                  h("span",{style:{fontSize:22,color:corDepois,fontFamily:"Georgia,serif",fontWeight:700,lineHeight:1}},cDepois),
+                  h("span",{style:{fontSize:11,color:corDepois,fontFamily:"monospace",fontWeight:700}},efPos.toFixed(0)+"%")
+                )
+              )
+            ),
+            // Delta e detalhes
+            h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7,fontSize:9,fontFamily:"monospace"}},
+              h("div",{style:{padding:"5px 8px",background:"rgba(0,0,0,0.15)",borderRadius:4}},
+                h("div",{style:{fontSize:7,color:"#8A8070",letterSpacing:1.2}},"VARIACAO"),
+                h("div",{style:{fontSize:11,color:melhorou?"#4CAF82":Math.abs(delta)<0.2?"#8A8070":"#E89060",fontWeight:700}},(delta>=0?"+":"")+delta.toFixed(1)+" pp")
+              ),
+              h("div",{style:{padding:"5px 8px",background:"rgba(0,0,0,0.15)",borderRadius:4}},
+                h("div",{style:{fontSize:7,color:"#8A8070",letterSpacing:1.2}},"SHARPE"),
+                h("div",{style:{fontSize:11,color:"#C8A96E",fontWeight:700}},snap.sharpe.toFixed(2)," \u2192 ",sharpePos.toFixed(2))
+              )
+            ),
+            // Interpretacao
+            h("div",{style:{fontSize:9,color:"#9A9080",lineHeight:1.55,marginTop:10,fontStyle:"italic"}},
+              melhorou?h("span",{},"\u2728 Este aporte ",h("strong",{style:{color:"#4CAF82"}},"melhora")," sua eficiencia da fronteira em ",h("strong",{},delta.toFixed(1)+"pp"),", aproximando do portfolio otimo para sua volatilidade."):
+              Math.abs(delta)<0.2?h("span",{},"\u2022 Aporte ",h("strong",{},"neutro")," em eficiencia (variacao <0.2pp). Foco principal foi qualidade e bandas alvo."):
+              h("span",{},"\u26A0 Este aporte ",h("strong",{style:{color:"#E89060"}},"reduz levemente")," a eficiencia (",delta.toFixed(1),"pp). Justificavel se priorizou qualidade/preco vs otimizacao matematica.")
+            ),
+            // Estrategia macro (se IA forneceu)
+            apR.veredito&&apR.veredito.estrategia_macro&&h("div",{style:{fontSize:9,color:"#8A8070",lineHeight:1.55,marginTop:8,padding:"7px 9px",background:"rgba(91,143,212,0.05)",borderLeft:"3px solid #5B8FD4",borderRadius:"0 4px 4px 0"}},
+              h("span",{style:{color:"#5B8FD4",fontWeight:700,fontFamily:"monospace",fontSize:7,letterSpacing:1.5}},"ESTRATEGIA MACRO IA: "),
+              h("span",{style:{fontStyle:"italic"}},apR.veredito.estrategia_macro)
+            )
+          );
+        })(),
+
         (apR.alertas||[]).length>0&&h("div",{style:{marginBottom:12,padding:"9px 11px",background:"rgba(232,196,74,0.05)",border:"1px solid rgba(232,196,74,0.2)",borderRadius:7}},...(apR.alertas||[]).map((a,i)=>h("div",{key:i,style:{fontSize:10,color:"#B0A070",lineHeight:1.6}},"- "+a))),
         h("div",{style:{display:"flex",flexDirection:"column",gap:9,marginBottom:14}},...(apR.classes||[]).map(cl2=>{
           const meta=CL.find(c=>c.id===cl2.id);if(!meta)return null;
@@ -5544,18 +5694,9 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
     );
     }catch(e){
       console.error("Erro renderizando HISTORY:",e);
-      const stackInfo=e&&e.stack?e.stack.split("\n").slice(0,6).join("\n"):"sem stack";
       content=h("div",{style:{padding:"24px 16px",background:"rgba(224,82,82,0.06)",border:"1px solid rgba(224,82,82,0.25)",borderRadius:8,marginTop:12}},
         h("div",{style:{fontSize:11,color:"#E05252",fontFamily:"monospace",fontWeight:700,marginBottom:8}},"\u26A0 Erro ao renderizar Historico"),
-        h("div",{style:{fontSize:10,color:"#E8E2D5",lineHeight:1.6,fontFamily:"monospace",whiteSpace:"pre-wrap",marginBottom:8}},e&&e.message?e.message:String(e)),
-        h("div",{style:{fontSize:8,color:"#8A8070",fontFamily:"monospace",marginBottom:4,letterSpacing:1.5}},"STACK TRACE:"),
-        h("div",{style:{fontSize:8,color:"#6A6050",fontFamily:"monospace",whiteSpace:"pre-wrap",lineHeight:1.5,padding:"6px",background:"rgba(0,0,0,0.3)",borderRadius:4,maxHeight:160,overflowY:"auto"}},stackInfo),
-        h("button",{onClick:()=>{
-          const txt="ERRO: "+(e&&e.message?e.message:String(e))+"\n\nSTACK:\n"+stackInfo;
-          if(navigator.clipboard&&navigator.clipboard.writeText){
-            navigator.clipboard.writeText(txt).then(()=>alert("Erro copiado! Cole na conversa.")).catch(()=>alert(txt));
-          }else alert(txt);
-        },style:{marginTop:10,background:"none",border:"1px solid rgba(200,169,110,0.4)",borderRadius:4,padding:"5px 12px",color:"#C8A96E",fontSize:9,fontFamily:"monospace",cursor:"pointer",letterSpacing:1}},"COPIAR ERRO")
+        h("div",{style:{fontSize:10,color:"#9A9080",lineHeight:1.6,fontFamily:"monospace",whiteSpace:"pre-wrap"}},e&&e.message?e.message:String(e))
       );
     }
   }
