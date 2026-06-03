@@ -4866,37 +4866,52 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
 
       // ========== INSIGHT GLOBAL ==========
       (()=>{
-        // Calcula posicao relativa: melhor/pior em cada metrica
+        // Calcula eficiencia de fronteira de cada portfolio (% retorno capturado na sua vol)
+        // Esta e a MESMA metodologia da nota A-F: justa para qualquer perfil de risco
+        const calcEfFronteira=(ret,vol)=>{
+          let maxRet=ret;
+          for(const p of mcResult){
+            if(Math.abs(p.vol-vol)<0.015&&p.ret>maxRet)maxRet=p.ret;
+          }
+          return Math.max(0,Math.min(100,(ret/Math.max(0.001,maxRet))*100));
+        };
         const portfs=[
           {nome:"ATUAL",cor:"#E05252",ret:statsAtual.ret,vol:statsAtual.vol,sharpe:sharpeAtual,beta:betaAtual},
           {nome:"ALVO",cor:"#5B8FD4",ret:statsAlvo.ret,vol:statsAlvo.vol,sharpe:sharpeAlvo,beta:betaAlvo},
           {nome:"ALL WEATHER",cor:"#2EBFA5",ret:statsAW.ret,vol:statsAW.vol,sharpe:sharpeAW,beta:betaAW},
           {nome:"OTIMO",cor:"#C8A96E",ret:bestSharpe.ret,vol:bestSharpe.vol,sharpe:bestSharpe.sharpe,beta:0}
         ];
-        // Ranking Sharpe (excluindo OTIMO que e referencia)
         const compar=portfs.slice(0,3);
         const melhorSharpe=compar.reduce((a,b)=>a.sharpe>b.sharpe?a:b);
         const menorVol=compar.reduce((a,b)=>a.vol<b.vol?a:b);
         const maiorRet=compar.reduce((a,b)=>a.ret>b.ret?a:b);
-        const efAtual=(sharpeAtual/bestSharpe.sharpe)*100;
-        const efAlvo=(sharpeAlvo/bestSharpe.sharpe)*100;
-        const efAW=(sharpeAW/bestSharpe.sharpe)*100;
+        // Eficiencia de fronteira (metrica unica e coerente com a nota A-F)
+        const efAtual=calcEfFronteira(statsAtual.ret,statsAtual.vol);
+        const efAlvo=calcEfFronteira(statsAlvo.ret,statsAlvo.vol);
+        const efAW=calcEfFronteira(statsAW.ret,statsAW.vol);
+        // Identifica o MAIS eficiente pela MESMA metrica usada no ranking
+        const ranking=[
+          {n:"ATUAL",v:efAtual},
+          {n:"ALVO",v:efAlvo},
+          {n:"ALL WEATHER",v:efAW}
+        ].sort((a,b)=>b.v-a.v);
+        const lider=ranking[0];
         // Diagnostico do portfolio atual
         const distAlvoVol=Math.abs(statsAtual.vol-statsAlvo.vol)*100;
         const distAlvoRet=Math.abs(statsAtual.ret-statsAlvo.ret)*100;
-        // Estrategia recomendada
+        // Estrategia recomendada (baseada na MESMA metrica do ranking)
         let estrategia="",estrategiaCor="#8A8070";
-        if(sharpeAtual>=sharpeAlvo&&sharpeAtual>=sharpeAW){
-          estrategia="Seu portfolio atual e o MAIS eficiente entre os 3 comparativos. Continue na trajetoria atual respeitando margem de seguranca.";
+        if(lider.n==="ATUAL"){
+          estrategia="Seu portfolio atual e o MAIS eficiente entre os 3 comparativos (captura "+efAtual.toFixed(0)+"% da fronteira eficiente). Continue na trajetoria atual respeitando margem de seguranca.";
           estrategiaCor="#4CAF82";
-        }else if(sharpeAlvo>sharpeAtual&&Math.abs(sharpeAlvo-sharpeAtual)>0.05){
-          estrategia="Migrar gradualmente para a alocacao ALVO (suas bandas medias) pode melhorar a eficiencia. Use aportes futuros para rebalancear.";
+        }else if(lider.n==="ALVO"&&(efAlvo-efAtual)>2){
+          estrategia="A alocacao ALVO (suas bandas medias) captura "+efAlvo.toFixed(0)+"% da fronteira, "+(efAlvo-efAtual).toFixed(1)+"pp acima do atual. Migrar gradualmente via aportes pode melhorar a eficiencia.";
           estrategiaCor="#5B8FD4";
-        }else if(sharpeAW>sharpeAtual&&sharpeAW>sharpeAlvo){
-          estrategia="Cenario macroeconomico atual favorece o All Weather. Considere maior exposicao a renda fixa e ouro como hedge.";
+        }else if(lider.n==="ALL WEATHER"&&(efAW-efAtual)>2){
+          estrategia="O All Weather captura "+efAW.toFixed(0)+"% da fronteira, "+(efAW-efAtual).toFixed(1)+"pp acima do atual. Considere maior exposicao defensiva como hedge macroeconomico.";
           estrategiaCor="#2EBFA5";
         }else{
-          estrategia="Os 3 portfolios estao em eficiencia similar. Mantenha a filosofia atual e foque em margem de seguranca nas compras.";
+          estrategia="Os 3 portfolios estao em eficiencia similar (variacao <2pp). Mantenha a filosofia atual e foque em margem de seguranca nas compras.";
           estrategiaCor="#8A8070";
         }
 
@@ -4916,7 +4931,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
 
           // BLOCO 2: Ranking de eficiencia
           h("div",{style:{marginBottom:11}},
-            h("div",{style:{fontSize:8,letterSpacing:1.5,color:"#8A8070",fontFamily:"monospace",marginBottom:5}},"RANKING DE EFICIENCIA (% do OTIMO)"),
+            h("div",{style:{fontSize:8,letterSpacing:1.5,color:"#8A8070",fontFamily:"monospace",marginBottom:5}},"RANKING DE EFICIENCIA (% retorno capturado da fronteira)"),
             ...[
               {n:"ATUAL",c:"#E05252",v:efAtual,s:sharpeAtual},
               {n:"ALVO",c:"#5B8FD4",v:efAlvo,s:sharpeAlvo},
@@ -4942,7 +4957,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                   melhorSharpe.nome==="ATUAL"&&h("div",{},"Sharpe lidera vs alternativas"),
                   menorVol.nome==="ATUAL"&&h("div",{},"Menor volatilidade dos 3"),
                   maiorRet.nome==="ATUAL"&&h("div",{},"Maior retorno esperado"),
-                  efAtual>=70&&h("div",{},"Eficiencia >",efAtual.toFixed(0),"% do otimo"),
+                  efAtual>=70&&h("div",{},"Captura ",efAtual.toFixed(0),"% da fronteira"),
                   betaAtual<0.7&&h("div",{},"Beta baixo (resiliente)"),
                   efAtual<70&&melhorSharpe.nome!=="ATUAL"&&menorVol.nome!=="ATUAL"&&maiorRet.nome!=="ATUAL"&&betaAtual>=0.7&&h("div",{style:{fontStyle:"italic",color:"#6A6050"}},"Eficiencia moderada, ha espaco para melhorar")
                 )
@@ -4955,7 +4970,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                   sharpeAW>sharpeAtual+0.05&&h("div",{},"AW supera em estabilidade"),
                   betaAtual>=1&&h("div",{},"Beta alto (correlacao com IBOV)"),
                   statsAtual.vol>0.15&&h("div",{},"Volatilidade acima de 15%"),
-                  efAtual<70&&h("div",{},"Gap p/ otimo: ",(100-efAtual).toFixed(0),"pp"),
+                  efAtual<70&&h("div",{},"Gap p/ fronteira: ",(100-efAtual).toFixed(0),"pp"),
                   sharpeAlvo<=sharpeAtual+0.05&&sharpeAW<=sharpeAtual+0.05&&betaAtual<1&&statsAtual.vol<=0.15&&efAtual>=70&&h("div",{style:{fontStyle:"italic",color:"#6A6050"}},"Poucos pontos fracos significativos")
                 )
               )
