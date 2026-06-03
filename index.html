@@ -4501,12 +4501,23 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         // Nota combinada (media ponderada): 60% fronteira + 40% absoluta
         const notaFinal=(efFront*0.6+efAbs*0.4);
         // Conceito A-F estilo escolar
-        let conceito,corConceito,descConceito;
-        if(notaFinal>=85){conceito="A";corConceito="#4CAF82";descConceito="Excelente";}
-        else if(notaFinal>=75){conceito="B";corConceito="#7DD17D";descConceito="Muito bom";}
-        else if(notaFinal>=65){conceito="C";corConceito="#E8C44A";descConceito="Bom";}
-        else if(notaFinal>=50){conceito="D";corConceito="#E89060";descConceito="Regular";}
-        else{conceito="F";corConceito="#E05252";descConceito="Insatisfatorio";}
+        let conceito,corConceito,descConceito,detalheConceito;
+        if(notaFinal>=85){
+          conceito="A";corConceito="#4CAF82";descConceito="Excelente";
+          detalheConceito="Voce esta praticamente na fronteira eficiente. A composicao atual captura quase todo o retorno teorico possivel para o nivel de risco assumido. Pequenos ajustes adicionais teriam efeito marginal.";
+        }else if(notaFinal>=75){
+          conceito="B";corConceito="#7DD17D";descConceito="Muito bom";
+          detalheConceito="Sua alocacao esta proxima do otimo dentro do seu perfil. Ha pequenos ganhos possiveis via rebalanceamento, mas a estrutura geral esta solida. Posicao confortavel para Buy & Hold.";
+        }else if(notaFinal>=65){
+          conceito="C";corConceito="#E8C44A";descConceito="Bom";
+          detalheConceito="Posicao razoavel mas com espaco claro para otimizacao. A diversificacao pode ser aprimorada e a relacao risco/retorno pode ser melhorada via ajustes direcionados nas classes que mais divergem do alvo.";
+        }else if(notaFinal>=50){
+          conceito="D";corConceito="#E89060";descConceito="Regular";
+          detalheConceito="Ha desvios relevantes em relacao a fronteira eficiente. Possivelmente concentracao excessiva em uma ou duas classes, ou alocacao subotima entre risco e retorno. Rebalanceamento estruturado pode trazer ganhos significativos sem aumentar o risco total.";
+        }else{
+          conceito="F";corConceito="#E05252";descConceito="Insatisfatorio";
+          detalheConceito="Alocacao distante da fronteira eficiente. Risco assumido nao esta sendo compensado adequadamente em retorno esperado. Revisao profunda da estrutura recomendada - provavelmente excesso de concentracao em classes correlacionadas ou alocacao incoerente com o perfil.";
+        }
         // Distancia da fronteira (em retorno % - gap p/ capturar)
         const gapRet=(maxRetSimVol-statsAtual.ret)*100;
         return h("div",{style:{background:"linear-gradient(135deg,rgba(200,169,110,0.10),"+corConceito+"15)",border:"1px solid "+corConceito+"55",borderRadius:10,padding:"14px 16px",marginBottom:13}},
@@ -4556,8 +4567,15 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
               )
             )
           ),
+          // Detalhamento expandido do conceito
+          h("div",{style:{marginTop:10,paddingTop:10,borderTop:"1px solid rgba(255,255,255,0.05)"}},
+            h("div",{style:{fontSize:8,letterSpacing:1.5,color:corConceito,fontFamily:"monospace",fontWeight:700,marginBottom:5}},
+              "\u{1F4DA} O QUE SIGNIFICA NOTA "+conceito+" ("+descConceito.toUpperCase()+")"
+            ),
+            h("p",{style:{fontSize:9,color:"#9A9080",lineHeight:1.6,margin:0,fontStyle:"italic"}},detalheConceito)
+          ),
           // Interpretacao curta
-          h("div",{style:{fontSize:9,color:"#9A9080",marginTop:10,paddingTop:10,borderTop:"1px solid rgba(255,255,255,0.05)",lineHeight:1.6}},
+          h("div",{style:{fontSize:9,color:"#9A9080",marginTop:8,lineHeight:1.6}},
             efFront>=85?h("span",{},"\u2728 Para a volatilidade que voce assumiu (",(statsAtual.vol*100).toFixed(1),"%), seu portfolio captura ",h("strong",{style:{color:"#4CAF82"}},efFront.toFixed(0)+"%")," do retorno teorico possivel. Voce esta quase na fronteira eficiente."):
             efFront>=70?h("span",{},"\u26A1 Para a volatilidade que voce assumiu (",(statsAtual.vol*100).toFixed(1),"%), voce captura ",h("strong",{style:{color:"#E8C44A"}},efFront.toFixed(0)+"%")," do retorno teorico. Ha espaco para otimizar (",gapRet.toFixed(1),"pp de retorno deixados na mesa)."):
             h("span",{},"\u26A0 Ha gap relevante: voce poderia ter ",h("strong",{style:{color:"#E05252"}},"+"+gapRet.toFixed(1)+"pp")," de retorno com a mesma volatilidade. Rebalanceamento pode aumentar significativamente a eficiencia.")
@@ -4678,6 +4696,80 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           h("div",{style:{background:"rgba(0,0,0,0.15)",borderLeft:"3px solid "+estrategiaCor,borderRadius:"0 5px 5px 0",padding:"9px 11px"}},
             h("div",{style:{fontSize:7,letterSpacing:1.5,color:estrategiaCor,fontFamily:"monospace",marginBottom:4,fontWeight:700}},"RECOMENDACAO"),
             h("p",{style:{fontSize:10,color:"#E8E2D5",lineHeight:1.55,margin:0,fontStyle:"italic"}},estrategia)
+          )
+        );
+      })(),
+
+      // ========== ASSET ALLOCATION: COMO APROXIMAR DA FRONTEIRA ==========
+      (()=>{
+        // Acha portfolio-alvo: melhor retorno na volatilidade similar a sua (margem 1.5%)
+        let alvoFront=null;
+        for(const p of mcResult){
+          if(Math.abs(p.vol-statsAtual.vol)<0.015){
+            if(!alvoFront||p.ret>alvoFront.ret)alvoFront=p;
+          }
+        }
+        if(!alvoFront)return null;
+        // Compara pesos: atual vs alvo da fronteira
+        const ajustes=MPT_CLS.map((cid,i)=>{
+          const wAt=wAtualAW[i]*100;
+          const wFr=alvoFront.w[i]*100;
+          return{cid,atual:wAt,alvo:wFr,diff:wFr-wAt};
+        }).filter(x=>Math.abs(x.diff)>=0.5).sort((a,b)=>Math.abs(b.diff)-Math.abs(a.diff));
+        const aumentar=ajustes.filter(a=>a.diff>0).slice(0,4);
+        const reduzir=ajustes.filter(a=>a.diff<0).slice(0,4);
+        const gapPP=(alvoFront.ret-statsAtual.ret)*100;
+        return h("div",{style:{background:"rgba(76,175,130,0.05)",border:"1px solid rgba(76,175,130,0.25)",borderRadius:8,padding:"13px 14px",marginBottom:13}},
+          h("div",{style:{display:"flex",alignItems:"center",gap:6,marginBottom:8}},
+            h("span",{style:{fontSize:14}},"\u{1F3AF}"),
+            h("div",{style:{fontSize:9,letterSpacing:2,color:"#4CAF82",fontFamily:"monospace",fontWeight:700}},"ASSET ALLOCATION: MOVER PARA A FRONTEIRA")
+          ),
+          h("p",{style:{fontSize:9,color:"#9A9080",lineHeight:1.55,margin:"0 0 12px",fontStyle:"italic"}},
+            "Para a sua volatilidade atual (",(statsAtual.vol*100).toFixed(1),"%), o portfolio na fronteira eficiente teria retorno esperado de ",
+            h("strong",{style:{color:"#4CAF82"}},(alvoFront.ret*100).toFixed(2)+"%"),
+            " (",h("strong",{style:{color:"#E05252"}},"+"+gapPP.toFixed(1)+"pp"),
+            " vs atual). Os ajustes abaixo indicam direcao do rebalanceamento."
+          ),
+          gapPP<0.1?h("div",{style:{fontSize:10,color:"#4CAF82",textAlign:"center",padding:"8px 0",fontStyle:"italic"}},"\u2728 Voce ja esta praticamente na fronteira. Sem ajustes relevantes."):
+          h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}},
+            // COLUNA AUMENTAR
+            h("div",{},
+              h("div",{style:{fontSize:8,letterSpacing:1.5,color:"#4CAF82",fontFamily:"monospace",fontWeight:700,marginBottom:6}},"\u2191 AUMENTAR"),
+              aumentar.length>0?h("div",{},
+                ...aumentar.map(a=>{
+                  const cl=CL.find(c=>c.id===a.cid);
+                  if(!cl)return null;
+                  return h("div",{key:a.cid,style:{display:"flex",alignItems:"center",gap:5,padding:"4px 7px",background:"rgba(76,175,130,0.06)",borderLeft:"2px solid "+cl.color,borderRadius:"0 4px 4px 0",marginBottom:4}},
+                    h("div",{style:{flex:1,minWidth:0}},
+                      h("div",{style:{fontSize:9,color:cl.color,fontFamily:"monospace",fontWeight:700}},cl.tag),
+                      h("div",{style:{fontSize:7,color:"#6A6050"}},a.atual.toFixed(1)+"% \u2192 "+a.alvo.toFixed(1)+"%")
+                    ),
+                    h("div",{style:{fontSize:10,color:"#4CAF82",fontFamily:"monospace",fontWeight:700}},"+"+a.diff.toFixed(1)+"pp")
+                  );
+                })
+              ):h("div",{style:{fontSize:8,color:"#5A5550",fontStyle:"italic",padding:"6px 4px"}},"Nenhuma classe a aumentar")
+            ),
+            // COLUNA REDUZIR
+            h("div",{},
+              h("div",{style:{fontSize:8,letterSpacing:1.5,color:"#E05252",fontFamily:"monospace",fontWeight:700,marginBottom:6}},"\u2193 REDUZIR"),
+              reduzir.length>0?h("div",{},
+                ...reduzir.map(a=>{
+                  const cl=CL.find(c=>c.id===a.cid);
+                  if(!cl)return null;
+                  return h("div",{key:a.cid,style:{display:"flex",alignItems:"center",gap:5,padding:"4px 7px",background:"rgba(224,82,82,0.06)",borderLeft:"2px solid "+cl.color,borderRadius:"0 4px 4px 0",marginBottom:4}},
+                    h("div",{style:{flex:1,minWidth:0}},
+                      h("div",{style:{fontSize:9,color:cl.color,fontFamily:"monospace",fontWeight:700}},cl.tag),
+                      h("div",{style:{fontSize:7,color:"#6A6050"}},a.atual.toFixed(1)+"% \u2192 "+a.alvo.toFixed(1)+"%")
+                    ),
+                    h("div",{style:{fontSize:10,color:"#E05252",fontFamily:"monospace",fontWeight:700}},a.diff.toFixed(1)+"pp")
+                  );
+                })
+              ):h("div",{style:{fontSize:8,color:"#5A5550",fontStyle:"italic",padding:"6px 4px"}},"Nenhuma classe a reduzir")
+            )
+          ),
+          h("div",{style:{fontSize:8,color:"#6A6050",marginTop:10,paddingTop:8,borderTop:"1px solid rgba(255,255,255,0.05)",fontStyle:"italic",lineHeight:1.55}},
+            h("strong",{style:{color:"#C8A96E"}},"Como aplicar na pratica:"),
+            " use aportes futuros direcionados as classes 'AUMENTAR' e evite reforcar as classes 'REDUZIR' ate que se aproximem do alvo. Para Buy & Hold, evite vender posicoes - rebalanceie via novos aportes. O alvo aqui maximiza retorno mantendo seu nivel atual de risco."
           )
         );
       })(),
@@ -4807,19 +4899,20 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
               }
             }
             const gapPP=(melhorNaVol.ret-statsAtual.ret)*100;
-            // So renderiza se ha gap relevante (>0.1pp) - senao polui
             if(gapPP<0.1)return null;
             const x1=xOf(statsAtual.vol);
             const y1=yOf(statsAtual.ret);
             const x2=xOf(melhorNaVol.vol);
             const y2=yOf(melhorNaVol.ret);
+            // Decide lado do label (esquerda ou direita do X) baseado em espaco
+            const labelDireita=x2<pL+cW-50;
             return h(Fragment,{},
-              // Linha vertical tracejada
-              h("line",{x1:x1,y1:y1,x2:x2,y2:y2,stroke:"#E89060",strokeWidth:1.5,strokeDasharray:"4,3",opacity:0.75}),
-              // X marcando o ponto-alvo na fronteira
-              h("path",{d:"M "+(x2-4)+" "+(y2-4)+" L "+(x2+4)+" "+(y2+4)+" M "+(x2-4)+" "+(y2+4)+" L "+(x2+4)+" "+(y2-4),stroke:"#E89060",strokeWidth:2,fill:"none"}),
-              // Texto "↑ Xpp" indicando gap (posicionado no meio da linha)
-              h("text",{x:x1+8,y:(y1+y2)/2+3,fill:"#E89060",fontSize:9,fontFamily:"monospace",fontWeight:700},"\u2191 "+gapPP.toFixed(1)+"pp")
+              // Linha vertical tracejada VERMELHA
+              h("line",{x1:x1,y1:y1,x2:x2,y2:y2,stroke:"#E05252",strokeWidth:1.5,strokeDasharray:"4,3",opacity:0.85}),
+              // X marcando o ponto-alvo na fronteira (vermelho)
+              h("path",{d:"M "+(x2-4)+" "+(y2-4)+" L "+(x2+4)+" "+(y2+4)+" M "+(x2-4)+" "+(y2+4)+" L "+(x2+4)+" "+(y2-4),stroke:"#E05252",strokeWidth:2.5,fill:"none"}),
+              // Texto "+X.Xpp" ao lado do X (lado oposto a borda)
+              h("text",{x:labelDireita?x2+8:x2-8,y:y2+3,textAnchor:labelDireita?"start":"end",fill:"#E05252",fontSize:9,fontFamily:"monospace",fontWeight:700},"+"+gapPP.toFixed(1)+"pp")
             );
           })(),
           // Ponto: SEU PORTFOLIO (em destaque)
@@ -4836,7 +4929,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           h("span",{style:{color:"#2EBFA5",fontWeight:700}},"\u25CF AW"),": All Weather. ",
           h("span",{style:{color:"#C8A96E",fontWeight:700}},"\u25CF OTIMO"),": max Sharpe. ",
           h("span",{style:{color:"#9B9B9B",fontWeight:700}},"\u25CB SELIC"),": livre risco. ",
-          h("span",{style:{color:"#E89060",fontWeight:700}},"\u2191 gap"),": retorno faltante para fronteira."
+          h("span",{style:{color:"#E05252",fontWeight:700}},"\u2716 gap"),": retorno faltante para fronteira."
         ),
         // ===== LEGENDA EXPLICATIVA EXPANDIDA =====
         (()=>{
