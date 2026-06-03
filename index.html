@@ -537,73 +537,85 @@ async function callAPI(messages,key){
 function BolsasCard({port,cls}){
   const [tick,setTick]=useState(0);
   useEffect(()=>{
-    // Atualiza a cada 30 segundos (countdown e status)
     const id=setInterval(()=>setTick(t=>t+1),30000);
     return ()=>clearInterval(id);
   },[]);
-  // Descobre quais bolsas tem ativos no portfolio + rastreia tickers por bolsa
-  // Inclui ativos cadastrados mesmo com qty=0 (usuario pode estar planejando comprar)
-  const bolsasAtivas=new Set();
-  const tickersPorBolsa={};
-  const naoMapeados=[];
-  Object.entries(port||{}).forEach(([t,p])=>{
-    if(!p)return;
-    const cid=p.classId||cls[t];
-    if(cid==="selic"||cid==="ouro"||cid==="bitcoin"||cid==="imoveis")return;
-    const bid=bolsaDoTicker(t,cid);
-    if(bid){
-      bolsasAtivas.add(bid);
-      if(!tickersPorBolsa[bid])tickersPorBolsa[bid]=[];
-      tickersPorBolsa[bid].push(t);
-    }else{
-      naoMapeados.push(t);
-    }
-  });
-  if(bolsasAtivas.size===0)return null;
-  const bolsasLista=BOLSAS.filter(b=>bolsasAtivas.has(b.id));
-  const now=new Date();
-  // Ordena: abertas primeiro, depois por proximidade de abertura
-  const comStatus=bolsasLista.map(b=>({b,st:statusBolsa(b,now)}));
-  comStatus.sort((a,b)=>{
-    const pri=s=>s.status==="ABERTA"?0:s.status==="INTERVALO"?1:s.status==="FERIADO"?3:s.status==="FIM DE SEMANA"?4:2;
-    return pri(a.st)-pri(b.st);
-  });
-  const abertas=comStatus.filter(x=>x.st.status==="ABERTA").length;
-  return h("div",{style:{marginBottom:14,padding:"12px 13px",background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:10}},
-    h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}},
-      h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase"}},"Bolsas de Valores"),
-      h("div",{style:{fontSize:8,color:"#8A8070",fontFamily:"monospace"}},
-        h("span",{style:{color:"#4CAF82",fontWeight:700}},abertas)," abertas / ",h("span",{},comStatus.length)," total"
-      )
-    ),
-    h("div",{style:{display:"flex",flexDirection:"column",gap:6}},
-      ...comStatus.map(({b,st})=>h("div",{key:b.id,style:{display:"flex",alignItems:"center",gap:8,padding:"7px 9px",background:"rgba(0,0,0,0.18)",borderRadius:6,borderLeft:"3px solid "+st.cor}},
-        h("span",{style:{fontSize:18,lineHeight:1,flexShrink:0}},b.flag),
-        h("div",{style:{flex:1,minWidth:0}},
-          h("div",{style:{display:"flex",alignItems:"baseline",gap:6,flexWrap:"wrap"}},
-            h("span",{style:{fontSize:10,color:"#F0EAD8",fontWeight:700,fontFamily:"monospace"}},b.nome),
-            h("span",{style:{fontSize:8,color:"#6A6050",fontStyle:"italic"}},b.pais),
-            tickersPorBolsa[b.id]&&tickersPorBolsa[b.id].length>0&&h("span",{title:tickersPorBolsa[b.id].join(", "),style:{fontSize:7,color:"#C8A96E",fontFamily:"monospace",border:"1px solid #C8A96E44",borderRadius:3,padding:"1px 4px"}},tickersPorBolsa[b.id].length+" ativo"+(tickersPorBolsa[b.id].length>1?"s":""))
-          ),
-          h("div",{style:{fontSize:8,color:"#7A7060",fontFamily:"monospace",marginTop:1}},
-            "Local ",h("span",{style:{color:"#9A9080",fontWeight:700}},st.horaLocal)," (",b.abre,"-",b.fecha,")"
-          )
-        ),
-        h("div",{style:{textAlign:"right",flexShrink:0}},
-          h("div",{style:{fontSize:9,color:st.cor,fontFamily:"monospace",fontWeight:700,letterSpacing:0.5}},st.status),
-          st.detalhe&&h("div",{style:{fontSize:7,color:"#6A6050",fontStyle:"italic",marginTop:1}},st.detalhe)
+  try{
+    const bolsasAtivas=new Set();
+    const tickersPorBolsa={};
+    const naoMapeados=[];
+    let totalProc=0;
+    Object.entries(port||{}).forEach(([t,p])=>{
+      if(!p)return;
+      totalProc++;
+      const cid=p.classId||cls[t];
+      if(cid==="selic"||cid==="ouro"||cid==="bitcoin"||cid==="imoveis")return;
+      const bid=bolsaDoTicker(t,cid);
+      if(bid){
+        bolsasAtivas.add(bid);
+        if(!tickersPorBolsa[bid])tickersPorBolsa[bid]=[];
+        tickersPorBolsa[bid].push(t);
+      }else{
+        naoMapeados.push(t);
+      }
+    });
+    // Diagnostico visivel: se nao tem bolsas, mostra info ao inves de retornar null
+    if(bolsasAtivas.size===0){
+      return h("div",{style:{marginBottom:14,padding:"12px 13px",background:"rgba(232,144,96,0.06)",border:"1px solid rgba(232,144,96,0.25)",borderRadius:10}},
+        h("div",{style:{fontSize:9,letterSpacing:3,color:"#E89060",fontFamily:"monospace",textTransform:"uppercase",marginBottom:8}},"BOLSAS DE VALORES (v4)"),
+        h("div",{style:{fontSize:9,color:"#9A9080",lineHeight:1.6}},
+          "Nenhuma bolsa detectada. Ativos processados: ",h("strong",{},totalProc),
+          ". Nao mapeados: ",h("strong",{},naoMapeados.length>0?naoMapeados.join(", "):"(nenhum)")
         )
-      ))
-    ),
-    // Alerta de tickers nao mapeados
-    naoMapeados.length>0&&h("div",{style:{fontSize:8,color:"#E89060",background:"rgba(232,144,96,0.06)",border:"1px dashed rgba(232,144,96,0.3)",borderRadius:5,padding:"6px 8px",marginTop:8,fontFamily:"monospace"}},
-      h("strong",{},"\u26A0 "+naoMapeados.length+" ticker(s) sem bolsa identificada: "),naoMapeados.join(", "),
-      h("div",{style:{fontSize:7,color:"#6A6050",marginTop:3,fontStyle:"italic"}},"Estes ativos nao foram mapeados a uma bolsa. Reporte para correcao.")
-    ),
-    h("div",{style:{fontSize:7,color:"#5A5550",fontStyle:"italic",lineHeight:1.4,marginTop:8,paddingTop:8,borderTop:"1px solid rgba(255,255,255,0.04)"}},
-      "Horarios e feriados 2026 hardcoded. Atualiza a cada 30s. Confirme feriados regionais no broker antes de operar."
-    )
-  );
+      );
+    }
+    const bolsasLista=BOLSAS.filter(b=>bolsasAtivas.has(b.id));
+    const now=new Date();
+    const comStatus=bolsasLista.map(b=>({b,st:statusBolsa(b,now)}));
+    comStatus.sort((a,b)=>{
+      const pri=s=>s.status==="ABERTA"?0:s.status==="INTERVALO"?1:s.status==="FERIADO"?3:s.status==="FIM DE SEMANA"?4:2;
+      return pri(a.st)-pri(b.st);
+    });
+    const abertas=comStatus.filter(x=>x.st.status==="ABERTA").length;
+    return h("div",{style:{marginBottom:14,padding:"12px 13px",background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:10}},
+      h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}},
+        h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase"}},"Bolsas de Valores (v4)"),
+        h("div",{style:{fontSize:8,color:"#8A8070",fontFamily:"monospace"}},
+          h("span",{style:{color:"#4CAF82",fontWeight:700}},abertas)," abertas / ",h("span",{},comStatus.length)," total"
+        )
+      ),
+      h("div",{style:{display:"flex",flexDirection:"column",gap:6}},
+        ...comStatus.map(({b,st})=>h("div",{key:b.id,style:{display:"flex",alignItems:"center",gap:8,padding:"7px 9px",background:"rgba(0,0,0,0.18)",borderRadius:6,borderLeft:"3px solid "+st.cor}},
+          h("span",{style:{fontSize:18,lineHeight:1,flexShrink:0}},b.flag),
+          h("div",{style:{flex:1,minWidth:0}},
+            h("div",{style:{display:"flex",alignItems:"baseline",gap:6,flexWrap:"wrap"}},
+              h("span",{style:{fontSize:10,color:"#F0EAD8",fontWeight:700,fontFamily:"monospace"}},b.nome),
+              h("span",{style:{fontSize:8,color:"#6A6050",fontStyle:"italic"}},b.pais),
+              tickersPorBolsa[b.id]&&tickersPorBolsa[b.id].length>0&&h("span",{title:tickersPorBolsa[b.id].join(", "),style:{fontSize:7,color:"#C8A96E",fontFamily:"monospace",border:"1px solid #C8A96E44",borderRadius:3,padding:"1px 4px"}},tickersPorBolsa[b.id].length+" ativo"+(tickersPorBolsa[b.id].length>1?"s":""))
+            ),
+            h("div",{style:{fontSize:8,color:"#7A7060",fontFamily:"monospace",marginTop:1}},
+              "Local ",h("span",{style:{color:"#9A9080",fontWeight:700}},st.horaLocal)," (",b.abre,"-",b.fecha,")"
+            )
+          ),
+          h("div",{style:{textAlign:"right",flexShrink:0}},
+            h("div",{style:{fontSize:9,color:st.cor,fontFamily:"monospace",fontWeight:700,letterSpacing:0.5}},st.status),
+            st.detalhe&&h("div",{style:{fontSize:7,color:"#6A6050",fontStyle:"italic",marginTop:1}},st.detalhe)
+          )
+        ))
+      ),
+      naoMapeados.length>0&&h("div",{style:{fontSize:8,color:"#E89060",background:"rgba(232,144,96,0.06)",border:"1px dashed rgba(232,144,96,0.3)",borderRadius:5,padding:"6px 8px",marginTop:8,fontFamily:"monospace"}},
+        h("strong",{},"\u26A0 "+naoMapeados.length+" ticker(s) sem bolsa: "),naoMapeados.join(", ")
+      ),
+      h("div",{style:{fontSize:7,color:"#5A5550",fontStyle:"italic",lineHeight:1.4,marginTop:8,paddingTop:8,borderTop:"1px solid rgba(255,255,255,0.04)"}},
+        "Horarios e feriados 2026 hardcoded. Atualiza a cada 30s."
+      )
+    );
+  }catch(e){
+    return h("div",{style:{marginBottom:14,padding:"12px 13px",background:"rgba(224,82,82,0.08)",border:"1px solid rgba(224,82,82,0.3)",borderRadius:10}},
+      h("div",{style:{fontSize:9,color:"#E05252",fontFamily:"monospace",fontWeight:700,marginBottom:6}},"\u26A0 ERRO BOLSAS (v4)"),
+      h("div",{style:{fontSize:9,color:"#9A9080",fontFamily:"monospace",lineHeight:1.5,whiteSpace:"pre-wrap"}},e&&e.message?e.message:String(e))
+    );
+  }
 }
 
 function AllocChart({cw,ct,fB,MV,hideVal}){
@@ -3947,7 +3959,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         insightMensal&&insightMensal.texto?h("div",{style:{fontSize:11,color:"#C8C0B0",lineHeight:1.7,whiteSpace:"pre-wrap"}},insightMensal.texto):
         h("div",{style:{fontSize:11,color:"#7A7570",fontStyle:"italic"}},"Sera gerado automaticamente no fechamento do proximo mes. Ou clique em atualizar para forcar agora.")
       ):null;
-      content=h("div",{},hasPos&&h(BolsasCard,{port,cls}),aporteCard,insightCard,h(AllocChart,{cw,ct,fB,MV,hideVal}),h(RiskChart,{cw,selicAtual,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,recalibrarRR_viaIA,calibracaoLoad,calibracaoErr,hasAjustesIA:!!ajustesRR_IA,apiKey}),h(EvolChart,{histMensal,hist,showUSD,setShowUSD,hideVal}),h(ComparativoChart,{histMensal,idxMensal,hideVal}),insightMensalCard,h(HeatmapChart,{hist}),h(CurrencyChart,{port,cls,hideVal}),topPos);
+      content=h("div",{},h(BolsasCard,{port,cls}),aporteCard,insightCard,h(AllocChart,{cw,ct,fB,MV,hideVal}),h(RiskChart,{cw,selicAtual,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,recalibrarRR_viaIA,calibracaoLoad,calibracaoErr,hasAjustesIA:!!ajustesRR_IA,apiKey}),h(EvolChart,{histMensal,hist,showUSD,setShowUSD,hideVal}),h(ComparativoChart,{histMensal,idxMensal,hideVal}),insightMensalCard,h(HeatmapChart,{hist}),h(CurrencyChart,{port,cls,hideVal}),topPos);
     }
   }  // POSITIONS
   if(tab==="positions"){
@@ -4582,7 +4594,81 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             efFront>=85?h("span",{},"\u2728 Para a volatilidade que voce assumiu (",(statsAtual.vol*100).toFixed(1),"%), seu portfolio captura ",h("strong",{style:{color:"#4CAF82"}},efFront.toFixed(0)+"%")," do retorno teorico possivel. Voce esta quase na fronteira eficiente."):
             efFront>=70?h("span",{},"\u26A1 Para a volatilidade que voce assumiu (",(statsAtual.vol*100).toFixed(1),"%), voce captura ",h("strong",{style:{color:"#E8C44A"}},efFront.toFixed(0)+"%")," do retorno teorico. Ha espaco para otimizar (",gapRet.toFixed(1),"pp de retorno deixados na mesa)."):
             h("span",{},"\u26A0 Ha gap relevante: voce poderia ter ",h("strong",{style:{color:"#E05252"}},"+"+gapRet.toFixed(1)+"pp")," de retorno com a mesma volatilidade. Rebalanceamento pode aumentar significativamente a eficiencia.")
-          )
+          ),
+          // ========== TABELA EXPLICATIVA DAS NOTAS ==========
+          h("div",{style:{marginTop:14,paddingTop:12,borderTop:"1px solid rgba(255,255,255,0.05)"}},
+            h("div",{style:{fontSize:8,letterSpacing:1.8,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,marginBottom:8}},"\u{1F4D6} ESCALA DE NOTAS"),
+            h("div",{style:{display:"grid",gridTemplateColumns:"32px 70px 1fr",gap:8,fontSize:8,fontFamily:"monospace"}},
+              h("div",{style:{color:"#6A6050",letterSpacing:1.5}},"NOTA"),
+              h("div",{style:{color:"#6A6050",letterSpacing:1.5}},"FAIXA"),
+              h("div",{style:{color:"#6A6050",letterSpacing:1.5}},"RETORNO CAPTURADO DA FRONTEIRA")
+            ),
+            ...[
+              {c:"A",cor:"#4CAF82",faixa:"85-100%",desc:"Captura ~95-100% do retorno teorico maximo. Praticamente na fronteira eficiente."},
+              {c:"B",cor:"#7DD17D",faixa:"75-85%",desc:"Captura ~85-95% do retorno. Proximo ao otimo, ajustes finos possiveis."},
+              {c:"C",cor:"#E8C44A",faixa:"65-75%",desc:"Captura ~75-85% do retorno. Otimizacao moderada recomendada."},
+              {c:"D",cor:"#E89060",faixa:"50-65%",desc:"Captura ~60-75% do retorno. Rebalanceamento estruturado pode trazer ganhos significativos."},
+              {c:"F",cor:"#E05252",faixa:"<50%",desc:"Captura <60% do retorno. Revisao profunda necessaria - concentracao excessiva ou perfil mal alinhado."}
+            ].map((n,i)=>h("div",{key:i,style:{display:"grid",gridTemplateColumns:"32px 70px 1fr",gap:8,padding:"5px 0",borderTop:i>0?"1px solid rgba(255,255,255,0.04)":"none",alignItems:"center",background:n.c===conceito?"rgba(200,169,110,0.05)":"transparent",borderRadius:n.c===conceito?4:0,paddingLeft:n.c===conceito?6:0}},
+              h("div",{style:{fontSize:14,color:n.cor,fontFamily:"Georgia,serif",fontWeight:700,textAlign:"center"}},n.c),
+              h("div",{style:{fontSize:9,color:n.cor,fontFamily:"monospace",fontWeight:700}},n.faixa),
+              h("div",{style:{fontSize:8.5,color:"#9A9080",lineHeight:1.4,fontStyle:n.c===conceito?"normal":"italic"}},n.desc,n.c===conceito&&h("span",{style:{color:n.cor,fontWeight:700,marginLeft:4}}," \u25C0 voce esta aqui"))
+            ))
+          ),
+          // ========== HISTOGRAMA: DISTRIBUICAO DOS PORTFOLIOS ==========
+          (()=>{
+            // Calcula a nota de cada portfolio do Monte Carlo
+            const calcNotaPortfolio=p=>{
+              const efA=Math.max(0,Math.min(100,(p.sharpe/Math.max(0.01,bestSharpe.sharpe))*100));
+              // Eficiencia de fronteira para ESSE portfolio (compara com max ret na vol DELE)
+              let maxRet=p.ret;
+              for(const q of mcResult){
+                if(Math.abs(q.vol-p.vol)<0.015&&q.ret>maxRet)maxRet=q.ret;
+              }
+              const efF=Math.max(0,Math.min(100,(p.ret/Math.max(0.001,maxRet))*100));
+              return efF*0.6+efA*0.4;
+            };
+            // Amostra 800 portfolios para distribuicao (rapidez)
+            const amostra=[];
+            const stepAm=Math.max(1,Math.floor(mcResult.length/800));
+            for(let i=0;i<mcResult.length;i+=stepAm)amostra.push(mcResult[i]);
+            const notas=amostra.map(calcNotaPortfolio);
+            const distrib={A:0,B:0,C:0,D:0,F:0};
+            notas.forEach(n=>{
+              if(n>=85)distrib.A++;
+              else if(n>=75)distrib.B++;
+              else if(n>=65)distrib.C++;
+              else if(n>=50)distrib.D++;
+              else distrib.F++;
+            });
+            const total=amostra.length;
+            const pcts={A:distrib.A/total*100,B:distrib.B/total*100,C:distrib.C/total*100,D:distrib.D/total*100,F:distrib.F/total*100};
+            const maxPct=Math.max(pcts.A,pcts.B,pcts.C,pcts.D,pcts.F);
+            const cores={A:"#4CAF82",B:"#7DD17D",C:"#E8C44A",D:"#E89060",F:"#E05252"};
+            return h("div",{style:{marginTop:14,paddingTop:12,borderTop:"1px solid rgba(255,255,255,0.05)"}},
+              h("div",{style:{fontSize:8,letterSpacing:1.8,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,marginBottom:4}},"\u{1F4CA} DISTRIBUICAO DE PORTFOLIOS POSSIVEIS"),
+              h("div",{style:{fontSize:8,color:"#6A6050",fontStyle:"italic",marginBottom:8,lineHeight:1.4}},"Dos ",total," portfolios aleatorios simulados, quantos % caem em cada faixa de nota:"),
+              h("div",{style:{display:"flex",alignItems:"flex-end",gap:6,height:80,padding:"0 4px"}},
+                ...["A","B","C","D","F"].map(g=>{
+                  const alturaPct=maxPct>0?(pcts[g]/maxPct)*100:0;
+                  const isSeu=g===conceito;
+                  return h("div",{key:g,style:{flex:1,display:"flex",flexDirection:"column",alignItems:"center",height:"100%",justifyContent:"flex-end"}},
+                    h("div",{style:{fontSize:8,color:cores[g],fontFamily:"monospace",fontWeight:700,marginBottom:3}},pcts[g].toFixed(0)+"%"),
+                    h("div",{style:{width:"100%",height:alturaPct+"%",background:cores[g],opacity:isSeu?1:0.4,borderRadius:"3px 3px 0 0",border:isSeu?"2px solid #FFF":"none",transition:"all 0.3s"}}),
+                    h("div",{style:{fontSize:9,color:cores[g],fontFamily:"Georgia,serif",fontWeight:700,marginTop:4}},g),
+                    isSeu&&h("div",{style:{fontSize:7,color:cores[g],fontWeight:700,fontFamily:"monospace",marginTop:1}},"VOCE")
+                  );
+                })
+              ),
+              h("div",{style:{fontSize:8.5,color:"#9A9080",lineHeight:1.55,marginTop:10,padding:"8px 10px",background:"rgba(0,0,0,0.18)",borderLeft:"3px solid "+corConceito,borderRadius:"0 4px 4px 0"}},
+                "Sua nota ",h("strong",{style:{color:corConceito}},conceito)," ",
+                pcts[conceito]>=40?h("span",{},"e a faixa mais comum (",pcts[conceito].toFixed(0),"% dos portfolios simulados). Eficiencia tipica."):
+                pcts[conceito]>=20?h("span",{},"corresponde a ",pcts[conceito].toFixed(0),"% dos portfolios simulados. Posicao moderada."):
+                pcts[conceito]>=5?h("span",{},"e relativamente incomum (",pcts[conceito].toFixed(0),"% dos portfolios). ",notaFinal>=75?"Voce esta acima da media.":"Maioria dos portfolios performam melhor."):
+                h("span",{},"e ",notaFinal>=85?"raramente alcancada (apenas "+pcts[conceito].toFixed(0)+"% dos portfolios). Excelente posicao.":"rara (so "+pcts[conceito].toFixed(0)+"% dos portfolios). Posicao desfavoravel - rebalanceamento traz ganhos rapidos.")
+              )
+            );
+          })()
         );
       })(),
 
