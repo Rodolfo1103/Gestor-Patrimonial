@@ -5514,17 +5514,48 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
     try{
     content=h("div",{},
       h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:12}},"Aportes executados"),
-      hist.length===0?h("div",{style:{textAlign:"center",padding:"40px 0",color:"#5A5550",fontStyle:"italic"}},"Nenhum aporte registrado."):
-      h("div",{},...hist.map((rec,i)=>h("div",{key:i,style:{background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:8,padding:"11px 13px",marginBottom:7}},
-        h("div",{style:{display:"flex",justifyContent:"space-between",marginBottom:6}},h("span",{style:{fontSize:9,color:"#8A8070",fontFamily:"monospace"}},new Date(rec.date).toLocaleDateString("pt-BR",{day:"2-digit",month:"short",year:"numeric"})),h("span",{style:{fontFamily:"monospace",fontSize:12,color:"#C8A96E",fontWeight:700}},MV(fB(rec.totalExecuted)))),
-        ...rec.purchases.map((p,j)=>{const cl3=CL.find(c=>c.id===(cls[p.ticker]||""));return h("div",{key:j,style:{display:"flex",alignItems:"center",gap:6,padding:"3px 0",borderTop:"1px solid rgba(255,255,255,0.03)"}},h("div",{style:{width:4,height:4,borderRadius:"50%",background:cl3?cl3.color:"#888",flexShrink:0}}),h("span",{style:{fontFamily:"monospace",fontSize:10,color:"#F0EAD8",flex:1}},p.ticker),h("span",{style:{fontSize:9,color:"#8A8070",fontFamily:"monospace"}},fN(p.qty,p.qty<100?4:0)+" x "+fN(p.price,2)),h("span",{style:{fontFamily:"monospace",fontSize:10,color:"#B0A890"}},MV(fB(p.total))));})
-      )))
+      (!hist||hist.length===0)?h("div",{style:{textAlign:"center",padding:"40px 0",color:"#5A5550",fontStyle:"italic"}},"Nenhum aporte registrado."):
+      h("div",{},...hist.map((rec,i)=>{
+        // Defesa contra registros antigos/malformados
+        if(!rec)return null;
+        const dateStr=rec.date?(()=>{try{return new Date(rec.date).toLocaleDateString("pt-BR",{day:"2-digit",month:"short",year:"numeric"});}catch(e){return"sem data";}})():"sem data";
+        const total=typeof rec.totalExecuted==="number"?rec.totalExecuted:(typeof rec.total==="number"?rec.total:0);
+        const purchases=Array.isArray(rec.purchases)?rec.purchases:[];
+        return h("div",{key:i,style:{background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:8,padding:"11px 13px",marginBottom:7}},
+          h("div",{style:{display:"flex",justifyContent:"space-between",marginBottom:6}},
+            h("span",{style:{fontSize:9,color:"#8A8070",fontFamily:"monospace"}},dateStr),
+            h("span",{style:{fontFamily:"monospace",fontSize:12,color:"#C8A96E",fontWeight:700}},MV(fB(total)))
+          ),
+          ...purchases.map((p,j)=>{
+            if(!p||!p.ticker)return null;
+            const cl3=CL.find(c=>c.id===(cls[p.ticker]||""));
+            const qty=typeof p.qty==="number"?p.qty:0;
+            const price=typeof p.price==="number"?p.price:0;
+            const pTotal=typeof p.total==="number"?p.total:(qty*price);
+            return h("div",{key:j,style:{display:"flex",alignItems:"center",gap:6,padding:"3px 0",borderTop:"1px solid rgba(255,255,255,0.03)"}},
+              h("div",{style:{width:4,height:4,borderRadius:"50%",background:cl3?cl3.color:"#888",flexShrink:0}}),
+              h("span",{style:{fontFamily:"monospace",fontSize:10,color:"#F0EAD8",flex:1}},p.ticker),
+              h("span",{style:{fontSize:9,color:"#8A8070",fontFamily:"monospace"}},fN(qty,qty<100?4:0)+" x "+fN(price,2)),
+              h("span",{style:{fontFamily:"monospace",fontSize:10,color:"#B0A890"}},MV(fB(pTotal)))
+            );
+          })
+        );
+      }))
     );
     }catch(e){
       console.error("Erro renderizando HISTORY:",e);
+      const stackInfo=e&&e.stack?e.stack.split("\n").slice(0,6).join("\n"):"sem stack";
       content=h("div",{style:{padding:"24px 16px",background:"rgba(224,82,82,0.06)",border:"1px solid rgba(224,82,82,0.25)",borderRadius:8,marginTop:12}},
         h("div",{style:{fontSize:11,color:"#E05252",fontFamily:"monospace",fontWeight:700,marginBottom:8}},"\u26A0 Erro ao renderizar Historico"),
-        h("div",{style:{fontSize:10,color:"#9A9080",lineHeight:1.6,fontFamily:"monospace",whiteSpace:"pre-wrap"}},e&&e.message?e.message:String(e))
+        h("div",{style:{fontSize:10,color:"#E8E2D5",lineHeight:1.6,fontFamily:"monospace",whiteSpace:"pre-wrap",marginBottom:8}},e&&e.message?e.message:String(e)),
+        h("div",{style:{fontSize:8,color:"#8A8070",fontFamily:"monospace",marginBottom:4,letterSpacing:1.5}},"STACK TRACE:"),
+        h("div",{style:{fontSize:8,color:"#6A6050",fontFamily:"monospace",whiteSpace:"pre-wrap",lineHeight:1.5,padding:"6px",background:"rgba(0,0,0,0.3)",borderRadius:4,maxHeight:160,overflowY:"auto"}},stackInfo),
+        h("button",{onClick:()=>{
+          const txt="ERRO: "+(e&&e.message?e.message:String(e))+"\n\nSTACK:\n"+stackInfo;
+          if(navigator.clipboard&&navigator.clipboard.writeText){
+            navigator.clipboard.writeText(txt).then(()=>alert("Erro copiado! Cole na conversa.")).catch(()=>alert(txt));
+          }else alert(txt);
+        },style:{marginTop:10,background:"none",border:"1px solid rgba(200,169,110,0.4)",borderRadius:4,padding:"5px 12px",color:"#C8A96E",fontSize:9,fontFamily:"monospace",cursor:"pointer",letterSpacing:1}},"COPIAR ERRO")
       );
     }
   }
