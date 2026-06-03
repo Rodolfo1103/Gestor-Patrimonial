@@ -2578,8 +2578,10 @@ function App(){
   const cwKey=MPT_CLS.map(cid=>Math.round((cw[cid]||0)*10)/10).join(",");
   const rfKey=Math.round((selicAtual||10)*10)/10;
   const mptCache=useMemo(()=>{
-    const rf=(typeof selicAtual==="number"&&selicAtual>0?selicAtual:10)/100;
-    return mptMonteCarlo(50000,rf);
+    try{
+      const rf=(typeof selicAtual==="number"&&selicAtual>0?selicAtual:10)/100;
+      return mptMonteCarlo(8000,rf);
+    }catch(e){console.error("Erro Monte Carlo:",e);return[];}
   },[cwKey,rfKey]);
 
   // === NOTIFICACAO DE INSIGHT MENSAL: dispara quando insight de novo mes fica pronto ===
@@ -4399,6 +4401,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
 
   // MPT (Modern Portfolio Theory)
   if(tab==="mpt"){
+    try{
     // Constroi vetor de pesos atual (cw esta em %, converte pra fracao)
     const wAtual=MPT_CLS.map(cid=>(cw[cid]||0)/100);
     const somaW=wAtual.reduce((a,b)=>a+b,0);
@@ -5049,6 +5052,16 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         )
       )
     );
+    }catch(e){
+      console.error("Erro renderizando MPT:",e);
+      content=h("div",{style:{padding:"24px 16px",background:"rgba(224,82,82,0.06)",border:"1px solid rgba(224,82,82,0.25)",borderRadius:8,marginTop:12}},
+        h("div",{style:{fontSize:11,color:"#E05252",fontFamily:"monospace",fontWeight:700,marginBottom:8}},"\u26A0 Erro ao renderizar a aba MPT"),
+        h("div",{style:{fontSize:10,color:"#9A9080",lineHeight:1.6,fontFamily:"monospace",whiteSpace:"pre-wrap"}},
+          "Mensagem: "+(e&&e.message?e.message:String(e))+"\n\nLinha aproximada: "+(e&&e.stack?(e.stack.split('\n')[1]||"").trim():"n/a")
+        ),
+        h("div",{style:{fontSize:9,color:"#6A6050",marginTop:10,fontStyle:"italic"}},"Compartilhe esta mensagem para ajudar no diagnostico.")
+      );
+    }
   }
 
   // ALL WEATHER (Ray Dalio adaptado ao Brasil)
