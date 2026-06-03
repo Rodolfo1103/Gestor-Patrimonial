@@ -177,18 +177,43 @@ const BOLSAS=[
 function bolsaDoTicker(ticker,cid){
   if(!ticker)return null;
   if(cid==="fii"||cid==="acoes_br"||cid==="infra"||cid==="agro")return"b3";
+  // Tickers conhecidos sem sufixo - mapeamento explicito
+  const tk=ticker.toUpperCase();
+  // London Stock Exchange (LSE) - tickers UK sem sufixo
+  if(["HLMA","ULVR","DGE","AZN","SHEL","BP","HSBA","RIO","GSK","NG","BARC","LLOY","PRU","REL","RKT"].includes(tk))return"lse";
   if(ticker.endsWith(".L"))return"lse";
-  if(ticker.endsWith(".DE")||ticker==="SIE"||ticker==="SAP")return"xetra";
-  if(ticker.endsWith(".AS")||ticker.endsWith(".PA")||ticker==="ASML")return"euronext";
-  if(ticker.endsWith(".SW")||ticker==="ABBN")return"six";
-  if(ticker.endsWith(".CO")||ticker==="NSIS_B")return"omx";
-  if(ticker.endsWith(".OL")||ticker==="KOG")return"oslo";
-  if(ticker.endsWith(".T")||ticker.startsWith("TSE"))return"tse";
+  // Xetra/Alemanha
+  if(["SIE","SAP","BMW","BAS","ADS","ALV","BAYN","BEI","DAI","DBK","DTE","HEN3","IFX","LIN","MRK","MUV2","RWE","VOW3"].includes(tk))return"xetra";
+  if(ticker.endsWith(".DE"))return"xetra";
+  // Euronext (Holanda/Franca)
+  if(["ASML","ASR","INGA","KPN","PHIA","RAND","WKL","DSM","HEIA","AIR","BNP","CAP","CS","KER","LR","MC","OR","RNO","SAN","SGO","SU","VIE","FP"].includes(tk))return"euronext";
+  if(ticker.endsWith(".AS")||ticker.endsWith(".PA"))return"euronext";
+  // SIX Suica
+  if(["ABBN","NESN","NOVN","ROG","UBSG","CFR","ZURN","CSGN","LONN","SREN","SCMN","GIVN","SGSN"].includes(tk))return"six";
+  if(ticker.endsWith(".SW"))return"six";
+  // Copenhagen (OMX)
+  if(["NSIS_B","NOVO_B","MAERSK_B","CARL_B","DANSKE","DSV","GN","ORSTED","PNDORA","TRYG","VWS"].includes(tk))return"omx";
+  if(ticker.endsWith(".CO"))return"omx";
+  // Oslo Bors
+  if(["KOG","EQNR","DNB","TEL","MOWI","YAR","ORK","NHY","STB","SUBC","AKER","AKRBP","NEL","REC"].includes(tk))return"oslo";
+  if(ticker.endsWith(".OL"))return"oslo";
+  // Toquio (TSE)
+  if(ticker.startsWith("TSE")||/^\d{4}$/.test(tk))return"tse";
+  if(ticker.endsWith(".T"))return"tse";
+  // Hong Kong
   if(ticker.startsWith("HKG")||ticker.endsWith(".HK"))return"hkex";
-  if(ticker.endsWith(".AX")||ticker==="REA")return"asx";
-  if(ticker.endsWith(".SI")||ticker==="J36"||ticker==="WES")return"sgx";
-  if(ticker.endsWith(".MX")||ticker==="GMEXICOB")return"bmv";
-  if(ticker==="NDIA")return"nse";
+  // Australia (ASX)
+  if(["REA","BHP","CBA","CSL","NAB","WBC","ANZ","WES","WOW","MQG","RIO","FMG","TLS","WOR","WPL"].includes(tk))return"asx";
+  if(ticker.endsWith(".AX"))return"asx";
+  // Cingapura (SGX)
+  if(["J36","D05","O39","U11","C6L","Z74","SE","DBS","UOB","OCBC","CapMall"].includes(tk))return"sgx";
+  if(ticker.endsWith(".SI"))return"sgx";
+  // Mexico (BMV)
+  if(["GMEXICOB","WALMEX","GFNORTEO","FEMSAUBD","TLEVISACPO","AMXL","CEMEXCPO","KOFUBL","BIMBOA","ALFAA","GCARSOA1"].includes(tk))return"bmv";
+  if(ticker.endsWith(".MX"))return"bmv";
+  // India (NSE)
+  if(["NDIA","RELIANCE","TCS","HDFCBANK","INFY","ICICIBANK","HUL","ITC","SBIN","BHARTIARTL","KOTAKBANK","LT","WIPRO"].includes(tk))return"nse";
+  // Fallback para acoes_ext/reits = NYSE/Nasdaq (USA)
   if(cid==="acoes_ext"||cid==="reits")return"nyse";
   return null;
 }
@@ -516,14 +541,22 @@ function BolsasCard({port,cls}){
     const id=setInterval(()=>setTick(t=>t+1),30000);
     return ()=>clearInterval(id);
   },[]);
-  // Descobre quais bolsas tem ativos no portfolio
+  // Descobre quais bolsas tem ativos no portfolio + rastreia tickers por bolsa
   const bolsasAtivas=new Set();
+  const tickersPorBolsa={};
+  const naoMapeados=[];
   Object.entries(port||{}).forEach(([t,p])=>{
     if(!p||!p.qty||p.qty<=0)return;
     const cid=p.classId||cls[t];
     if(cid==="selic"||cid==="ouro"||cid==="bitcoin"||cid==="imoveis")return;
     const bid=bolsaDoTicker(t,cid);
-    if(bid)bolsasAtivas.add(bid);
+    if(bid){
+      bolsasAtivas.add(bid);
+      if(!tickersPorBolsa[bid])tickersPorBolsa[bid]=[];
+      tickersPorBolsa[bid].push(t);
+    }else{
+      naoMapeados.push(t);
+    }
   });
   if(bolsasAtivas.size===0)return null;
   const bolsasLista=BOLSAS.filter(b=>bolsasAtivas.has(b.id));
@@ -548,7 +581,8 @@ function BolsasCard({port,cls}){
         h("div",{style:{flex:1,minWidth:0}},
           h("div",{style:{display:"flex",alignItems:"baseline",gap:6,flexWrap:"wrap"}},
             h("span",{style:{fontSize:10,color:"#F0EAD8",fontWeight:700,fontFamily:"monospace"}},b.nome),
-            h("span",{style:{fontSize:8,color:"#6A6050",fontStyle:"italic"}},b.pais)
+            h("span",{style:{fontSize:8,color:"#6A6050",fontStyle:"italic"}},b.pais),
+            tickersPorBolsa[b.id]&&tickersPorBolsa[b.id].length>0&&h("span",{title:tickersPorBolsa[b.id].join(", "),style:{fontSize:7,color:"#C8A96E",fontFamily:"monospace",border:"1px solid #C8A96E44",borderRadius:3,padding:"1px 4px"}},tickersPorBolsa[b.id].length+" ativo"+(tickersPorBolsa[b.id].length>1?"s":""))
           ),
           h("div",{style:{fontSize:8,color:"#7A7060",fontFamily:"monospace",marginTop:1}},
             "Local ",h("span",{style:{color:"#9A9080",fontWeight:700}},st.horaLocal)," (",b.abre,"-",b.fecha,")"
@@ -559,6 +593,11 @@ function BolsasCard({port,cls}){
           st.detalhe&&h("div",{style:{fontSize:7,color:"#6A6050",fontStyle:"italic",marginTop:1}},st.detalhe)
         )
       ))
+    ),
+    // Alerta de tickers nao mapeados
+    naoMapeados.length>0&&h("div",{style:{fontSize:8,color:"#E89060",background:"rgba(232,144,96,0.06)",border:"1px dashed rgba(232,144,96,0.3)",borderRadius:5,padding:"6px 8px",marginTop:8,fontFamily:"monospace"}},
+      h("strong",{},"\u26A0 "+naoMapeados.length+" ticker(s) sem bolsa identificada: "),naoMapeados.join(", "),
+      h("div",{style:{fontSize:7,color:"#6A6050",marginTop:3,fontStyle:"italic"}},"Estes ativos nao foram mapeados a uma bolsa. Reporte para correcao.")
     ),
     h("div",{style:{fontSize:7,color:"#5A5550",fontStyle:"italic",lineHeight:1.4,marginTop:8,paddingTop:8,borderTop:"1px solid rgba(255,255,255,0.04)"}},
       "Horarios e feriados 2026 hardcoded. Atualiza a cada 30s. Confirme feriados regionais no broker antes de operar."
@@ -4387,9 +4426,23 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
     const betaAW=mptBeta(wAW);
     // Monte Carlo: usa cache do useMemo (recalcula so quando cw ou Selic mudam)
     const mcResult=mptCache;
-    // Encontra portfolio com maior Sharpe (tangencia) - usa todos os 50k
-    let bestSharpe=mcResult[0];
-    for(const p of mcResult)if(p.sharpe>bestSharpe.sharpe)bestSharpe=p;
+    // Encontra portfolio com maior Sharpe (tangencia)
+    // RESTRICAO: nenhuma classe pode ter mais de 40% (evita concentracoes irrealistas tipo 80% Bitcoin)
+    // e Bitcoin/Ouro/Agro/Imoveis nao podem passar de 15% cada (perfil B&H realista)
+    const limitesMax={fii:0.40,acoes_br:0.30,acoes_ext:0.35,reits:0.15,selic:0.40,ouro:0.15,bitcoin:0.10,infra:0.20,imoveis:0.15,agro:0.15};
+    const portfolioValido=p=>{
+      for(let i=0;i<MPT_CLS.length;i++){
+        if(p.w[i]>limitesMax[MPT_CLS[i]])return false;
+      }
+      return true;
+    };
+    let bestSharpe=null;
+    for(const p of mcResult){
+      if(!portfolioValido(p))continue;
+      if(!bestSharpe||p.sharpe>bestSharpe.sharpe)bestSharpe=p;
+    }
+    // Fallback: se nenhum passou nas restricoes (improvavel com 50k), usa o melhor sem restricao
+    if(!bestSharpe){bestSharpe=mcResult[0];for(const p of mcResult)if(p.sharpe>bestSharpe.sharpe)bestSharpe=p;}
     // Encontra portfolio com volatilidade similar a atual (margem 0.5%) e maior retorno
     const targetVol=statsAtual.vol;
     let similar=null;
@@ -4641,18 +4694,36 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           h("text",{x:xOf(0)+8,y:yOf(rfAtual)+3,fill:"#9B9B9B",fontSize:8,fontFamily:"monospace",fontWeight:700},"SELIC"),
           // Ponto: Portfolio otimo (tangencia / max Sharpe)
           h("circle",{cx:xOf(bestSharpe.vol),cy:yOf(bestSharpe.ret),r:5,fill:"#C8A96E",stroke:"#0D0F14",strokeWidth:1.5}),
-          h("text",{x:xOf(bestSharpe.vol)+8,y:yOf(bestSharpe.ret)-4,fill:"#C8A96E",fontSize:8,fontFamily:"monospace",fontWeight:700},"OTIMO"),
+          (()=>{
+            const px=xOf(bestSharpe.vol);
+            const py=yOf(bestSharpe.ret);
+            // Se ponto perto da borda direita, label vai pra esquerda
+            const labelDireita=px<pL+cW-50;
+            return h("text",{x:labelDireita?px+8:px-8,y:py-4,textAnchor:labelDireita?"start":"end",fill:"#C8A96E",fontSize:8,fontFamily:"monospace",fontWeight:700},"OTIMO");
+          })(),
           // Ponto: ALL WEATHER (Dalio adaptado BR)
           h("circle",{cx:xOf(statsAW.vol),cy:yOf(statsAW.ret),r:5,fill:"#2EBFA5",stroke:"#0D0F14",strokeWidth:1.5}),
-          h("text",{x:xOf(statsAW.vol)+8,y:yOf(statsAW.ret)+10,fill:"#2EBFA5",fontSize:8,fontFamily:"monospace",fontWeight:700},"AW"),
+          (()=>{
+            const px=xOf(statsAW.vol);
+            const labelDireita=px<pL+cW-30;
+            return h("text",{x:labelDireita?px+8:px-8,y:yOf(statsAW.ret)+10,textAnchor:labelDireita?"start":"end",fill:"#2EBFA5",fontSize:8,fontFamily:"monospace",fontWeight:700},"AW");
+          })(),
           // Ponto: ALVO (portfolio baseado nas bandas medias)
           h("circle",{cx:xOf(statsAlvo.vol),cy:yOf(statsAlvo.ret),r:6,fill:"#5B8FD4",stroke:"#FFF",strokeWidth:1.5}),
-          h("text",{x:xOf(statsAlvo.vol)+9,y:yOf(statsAlvo.ret)+3,fill:"#5B8FD4",fontSize:9,fontFamily:"monospace",fontWeight:700},"ALVO"),
+          (()=>{
+            const px=xOf(statsAlvo.vol);
+            const labelDireita=px<pL+cW-45;
+            return h("text",{x:labelDireita?px+9:px-9,y:yOf(statsAlvo.ret)+3,textAnchor:labelDireita?"start":"end",fill:"#5B8FD4",fontSize:9,fontFamily:"monospace",fontWeight:700},"ALVO");
+          })(),
           // Linha tracejada VOCE -> ALVO (mostra o caminho)
           h("line",{x1:xOf(statsAtual.vol),y1:yOf(statsAtual.ret),x2:xOf(statsAlvo.vol),y2:yOf(statsAlvo.ret),stroke:"#5B8FD4",strokeWidth:1,strokeDasharray:"3,3",opacity:0.4}),
           // Ponto: SEU PORTFOLIO (em destaque)
           h("circle",{cx:xOf(statsAtual.vol),cy:yOf(statsAtual.ret),r:7,fill:"#E05252",stroke:"#FFF",strokeWidth:2}),
-          h("text",{x:xOf(statsAtual.vol)+10,y:yOf(statsAtual.ret)+3,fill:"#E05252",fontSize:9,fontFamily:"monospace",fontWeight:700},"VOCE")
+          (()=>{
+            const px=xOf(statsAtual.vol);
+            const labelDireita=px<pL+cW-50;
+            return h("text",{x:labelDireita?px+10:px-10,y:yOf(statsAtual.ret)+3,textAnchor:labelDireita?"start":"end",fill:"#E05252",fontSize:9,fontFamily:"monospace",fontWeight:700},"VOCE");
+          })()
         ),
         h("div",{style:{fontSize:8,color:"#6A6050",padding:"6px 10px",fontStyle:"italic",lineHeight:1.5}},
           h("span",{style:{color:"#E05252",fontWeight:700}},"\u25CF VOCE"),": atual. ",
@@ -4660,7 +4731,50 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           h("span",{style:{color:"#2EBFA5",fontWeight:700}},"\u25CF AW"),": All Weather. ",
           h("span",{style:{color:"#C8A96E",fontWeight:700}},"\u25CF OTIMO"),": max Sharpe. ",
           h("span",{style:{color:"#9B9B9B",fontWeight:700}},"\u25CB SELIC"),": livre risco."
-        )
+        ),
+        // ===== LEGENDA EXPLICATIVA EXPANDIDA =====
+        (()=>{
+          // Determina posicao relativa do portfolio atual
+          const dirOtimo=statsAtual.vol<bestSharpe.vol?"abaixo":statsAtual.vol>bestSharpe.vol?"acima":"no mesmo nivel";
+          const dirRet=statsAtual.ret>bestSharpe.ret?"superior":"inferior";
+          const distAW=Math.sqrt(Math.pow(statsAtual.vol-statsAW.vol,2)+Math.pow(statsAtual.ret-statsAW.ret,2));
+          const distAlvo=Math.sqrt(Math.pow(statsAtual.vol-statsAlvo.vol,2)+Math.pow(statsAtual.ret-statsAlvo.ret,2));
+          const distOtimo=Math.sqrt(Math.pow(statsAtual.vol-bestSharpe.vol,2)+Math.pow(statsAtual.ret-bestSharpe.ret,2));
+          const maisProximo=distAW<distAlvo&&distAW<distOtimo?"AW":distAlvo<distOtimo?"ALVO":"OTIMO";
+          const corProximo=maisProximo==="AW"?"#2EBFA5":maisProximo==="ALVO"?"#5B8FD4":"#C8A96E";
+          // Eficiencia em % do otimo
+          const ef=(sharpeAtual/bestSharpe.sharpe)*100;
+          return h("div",{style:{background:"rgba(0,0,0,0.15)",borderTop:"1px solid rgba(255,255,255,0.05)",padding:"11px 12px",lineHeight:1.6}},
+            h("div",{style:{fontSize:8,letterSpacing:1.8,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,marginBottom:7}},"\u{1F4D6} COMO LER ESTE GRAFICO"),
+            h("p",{style:{fontSize:9,color:"#9A9080",margin:"0 0 8px",lineHeight:1.65}},
+              "Cada ponto representa um portfolio possivel: ",
+              h("strong",{style:{color:"#E89060"}},"eixo X"),
+              " mostra volatilidade (risco) e ",
+              h("strong",{style:{color:"#4CAF82"}},"eixo Y"),
+              " mostra retorno esperado anualizado. A nuvem dourada e a fronteira eficiente: portfolios com melhor relacao retorno/risco ficam na borda superior-esquerda."
+            ),
+            h("div",{style:{fontSize:8,letterSpacing:1.8,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,marginBottom:7,marginTop:10}},"\u{1F4CD} ONDE VOCE ESTA"),
+            h("p",{style:{fontSize:9,color:"#9A9080",margin:"0 0 6px",lineHeight:1.65}},
+              "Seu portfolio atual (",h("span",{style:{color:"#E05252",fontWeight:700}},"VOCE"),") esta com volatilidade de ",
+              h("strong",{style:{color:"#E89060"}},(statsAtual.vol*100).toFixed(1)+"%"),
+              " e retorno esperado de ",
+              h("strong",{style:{color:"#4CAF82"}},(statsAtual.ret*100).toFixed(1)+"%"),
+              ", resultando em Sharpe ",h("strong",{style:{color:sharpeAtual>=0.3?"#4CAF82":sharpeAtual>=0.15?"#E8C44A":"#E05252"}},sharpeAtual.toFixed(2)),"."
+            ),
+            h("p",{style:{fontSize:9,color:"#9A9080",margin:"0 0 6px",lineHeight:1.65}},
+              "Voce esta ",dirOtimo," do OTIMO em volatilidade e com retorno ",dirRet,". Sua eficiencia atinge ",
+              h("strong",{style:{color:ef>=70?"#4CAF82":ef>=50?"#E8C44A":"#E89060"}},ef.toFixed(0)+"%")," do maximo teorico possivel."
+            ),
+            h("p",{style:{fontSize:9,color:"#9A9080",margin:0,lineHeight:1.65}},
+              "Entre os 3 portfolios de referencia (ALVO, AW, OTIMO), voce esta ",
+              h("strong",{style:{color:corProximo}},"mais proximo de "+maisProximo),
+              ". ",
+              ef>=85?h("span",{style:{color:"#4CAF82"}},"Sua alocacao ja esta quase otima."):
+              ef>=65?h("span",{style:{color:"#E8C44A"}},"Ha espaco para melhorar movendo na direcao da fronteira."):
+              h("span",{style:{color:"#E89060"}},"Ha gap relevante - rebalanceamento direcionado pode aumentar a eficiencia.")
+            )
+          );
+        })()
       ),
 
       // ========== PORTFOLIO OTIMO ==========
