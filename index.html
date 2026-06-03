@@ -4503,18 +4503,16 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
 
       // ========== NOTA DE EFICIENCIA ==========
       (()=>{
-        // Eficiencia absoluta: % do Sharpe otimo
-        const efAbs=Math.max(0,Math.min(100,(sharpeAtual/Math.max(0.01,bestSharpe.sharpe))*100));
         // Eficiencia de fronteira: dado a volatilidade atual, quanto retorno voce captura do maximo possivel?
         // Procura no Monte Carlo o portfolio com volatilidade similar (margem 1.5%) e maior retorno
         let maxRetSimVol=statsAtual.ret;
         for(const p of mcResult){
           if(Math.abs(p.vol-statsAtual.vol)<0.015&&p.ret>maxRetSimVol)maxRetSimVol=p.ret;
         }
-        // Compara seu retorno com o melhor retorno alcancavel naquela vol
+        // Eficiencia = quanto retorno voce captura do maximo possivel na sua volatilidade
         const efFront=Math.max(0,Math.min(100,(statsAtual.ret/Math.max(0.001,maxRetSimVol))*100));
-        // Nota combinada (media ponderada): 60% fronteira + 40% absoluta
-        const notaFinal=(efFront*0.6+efAbs*0.4);
+        // Nota = eficiencia de fronteira (100% do score - metrica unica e justa para B&H)
+        const notaFinal=efFront;
         // Conceito A-F estilo escolar
         let conceito,corConceito,descConceito,detalheConceito;
         if(notaFinal>=85){
@@ -4549,35 +4547,19 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                 h("span",{style:{fontSize:8,color:corConceito,fontFamily:"monospace",fontWeight:700,padding:"1px 5px",borderRadius:3,background:corConceito+"22",border:"1px solid "+corConceito+"66"}},descConceito)
               ),
               h("p",{style:{fontSize:9,color:"#9A9080",margin:"0 0 8px",lineHeight:1.55,fontStyle:"italic"}},
-                "Score combinado (fronteira 60% + Sharpe absoluto 40%) que mede a eficiencia da sua alocacao na relacao risco/retorno."
+                "Eficiencia da sua alocacao: quanto retorno voce captura do maximo possivel para a volatilidade que assumiu. Metrica de fronteira eficiente, justa para qualquer perfil."
               ),
-              // Mini barra com 2 sub-notas + explicacao
-              h("div",{style:{display:"flex",flexDirection:"column",gap:9}},
-                // SUB-NOTA 1: FRONTEIRA
-                h("div",{},
-                  h("div",{style:{display:"grid",gridTemplateColumns:"75px 1fr 38px",gap:6,alignItems:"center",fontSize:8,fontFamily:"monospace",marginBottom:3}},
-                    h("span",{title:"Quanto retorno voce captura do maximo possivel para o nivel de risco que voce assumiu",style:{color:"#8A8070",fontWeight:700}},"FRONTEIRA"),
-                    h("div",{style:{position:"relative",height:5,background:"rgba(255,255,255,0.04)",borderRadius:3}},
-                      h("div",{style:{position:"absolute",top:0,left:0,height:"100%",width:efFront+"%",background:efFront>=80?"#4CAF82":efFront>=60?"#E8C44A":"#E89060",borderRadius:3}})
-                    ),
-                    h("span",{style:{textAlign:"right",color:"#9A9080",fontWeight:700}},efFront.toFixed(0)+"%")
+              // Barra de eficiencia (fronteira = nota)
+              h("div",{},
+                h("div",{style:{display:"grid",gridTemplateColumns:"110px 1fr 42px",gap:6,alignItems:"center",fontSize:8,fontFamily:"monospace",marginBottom:4}},
+                  h("span",{style:{color:"#8A8070",fontWeight:700,letterSpacing:1.2}},"RETORNO CAPTURADO"),
+                  h("div",{style:{position:"relative",height:6,background:"rgba(255,255,255,0.04)",borderRadius:3}},
+                    h("div",{style:{position:"absolute",top:0,left:0,height:"100%",width:efFront+"%",background:efFront>=85?"#4CAF82":efFront>=75?"#7DD17D":efFront>=65?"#E8C44A":efFront>=50?"#E89060":"#E05252",borderRadius:3}})
                   ),
-                  h("div",{style:{fontSize:7.5,color:"#6A6050",fontStyle:"italic",paddingLeft:2,lineHeight:1.4}},
-                    "Para a SUA volatilidade, captura ",efFront.toFixed(0),"% do retorno teorico maximo. Mede eficiencia dentro do seu perfil de risco."
-                  )
+                  h("span",{style:{textAlign:"right",color:"#E8E2D5",fontWeight:700,fontSize:10}},efFront.toFixed(0)+"%")
                 ),
-                // SUB-NOTA 2: vs OTIMO
-                h("div",{},
-                  h("div",{style:{display:"grid",gridTemplateColumns:"75px 1fr 38px",gap:6,alignItems:"center",fontSize:8,fontFamily:"monospace",marginBottom:3}},
-                    h("span",{title:"Razao entre seu Sharpe e o Sharpe do portfolio otimo absoluto",style:{color:"#8A8070",fontWeight:700}},"vs OTIMO"),
-                    h("div",{style:{position:"relative",height:5,background:"rgba(255,255,255,0.04)",borderRadius:3}},
-                      h("div",{style:{position:"absolute",top:0,left:0,height:"100%",width:efAbs+"%",background:efAbs>=80?"#4CAF82":efAbs>=60?"#E8C44A":"#E89060",borderRadius:3}})
-                    ),
-                    h("span",{style:{textAlign:"right",color:"#9A9080",fontWeight:700}},efAbs.toFixed(0)+"%")
-                  ),
-                  h("div",{style:{fontSize:7.5,color:"#6A6050",fontStyle:"italic",paddingLeft:2,lineHeight:1.4}},
-                    "Seu Sharpe (",sharpeAtual.toFixed(2),") atinge ",efAbs.toFixed(0),"% do Sharpe absoluto otimo (",bestSharpe.sharpe.toFixed(2),"). Comparacao com o melhor portfolio possivel."
-                  )
+                h("div",{style:{fontSize:8,color:"#6A6050",fontStyle:"italic",paddingLeft:2,lineHeight:1.4}},
+                  "Para a sua volatilidade (",(statsAtual.vol*100).toFixed(1),"%), seu retorno esperado (",(statsAtual.ret*100).toFixed(2),"%) representa ",efFront.toFixed(0),"% do maximo teorico alcancavel (",(maxRetSimVol*100).toFixed(2),"%)."
                 )
               )
             )
@@ -4591,9 +4573,11 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           ),
           // Interpretacao curta
           h("div",{style:{fontSize:9,color:"#9A9080",marginTop:8,lineHeight:1.6}},
-            efFront>=85?h("span",{},"\u2728 Para a volatilidade que voce assumiu (",(statsAtual.vol*100).toFixed(1),"%), seu portfolio captura ",h("strong",{style:{color:"#4CAF82"}},efFront.toFixed(0)+"%")," do retorno teorico possivel. Voce esta quase na fronteira eficiente."):
-            efFront>=70?h("span",{},"\u26A1 Para a volatilidade que voce assumiu (",(statsAtual.vol*100).toFixed(1),"%), voce captura ",h("strong",{style:{color:"#E8C44A"}},efFront.toFixed(0)+"%")," do retorno teorico. Ha espaco para otimizar (",gapRet.toFixed(1),"pp de retorno deixados na mesa)."):
-            h("span",{},"\u26A0 Ha gap relevante: voce poderia ter ",h("strong",{style:{color:"#E05252"}},"+"+gapRet.toFixed(1)+"pp")," de retorno com a mesma volatilidade. Rebalanceamento pode aumentar significativamente a eficiencia.")
+            efFront>=85?h("span",{},"\u2728 Excelente: voce captura ",h("strong",{style:{color:"#4CAF82"}},efFront.toFixed(0)+"%")," do retorno teorico maximo possivel. Esta praticamente na fronteira eficiente."):
+            efFront>=75?h("span",{},"\u2728 Muito bom: voce captura ",h("strong",{style:{color:"#7DD17D"}},efFront.toFixed(0)+"%")," do retorno teorico. Ajustes finos podem trazer ganhos marginais."):
+            efFront>=65?h("span",{},"\u26A1 Bom: voce captura ",h("strong",{style:{color:"#E8C44A"}},efFront.toFixed(0)+"%")," do retorno teorico. Otimizacao moderada recomendada (",gapRet.toFixed(1),"pp deixados na mesa)."):
+            efFront>=50?h("span",{},"\u26A0 Regular: voce captura ",h("strong",{style:{color:"#E89060"}},efFront.toFixed(0)+"%")," do retorno teorico. Rebalanceamento estruturado pode trazer ",h("strong",{},"+"+gapRet.toFixed(1)+"pp")," de retorno."):
+            h("span",{},"\u26A0 Insatisfatorio: voce captura apenas ",h("strong",{style:{color:"#E05252"}},efFront.toFixed(0)+"%")," do retorno teorico. ",h("strong",{style:{color:"#E05252"}},"+"+gapRet.toFixed(1)+"pp")," de retorno possivel com a mesma volatilidade.")
           ),
           // ========== TABELA EXPLICATIVA DAS NOTAS ==========
           h("div",{style:{marginTop:14,paddingTop:12,borderTop:"1px solid rgba(255,255,255,0.05)"}},
@@ -4601,14 +4585,14 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             h("div",{style:{display:"grid",gridTemplateColumns:"32px 70px 1fr",gap:8,fontSize:8,fontFamily:"monospace"}},
               h("div",{style:{color:"#6A6050",letterSpacing:1.5}},"NOTA"),
               h("div",{style:{color:"#6A6050",letterSpacing:1.5}},"FAIXA"),
-              h("div",{style:{color:"#6A6050",letterSpacing:1.5}},"RETORNO CAPTURADO DA FRONTEIRA")
+              h("div",{style:{color:"#6A6050",letterSpacing:1.5}},"INTERPRETACAO")
             ),
             ...[
-              {c:"A",cor:"#4CAF82",faixa:"85-100%",desc:"Captura ~95-100% do retorno teorico maximo. Praticamente na fronteira eficiente."},
-              {c:"B",cor:"#7DD17D",faixa:"75-85%",desc:"Captura ~85-95% do retorno. Proximo ao otimo, ajustes finos possiveis."},
-              {c:"C",cor:"#E8C44A",faixa:"65-75%",desc:"Captura ~75-85% do retorno. Otimizacao moderada recomendada."},
-              {c:"D",cor:"#E89060",faixa:"50-65%",desc:"Captura ~60-75% do retorno. Rebalanceamento estruturado pode trazer ganhos significativos."},
-              {c:"F",cor:"#E05252",faixa:"<50%",desc:"Captura <60% do retorno. Revisao profunda necessaria - concentracao excessiva ou perfil mal alinhado."}
+              {c:"A",cor:"#4CAF82",faixa:"85-100%",desc:"Praticamente na fronteira eficiente. Pouco espaco para melhoria."},
+              {c:"B",cor:"#7DD17D",faixa:"75-85%",desc:"Proximo ao otimo do seu perfil. Ajustes finos possiveis."},
+              {c:"C",cor:"#E8C44A",faixa:"65-75%",desc:"Posicao razoavel com espaco claro para otimizacao."},
+              {c:"D",cor:"#E89060",faixa:"50-65%",desc:"Desvios relevantes da fronteira. Rebalanceamento traz ganhos significativos."},
+              {c:"F",cor:"#E05252",faixa:"<50%",desc:"Distante da fronteira. Revisao profunda recomendada."}
             ].map((n,i)=>h("div",{key:i,style:{display:"grid",gridTemplateColumns:"32px 70px 1fr",gap:8,padding:"5px 0",borderTop:i>0?"1px solid rgba(255,255,255,0.04)":"none",alignItems:"center",background:n.c===conceito?"rgba(200,169,110,0.05)":"transparent",borderRadius:n.c===conceito?4:0,paddingLeft:n.c===conceito?6:0}},
               h("div",{style:{fontSize:14,color:n.cor,fontFamily:"Georgia,serif",fontWeight:700,textAlign:"center"}},n.c),
               h("div",{style:{fontSize:9,color:n.cor,fontFamily:"monospace",fontWeight:700}},n.faixa),
@@ -4617,16 +4601,13 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           ),
           // ========== HISTOGRAMA: DISTRIBUICAO DOS PORTFOLIOS ==========
           (()=>{
-            // Calcula a nota de cada portfolio do Monte Carlo
+            // Calcula a nota de cada portfolio do Monte Carlo (= sua eficiencia de fronteira)
             const calcNotaPortfolio=p=>{
-              const efA=Math.max(0,Math.min(100,(p.sharpe/Math.max(0.01,bestSharpe.sharpe))*100));
-              // Eficiencia de fronteira para ESSE portfolio (compara com max ret na vol DELE)
               let maxRet=p.ret;
               for(const q of mcResult){
                 if(Math.abs(q.vol-p.vol)<0.015&&q.ret>maxRet)maxRet=q.ret;
               }
-              const efF=Math.max(0,Math.min(100,(p.ret/Math.max(0.001,maxRet))*100));
-              return efF*0.6+efA*0.4;
+              return Math.max(0,Math.min(100,(p.ret/Math.max(0.001,maxRet))*100));
             };
             // Amostra 800 portfolios para distribuicao (rapidez)
             const amostra=[];
