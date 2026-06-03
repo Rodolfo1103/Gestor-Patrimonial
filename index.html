@@ -162,6 +162,27 @@ const STRESS_CEN=[
   }
 ];
 
+// ===== PROJECAO - Retornos REAIS anuais esperados por classe =====
+// Pessimista / Base / Otimista (em decimal, ja descontada inflacao)
+// Base em: Damodaran ERP, Dimson-Marsh-Staunton 120yr returns, FTSE NAREIT real, IFIX desde 2008,
+// Jeremy Siegel Stocks for the Long Run, World Bank long-term commodities data.
+// Vol_anual: usado para Monte Carlo (estimativa de desvio padrao real)
+const PROJ_RET={
+  fii:     {pes:0.05,base:0.08,oti:0.10,vol:0.16},
+  acoes_br:{pes:0.04,base:0.08,oti:0.12,vol:0.28},
+  acoes_ext:{pes:0.05,base:0.07,oti:0.09,vol:0.18},
+  reits:   {pes:0.04,base:0.07,oti:0.09,vol:0.20},
+  selic:   {pes:0.02,base:0.04,oti:0.06,vol:0.03},
+  ouro:    {pes:-0.01,base:0.02,oti:0.05,vol:0.18},
+  bitcoin: {pes:-0.05,base:0.08,oti:0.25,vol:0.65},
+  infra:   {pes:0.04,base:0.07,oti:0.09,vol:0.17},
+  imoveis: {pes:0.01,base:0.03,oti:0.05,vol:0.10},
+  agro:    {pes:0.03,base:0.06,oti:0.09,vol:0.22}
+};
+const PROJ_INFL=0.04;// 4% a.a. inflacao esperada (IPCA medio longo prazo)
+const PROJ_APORTES=[20000,50000,70000,100000];// valores em R$ mensais
+const PROJ_JANELAS=[5,10,15,20];// anos
+
 // ===== Bolsas de Valores - horarios e feriados =====
 // Horarios em HH:MM no fuso local da bolsa. Intervalo opcional [hh1,hh2].
 // tz: IANA timezone (resolve DST automaticamente via Intl.DateTimeFormat)
@@ -1951,6 +1972,9 @@ function App(){
   const [chatM,setChatM]=useState([]);
   const [chatIn,setChatIn]=useState("");
   const [chatL,setChatL]=useState(false);
+  // Projecao
+  const [projAporte,setProjAporte]=useState(20000);
+  const [projModo,setProjModo]=useState("real");// real ou nominal
   const [hideVal,setHideVal]=useState(false);
   const [showUSD,setShowUSD]=useState(false);
   const [inited,setInited]=useState(false);
@@ -3885,7 +3909,7 @@ function App(){
 
   // TABS
   const tabs=h("div",{style:{display:"flex",borderBottom:"1px solid rgba(255,255,255,0.06)",marginBottom:18,marginTop:10,overflowX:"auto"}},
-    ...[{id:"dashboard",label:"Dashboard"},{id:"positions",label:"Posicoes"},{id:"aporte",label:"Aporte"},{id:"chat",label:"Analise"},{id:"mpt",label:"MPT"},{id:"aw",label:"All Weather"},{id:"stress",label:"Stress Test"},{id:"history",label:"Historico"}].map(t=>
+    ...[{id:"dashboard",label:"Dashboard"},{id:"positions",label:"Posicoes"},{id:"aporte",label:"Aporte"},{id:"chat",label:"Analise"},{id:"mpt",label:"MPT"},{id:"aw",label:"All Weather"},{id:"stress",label:"Stress Test"},{id:"projecao",label:"Projecoes"},{id:"history",label:"Historico"}].map(t=>
       h("button",{key:t.id,onClick:()=>{setTab(t.id);if(t.id!=="aporte"){setApR(null);setStep("r");}},style:{background:"none",border:"none",borderBottom:tab===t.id?"2px solid #C8A96E":"2px solid transparent",color:tab===t.id?"#C8A96E":"#8A8070",padding:"6px 10px",cursor:"pointer",fontSize:12,marginBottom:-1,flexShrink:0,whiteSpace:"nowrap"}},t.label)
     ),
     h("button",{onClick:()=>{
@@ -6198,6 +6222,555 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
       console.error("Erro renderizando STRESS:",e);
       content=h("div",{style:{padding:"24px 16px",background:"rgba(224,82,82,0.06)",border:"1px solid rgba(224,82,82,0.25)",borderRadius:8,marginTop:12}},
         h("div",{style:{fontSize:11,color:"#E05252",fontFamily:"monospace",fontWeight:700,marginBottom:8}},"\u26A0 Erro ao renderizar Stress Test"),
+        h("div",{style:{fontSize:10,color:"#9A9080",lineHeight:1.6,fontFamily:"monospace",whiteSpace:"pre-wrap"}},e&&e.message?e.message:String(e))
+      );
+    }
+  }
+
+  // PROJECOES
+  if(tab==="projecao"){
+    try{
+      // Pesos atuais, ALVO, AW
+      const wAtualP=MPT_CLS.map(cid=>(cw[cid]||0)/100);
+      const somaAt=wAtualP.reduce((a,b)=>a+b,0);
+      if(somaAt>0)for(let i=0;i<wAtualP.length;i++)wAtualP[i]/=somaAt;
+      // ALVO: ponto medio das bandas
+      const wAlvoP=MPT_CLS.map(cid=>{const c=CL.find(x=>x.id===cid);return c?(c.min+c.max)/2/100:0;});
+      const somaAlv=wAlvoP.reduce((a,b)=>a+b,0);
+      if(somaAlv>0)for(let i=0;i<wAlvoP.length;i++)wAlvoP[i]/=somaAlv;
+      const wAWP=MPT_CLS.map(cid=>AW_W[cid]||0);
+
+      // ===== Calcula retorno real esperado e vol de cada portfolio =====
+      const calcRetVolPort=(pesos,cenario)=>{
+        let ret=0,vol2=0;
+        MPT_CLS.forEach((cid,i)=>{
+          const r=PROJ_RET[cid];if(!r)return;
+          ret+=pesos[i]*(r[cenario]||r.base);
+          vol2+=Math.pow(pesos[i]*(r.vol||0.1),2);// vol simplificada (sem covariancia)
+        });
+        return{ret,vol:Math.sqrt(vol2)};
+      };
+
+      // ===== Projecao deterministica =====
+      // P0: capital inicial, aporteAnual: 12 * aporte mensal, n: anos, retReal: retorno real anual
+      // Modo real: capital cresce a (1+retReal), aporte e em poder de compra constante (corrigido inflacao internamente)
+      // Modo nominal: capital cresce a (1+retNom) onde retNom = (1+retReal)*(1+infl)-1, aporte fixo nominal
+      const projetar=(P0,aporteMensal,anos,retReal,modo)=>{
+        // Em qualquer modo, calculamos em REAL e depois ajustamos display
+        // Aportes corrigidos pela inflacao = poder de compra constante = simulamos como aporte real fixo
+        let cap=P0;
+        const trajetoria=[P0];
+        const aporteAnual=aporteMensal*12;
+        for(let ano=1;ano<=anos;ano++){
+          // Crescimento composto + aporte real (poder de compra constante)
+          cap=cap*(1+retReal)+aporteAnual;
+          trajetoria.push(cap);
+        }
+        // trajetoria esta em REAL (poder de compra de hoje)
+        // Se modo nominal, inflamos pelo IPCA
+        if(modo==="nominal"){
+          return trajetoria.map((v,i)=>v*Math.pow(1+PROJ_INFL,i));
+        }
+        return trajetoria;
+      };
+
+      // ===== Monte Carlo simples (1000 caminhos por portfolio) =====
+      const randn=()=>{// Box-Muller
+        const u1=Math.max(1e-10,Math.random()),u2=Math.random();
+        return Math.sqrt(-2*Math.log(u1))*Math.cos(2*Math.PI*u2);
+      };
+      const monteCarloPort=(P0,aporteMensal,anos,retReal,volReal,nSim,modo)=>{
+        const finais=[];
+        const aporteAnual=aporteMensal*12;
+        for(let s=0;s<nSim;s++){
+          let cap=P0;
+          for(let ano=1;ano<=anos;ano++){
+            const r=retReal+volReal*randn();// retorno do ano (real)
+            cap=cap*(1+r)+aporteAnual;
+            if(cap<0)cap=0;
+          }
+          // Inflar se nominal
+          if(modo==="nominal")cap*=Math.pow(1+PROJ_INFL,anos);
+          finais.push(cap);
+        }
+        finais.sort((a,b)=>a-b);
+        // Percentis 10, 50, 90
+        return{
+          p10:finais[Math.floor(nSim*0.10)],
+          p50:finais[Math.floor(nSim*0.50)],
+          p90:finais[Math.floor(nSim*0.90)]
+        };
+      };
+
+      // ===== Roda projecoes para todos os portfolios x janelas x cenarios =====
+      const P0=total;// capital inicial = patrimonio atual
+      const aporteSelecionado=projAporte;
+      // Pre-calcula stats
+      const statsPort={
+        atual:{base:calcRetVolPort(wAtualP,"base"),pes:calcRetVolPort(wAtualP,"pes"),oti:calcRetVolPort(wAtualP,"oti")},
+        alvo:{base:calcRetVolPort(wAlvoP,"base"),pes:calcRetVolPort(wAlvoP,"pes"),oti:calcRetVolPort(wAlvoP,"oti")},
+        aw:{base:calcRetVolPort(wAWP,"base"),pes:calcRetVolPort(wAWP,"pes"),oti:calcRetVolPort(wAWP,"oti")}
+      };
+      // Gera trajetorias deterministicas para o grafico (passo anual)
+      const trajetorias={};
+      const maxAno=20;
+      ["atual","alvo","aw"].forEach(p=>{
+        const wp=p==="atual"?wAtualP:p==="alvo"?wAlvoP:wAWP;
+        trajetorias[p]={
+          base:projetar(P0,aporteSelecionado,maxAno,statsPort[p].base.ret,projModo),
+          pes:projetar(P0,aporteSelecionado,maxAno,statsPort[p].pes.ret,projModo),
+          oti:projetar(P0,aporteSelecionado,maxAno,statsPort[p].oti.ret,projModo)
+        };
+      });
+      // Monte Carlo para cada janela (so para portfolio ATUAL para nao sobrecarregar)
+      const mcResultados={};
+      PROJ_JANELAS.forEach(anos=>{
+        mcResultados[anos]={};
+        ["atual","alvo","aw"].forEach(p=>{
+          mcResultados[anos][p]=monteCarloPort(P0,aporteSelecionado,anos,statsPort[p].base.ret,statsPort[p].base.vol,500,projModo);
+        });
+      });
+
+      // Helper formato compacto
+      const fmtBRComp=v=>{
+        if(v>=1e9)return"R$ "+(v/1e9).toFixed(2)+"B";
+        if(v>=1e6)return"R$ "+(v/1e6).toFixed(2)+"M";
+        if(v>=1e3)return"R$ "+(v/1e3).toFixed(0)+"k";
+        return"R$ "+v.toFixed(0);
+      };
+
+      // ===== RENDER =====
+      content=h("div",{},
+        // ===== DISCLAIMER OBRIGATORIO EM DESTAQUE =====
+        h("div",{style:{background:"linear-gradient(135deg,rgba(224,82,82,0.12),rgba(232,144,96,0.08))",border:"2px solid rgba(224,82,82,0.40)",borderRadius:9,padding:"13px 15px",marginBottom:16,position:"relative",overflow:"hidden"}},
+          h("div",{style:{position:"absolute",top:-8,right:-8,fontSize:60,opacity:0.07,transform:"rotate(15deg)"}},"\u26A0"),
+          h("div",{style:{display:"flex",alignItems:"flex-start",gap:9,position:"relative"}},
+            h("span",{style:{fontSize:22,lineHeight:1,flexShrink:0}},"\u26A0\uFE0F"),
+            h("div",{style:{flex:1}},
+              h("div",{style:{fontSize:9,letterSpacing:2.5,color:"#E05252",fontFamily:"monospace",fontWeight:700,marginBottom:6}},"AVISO IMPORTANTE - LEIA COM ATENCAO"),
+              h("p",{style:{fontSize:11,color:"#F0EAD8",lineHeight:1.65,margin:0,fontWeight:700,letterSpacing:0.3}},"RENTABILIDADES PASSADAS NAO SAO GARANTIAS DE RENTABILIDADES FUTURAS."),
+              h("p",{style:{fontSize:10,color:"#E8E2D5",lineHeight:1.65,margin:"6px 0 0",fontStyle:"italic"}},"Os cenarios apresentados sao ",h("strong",{},"projecoes matematicas")," baseadas em medias historicas globais de longo prazo - ",h("strong",{style:{color:"#E89060"}},"nao sao previsoes nem certezas"),". Crises imprevistas, mudancas regulatorias, eventos macroeconomicos extremos ou cisne negro podem produzir resultados drasticamente diferentes. Use as projecoes como ",h("strong",{},"referencia diretional")," para planejamento, nunca como compromisso de retorno.")
+            )
+          )
+        ),
+
+        // Header
+        h("div",{style:{marginBottom:14}},
+          h("div",{style:{fontSize:9,letterSpacing:3,color:"#5B8FD4",fontFamily:"monospace",textTransform:"uppercase",marginBottom:4}},"\u{1F4C8} PROJECOES DE LONGO PRAZO"),
+          h("p",{style:{fontSize:11,color:"#9A9080",lineHeight:1.6,margin:0}},"Simula crescimento do patrimonio em 5/10/15/20 anos com aportes mensais corrigidos pela inflacao. Compara seu portfolio ATUAL vs ALVO (bandas medias) vs ALL WEATHER. Premissas conservadoras baseadas em retornos historicos de longo prazo globais.")
+        ),
+
+        // CONTROLES
+        h("div",{style:{background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:9,padding:"12px 14px",marginBottom:14}},
+          h("div",{style:{fontSize:8,letterSpacing:1.5,color:"#8A8070",fontFamily:"monospace",fontWeight:700,marginBottom:7}},"CONFIGURACAO"),
+          // Seletor de aporte
+          h("div",{style:{marginBottom:10}},
+            h("div",{style:{fontSize:9,color:"#9A9080",marginBottom:5}},"Aporte mensal (em poder de compra de hoje):"),
+            h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:5}},
+              ...PROJ_APORTES.map(v=>h("button",{key:v,onClick:()=>setProjAporte(v),style:{padding:"7px 4px",background:projAporte===v?"linear-gradient(135deg,#5B8FD4,#3A6FA8)":"rgba(255,255,255,0.04)",border:"1px solid "+(projAporte===v?"#5B8FD4":"rgba(255,255,255,0.08)"),borderRadius:5,color:projAporte===v?"#FFF":"#9A9080",fontSize:10,fontFamily:"monospace",fontWeight:projAporte===v?700:400,cursor:"pointer"}},"R$ "+(v/1000)+"k"))
+            )
+          ),
+          // Modo real / nominal
+          h("div",{},
+            h("div",{style:{fontSize:9,color:"#9A9080",marginBottom:5}},"Valores exibidos:"),
+            h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:5}},
+              h("button",{onClick:()=>setProjModo("real"),style:{padding:"7px 4px",background:projModo==="real"?"linear-gradient(135deg,#C8A96E,#A8893E)":"rgba(255,255,255,0.04)",border:"1px solid "+(projModo==="real"?"#C8A96E":"rgba(255,255,255,0.08)"),borderRadius:5,color:projModo==="real"?"#0D0F14":"#9A9080",fontSize:10,fontFamily:"monospace",fontWeight:projModo==="real"?700:400,cursor:"pointer"}},"REAL (poder de compra hoje)"),
+              h("button",{onClick:()=>setProjModo("nominal"),style:{padding:"7px 4px",background:projModo==="nominal"?"linear-gradient(135deg,#C8A96E,#A8893E)":"rgba(255,255,255,0.04)",border:"1px solid "+(projModo==="nominal"?"#C8A96E":"rgba(255,255,255,0.08)"),borderRadius:5,color:projModo==="nominal"?"#0D0F14":"#9A9080",fontSize:10,fontFamily:"monospace",fontWeight:projModo==="nominal"?700:400,cursor:"pointer"}},"NOMINAL (com inflacao)")
+            )
+          ),
+          h("div",{style:{fontSize:8,color:"#5A5550",fontStyle:"italic",marginTop:8,lineHeight:1.5}},
+            projModo==="real"?"REAL: valores em R$ de hoje. Mostra o poder de compra real do patrimonio - util para planejamento.":
+            "NOMINAL: valores nao descontados da inflacao. Numeros maiores mas precisam ser deflacionados para comparar com hoje."
+          )
+        ),
+
+        // LEGENDA EXPLICATIVA
+        h("div",{style:{background:"rgba(0,0,0,0.18)",borderRadius:6,padding:"10px 12px",marginBottom:14}},
+          h("div",{style:{fontSize:8,letterSpacing:1.5,color:"#8A8070",fontFamily:"monospace",fontWeight:700,marginBottom:6}},"\u{1F4D6} COMO INTERPRETAR"),
+          h("div",{style:{fontSize:9,color:"#9A9080",lineHeight:1.65}},
+            h("div",{style:{marginBottom:4}},h("strong",{style:{color:"#E05252"}},"ATUAL"),": projecao mantendo sua alocacao atual de classes."),
+            h("div",{style:{marginBottom:4}},h("strong",{style:{color:"#5B8FD4"}},"ALVO"),": projecao usando o ponto medio das suas bandas (FII 22.5%, BR 17.5%, etc)."),
+            h("div",{style:{marginBottom:4}},h("strong",{style:{color:"#2EBFA5"}},"AW"),": projecao do portfolio All Weather adaptado ao Brasil."),
+            h("div",{style:{marginBottom:4}},h("strong",{style:{color:"#C8A96E"}},"Cenario Base"),": retornos esperados conservadores (mediana historica de longo prazo)."),
+            h("div",{style:{marginBottom:4}},h("strong",{style:{color:"#E89060"}},"Pessimista / Otimista"),": faixa de variacao para acomodar incerteza."),
+            h("div",{},h("strong",{style:{color:"#9C7DC2"}},"Monte Carlo P10/P50/P90"),": 500 simulacoes com volatilidade. P10 = 10% piores casos, P50 = mediana, P90 = 10% melhores casos.")
+          )
+        ),
+
+        // ===== CARDS DE DESTAQUE - VISAO RAPIDA POR JANELA =====
+        h("div",{style:{marginBottom:14}},
+          h("div",{style:{fontSize:9,letterSpacing:2,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,marginBottom:8}},"\u{1F3AF} MARCOS DE PATRIMONIO (cenario base)"),
+          h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}},
+            ...PROJ_JANELAS.map(j=>{
+              const atual=trajetorias.atual.base[j];
+              const alvo=trajetorias.alvo.base[j];
+              const aw=trajetorias.aw.base[j];
+              const max=Math.max(atual,alvo,aw);
+              const lider=max===atual?"ATUAL":max===alvo?"ALVO":"AW";
+              const corLider=max===atual?"#E05252":max===alvo?"#5B8FD4":"#2EBFA5";
+              return h("div",{key:"mc"+j,style:{background:"linear-gradient(135deg,rgba(200,169,110,0.06),rgba(91,143,212,0.03))",border:"1px solid rgba(200,169,110,0.20)",borderRadius:8,padding:"11px 12px"}},
+                // Janela
+                h("div",{style:{display:"flex",alignItems:"baseline",justifyContent:"space-between",marginBottom:7}},
+                  h("div",{style:{fontSize:7,letterSpacing:1.5,color:"#8A8070",fontFamily:"monospace",fontWeight:700}},"EM "+j+" ANOS"),
+                  h("div",{style:{fontSize:7,color:corLider,fontFamily:"monospace",fontWeight:700,letterSpacing:1}},"\u{1F3C6} "+lider)
+                ),
+                // Valor principal (lider)
+                h("div",{style:{fontSize:18,color:corLider,fontFamily:"Georgia,serif",fontWeight:700,marginBottom:5,letterSpacing:0.3}},fmtBRComp(max)),
+                // Mini ranking dos 3
+                h("div",{style:{display:"flex",flexDirection:"column",gap:2}},
+                  ...[
+                    {n:"ATUAL",v:atual,c:"#E05252"},
+                    {n:"ALVO",v:alvo,c:"#5B8FD4"},
+                    {n:"AW",v:aw,c:"#2EBFA5"}
+                  ].sort((a,b)=>b.v-a.v).map((x,i)=>h("div",{key:i,style:{display:"flex",justifyContent:"space-between",fontSize:8,fontFamily:"monospace"}},
+                    h("span",{style:{color:x.c,fontWeight:i===0?700:400,opacity:i===0?1:0.7}},(i===0?"\u25CF ":"  ")+x.n),
+                    h("span",{style:{color:i===0?x.c:"#8A8070",fontWeight:i===0?700:400}},fmtBRComp(x.v))
+                  ))
+                )
+              );
+            })
+          )
+        ),
+
+        // ===== GRAFICO DE TRAJETORIAS =====
+        (()=>{
+          const W=340,H=240,padL=60,padR=15,padT=15,padB=35;
+          const iw=W-padL-padR,ih=H-padT-padB;
+          // Valor maximo para escala (otimista do mais agressivo)
+          let maxV=0;
+          ["atual","alvo","aw"].forEach(p=>{
+            maxV=Math.max(maxV,trajetorias[p].oti[maxAno]);
+          });
+          maxV=maxV*1.05;
+          const xPos=ano=>padL+iw*(ano/maxAno);
+          const yPos=v=>padT+ih*(1-v/maxV);
+          // Gera path SVG
+          const pathFrom=arr=>arr.map((v,i)=>(i===0?"M":"L")+xPos(i)+","+yPos(v)).join(" ");
+          // Cores
+          const cores={atual:"#E05252",alvo:"#5B8FD4",aw:"#2EBFA5"};
+          return h("div",{style:{background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:9,padding:"13px 14px",marginBottom:14}},
+            h("div",{style:{fontSize:9,letterSpacing:2,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,marginBottom:4}},"\u{1F4C8} TRAJETORIA DO PATRIMONIO"),
+            h("p",{style:{fontSize:9,color:"#7A7060",lineHeight:1.5,margin:"0 0 10px",fontStyle:"italic"}},"Curvas: cenario BASE de cada portfolio. Sombra ao redor: faixa entre pessimista e otimista. Aporte mensal: R$ "+(aporteSelecionado/1000)+"k em ",projModo==="real"?"valores REAIS":"valores NOMINAIS","."),
+            // Legenda
+            h("div",{style:{background:"rgba(0,0,0,0.18)",borderRadius:5,padding:"8px 10px",marginBottom:10}},
+              h("div",{style:{fontSize:7,letterSpacing:1.5,color:"#8A8070",fontFamily:"monospace",fontWeight:700,marginBottom:5}},"\u{1F4D6} COMO LER ESTE GRAFICO"),
+              h("div",{style:{fontSize:9,color:"#9A9080",lineHeight:1.65}},
+                h("div",{style:{marginBottom:4}},h("strong",{style:{color:"#C8A96E"}},"Eixo X"),": anos de 0 a 20. O ponto zero = patrimonio atual hoje (",fmtBRComp(P0),")."),
+                h("div",{style:{marginBottom:4}},h("strong",{style:{color:"#C8A96E"}},"Eixo Y"),": valor do patrimonio projetado em R$."),
+                h("div",{style:{marginBottom:4}},h("strong",{},"Linhas solidas"),": cenario base de cada portfolio."),
+                h("div",{},h("strong",{},"Areas sombreadas"),": variacao entre pessimista (limite inferior) e otimista (limite superior).")
+              )
+            ),
+            h("div",{style:{display:"flex",justifyContent:"center",marginBottom:8}},
+              h("svg",{width:W,height:H,style:{maxWidth:"100%",height:"auto"}},
+                // Definicoes de gradientes (areas elegantes)
+                h("defs",{},
+                  h("linearGradient",{id:"gradAtual",x1:"0%",y1:"0%",x2:"0%",y2:"100%"},
+                    h("stop",{offset:"0%","stop-color":"#E05252","stop-opacity":"0.35"}),
+                    h("stop",{offset:"100%","stop-color":"#E05252","stop-opacity":"0.02"})
+                  ),
+                  h("linearGradient",{id:"gradAlvo",x1:"0%",y1:"0%",x2:"0%",y2:"100%"},
+                    h("stop",{offset:"0%","stop-color":"#5B8FD4","stop-opacity":"0.35"}),
+                    h("stop",{offset:"100%","stop-color":"#5B8FD4","stop-opacity":"0.02"})
+                  ),
+                  h("linearGradient",{id:"gradAw",x1:"0%",y1:"0%",x2:"0%",y2:"100%"},
+                    h("stop",{offset:"0%","stop-color":"#2EBFA5","stop-opacity":"0.35"}),
+                    h("stop",{offset:"100%","stop-color":"#2EBFA5","stop-opacity":"0.02"})
+                  )
+                ),
+                // Grid horizontal (5 linhas)
+                ...[0,0.25,0.5,0.75,1].map((p,i)=>{
+                  const y=padT+ih*p;
+                  const v=maxV*(1-p);
+                  return h("g",{key:"gh"+i},
+                    h("line",{x1:padL,y1:y,x2:W-padR,y2:y,stroke:"#2A2820",strokeWidth:0.5,strokeDasharray:"2,2"}),
+                    h("text",{x:padL-5,y:y+3,textAnchor:"end",fontSize:8,fill:"#5A5550",fontFamily:"monospace"},fmtBRComp(v))
+                  );
+                }),
+                // Grid vertical (marcadores em 5, 10, 15, 20)
+                ...[0,5,10,15,20].map((ano,i)=>{
+                  const x=xPos(ano);
+                  return h("g",{key:"gv"+i},
+                    h("line",{x1:x,y1:padT,x2:x,y2:H-padB,stroke:"#2A2820",strokeWidth:0.5,strokeDasharray:"2,2"}),
+                    h("text",{x,y:H-padB+13,textAnchor:"middle",fontSize:8,fill:"#5A5550",fontFamily:"monospace"},ano+"a")
+                  );
+                }),
+                // Areas com gradiente (pessimista a otimista) - de baixo para cima
+                ...["aw","alvo","atual"].map(p=>{
+                  const pes=trajetorias[p].pes,oti=trajetorias[p].oti;
+                  const pathArea=
+                    "M"+xPos(0)+","+yPos(oti[0])+" "+
+                    oti.map((v,i)=>"L"+xPos(i)+","+yPos(v)).join(" ")+" "+
+                    pes.slice().reverse().map((v,i)=>"L"+xPos(maxAno-i)+","+yPos(v)).join(" ")+" Z";
+                  const gradId=p==="atual"?"gradAtual":p==="alvo"?"gradAlvo":"gradAw";
+                  return h("path",{key:"area"+p,d:pathArea,fill:"url(#"+gradId+")"});
+                }),
+                // Linhas BASE com sombra (efeito glow)
+                ...["aw","alvo","atual"].map(p=>h("path",{key:"line"+p,d:pathFrom(trajetorias[p].base),stroke:cores[p],strokeWidth:2.5,fill:"none",strokeLinecap:"round",style:{filter:"drop-shadow(0 1px 2px "+cores[p]+"77)"}})),
+                // Marcadores grandes nos pontos chave com label
+                ...PROJ_JANELAS.flatMap(ano=>
+                  ["aw","alvo","atual"].map(p=>{
+                    const v=trajetorias[p].base[ano];
+                    return h("g",{key:"pt"+p+ano},
+                      h("circle",{cx:xPos(ano),cy:yPos(v),r:4.5,fill:cores[p],stroke:"#0D0F14",strokeWidth:1.5,style:{filter:"drop-shadow(0 0 3px "+cores[p]+")"}})
+                    );
+                  })
+                ),
+                // Label eixo Y
+                h("text",{x:8,y:padT+ih/2,textAnchor:"middle",fontSize:8,fill:"#6A6050",fontFamily:"monospace",transform:"rotate(-90 8 "+(padT+ih/2)+")"},"R$ "+(projModo==="real"?"REAL":"NOMINAL")),
+                // Label eixo X
+                h("text",{x:padL+iw/2,y:H-5,textAnchor:"middle",fontSize:8,fill:"#6A6050",fontFamily:"monospace"},"ANOS")
+              )
+            ),
+            // Legenda de cores
+            h("div",{style:{display:"flex",justifyContent:"center",gap:14,fontSize:8,fontFamily:"monospace",marginTop:6}},
+              h("div",{style:{display:"flex",alignItems:"center",gap:5}},h("span",{style:{width:14,height:3,background:"#E05252",borderRadius:1}}),h("span",{style:{color:"#E05252",fontWeight:700}},"ATUAL")),
+              h("div",{style:{display:"flex",alignItems:"center",gap:5}},h("span",{style:{width:14,height:3,background:"#5B8FD4",borderRadius:1}}),h("span",{style:{color:"#5B8FD4",fontWeight:700}},"ALVO")),
+              h("div",{style:{display:"flex",alignItems:"center",gap:5}},h("span",{style:{width:14,height:3,background:"#2EBFA5",borderRadius:1}}),h("span",{style:{color:"#2EBFA5",fontWeight:700}},"AW"))
+            )
+          );
+        })(),
+
+        // ===== GRAFICO DE BARRAS COMPARATIVO POR JANELA =====
+        (()=>{
+          const W=340,H=220,padL=55,padR=15,padT=20,padB=35;
+          const iw=W-padL-padR,ih=H-padT-padB;
+          // Maior valor entre todas as projecoes base
+          let maxBar=0;
+          PROJ_JANELAS.forEach(j=>{
+            ["atual","alvo","aw"].forEach(p=>{
+              maxBar=Math.max(maxBar,trajetorias[p].base[j]);
+            });
+          });
+          maxBar=maxBar*1.1;
+          const cores={atual:"#E05252",alvo:"#5B8FD4",aw:"#2EBFA5"};
+          const groupW=iw/PROJ_JANELAS.length;
+          const barW=groupW/4.5;
+          const yPosB=v=>padT+ih*(1-v/maxBar);
+          return h("div",{style:{background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:9,padding:"13px 14px",marginBottom:14}},
+            h("div",{style:{fontSize:9,letterSpacing:2,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,marginBottom:4}},"\u{1F4CA} COMPARATIVO POR JANELA - CENARIO BASE"),
+            h("p",{style:{fontSize:9,color:"#7A7060",lineHeight:1.5,margin:"0 0 10px",fontStyle:"italic"}},"Visualizacao lado a lado dos 3 portfolios em cada horizonte de tempo. Use para comparar instantaneamente qual portfolio acumula mais em cada janela."),
+            // Legenda
+            h("div",{style:{background:"rgba(0,0,0,0.18)",borderRadius:5,padding:"8px 10px",marginBottom:10}},
+              h("div",{style:{fontSize:7,letterSpacing:1.5,color:"#8A8070",fontFamily:"monospace",fontWeight:700,marginBottom:5}},"\u{1F4D6} COMO LER ESTE GRAFICO"),
+              h("div",{style:{fontSize:9,color:"#9A9080",lineHeight:1.65}},
+                h("div",{style:{marginBottom:4}},h("strong",{style:{color:"#C8A96E"}},"Grupos no eixo X"),": cada grupo de 3 barras representa uma janela (5, 10, 15, 20 anos)."),
+                h("div",{style:{marginBottom:4}},h("strong",{style:{color:"#C8A96E"}},"Cores"),": ATUAL (vermelho), ALVO (azul), AW (verde-azulado). Sempre na mesma ordem."),
+                h("div",{},h("strong",{style:{color:"#C8A96E"}},"Altura"),": maior altura = mais patrimonio acumulado. Observe como a diferenca entre portfolios cresce no longo prazo (juros compostos).")
+              )
+            ),
+            h("div",{style:{display:"flex",justifyContent:"center",marginBottom:8}},
+              h("svg",{width:W,height:H,style:{maxWidth:"100%",height:"auto"}},
+                // Definicoes de gradientes para barras
+                h("defs",{},
+                  h("linearGradient",{id:"barAtual",x1:"0%",y1:"0%",x2:"0%",y2:"100%"},
+                    h("stop",{offset:"0%","stop-color":"#E05252","stop-opacity":"1"}),
+                    h("stop",{offset:"100%","stop-color":"#A03838","stop-opacity":"0.85"})
+                  ),
+                  h("linearGradient",{id:"barAlvo",x1:"0%",y1:"0%",x2:"0%",y2:"100%"},
+                    h("stop",{offset:"0%","stop-color":"#5B8FD4","stop-opacity":"1"}),
+                    h("stop",{offset:"100%","stop-color":"#3A6FA8","stop-opacity":"0.85"})
+                  ),
+                  h("linearGradient",{id:"barAw",x1:"0%",y1:"0%",x2:"0%",y2:"100%"},
+                    h("stop",{offset:"0%","stop-color":"#2EBFA5","stop-opacity":"1"}),
+                    h("stop",{offset:"100%","stop-color":"#1F8A78","stop-opacity":"0.85"})
+                  )
+                ),
+                // Grid horizontal
+                ...[0,0.25,0.5,0.75,1].map((p,i)=>{
+                  const y=padT+ih*p;
+                  const v=maxBar*(1-p);
+                  return h("g",{key:"bgh"+i},
+                    h("line",{x1:padL,y1:y,x2:W-padR,y2:y,stroke:"#2A2820",strokeWidth:0.5,strokeDasharray:"2,2"}),
+                    h("text",{x:padL-5,y:y+3,textAnchor:"end",fontSize:8,fill:"#5A5550",fontFamily:"monospace"},fmtBRComp(v))
+                  );
+                }),
+                // Barras agrupadas por janela
+                ...PROJ_JANELAS.flatMap((j,iJ)=>{
+                  const groupX=padL+groupW*iJ+groupW/2;
+                  return["atual","alvo","aw"].map((p,iP)=>{
+                    const x=groupX-barW*1.5+barW*iP+barW*0.25;
+                    const v=trajetorias[p].base[j];
+                    const y=yPosB(v);
+                    const barH=H-padB-y;
+                    const gradId=p==="atual"?"barAtual":p==="alvo"?"barAlvo":"barAw";
+                    return h("g",{key:"bar"+p+j},
+                      h("rect",{x,y,width:barW,height:barH,fill:"url(#"+gradId+")",rx:3,style:{filter:"drop-shadow(0 2px 3px rgba(0,0,0,0.3))"}}),
+                      // Valor acima da barra
+                      h("text",{x:x+barW/2,y:y-3,textAnchor:"middle",fontSize:7,fill:cores[p],fontFamily:"monospace",fontWeight:700},fmtBRComp(v))
+                    );
+                  });
+                }),
+                // Labels do eixo X (janelas)
+                ...PROJ_JANELAS.map((j,iJ)=>{
+                  const x=padL+groupW*iJ+groupW/2;
+                  return h("text",{key:"lblj"+j,x,y:H-padB+15,textAnchor:"middle",fontSize:10,fill:"#9A9080",fontFamily:"monospace",fontWeight:700},j+" ANOS");
+                }),
+                // Label eixo Y
+                h("text",{x:8,y:padT+ih/2,textAnchor:"middle",fontSize:8,fill:"#6A6050",fontFamily:"monospace",transform:"rotate(-90 8 "+(padT+ih/2)+")"},"PATRIMONIO")
+              )
+            ),
+            // Legenda de cores
+            h("div",{style:{display:"flex",justifyContent:"center",gap:14,fontSize:8,fontFamily:"monospace",marginTop:6}},
+              h("div",{style:{display:"flex",alignItems:"center",gap:5}},h("span",{style:{width:12,height:12,background:"linear-gradient(#E05252,#A03838)",borderRadius:2}}),h("span",{style:{color:"#E05252",fontWeight:700}},"ATUAL")),
+              h("div",{style:{display:"flex",alignItems:"center",gap:5}},h("span",{style:{width:12,height:12,background:"linear-gradient(#5B8FD4,#3A6FA8)",borderRadius:2}}),h("span",{style:{color:"#5B8FD4",fontWeight:700}},"ALVO")),
+              h("div",{style:{display:"flex",alignItems:"center",gap:5}},h("span",{style:{width:12,height:12,background:"linear-gradient(#2EBFA5,#1F8A78)",borderRadius:2}}),h("span",{style:{color:"#2EBFA5",fontWeight:700}},"AW"))
+            )
+          );
+        })(),
+
+        // ===== TABELA RESUMO POR JANELA =====
+        h("div",{style:{background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:9,padding:"13px 14px",marginBottom:14}},
+          h("div",{style:{fontSize:9,letterSpacing:2,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,marginBottom:4}},"\u{1F4CA} VALORES PROJETADOS POR JANELA"),
+          h("p",{style:{fontSize:9,color:"#7A7060",lineHeight:1.5,margin:"0 0 10px",fontStyle:"italic"}},"Aporte mensal: R$ ",aporteSelecionado.toLocaleString("pt-BR"),". Cada celula mostra o patrimonio projetado em ",projModo==="real"?"REAL":"NOMINAL","."),
+          // Legenda da tabela
+          h("div",{style:{background:"rgba(0,0,0,0.18)",borderRadius:5,padding:"8px 10px",marginBottom:10}},
+            h("div",{style:{fontSize:7,letterSpacing:1.5,color:"#8A8070",fontFamily:"monospace",fontWeight:700,marginBottom:5}},"\u{1F4D6} ESTRUTURA DA TABELA"),
+            h("div",{style:{fontSize:9,color:"#9A9080",lineHeight:1.65}},
+              h("div",{style:{marginBottom:4}},h("strong",{style:{color:"#C8A96E"}},"Linhas (3 portfolios)"),": ATUAL (atual), ALVO (bandas medias), AW (All Weather)."),
+              h("div",{style:{marginBottom:4}},h("strong",{style:{color:"#C8A96E"}},"Colunas (4 janelas)"),": 5, 10, 15 e 20 anos a partir de hoje."),
+              h("div",{style:{marginBottom:4}},h("strong",{},"Topo da celula"),": cenario BASE (mediana esperada)."),
+              h("div",{},h("strong",{},"Faixa abaixo"),": variacao entre PESSIMISTA e OTIMISTA.")
+            )
+          ),
+          h("div",{style:{overflowX:"auto"}},
+            h("table",{style:{width:"100%",borderCollapse:"separate",borderSpacing:3,fontSize:9,fontFamily:"monospace"}},
+              h("thead",{},
+                h("tr",{},
+                  h("th",{style:{textAlign:"left",padding:"5px 7px",color:"#8A8070",letterSpacing:1.2,fontWeight:700}},"PORT."),
+                  ...PROJ_JANELAS.map(j=>h("th",{key:"thj"+j,style:{textAlign:"center",padding:"5px 4px",color:"#C8A96E",letterSpacing:1,fontWeight:700,minWidth:65}},j+" ANOS"))
+                )
+              ),
+              h("tbody",{},
+                ...[
+                  {p:"atual",nome:"ATUAL",cor:"#E05252",bg:"rgba(224,82,82,0.06)"},
+                  {p:"alvo",nome:"ALVO",cor:"#5B8FD4",bg:"rgba(91,143,212,0.06)"},
+                  {p:"aw",nome:"AW",cor:"#2EBFA5",bg:"rgba(46,191,165,0.06)"}
+                ].map(({p,nome,cor,bg})=>h("tr",{key:"tr"+p},
+                  h("td",{style:{padding:"6px 7px",color:cor,fontWeight:700,letterSpacing:1.2,background:bg,borderRadius:4}},nome),
+                  ...PROJ_JANELAS.map(j=>h("td",{key:"td"+p+j,style:{textAlign:"center",padding:"6px 4px",background:bg,borderRadius:4}},
+                    h("div",{style:{color:"#E8E2D5",fontSize:10,fontWeight:700,marginBottom:2}},fmtBRComp(trajetorias[p].base[j])),
+                    h("div",{style:{fontSize:7,color:"#8A8070",lineHeight:1.3}},fmtBRComp(trajetorias[p].pes[j])," \u2014 ",fmtBRComp(trajetorias[p].oti[j]))
+                  ))
+                ))
+              )
+            )
+          )
+        ),
+
+        // ===== TABELA MONTE CARLO =====
+        h("div",{style:{background:"rgba(156,125,194,0.04)",border:"1px solid rgba(156,125,194,0.25)",borderRadius:9,padding:"13px 14px",marginBottom:14}},
+          h("div",{style:{fontSize:9,letterSpacing:2,color:"#9C7DC2",fontFamily:"monospace",fontWeight:700,marginBottom:4}},"\u{1F3B2} MONTE CARLO - BANDAS DE PROBABILIDADE"),
+          h("p",{style:{fontSize:9,color:"#7A7060",lineHeight:1.5,margin:"0 0 10px",fontStyle:"italic"}},"500 simulacoes por portfolio considerando volatilidade real esperada. P10/P50/P90 = percentis dos resultados possiveis."),
+          // Legenda
+          h("div",{style:{background:"rgba(0,0,0,0.18)",borderRadius:5,padding:"8px 10px",marginBottom:10}},
+            h("div",{style:{fontSize:7,letterSpacing:1.5,color:"#8A8070",fontFamily:"monospace",fontWeight:700,marginBottom:5}},"\u{1F4D6} INTERPRETACAO"),
+            h("div",{style:{fontSize:9,color:"#9A9080",lineHeight:1.65}},
+              h("div",{style:{marginBottom:4}},h("strong",{style:{color:"#E89060"}},"P10 (10% piores)"),": em 10% dos cenarios simulados, o patrimonio acabou ABAIXO desse valor. Estimativa de pior caso plausivel."),
+              h("div",{style:{marginBottom:4}},h("strong",{style:{color:"#C8A96E"}},"P50 (mediana)"),": em 50% dos cenarios, o patrimonio acabou acima e em 50% abaixo. Valor mais provavel."),
+              h("div",{},h("strong",{style:{color:"#4CAF82"}},"P90 (10% melhores)"),": em 90% dos cenarios, o patrimonio acabou ABAIXO desse valor. Estimativa de melhor caso plausivel.")
+            )
+          ),
+          h("div",{style:{overflowX:"auto"}},
+            h("table",{style:{width:"100%",borderCollapse:"separate",borderSpacing:3,fontSize:8,fontFamily:"monospace"}},
+              h("thead",{},
+                h("tr",{},
+                  h("th",{style:{textAlign:"left",padding:"5px 6px",color:"#8A8070",letterSpacing:1.2}},"PORT."),
+                  h("th",{style:{textAlign:"center",padding:"5px 4px",color:"#8A8070",fontSize:7}},"PCTL"),
+                  ...PROJ_JANELAS.map(j=>h("th",{key:"mcj"+j,style:{textAlign:"center",padding:"5px 4px",color:"#9C7DC2",letterSpacing:1,minWidth:55}},j+"a"))
+                )
+              ),
+              h("tbody",{},
+                ...[
+                  {p:"atual",nome:"ATUAL",cor:"#E05252"},
+                  {p:"alvo",nome:"ALVO",cor:"#5B8FD4"},
+                  {p:"aw",nome:"AW",cor:"#2EBFA5"}
+                ].flatMap(({p,nome,cor})=>[
+                  h("tr",{key:"mcp10"+p},
+                    h("td",{style:{padding:"4px 6px",color:cor,fontWeight:700,letterSpacing:1.2,verticalAlign:"middle",rowSpan:3}},nome),
+                    h("td",{style:{textAlign:"center",padding:"4px",color:"#E89060",fontSize:8,fontWeight:700}},"P10"),
+                    ...PROJ_JANELAS.map(j=>h("td",{key:"p10"+p+j,style:{textAlign:"center",padding:"4px",color:"#E89060",fontSize:9}},fmtBRComp(mcResultados[j][p].p10)))
+                  ),
+                  h("tr",{key:"mcp50"+p},
+                    h("td",{style:{textAlign:"center",padding:"4px",color:"#C8A96E",fontSize:8,fontWeight:700}},"P50"),
+                    ...PROJ_JANELAS.map(j=>h("td",{key:"p50"+p+j,style:{textAlign:"center",padding:"4px",color:"#E8E2D5",fontSize:10,fontWeight:700}},fmtBRComp(mcResultados[j][p].p50)))
+                  ),
+                  h("tr",{key:"mcp90"+p,style:{borderBottom:"4px solid transparent"}},
+                    h("td",{style:{textAlign:"center",padding:"4px",color:"#4CAF82",fontSize:8,fontWeight:700}},"P90"),
+                    ...PROJ_JANELAS.map(j=>h("td",{key:"p90"+p+j,style:{textAlign:"center",padding:"4px",color:"#4CAF82",fontSize:9}},fmtBRComp(mcResultados[j][p].p90)))
+                  )
+                ])
+              )
+            )
+          )
+        ),
+
+        // ===== INSIGHT FINAL =====
+        (()=>{
+          // Diferenca entre portfolios em 20 anos (base)
+          const atual20=trajetorias.atual.base[20];
+          const alvo20=trajetorias.alvo.base[20];
+          const aw20=trajetorias.aw.base[20];
+          const totalAportado=aporteSelecionado*12*20+P0;
+          const ganhoAtual=atual20-totalAportado;
+          const retAnualAtual=Math.pow(atual20/totalAportado,1/20)-1;
+          return h("div",{style:{background:"linear-gradient(135deg,rgba(200,169,110,0.08),rgba(91,143,212,0.04))",border:"1px solid rgba(200,169,110,0.25)",borderRadius:9,padding:"13px 14px",marginBottom:14}},
+            h("div",{style:{display:"flex",alignItems:"center",gap:6,marginBottom:9}},
+              h("span",{style:{fontSize:14}},"\u{1F4A1}"),
+              h("div",{style:{fontSize:9,letterSpacing:2,color:"#C8A96E",fontFamily:"monospace",fontWeight:700}},"INSIGHT EM 20 ANOS")
+            ),
+            h("p",{style:{fontSize:10,color:"#E8E2D5",lineHeight:1.65,margin:"0 0 8px"}},
+              "Com aportes de ",h("strong",{},"R$ "+(aporteSelecionado/1000)+"k/mes")," por 20 anos, voce aportaria um total de ",h("strong",{},fmtBRComp(aporteSelecionado*12*20))," (alem do patrimonio atual de ",fmtBRComp(P0),")."
+            ),
+            h("p",{style:{fontSize:10,color:"#E8E2D5",lineHeight:1.65,margin:"0 0 8px"}},
+              "Cenario base (",projModo,"): seu portfolio atual chegaria a ",h("strong",{style:{color:"#E05252"}},fmtBRComp(atual20)),
+              ". ALVO: ",h("strong",{style:{color:"#5B8FD4"}},fmtBRComp(alvo20)),
+              ". AW: ",h("strong",{style:{color:"#2EBFA5"}},fmtBRComp(aw20)),"."
+            ),
+            h("p",{style:{fontSize:10,color:"#E8E2D5",lineHeight:1.65,margin:"0 0 8px"}},
+              "Diferenca ATUAL vs ALVO: ",h("strong",{style:{color:alvo20>atual20?"#5B8FD4":"#E05252"}},(alvo20>atual20?"+":"")+fmtBRComp(alvo20-atual20)),
+              ". ATUAL vs AW: ",h("strong",{style:{color:aw20>atual20?"#2EBFA5":"#E05252"}},(aw20>atual20?"+":"")+fmtBRComp(aw20-atual20)),"."
+            ),
+            h("div",{style:{fontSize:9,color:"#9A9080",lineHeight:1.6,marginTop:10,padding:"8px 10px",background:"rgba(0,0,0,0.15)",borderRadius:5,fontStyle:"italic"}},
+              h("strong",{style:{color:"#C8A96E"}},"Reflexao: "),
+              "projecoes de longo prazo sao aproximacoes - pequenas diferencas anuais de retorno acumulam diferencas massivas em 20 anos (juros compostos). Disciplina (manter aporte mensal mesmo em crises) tem impacto maior que escolha 'perfeita' do portfolio. O Monte Carlo mostra a dispersao real possivel."
+            )
+          );
+        })(),
+
+        // ===== DISCLAIMER FINAL REFORCADO =====
+        h("div",{style:{background:"rgba(224,82,82,0.06)",border:"1px solid rgba(224,82,82,0.30)",borderRadius:8,padding:"11px 13px",marginBottom:14}},
+          h("div",{style:{display:"flex",alignItems:"flex-start",gap:8}},
+            h("span",{style:{fontSize:16,lineHeight:1,flexShrink:0}},"\u26A0\uFE0F"),
+            h("div",{style:{flex:1}},
+              h("div",{style:{fontSize:9,color:"#E05252",fontFamily:"monospace",fontWeight:700,letterSpacing:1.5,marginBottom:5}},"LEMBRETE FINAL"),
+              h("p",{style:{fontSize:10,color:"#E8E2D5",lineHeight:1.65,margin:0,fontWeight:700}},"RENTABILIDADES PASSADAS NAO SAO GARANTIAS DE RENTABILIDADES FUTURAS."),
+              h("p",{style:{fontSize:9,color:"#9A9080",lineHeight:1.6,margin:"5px 0 0",fontStyle:"italic"}},"Estas projecoes sao exercicios matematicos baseados em retornos historicos de longo prazo. Crises, mudancas estruturais, eventos imprevistos e cisnes negros podem invalidar essas estimativas. Use como referencia para planejamento direcional - nunca como certeza de resultado.")
+            )
+          )
+        ),
+
+        // ===== PREMISSAS =====
+        h("details",{style:{marginBottom:8}},
+          h("summary",{style:{cursor:"pointer",fontSize:8,letterSpacing:2,color:"#8A8070",fontFamily:"monospace",padding:"6px 0"}},"\u{1F4DA} PREMISSAS DETALHADAS (clique para ver)"),
+          h("div",{style:{background:"rgba(0,0,0,0.15)",borderRadius:6,padding:"9px 11px",fontSize:8,color:"#7A7060",lineHeight:1.6,fontStyle:"italic"}},
+            h("div",{style:{marginBottom:8}},h("strong",{style:{color:"#9A9080"}},"Retornos reais anuais por classe (pes / base / oti):")),
+            ...Object.entries(PROJ_RET).map(([k,v])=>{const cl=CL.find(c=>c.id===k);if(!cl)return null;return h("div",{key:k,style:{marginBottom:3,fontFamily:"monospace"}},h("span",{style:{color:cl.color}},"\u25CF "),cl.name,": ",(v.pes*100).toFixed(0)+"% / "+(v.base*100).toFixed(0)+"% / "+(v.oti*100).toFixed(0)+"% (vol "+(v.vol*100).toFixed(0)+"%)");}),
+            h("div",{style:{marginTop:10,paddingTop:8,borderTop:"1px solid rgba(255,255,255,0.06)"}},
+              h("strong",{style:{color:"#9A9080"}},"Outras premissas: "),
+              "inflacao esperada ",(PROJ_INFL*100).toFixed(0),"% a.a. (IPCA medio longo prazo). Aportes corrigidos pela inflacao (poder de compra constante). Capital inicial = patrimonio atual (",fmtBRComp(P0),"). Reinvestimento total dos rendimentos. Ignora impostos (ISENTOS p/ FII/Selic IPCA+, IR sobre dividendos pendente regulamentacao). Calculos sem covariancia entre classes (vol simplificada). Monte Carlo com 500 simulacoes por janela, distribuicao normal."
+            ),
+            h("div",{style:{marginTop:10,paddingTop:8,borderTop:"1px solid rgba(255,255,255,0.06)"}},
+              h("strong",{style:{color:"#9A9080"}},"Fontes: "),
+              "Damodaran (Equity Risk Premium), Dimson-Marsh-Staunton (Triumph of the Optimists 120yr returns), Jeremy Siegel (Stocks for the Long Run), FTSE NAREIT real returns 1972-2024, IFIX historico desde 2008, LBMA Gold real returns, World Bank long-term commodities."
+            )
+          )
+        )
+      );
+    }catch(e){
+      console.error("Erro renderizando PROJECAO:",e);
+      content=h("div",{style:{padding:"24px 16px",background:"rgba(224,82,82,0.06)",border:"1px solid rgba(224,82,82,0.25)",borderRadius:8,marginTop:12}},
+        h("div",{style:{fontSize:11,color:"#E05252",fontFamily:"monospace",fontWeight:700,marginBottom:8}},"\u26A0 Erro ao renderizar Projecoes"),
         h("div",{style:{fontSize:10,color:"#9A9080",lineHeight:1.6,fontFamily:"monospace",whiteSpace:"pre-wrap"}},e&&e.message?e.message:String(e))
       );
     }
