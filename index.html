@@ -7392,24 +7392,42 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           label:d.toLocaleDateString("pt-BR",{month:"short",year:"2-digit"})
         });
       }
-      const acumMensalBRL={};
-      const acumMensalUSD={};
-      mesesGrafico.forEach(m=>{
-        acumMensalBRL[m.chave]=0;
-        acumMensalUSD[m.chave]=0;
-      });
-      proventosBRL.forEach(p=>{
-        const mes=p.date.slice(0,7);
-        if(acumMensalBRL[mes]!==undefined)acumMensalBRL[mes]+=p.recebido;
-      });
-      proventosUSD.forEach(p=>{
-        const mes=p.date.slice(0,7);
-        if(acumMensalUSD[mes]!==undefined)acumMensalUSD[mes]+=p.recebido;
+      // Detecta todas as moedas presentes nos proventos
+      const moedasPresentes=new Set();
+      todosProventos.forEach(p=>{if(p.moeda)moedasPresentes.add(p.moeda);});
+      // Ordem preferencial: BRL primeiro, depois USD, depois alfabetica
+      const moedasOrdenadas=Array.from(moedasPresentes).sort((a,b)=>{
+        if(a==="BRL")return -1;if(b==="BRL")return 1;
+        if(a==="USD")return -1;if(b==="USD")return 1;
+        return a.localeCompare(b);
       });
 
-      // Acumulado total desde RENDA_INICIO
-      const totalAcumBRL=proventosBRL.reduce((a,b)=>a+b.recebido,0);
-      const totalAcumUSD=proventosUSD.reduce((a,b)=>a+b.recebido,0);
+      // Acumulado por mes POR MOEDA: { BRL: {2026-06: 1700, ...}, USD: {...}, EUR: {...} }
+      const acumMensalPorMoeda={};
+      const totalAcumPorMoeda={};
+      moedasOrdenadas.forEach(m=>{
+        acumMensalPorMoeda[m]={};
+        totalAcumPorMoeda[m]=0;
+        mesesGrafico.forEach(mes=>{acumMensalPorMoeda[m][mes.chave]=0;});
+      });
+      todosProventos.forEach(p=>{
+        if(!p.moeda||!acumMensalPorMoeda[p.moeda])return;
+        const mes=p.date.slice(0,7);
+        if(acumMensalPorMoeda[p.moeda][mes]!==undefined)acumMensalPorMoeda[p.moeda][mes]+=p.recebido;
+        totalAcumPorMoeda[p.moeda]+=p.recebido;
+      });
+
+      // Mantem compatibilidade com codigo existente (BRL e USD)
+      const acumMensalBRL=acumMensalPorMoeda.BRL||{};
+      const acumMensalUSD=acumMensalPorMoeda.USD||{};
+      mesesGrafico.forEach(mes=>{
+        if(acumMensalBRL[mes.chave]===undefined)acumMensalBRL[mes.chave]=0;
+        if(acumMensalUSD[mes.chave]===undefined)acumMensalUSD[mes.chave]=0;
+      });
+
+      // Acumulado total desde RENDA_INICIO (manter referencias usadas em outros cards)
+      const totalAcumBRL=totalAcumPorMoeda.BRL||0;
+      const totalAcumUSD=totalAcumPorMoeda.USD||0;
 
       // ===== PROJECAO DE RENDA FUTURA =====
       // Pesos atuais por classe
@@ -7550,103 +7568,119 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           )
         ),
 
-        // ===== CARD 2: GRAFICO MENSAL HISTORICO =====
+        // ===== CARD 2: GRAFICOS MENSAIS POR MOEDA =====
         (()=>{
           const W=340,H=220,padL=55,padR=15,padT=15,padB=45;
           const iw=W-padL-padR,ih=H-padT-padB;
-          const maxValBRL=Math.max(0.01,...Object.values(acumMensalBRL));
-          const maxValUSD=Math.max(0.01,...Object.values(acumMensalUSD));
           const barW=iw/mesesGrafico.length*0.7;
           const passoX=iw/mesesGrafico.length;
-          return h("div",{},
-            // Header
-            h("div",{style:{fontSize:9,letterSpacing:2,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,marginBottom:4}},"\u{1F4CA} HISTORICO MENSAL POR MOEDA"),
-            h("p",{style:{fontSize:9,color:"#7A7060",lineHeight:1.5,margin:"0 0 10px",fontStyle:"italic"}},"Ultimos 12 meses. Cada barra mostra o total recebido naquele mes. Mes vigente em destaque."),
-            // Legenda
-            h("div",{style:{background:"rgba(0,0,0,0.18)",borderRadius:5,padding:"8px 10px",marginBottom:10}},
-              h("div",{style:{fontSize:7,letterSpacing:1.5,color:"#8A8070",fontFamily:"monospace",fontWeight:700,marginBottom:5}},"\u{1F4D6} COMO LER"),
-              h("div",{style:{fontSize:9,color:"#9A9080",lineHeight:1.65}},
-                h("div",{style:{marginBottom:3}},h("strong",{style:{color:"#C8A96E"}},"Verde escuro (BRL)"),": dividendos de ativos da B3 - FIIs, acoes BR, infra, agro."),
-                h("div",{style:{marginBottom:3}},h("strong",{style:{color:"#5B8FD4"}},"Azul (USD)"),": dividendos de ativos internacionais - acoes EXT, REITs."),
-                h("div",{},h("strong",{style:{color:"#E89060"}},"Mes vigente"),": destacado com borda dourada (pagamentos podem ainda ocorrer ate o fim do mes).")
-              )
-            ),
-            // Grafico BRL
-            h("div",{style:{background:"rgba(76,175,130,0.04)",border:"1px solid rgba(76,175,130,0.20)",borderRadius:8,padding:"11px 12px",marginBottom:10}},
-              h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:7}},
-                h("div",{style:{fontSize:8,color:"#4CAF82",letterSpacing:1.5,fontFamily:"monospace",fontWeight:700}},"\u{1F1E7}\u{1F1F7} BRL (B3)"),
-                h("div",{style:{fontSize:9,color:"#7A7060",fontFamily:"monospace"}},"12 meses: ",h("strong",{style:{color:"#4CAF82"}},fmtBRComp(Object.values(acumMensalBRL).reduce((a,b)=>a+b,0))))
+
+          // Config visual por moeda
+          const MOEDA_CFG={
+            BRL:{label:"BRL (B3)",flag:"\u{1F1E7}\u{1F1F7}",cor:"#4CAF82",corEsc:"#2E8B5C",bg:"rgba(76,175,130,0.04)",bd:"rgba(76,175,130,0.20)",gradId:"barRendaBRL",fmt:fmtBRComp,prefix:"R$ "},
+            USD:{label:"USD (EUA + REITs)",flag:"\u{1F1FA}\u{1F1F8}",cor:"#5B8FD4",corEsc:"#3A6FA8",bg:"rgba(91,143,212,0.04)",bd:"rgba(91,143,212,0.20)",gradId:"barRendaUSD",fmt:fmtUSDComp,prefix:"US$ "},
+            EUR:{label:"EUR (Xetra + Euronext)",flag:"\u{1F1EA}\u{1F1FA}",cor:"#9C7DC2",corEsc:"#6E4F94",bg:"rgba(156,125,194,0.04)",bd:"rgba(156,125,194,0.20)",gradId:"barRendaEUR",fmt:v=>"\u20AC "+(v>=1e6?(v/1e6).toFixed(2)+"M":v>=1e3?(v/1e3).toFixed(1)+"k":v.toFixed(2)),prefix:"\u20AC "},
+            JPY:{label:"JPY (TSE Toquio)",flag:"\u{1F1EF}\u{1F1F5}",cor:"#E89060",corEsc:"#B8603A",bg:"rgba(232,144,96,0.04)",bd:"rgba(232,144,96,0.20)",gradId:"barRendaJPY",fmt:v=>"\u00A5"+(v>=1e6?(v/1e6).toFixed(2)+"M":v>=1e3?(v/1e3).toFixed(1)+"k":v.toFixed(0)),prefix:"\u00A5"},
+            MXN:{label:"MXN (BMV Mexico)",flag:"\u{1F1F2}\u{1F1FD}",cor:"#E8C44A",corEsc:"#A88A1E",bg:"rgba(232,196,74,0.04)",bd:"rgba(232,196,74,0.20)",gradId:"barRendaMXN",fmt:v=>"$"+(v>=1e6?(v/1e6).toFixed(2)+"M":v>=1e3?(v/1e3).toFixed(1)+"k":v.toFixed(2)),prefix:"$"},
+            CHF:{label:"CHF (SIX Suica)",flag:"\u{1F1E8}\u{1F1ED}",cor:"#D17A22",corEsc:"#A45A12",bg:"rgba(209,122,34,0.04)",bd:"rgba(209,122,34,0.20)",gradId:"barRendaCHF",fmt:v=>"CHF "+(v>=1e6?(v/1e6).toFixed(2)+"M":v>=1e3?(v/1e3).toFixed(1)+"k":v.toFixed(2)),prefix:"CHF "},
+            GBP:{label:"GBP (LSE Londres)",flag:"\u{1F1EC}\u{1F1E7}",cor:"#7DD17D",corEsc:"#4E8E4E",bg:"rgba(125,209,125,0.04)",bd:"rgba(125,209,125,0.20)",gradId:"barRendaGBP",fmt:v=>"\u00A3"+(v>=1e6?(v/1e6).toFixed(2)+"M":v>=1e3?(v/1e3).toFixed(1)+"k":v.toFixed(2)),prefix:"\u00A3"},
+            DKK:{label:"DKK (OMX Copenhagen)",flag:"\u{1F1E9}\u{1F1F0}",cor:"#FF8FA3",corEsc:"#C25E72",bg:"rgba(255,143,163,0.04)",bd:"rgba(255,143,163,0.20)",gradId:"barRendaDKK",fmt:v=>"kr "+(v>=1e3?(v/1e3).toFixed(1)+"k":v.toFixed(2)),prefix:"kr "},
+            NOK:{label:"NOK (Oslo Bors)",flag:"\u{1F1F3}\u{1F1F4}",cor:"#5BB5D4",corEsc:"#3A8AA8",bg:"rgba(91,181,212,0.04)",bd:"rgba(91,181,212,0.20)",gradId:"barRendaNOK",fmt:v=>"kr "+(v>=1e3?(v/1e3).toFixed(1)+"k":v.toFixed(2)),prefix:"kr "},
+            AUD:{label:"AUD (ASX Australia)",flag:"\u{1F1E6}\u{1F1FA}",cor:"#C8A96E",corEsc:"#8A7042",bg:"rgba(200,169,110,0.04)",bd:"rgba(200,169,110,0.20)",gradId:"barRendaAUD",fmt:v=>"A$"+(v>=1e3?(v/1e3).toFixed(1)+"k":v.toFixed(2)),prefix:"A$"},
+            HKD:{label:"HKD (HKEX Hong Kong)",flag:"\u{1F1ED}\u{1F1F0}",cor:"#E05252",corEsc:"#A03838",bg:"rgba(224,82,82,0.04)",bd:"rgba(224,82,82,0.20)",gradId:"barRendaHKD",fmt:v=>"HK$"+(v>=1e3?(v/1e3).toFixed(1)+"k":v.toFixed(2)),prefix:"HK$"},
+            SGD:{label:"SGD (SGX Singapura)",flag:"\u{1F1F8}\u{1F1EC}",cor:"#2EBFA5",corEsc:"#1F8A78",bg:"rgba(46,191,165,0.04)",bd:"rgba(46,191,165,0.20)",gradId:"barRendaSGD",fmt:v=>"S$"+(v>=1e3?(v/1e3).toFixed(1)+"k":v.toFixed(2)),prefix:"S$"},
+            INR:{label:"INR (NSE India)",flag:"\u{1F1EE}\u{1F1F3}",cor:"#B8860B",corEsc:"#856407",bg:"rgba(184,134,11,0.04)",bd:"rgba(184,134,11,0.20)",gradId:"barRendaINR",fmt:v=>"\u20B9"+(v>=1e3?(v/1e3).toFixed(1)+"k":v.toFixed(2)),prefix:"\u20B9"}
+          };
+
+          // Funcao que renderiza UM grafico para uma moeda
+          const renderGrafico=(moeda)=>{
+            const cfg=MOEDA_CFG[moeda]||{label:moeda,flag:"\u{1F4B0}",cor:"#9A9080",corEsc:"#6A6050",bg:"rgba(255,255,255,0.02)",bd:"rgba(255,255,255,0.08)",gradId:"barRenda"+moeda,fmt:v=>moeda+" "+v.toFixed(2),prefix:moeda+" "};
+            const acumMes=acumMensalPorMoeda[moeda]||{};
+            const valores=Object.values(acumMes);
+            const maxVal=Math.max(0.01,...valores);
+            const total12m=valores.reduce((a,b)=>a+b,0);
+            return h("div",{key:"gm"+moeda,style:{background:cfg.bg,border:"1px solid "+cfg.bd,borderRadius:8,padding:"11px 12px",marginBottom:10}},
+              h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:7,gap:8,flexWrap:"wrap"}},
+                h("div",{style:{fontSize:8,color:cfg.cor,letterSpacing:1.5,fontFamily:"monospace",fontWeight:700,display:"flex",alignItems:"center",gap:5}},
+                  h("span",{style:{fontSize:13}},cfg.flag),
+                  h("span",{},cfg.label)
+                ),
+                h("div",{style:{fontSize:9,color:"#7A7060",fontFamily:"monospace"}},"12 meses: ",h("strong",{style:{color:cfg.cor}},cfg.fmt(total12m)))
               ),
               h("div",{style:{display:"flex",justifyContent:"center"}},
                 h("svg",{width:W,height:H,style:{maxWidth:"100%",height:"auto"}},
                   h("defs",{},
-                    h("linearGradient",{id:"barRendaBRL",x1:"0%",y1:"0%",x2:"0%",y2:"100%"},
-                      h("stop",{offset:"0%","stop-color":"#4CAF82","stop-opacity":"1"}),
-                      h("stop",{offset:"100%","stop-color":"#2E8B5C","stop-opacity":"0.85"})
+                    h("linearGradient",{id:cfg.gradId,x1:"0%",y1:"0%",x2:"0%",y2:"100%"},
+                      h("stop",{offset:"0%","stop-color":cfg.cor,"stop-opacity":"1"}),
+                      h("stop",{offset:"100%","stop-color":cfg.corEsc,"stop-opacity":"0.85"})
                     )
                   ),
                   // Grid horizontal
                   ...[0,0.25,0.5,0.75,1].map((p,i)=>{
                     const y=padT+ih*p;
-                    const v=maxValBRL*(1-p);
-                    return h("g",{key:"ghbrl"+i},
+                    const v=maxVal*(1-p);
+                    return h("g",{key:"gh"+moeda+i},
                       h("line",{x1:padL,y1:y,x2:W-padR,y2:y,stroke:"#2A2820",strokeWidth:0.5,strokeDasharray:"2,2"}),
-                      h("text",{x:padL-5,y:y+3,textAnchor:"end",fontSize:8,fill:"#5A5550",fontFamily:"monospace"},fmtBRComp(v))
+                      h("text",{x:padL-5,y:y+3,textAnchor:"end",fontSize:8,fill:"#5A5550",fontFamily:"monospace"},cfg.fmt(v))
                     );
                   }),
                   // Barras
                   ...mesesGrafico.map((m,i)=>{
-                    const v=acumMensalBRL[m.chave]||0;
+                    const v=acumMes[m.chave]||0;
                     const x=padL+passoX*i+(passoX-barW)/2;
-                    const y=padT+ih*(1-v/maxValBRL);
+                    const y=padT+ih*(1-v/maxVal);
                     const barH=H-padB-y;
                     const isAtual=m.chave===mesAtual;
-                    return h("g",{key:"brlb"+i},
-                      v>0&&h("rect",{x,y,width:barW,height:barH,fill:"url(#barRendaBRL)",rx:2,stroke:isAtual?"#C8A96E":"none",strokeWidth:isAtual?1.5:0,style:{filter:"drop-shadow(0 1px 2px rgba(0,0,0,0.3))"}}),
-                      // Label do mes
+                    return h("g",{key:"bar"+moeda+i},
+                      v>0&&h("rect",{x,y,width:barW,height:barH,fill:"url(#"+cfg.gradId+")",rx:2,stroke:isAtual?"#C8A96E":"none",strokeWidth:isAtual?1.5:0,style:{filter:"drop-shadow(0 1px 2px rgba(0,0,0,0.3))"}}),
                       h("text",{x:padL+passoX*i+passoX/2,y:H-padB+13,textAnchor:"middle",fontSize:7,fill:isAtual?"#C8A96E":"#6A6050",fontFamily:"monospace",fontWeight:isAtual?700:400,transform:"rotate(-30 "+(padL+passoX*i+passoX/2)+" "+(H-padB+13)+")"},m.label),
-                      // Valor acima
-                      v>0&&barH>20&&h("text",{x:padL+passoX*i+passoX/2,y:y-3,textAnchor:"middle",fontSize:6.5,fill:"#4CAF82",fontFamily:"monospace",fontWeight:700},fmtBRComp(v).replace("R$ ",""))
+                      v>0&&barH>20&&h("text",{x:padL+passoX*i+passoX/2,y:y-3,textAnchor:"middle",fontSize:6.5,fill:cfg.cor,fontFamily:"monospace",fontWeight:700},cfg.fmt(v).replace(cfg.prefix,""))
                     );
                   })
                 )
               )
+            );
+          };
+
+          // Cotacoes FX para card de referencia (1 unidade da moeda em BRL)
+          const fxRefs=[];
+          moedasOrdenadas.forEach(m=>{
+            if(m==="BRL")return;
+            const taxa=FX[m];
+            if(typeof taxa==="number"&&taxa>0)fxRefs.push({moeda:m,taxa});
+          });
+
+          return h("div",{},
+            // Header
+            h("div",{style:{fontSize:9,letterSpacing:2,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,marginBottom:4}},"\u{1F4CA} HISTORICO MENSAL POR MOEDA"),
+            h("p",{style:{fontSize:9,color:"#7A7060",lineHeight:1.5,margin:"0 0 10px",fontStyle:"italic"}},"Ultimos 12 meses. Cada moeda em grafico separado para preservar a moeda original do pagamento (sem conversao). Mes vigente em destaque dourado."),
+            // Legenda
+            h("div",{style:{background:"rgba(0,0,0,0.18)",borderRadius:5,padding:"8px 10px",marginBottom:10}},
+              h("div",{style:{fontSize:7,letterSpacing:1.5,color:"#8A8070",fontFamily:"monospace",fontWeight:700,marginBottom:5}},"\u{1F4D6} COMO LER"),
+              h("div",{style:{fontSize:9,color:"#9A9080",lineHeight:1.65}},
+                h("div",{style:{marginBottom:3}},h("strong",{},"Um grafico por moeda"),": ",moedasOrdenadas.length===0?"aguardando primeiros pagamentos":moedasOrdenadas.length+" moeda(s) detectada(s) no seu portfolio: "+moedasOrdenadas.join(", ")),
+                h("div",{style:{marginBottom:3}},h("strong",{},"Sem conversao"),": valores na moeda original do pagamento. Cotacoes de referencia no rodape para contexto."),
+                h("div",{},h("strong",{style:{color:"#C8A96E"}},"Mes vigente"),": destacado com borda dourada (pagamentos ainda podem ocorrer ate fim do mes).")
+              )
             ),
-            // Grafico USD (so mostra se ha dados USD)
-            (Object.values(acumMensalUSD).reduce((a,b)=>a+b,0)>0||proventosUSD.length>0)&&h("div",{style:{background:"rgba(91,143,212,0.04)",border:"1px solid rgba(91,143,212,0.20)",borderRadius:8,padding:"11px 12px",marginBottom:14}},
-              h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:7}},
-                h("div",{style:{fontSize:8,color:"#5B8FD4",letterSpacing:1.5,fontFamily:"monospace",fontWeight:700}},"\u{1F1FA}\u{1F1F8} USD (Internacionais)"),
-                h("div",{style:{fontSize:9,color:"#7A7060",fontFamily:"monospace"}},"12 meses: ",h("strong",{style:{color:"#5B8FD4"}},fmtUSDComp(Object.values(acumMensalUSD).reduce((a,b)=>a+b,0))))
-              ),
-              h("div",{style:{display:"flex",justifyContent:"center"}},
-                h("svg",{width:W,height:H,style:{maxWidth:"100%",height:"auto"}},
-                  h("defs",{},
-                    h("linearGradient",{id:"barRendaUSD",x1:"0%",y1:"0%",x2:"0%",y2:"100%"},
-                      h("stop",{offset:"0%","stop-color":"#5B8FD4","stop-opacity":"1"}),
-                      h("stop",{offset:"100%","stop-color":"#3A6FA8","stop-opacity":"0.85"})
+            // Renderiza um grafico por moeda detectada
+            moedasOrdenadas.length===0?h("div",{style:{textAlign:"center",padding:"30px 0",color:"#6A6050",fontStyle:"italic",fontSize:10}},"Nenhum provento registrado ainda. Clique em ATUALIZAR PROVENTOS no topo."):
+            h("div",{},...moedasOrdenadas.map(m=>renderGrafico(m))),
+            // Card de cotacoes de referencia
+            fxRefs.length>0&&h("div",{style:{background:"rgba(0,0,0,0.15)",border:"1px solid rgba(255,255,255,0.05)",borderRadius:7,padding:"10px 12px",marginTop:8}},
+              h("div",{style:{fontSize:7,letterSpacing:1.5,color:"#8A8070",fontFamily:"monospace",fontWeight:700,marginBottom:6}},"\u{1F4B1} COTACOES DE REFERENCIA (",new Date().toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit",year:"numeric"}),")"),
+              h("div",{style:{fontSize:8,color:"#7A7060",fontStyle:"italic",lineHeight:1.5,marginBottom:7}},"Para contextualizar os valores das moedas estrangeiras em equivalente BRL. Cotacoes obtidas via AwesomeAPI / PTAX no carregamento do app."),
+              h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fill, minmax(120px, 1fr))",gap:5}},
+                ...fxRefs.map(({moeda,taxa})=>{
+                  const cfg=MOEDA_CFG[moeda]||{flag:"\u{1F4B0}",cor:"#9A9080"};
+                  return h("div",{key:"fxref"+moeda,style:{display:"flex",alignItems:"center",gap:5,padding:"5px 7px",background:"rgba(255,255,255,0.02)",borderRadius:4,borderLeft:"2px solid "+cfg.cor}},
+                    h("span",{style:{fontSize:11}},cfg.flag),
+                    h("div",{style:{flex:1,minWidth:0,fontSize:9,fontFamily:"monospace"}},
+                      h("div",{style:{color:"#E8E2D5",fontWeight:700}},"1 "+moeda),
+                      h("div",{style:{color:"#9A9080",fontSize:8}},"= R$ ",taxa.toFixed(moeda==="JPY"?4:2))
                     )
-                  ),
-                  ...[0,0.25,0.5,0.75,1].map((p,i)=>{
-                    const y=padT+ih*p;
-                    const v=maxValUSD*(1-p);
-                    return h("g",{key:"ghusd"+i},
-                      h("line",{x1:padL,y1:y,x2:W-padR,y2:y,stroke:"#2A2820",strokeWidth:0.5,strokeDasharray:"2,2"}),
-                      h("text",{x:padL-5,y:y+3,textAnchor:"end",fontSize:8,fill:"#5A5550",fontFamily:"monospace"},fmtUSDComp(v))
-                    );
-                  }),
-                  ...mesesGrafico.map((m,i)=>{
-                    const v=acumMensalUSD[m.chave]||0;
-                    const x=padL+passoX*i+(passoX-barW)/2;
-                    const y=padT+ih*(1-v/maxValUSD);
-                    const barH=H-padB-y;
-                    const isAtual=m.chave===mesAtual;
-                    return h("g",{key:"usdb"+i},
-                      v>0&&h("rect",{x,y,width:barW,height:barH,fill:"url(#barRendaUSD)",rx:2,stroke:isAtual?"#C8A96E":"none",strokeWidth:isAtual?1.5:0,style:{filter:"drop-shadow(0 1px 2px rgba(0,0,0,0.3))"}}),
-                      h("text",{x:padL+passoX*i+passoX/2,y:H-padB+13,textAnchor:"middle",fontSize:7,fill:isAtual?"#C8A96E":"#6A6050",fontFamily:"monospace",fontWeight:isAtual?700:400,transform:"rotate(-30 "+(padL+passoX*i+passoX/2)+" "+(H-padB+13)+")"},m.label),
-                      v>0&&barH>20&&h("text",{x:padL+passoX*i+passoX/2,y:y-3,textAnchor:"middle",fontSize:6.5,fill:"#5B8FD4",fontFamily:"monospace",fontWeight:700},fmtUSDComp(v).replace("US$ ",""))
-                    );
-                  })
-                )
+                  );
+                })
               )
             )
           );
@@ -7664,8 +7698,16 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                 )
               ),
               h("div",{style:{textAlign:"right"}},
-                totalAcumBRL>0&&h("div",{style:{fontSize:14,color:"#C8A96E",fontFamily:"Georgia,serif",fontWeight:700}},fmtBRComp(totalAcumBRL)),
-                totalAcumUSD>0&&h("div",{style:{fontSize:11,color:"#5B8FD4",fontFamily:"monospace",fontWeight:700,marginTop:2}},fmtUSDComp(totalAcumUSD))
+                // BRL em destaque (Georgia)
+                (totalAcumPorMoeda.BRL||0)>0&&h("div",{style:{fontSize:14,color:"#C8A96E",fontFamily:"Georgia,serif",fontWeight:700}},fmtBRComp(totalAcumPorMoeda.BRL)),
+                // Outras moedas em ordem (USD primeiro)
+                ...moedasOrdenadas.filter(m=>m!=="BRL"&&(totalAcumPorMoeda[m]||0)>0).map(m=>{
+                  const cores={USD:"#5B8FD4",EUR:"#9C7DC2",JPY:"#E89060",MXN:"#E8C44A",CHF:"#D17A22",GBP:"#7DD17D",DKK:"#FF8FA3",NOK:"#5BB5D4",AUD:"#C8A96E",HKD:"#E05252",SGD:"#2EBFA5",INR:"#B8860B"};
+                  const fmts={USD:fmtUSDComp,EUR:v=>"\u20AC "+(v>=1e6?(v/1e6).toFixed(2)+"M":v>=1e3?(v/1e3).toFixed(1)+"k":v.toFixed(2)),JPY:v=>"\u00A5"+(v>=1e6?(v/1e6).toFixed(2)+"M":v>=1e3?(v/1e3).toFixed(1)+"k":v.toFixed(0)),MXN:v=>"$"+(v>=1e3?(v/1e3).toFixed(1)+"k":v.toFixed(2)),CHF:v=>"CHF "+(v>=1e3?(v/1e3).toFixed(1)+"k":v.toFixed(2)),GBP:v=>"\u00A3"+(v>=1e3?(v/1e3).toFixed(1)+"k":v.toFixed(2)),DKK:v=>"kr "+(v>=1e3?(v/1e3).toFixed(1)+"k":v.toFixed(2)),NOK:v=>"kr "+(v>=1e3?(v/1e3).toFixed(1)+"k":v.toFixed(2)),AUD:v=>"A$"+(v>=1e3?(v/1e3).toFixed(1)+"k":v.toFixed(2)),HKD:v=>"HK$"+(v>=1e3?(v/1e3).toFixed(1)+"k":v.toFixed(2)),SGD:v=>"S$"+(v>=1e3?(v/1e3).toFixed(1)+"k":v.toFixed(2)),INR:v=>"\u20B9"+(v>=1e3?(v/1e3).toFixed(1)+"k":v.toFixed(2))};
+                  const cor=cores[m]||"#9A9080";
+                  const fmt=fmts[m]||(v=>m+" "+v.toFixed(2));
+                  return h("div",{key:"tac"+m,style:{fontSize:11,color:cor,fontFamily:"monospace",fontWeight:700,marginTop:2}},fmt(totalAcumPorMoeda[m]));
+                })
               )
             )
           ),
