@@ -4988,6 +4988,82 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             )
           ),
 
+          // BLOCO 4.5: Direcionamento de aportes por classe (rebalanceamento via novas compras)
+          (()=>{
+            // Calcula pesos da fronteira (mesma vol, max retorno) buscando no Monte Carlo
+            let pesosFront=wAtual.slice();
+            let maxRetFront=statsAtual.ret;
+            for(const p of mcResult){
+              if(Math.abs(p.vol-statsAtual.vol)<0.015&&p.ret>maxRetFront){
+                maxRetFront=p.ret;
+                pesosFront=p.w;
+              }
+            }
+            // Escolhe portfolio de referencia: se ATUAL nao for lider, usa o lider; senao usa pesosFront (otimizacao na mesma vol)
+            let refPesos,refNome,refCor;
+            if(lider.n==="ALVO"&&(efAlvo-efAtual)>1){
+              refPesos=wAlvo;refNome="ALVO (bandas medias)";refCor="#5B8FD4";
+            }else if(lider.n==="ALL WEATHER"&&(efAW-efAtual)>1){
+              refPesos=MPT_CLS.map(cid=>AW_W[cid]||0);refNome="ALL WEATHER";refCor="#2EBFA5";
+            }else{
+              // ATUAL e lider ou diferenca pequena: usa o portfolio da fronteira (mesma vol, max retorno)
+              refPesos=pesosFront;refNome="FRONTEIRA EFICIENTE";refCor="#C8A96E";
+            }
+            // Calcula diferenca por classe (pp) e separa em aumentar/reduzir
+            const ajustes=MPT_CLS.map((cid,i)=>{
+              const meta=CL.find(c=>c.id===cid);
+              return{
+                cid,
+                nome:meta?meta.name:cid,
+                cor:meta?meta.color:"#8A8070",
+                atual:(wAtual[i]||0)*100,
+                ref:(refPesos[i]||0)*100,
+                diff:((refPesos[i]||0)-(wAtual[i]||0))*100
+              };
+            }).filter(x=>Math.abs(x.diff)>=0.5);
+            const aumentar=ajustes.filter(x=>x.diff>0).sort((a,b)=>b.diff-a.diff);
+            const reduzir=ajustes.filter(x=>x.diff<0).sort((a,b)=>a.diff-b.diff);
+            if(aumentar.length===0&&reduzir.length===0){
+              return h("div",{style:{marginBottom:11,padding:"9px 11px",background:"rgba(76,175,130,0.05)",border:"1px solid rgba(76,175,130,0.25)",borderRadius:5}},
+                h("div",{style:{fontSize:8,letterSpacing:1.5,color:"#4CAF82",fontFamily:"monospace",marginBottom:3,fontWeight:700}},"\u2713 ALOCACAO EQUILIBRADA"),
+                h("div",{style:{fontSize:9,color:"#9A9080",lineHeight:1.5,fontStyle:"italic"}},"Pesos atuais ja proximos do portfolio de referencia (",refNome,"). Mantenha aportes diversificados conforme suas bandas.")
+              );
+            }
+            return h("div",{style:{marginBottom:11}},
+              h("div",{style:{fontSize:8,letterSpacing:1.5,color:"#8A8070",fontFamily:"monospace",marginBottom:5}},"DIRECIONAMENTO DE APORTES (vs ",h("span",{style:{color:refCor}},refNome),")"),
+              h("div",{style:{fontSize:8,color:"#5A5550",fontStyle:"italic",marginBottom:7,lineHeight:1.4}},"Reequilibrio via NOVAS COMPRAS (nunca vendas) - direcione aportes futuros para corrigir desvios."),
+              h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}},
+                // AUMENTAR
+                h("div",{style:{background:"rgba(76,175,130,0.05)",border:"1px solid rgba(76,175,130,0.20)",borderRadius:5,padding:"7px 9px"}},
+                  h("div",{style:{fontSize:7,color:"#4CAF82",fontFamily:"monospace",letterSpacing:1.5,fontWeight:700,marginBottom:5}},"\u2191 AUMENTAR PESO"),
+                  aumentar.length===0?h("div",{style:{fontSize:8.5,color:"#6A6050",fontStyle:"italic"}},"Nenhuma classe abaixo do alvo"):
+                  aumentar.map((x,i)=>h("div",{key:i,style:{display:"grid",gridTemplateColumns:"1fr auto",gap:6,fontSize:9,fontFamily:"monospace",padding:"3px 0",borderTop:i>0?"1px solid rgba(255,255,255,0.04)":"none",alignItems:"center"}},
+                    h("div",{style:{display:"flex",alignItems:"center",gap:5,minWidth:0}},
+                      h("span",{style:{width:5,height:5,borderRadius:"50%",background:x.cor,flexShrink:0}}),
+                      h("span",{style:{color:"#E8E2D5",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},x.nome)
+                    ),
+                    h("span",{style:{color:"#4CAF82",fontWeight:700,fontSize:9}},"+"+x.diff.toFixed(1)+"pp")
+                  ))
+                ),
+                // REDUZIR (via diluicao - nao aportar)
+                h("div",{style:{background:"rgba(232,144,96,0.05)",border:"1px solid rgba(232,144,96,0.20)",borderRadius:5,padding:"7px 9px"}},
+                  h("div",{style:{fontSize:7,color:"#E89060",fontFamily:"monospace",letterSpacing:1.5,fontWeight:700,marginBottom:5}},"\u2193 REDUZIR PESO%"),
+                  reduzir.length===0?h("div",{style:{fontSize:8.5,color:"#6A6050",fontStyle:"italic"}},"Nenhuma classe acima do alvo"):
+                  reduzir.map((x,i)=>h("div",{key:i,style:{display:"grid",gridTemplateColumns:"1fr auto",gap:6,fontSize:9,fontFamily:"monospace",padding:"3px 0",borderTop:i>0?"1px solid rgba(255,255,255,0.04)":"none",alignItems:"center"}},
+                    h("div",{style:{display:"flex",alignItems:"center",gap:5,minWidth:0}},
+                      h("span",{style:{width:5,height:5,borderRadius:"50%",background:x.cor,flexShrink:0}}),
+                      h("span",{style:{color:"#E8E2D5",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},x.nome)
+                    ),
+                    h("span",{style:{color:"#E89060",fontWeight:700,fontSize:9}},x.diff.toFixed(1)+"pp")
+                  ))
+                )
+              ),
+              reduzir.length>0&&h("div",{style:{fontSize:8,color:"#6A6050",fontStyle:"italic",marginTop:7,lineHeight:1.5,padding:"5px 8px",background:"rgba(232,144,96,0.04)",borderRadius:4}},
+                "\u26A0 \"Reduzir peso\" significa NAO aportar (ou aportar menos) nessas classes. O peso% cai naturalmente conforme o patrimonio total cresce via aportes nas classes 'AUMENTAR'. Buy & Hold nao vende posicoes."
+              )
+            );
+          })(),
+
           // BLOCO 5: Recomendacao estrategica
           h("div",{style:{background:"rgba(0,0,0,0.15)",borderLeft:"3px solid "+estrategiaCor,borderRadius:"0 5px 5px 0",padding:"9px 11px"}},
             h("div",{style:{fontSize:7,letterSpacing:1.5,color:estrategiaCor,fontFamily:"monospace",marginBottom:4,fontWeight:700}},"RECOMENDACAO"),
