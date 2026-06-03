@@ -102,6 +102,28 @@ const MPT_RET={fii:0.125,acoes_br:0.140,acoes_ext:0.130,reits:0.110,selic:0.100,
 const MPT_VOL={fii:0.120,acoes_br:0.250,acoes_ext:0.220,reits:0.180,selic:0.010,ouro:0.150,bitcoin:0.550,infra:0.100,imoveis:0.080,agro:0.130};
 // Matriz de correlacao 10x10 (simetrica) - ordem das classes em MPT_CLS
 const MPT_CLS=["fii","acoes_br","acoes_ext","reits","selic","ouro","bitcoin","infra","imoveis","agro"];
+
+// ===== All Weather Portfolio (Ray Dalio) adaptado ao Brasil =====
+// Filosofia: equilibrio entre 4 cenarios macro (crescimento alto/baixo x inflacao alta/baixa)
+const AW_W={fii:0.18,acoes_br:0.12,acoes_ext:0.15,reits:0.05,selic:0.22,ouro:0.08,bitcoin:0.02,infra:0.13,imoveis:0.03,agro:0.02};
+// Mapeamento por cenario macro (peso de cada classe naquele cenario, 0-1)
+// Os 4 cenarios Dalio:
+// 1: crescimento ALTA + inflacao ALTA (acoes domesticas, ouro, real assets, commodities)
+// 2: crescimento ALTA + inflacao BAIXA (acoes desenvolvidas, growth)
+// 3: crescimento BAIXA + inflacao ALTA (linkers, ouro, real assets)
+// 4: crescimento BAIXA + inflacao BAIXA (renda fixa nominal, FII papel)
+const AW_CEN={
+  fii:    {c1:0.6,c2:0.3,c3:0.5,c4:0.6},
+  acoes_br:{c1:0.9,c2:0.7,c3:0.2,c4:0.1},
+  acoes_ext:{c1:0.4,c2:0.95,c3:0.2,c4:0.3},
+  reits:  {c1:0.5,c2:0.7,c3:0.4,c4:0.3},
+  selic:  {c1:0.3,c2:0.4,c3:0.5,c4:0.95},
+  ouro:   {c1:0.85,c2:0.3,c3:0.95,c4:0.3},
+  bitcoin:{c1:0.7,c2:0.5,c3:0.6,c4:0.2},
+  infra:  {c1:0.5,c2:0.4,c3:0.85,c4:0.6},
+  imoveis:{c1:0.7,c2:0.4,c3:0.7,c4:0.4},
+  agro:   {c1:0.85,c2:0.4,c3:0.7,c4:0.3}
+};
 const MPT_COR=[
   // fii   br    ext   reit  sel   xau   btc   inf   imv   agr
   [ 1.00, 0.38, 0.20, 0.50,-0.15,-0.10, 0.15, 0.40, 0.30, 0.45], // fii
@@ -3448,7 +3470,7 @@ function App(){
 
   // TABS
   const tabs=h("div",{style:{display:"flex",borderBottom:"1px solid rgba(255,255,255,0.06)",marginBottom:18,marginTop:10,overflowX:"auto"}},
-    ...[{id:"dashboard",label:"Dashboard"},{id:"positions",label:"Posicoes"},{id:"aporte",label:"Aporte"},{id:"chat",label:"Analise"},{id:"mpt",label:"MPT"},{id:"history",label:"Historico"}].map(t=>
+    ...[{id:"dashboard",label:"Dashboard"},{id:"positions",label:"Posicoes"},{id:"aporte",label:"Aporte"},{id:"chat",label:"Analise"},{id:"mpt",label:"MPT"},{id:"aw",label:"All Weather"},{id:"history",label:"Historico"}].map(t=>
       h("button",{key:t.id,onClick:()=>{setTab(t.id);if(t.id!=="aporte"){setApR(null);setStep("r");}},style:{background:"none",border:"none",borderBottom:tab===t.id?"2px solid #C8A96E":"2px solid transparent",color:tab===t.id?"#C8A96E":"#8A8070",padding:"6px 10px",cursor:"pointer",fontSize:12,marginBottom:-1,flexShrink:0,whiteSpace:"nowrap"}},t.label)
     ),
     h("button",{onClick:()=>{
@@ -4185,6 +4207,11 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
     const statsAlvo=mptStats(wAlvo);
     const sharpeAlvo=mptSharpe(statsAlvo.ret,statsAlvo.vol,rfAtual);
     const betaAlvo=mptBeta(wAlvo);
+    // Stats do ALL WEATHER (Dalio adaptado ao BR)
+    const wAW=MPT_CLS.map(cid=>AW_W[cid]||0);
+    const statsAW=mptStats(wAW);
+    const sharpeAW=mptSharpe(statsAW.ret,statsAW.vol,rfAtual);
+    const betaAW=mptBeta(wAW);
     // Monte Carlo: usa cache do useMemo (recalcula so quando cw ou Selic mudam)
     const mcResult=mptCache;
     // Encontra portfolio com maior Sharpe (tangencia) - usa todos os 50k
@@ -4204,8 +4231,8 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
     const step=Math.floor(mcResult.length/5000);
     for(let i=0;i<mcResult.length;i+=step)mcRender.push(mcResult[i]);
     // Escala do grafico (baseada em mcRender para escala visual ok)
-    const allVol=mcRender.map(p=>p.vol).concat([statsAtual.vol,statsAlvo.vol]);
-    const allRet=mcRender.map(p=>p.ret).concat([statsAtual.ret,statsAlvo.ret,rfAtual]);
+    const allVol=mcRender.map(p=>p.vol).concat([statsAtual.vol,statsAlvo.vol,statsAW.vol]);
+    const allRet=mcRender.map(p=>p.ret).concat([statsAtual.ret,statsAlvo.ret,statsAW.ret,rfAtual]);
     const volMin=0,volMax=Math.max(...allVol)*1.05;
     const retMin=Math.min(...allRet)*0.95,retMax=Math.max(...allRet)*1.05;
     // SVG da fronteira
@@ -4231,6 +4258,123 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
       h("p",{style:{color:"#8A8070",fontSize:9,lineHeight:1.5,marginBottom:14,fontStyle:"italic"}},
         "Analise quantitativa baseada em Markowitz (1952). Retornos esperados anualizados em BRL, volatilidades anualizadas e matriz de correlacao calibrada com dados historicos."
       ),
+
+      // ========== INSIGHT GLOBAL ==========
+      (()=>{
+        // Calcula posicao relativa: melhor/pior em cada metrica
+        const portfs=[
+          {nome:"ATUAL",cor:"#E05252",ret:statsAtual.ret,vol:statsAtual.vol,sharpe:sharpeAtual,beta:betaAtual},
+          {nome:"ALVO",cor:"#5B8FD4",ret:statsAlvo.ret,vol:statsAlvo.vol,sharpe:sharpeAlvo,beta:betaAlvo},
+          {nome:"ALL WEATHER",cor:"#2EBFA5",ret:statsAW.ret,vol:statsAW.vol,sharpe:sharpeAW,beta:betaAW},
+          {nome:"OTIMO",cor:"#C8A96E",ret:bestSharpe.ret,vol:bestSharpe.vol,sharpe:bestSharpe.sharpe,beta:0}
+        ];
+        // Ranking Sharpe (excluindo OTIMO que e referencia)
+        const compar=portfs.slice(0,3);
+        const melhorSharpe=compar.reduce((a,b)=>a.sharpe>b.sharpe?a:b);
+        const menorVol=compar.reduce((a,b)=>a.vol<b.vol?a:b);
+        const maiorRet=compar.reduce((a,b)=>a.ret>b.ret?a:b);
+        const efAtual=(sharpeAtual/bestSharpe.sharpe)*100;
+        const efAlvo=(sharpeAlvo/bestSharpe.sharpe)*100;
+        const efAW=(sharpeAW/bestSharpe.sharpe)*100;
+        // Diagnostico do portfolio atual
+        const distAlvoVol=Math.abs(statsAtual.vol-statsAlvo.vol)*100;
+        const distAlvoRet=Math.abs(statsAtual.ret-statsAlvo.ret)*100;
+        // Estrategia recomendada
+        let estrategia="",estrategiaCor="#8A8070";
+        if(sharpeAtual>=sharpeAlvo&&sharpeAtual>=sharpeAW){
+          estrategia="Seu portfolio atual e o MAIS eficiente entre os 3 comparativos. Continue na trajetoria atual respeitando margem de seguranca.";
+          estrategiaCor="#4CAF82";
+        }else if(sharpeAlvo>sharpeAtual&&Math.abs(sharpeAlvo-sharpeAtual)>0.05){
+          estrategia="Migrar gradualmente para a alocacao ALVO (suas bandas medias) pode melhorar a eficiencia. Use aportes futuros para rebalancear.";
+          estrategiaCor="#5B8FD4";
+        }else if(sharpeAW>sharpeAtual&&sharpeAW>sharpeAlvo){
+          estrategia="Cenario macroeconomico atual favorece o All Weather. Considere maior exposicao a renda fixa e ouro como hedge.";
+          estrategiaCor="#2EBFA5";
+        }else{
+          estrategia="Os 3 portfolios estao em eficiencia similar. Mantenha a filosofia atual e foque em margem de seguranca nas compras.";
+          estrategiaCor="#8A8070";
+        }
+
+        return h("div",{style:{background:"linear-gradient(135deg,rgba(200,169,110,0.06),rgba(91,143,212,0.04))",border:"1px solid rgba(200,169,110,0.25)",borderRadius:8,padding:"13px 14px",marginBottom:13}},
+          h("div",{style:{display:"flex",alignItems:"center",gap:6,marginBottom:10}},
+            h("span",{style:{fontSize:14}},"\u{1F4A1}"),
+            h("div",{style:{fontSize:9,letterSpacing:2,color:"#C8A96E",fontFamily:"monospace",fontWeight:700}},"INSIGHT GLOBAL")
+          ),
+
+          // BLOCO 1: Diagnostico atual
+          h("div",{style:{marginBottom:11}},
+            h("div",{style:{fontSize:8,letterSpacing:1.5,color:"#8A8070",fontFamily:"monospace",marginBottom:5}},"DIAGNOSTICO"),
+            h("p",{style:{fontSize:10,color:"#E8E2D5",lineHeight:1.6,margin:0}},
+              "Seu portfolio atual entrega ",h("strong",{style:{color:"#4CAF82"}},(statsAtual.ret*100).toFixed(1)+"%")," de retorno esperado anualizado com volatilidade de ",h("strong",{style:{color:"#E89060"}},(statsAtual.vol*100).toFixed(1)+"%"),", resultando em Sharpe ",h("strong",{style:{color:sharpeAtual>=0.3?"#4CAF82":sharpeAtual>=0.15?"#E8C44A":"#E05252"}},sharpeAtual.toFixed(2)),". Beta ",h("strong",{},betaAtual.toFixed(2))," vs IBOV (perfil ",betaAtual<0.5?h("strong",{style:{color:"#4CAF82"}},"defensivo"):betaAtual<1?h("strong",{style:{color:"#E8C44A"}},"moderado"):h("strong",{style:{color:"#E05252"}},"agressivo"),")."
+            )
+          ),
+
+          // BLOCO 2: Ranking de eficiencia
+          h("div",{style:{marginBottom:11}},
+            h("div",{style:{fontSize:8,letterSpacing:1.5,color:"#8A8070",fontFamily:"monospace",marginBottom:5}},"RANKING DE EFICIENCIA (% do OTIMO)"),
+            ...[
+              {n:"ATUAL",c:"#E05252",v:efAtual,s:sharpeAtual},
+              {n:"ALVO",c:"#5B8FD4",v:efAlvo,s:sharpeAlvo},
+              {n:"ALL WEATHER",c:"#2EBFA5",v:efAW,s:sharpeAW}
+            ].sort((a,b)=>b.v-a.v).map((p,i)=>h("div",{key:i,style:{display:"grid",gridTemplateColumns:"24px 80px 1fr 60px",gap:8,alignItems:"center",padding:"4px 0",fontSize:9,fontFamily:"monospace"}},
+              h("span",{style:{color:"#6A6050",textAlign:"center",fontSize:8}},["\u{1F947}","\u{1F948}","\u{1F949}"][i]),
+              h("span",{style:{color:p.c,fontWeight:700}},p.n),
+              h("div",{style:{position:"relative",height:5,background:"rgba(255,255,255,0.04)",borderRadius:3}},
+                h("div",{style:{position:"absolute",top:0,left:0,height:"100%",width:Math.min(100,p.v)+"%",background:p.c,borderRadius:3,opacity:0.7}})
+              ),
+              h("span",{style:{textAlign:"right",color:p.c,fontWeight:700}},p.v.toFixed(0)+"%")
+            ))
+          ),
+
+          // BLOCO 3: Pontos fortes e fracos
+          h("div",{style:{marginBottom:11}},
+            h("div",{style:{fontSize:8,letterSpacing:1.5,color:"#8A8070",fontFamily:"monospace",marginBottom:5}},"PONTOS FORTES vs FRACOS"),
+            h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}},
+              // Fortes
+              h("div",{style:{background:"rgba(76,175,130,0.05)",border:"1px solid rgba(76,175,130,0.25)",borderRadius:5,padding:"7px 9px"}},
+                h("div",{style:{fontSize:7,color:"#4CAF82",fontFamily:"monospace",marginBottom:3,letterSpacing:1.5,fontWeight:700}},"\u2713 FORTES"),
+                h("div",{style:{fontSize:8.5,color:"#9A9080",lineHeight:1.55}},
+                  melhorSharpe.nome==="ATUAL"&&h("div",{},"Sharpe lidera vs alternativas"),
+                  menorVol.nome==="ATUAL"&&h("div",{},"Menor volatilidade dos 3"),
+                  maiorRet.nome==="ATUAL"&&h("div",{},"Maior retorno esperado"),
+                  efAtual>=70&&h("div",{},"Eficiencia >",efAtual.toFixed(0),"% do otimo"),
+                  betaAtual<0.7&&h("div",{},"Beta baixo (resiliente)"),
+                  efAtual<70&&melhorSharpe.nome!=="ATUAL"&&menorVol.nome!=="ATUAL"&&maiorRet.nome!=="ATUAL"&&betaAtual>=0.7&&h("div",{style:{fontStyle:"italic",color:"#6A6050"}},"Eficiencia moderada, ha espaco para melhorar")
+                )
+              ),
+              // Fracos
+              h("div",{style:{background:"rgba(232,144,96,0.05)",border:"1px solid rgba(232,144,96,0.25)",borderRadius:5,padding:"7px 9px"}},
+                h("div",{style:{fontSize:7,color:"#E89060",fontFamily:"monospace",marginBottom:3,letterSpacing:1.5,fontWeight:700}},"\u26A0 OPORTUNIDADES"),
+                h("div",{style:{fontSize:8.5,color:"#9A9080",lineHeight:1.55}},
+                  sharpeAlvo>sharpeAtual+0.05&&h("div",{},"ALVO supera Sharpe atual"),
+                  sharpeAW>sharpeAtual+0.05&&h("div",{},"AW supera em estabilidade"),
+                  betaAtual>=1&&h("div",{},"Beta alto (correlacao com IBOV)"),
+                  statsAtual.vol>0.15&&h("div",{},"Volatilidade acima de 15%"),
+                  efAtual<70&&h("div",{},"Gap p/ otimo: ",(100-efAtual).toFixed(0),"pp"),
+                  sharpeAlvo<=sharpeAtual+0.05&&sharpeAW<=sharpeAtual+0.05&&betaAtual<1&&statsAtual.vol<=0.15&&efAtual>=70&&h("div",{style:{fontStyle:"italic",color:"#6A6050"}},"Poucos pontos fracos significativos")
+                )
+              )
+            )
+          ),
+
+          // BLOCO 4: Distancia do ALVO
+          h("div",{style:{marginBottom:11}},
+            h("div",{style:{fontSize:8,letterSpacing:1.5,color:"#8A8070",fontFamily:"monospace",marginBottom:5}},"PROXIMIDADE DO ALVO"),
+            h("p",{style:{fontSize:10,color:"#E8E2D5",lineHeight:1.6,margin:0}},
+              "Diferenca para o ALVO: ",h("strong",{},distAlvoVol.toFixed(1)+"pp")," em volatilidade e ",h("strong",{},distAlvoRet.toFixed(1)+"pp")," em retorno esperado. ",
+              distAlvoVol<0.5&&distAlvoRet<0.5?h("span",{style:{color:"#4CAF82"}},"Voce esta praticamente NO alvo."):
+              distAlvoVol<2&&distAlvoRet<2?h("span",{style:{color:"#E8C44A"}},"Voce esta proximo do alvo."):
+              h("span",{style:{color:"#E89060"}},"Ha desvio relevante do alvo - aporte direcionado pode corrigir.")
+            )
+          ),
+
+          // BLOCO 5: Recomendacao estrategica
+          h("div",{style:{background:"rgba(0,0,0,0.15)",borderLeft:"3px solid "+estrategiaCor,borderRadius:"0 5px 5px 0",padding:"9px 11px"}},
+            h("div",{style:{fontSize:7,letterSpacing:1.5,color:estrategiaCor,fontFamily:"monospace",marginBottom:4,fontWeight:700}},"RECOMENDACAO"),
+            h("p",{style:{fontSize:10,color:"#E8E2D5",lineHeight:1.55,margin:0,fontStyle:"italic"}},estrategia)
+          )
+        );
+      })(),
 
       // ========== METRICAS DO PORTFOLIO ATUAL vs ALVO ==========
       h("div",{style:{background:"rgba(200,169,110,0.05)",border:"1px solid rgba(200,169,110,0.20)",borderRadius:8,padding:"12px 13px",marginBottom:13}},
@@ -4325,6 +4469,9 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           // Ponto: Portfolio otimo (tangencia / max Sharpe)
           h("circle",{cx:xOf(bestSharpe.vol),cy:yOf(bestSharpe.ret),r:5,fill:"#C8A96E",stroke:"#0D0F14",strokeWidth:1.5}),
           h("text",{x:xOf(bestSharpe.vol)+8,y:yOf(bestSharpe.ret)-4,fill:"#C8A96E",fontSize:8,fontFamily:"monospace",fontWeight:700},"OTIMO"),
+          // Ponto: ALL WEATHER (Dalio adaptado BR)
+          h("circle",{cx:xOf(statsAW.vol),cy:yOf(statsAW.ret),r:5,fill:"#2EBFA5",stroke:"#0D0F14",strokeWidth:1.5}),
+          h("text",{x:xOf(statsAW.vol)+8,y:yOf(statsAW.ret)+10,fill:"#2EBFA5",fontSize:8,fontFamily:"monospace",fontWeight:700},"AW"),
           // Ponto: ALVO (portfolio baseado nas bandas medias)
           h("circle",{cx:xOf(statsAlvo.vol),cy:yOf(statsAlvo.ret),r:6,fill:"#5B8FD4",stroke:"#FFF",strokeWidth:1.5}),
           h("text",{x:xOf(statsAlvo.vol)+9,y:yOf(statsAlvo.ret)+3,fill:"#5B8FD4",fontSize:9,fontFamily:"monospace",fontWeight:700},"ALVO"),
@@ -4336,8 +4483,9 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         ),
         h("div",{style:{fontSize:8,color:"#6A6050",padding:"6px 10px",fontStyle:"italic",lineHeight:1.5}},
           h("span",{style:{color:"#E05252",fontWeight:700}},"\u25CF VOCE"),": atual. ",
-          h("span",{style:{color:"#5B8FD4",fontWeight:700}},"\u25CF ALVO"),": bandas medias normalizadas. ",
-          h("span",{style:{color:"#C8A96E",fontWeight:700}},"\u25CF OTIMO"),": maior Sharpe. ",
+          h("span",{style:{color:"#5B8FD4",fontWeight:700}},"\u25CF ALVO"),": bandas medias. ",
+          h("span",{style:{color:"#2EBFA5",fontWeight:700}},"\u25CF AW"),": All Weather. ",
+          h("span",{style:{color:"#C8A96E",fontWeight:700}},"\u25CF OTIMO"),": max Sharpe. ",
           h("span",{style:{color:"#9B9B9B",fontWeight:700}},"\u25CB SELIC"),": livre risco."
         )
       ),
@@ -4412,6 +4560,163 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           h("div",{style:{fontSize:8,color:"#6A6050",marginTop:8,fontStyle:"italic",lineHeight:1.4}},
             "Fontes: IFIX (Santander 10 anos 2011-2020: 10,5% retorno + 8,6% vol). S&P 500 (Damodaran 100 anos: 10,4%). Bitcoin (Fidelity Q1 2025: 52% vol em queda secular). Ouro (NYDIG: 15,5% vol). Selic refletindo politica monetaria atual. Imoveis/Infra/Agro calibrados por categoria. Valores em BRL incluem premia cambial estimada para ativos USD."
           )
+        )
+      )
+    );
+  }
+
+  // ALL WEATHER (Ray Dalio adaptado ao Brasil)
+  if(tab==="aw"){
+    const rfAW=(typeof selicAtual==="number"&&selicAtual>0?selicAtual:10)/100;
+    const wAW=MPT_CLS.map(cid=>AW_W[cid]||0);
+    const statsAW=mptStats(wAW);
+    const sharpeAW=mptSharpe(statsAW.ret,statsAW.vol,rfAW);
+    const betaAW=mptBeta(wAW);
+    // Stats do portfolio atual (pra comparacao)
+    const wAtualAW=MPT_CLS.map(cid=>(cw[cid]||0)/100);
+    const somaWA=wAtualAW.reduce((a,b)=>a+b,0);
+    if(somaWA>0){for(let i=0;i<wAtualAW.length;i++)wAtualAW[i]/=somaWA;}
+    const statsAtualAW=mptStats(wAtualAW);
+    const sharpeAtualAW=mptSharpe(statsAtualAW.ret,statsAtualAW.vol,rfAW);
+
+    // Calcula peso por cenario (soma ponderada)
+    const cenStats=["c1","c2","c3","c4"].map(cen=>{
+      let prot=0;
+      MPT_CLS.forEach(cid=>{
+        const w=AW_W[cid]||0;
+        const p=AW_CEN[cid][cen]||0;
+        prot+=w*p;
+      });
+      return{cen,prot};
+    });
+
+    const CENARIOS=[
+      {id:"c1",nome:"CRESCIMENTO ALTO + INFLACAO ALTA",cor:"#E89060",icon:"\u{1F525}",exemplo:"Brasil 2021-22, economia aquecida"},
+      {id:"c2",nome:"CRESCIMENTO ALTO + INFLACAO BAIXA",cor:"#4CAF82",icon:"\u{1F331}",exemplo:"EUA 2010s, Goldilocks"},
+      {id:"c3",nome:"CRESCIMENTO BAIXO + INFLACAO ALTA",cor:"#E05252",icon:"\u26A1",exemplo:"Estagflacao 1970s, Brasil 2015"},
+      {id:"c4",nome:"CRESCIMENTO BAIXO + INFLACAO BAIXA",cor:"#5B8FD4",icon:"\u2744",exemplo:"Recessao deflacionaria, 2008 inicial"}
+    ];
+
+    content=h("div",{},
+      h("div",{style:{fontSize:9,letterSpacing:3,color:"#2EBFA5",fontFamily:"monospace",textTransform:"uppercase",marginBottom:4}},"All Weather Portfolio"),
+      h("p",{style:{color:"#8A8070",fontSize:9,lineHeight:1.5,marginBottom:14,fontStyle:"italic"}},
+        "Filosofia de Ray Dalio (Bridgewater): portfolio que performa em qualquer cenario macroeconomico. Adaptado para as 10 classes brasileiras."
+      ),
+
+      // ========== ALOCACAO AW ==========
+      h("div",{style:{background:"rgba(46,191,165,0.05)",border:"1px solid rgba(46,191,165,0.25)",borderRadius:8,padding:"12px 13px",marginBottom:13}},
+        h("div",{style:{fontSize:8,letterSpacing:2,color:"#2EBFA5",fontFamily:"monospace",marginBottom:10}},"ALOCACAO ALL WEATHER vs ATUAL"),
+        ...MPT_CLS.map((cid,i)=>{
+          const cl=CL.find(c=>c.id===cid);
+          if(!cl)return null;
+          const cur=(cw[cid]||0);
+          const aw=(AW_W[cid]||0)*100;
+          const diff=aw-cur;
+          return h("div",{key:cid,style:{display:"grid",gridTemplateColumns:"55px 1fr 50px 50px 50px",gap:6,alignItems:"center",fontSize:9,fontFamily:"monospace",padding:"3px 0"}},
+            h("span",{style:{color:cl.color,fontWeight:700}},cl.tag),
+            h("div",{style:{position:"relative",height:6,background:"rgba(255,255,255,0.04)",borderRadius:3}},
+              h("div",{style:{position:"absolute",top:0,left:0,height:"100%",width:Math.min(100,cur)+"%",background:cl.color+"66",borderRadius:3}}),
+              h("div",{style:{position:"absolute",top:0,left:0,height:"100%",width:Math.min(100,aw)+"%",background:cl.color,borderRadius:3,opacity:0.7}})
+            ),
+            h("span",{style:{textAlign:"right",color:"#8A8070"}},cur.toFixed(1)+"%"),
+            h("span",{style:{textAlign:"right",color:"#2EBFA5",fontWeight:700}},aw.toFixed(1)+"%"),
+            h("span",{style:{textAlign:"right",color:Math.abs(diff)<2?"#5A5550":diff>0?"#4CAF82":"#E05252",fontSize:8}},(diff>=0?"+":"")+diff.toFixed(1))
+          );
+        }),
+        h("div",{style:{display:"grid",gridTemplateColumns:"55px 1fr 50px 50px 50px",gap:6,marginTop:6,fontSize:7,color:"#5A5550",fontFamily:"monospace",borderTop:"1px solid rgba(255,255,255,0.05)",paddingTop:6}},
+          h("span",{},""),
+          h("span",{},""),
+          h("span",{style:{textAlign:"right"}},"ATUAL"),
+          h("span",{style:{textAlign:"right"}},"AW"),
+          h("span",{style:{textAlign:"right"}},"DIF")
+        )
+      ),
+
+      // ========== METRICAS AW vs ATUAL ==========
+      h("div",{style:{background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:8,padding:"12px 13px",marginBottom:13}},
+        h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginBottom:9,alignItems:"end"}},
+          h("div",{style:{fontSize:7,letterSpacing:1.5,color:"#8A8070",fontFamily:"monospace"}},"METRICA"),
+          h("div",{style:{fontSize:8,letterSpacing:1.5,color:"#E05252",fontFamily:"monospace",textAlign:"right",fontWeight:700}},"ATUAL"),
+          h("div",{style:{fontSize:8,letterSpacing:1.5,color:"#2EBFA5",fontFamily:"monospace",textAlign:"right",fontWeight:700}},"ALL WEATHER")
+        ),
+        ...[
+          {nome:"RET ESPERADO",sub:"anualizado BRL",a:(statsAtualAW.ret*100).toFixed(2)+"%",b:(statsAW.ret*100).toFixed(2)+"%",cor:"#4CAF82"},
+          {nome:"VOLATILIDADE",sub:"desvio padrao",a:(statsAtualAW.vol*100).toFixed(2)+"%",b:(statsAW.vol*100).toFixed(2)+"%",cor:"#E89060"},
+          {nome:"SHARPE RATIO",sub:"vs Selic "+(rfAW*100).toFixed(1)+"%",a:sharpeAtualAW.toFixed(2),b:sharpeAW.toFixed(2),cor:sharpeAW>=sharpeAtualAW?"#4CAF82":"#E89060"},
+          {nome:"BETA vs IBOV",sub:betaAW<0.5?"defensivo":betaAW<1?"moderado":"agressivo",a:mptBeta(wAtualAW).toFixed(2),b:betaAW.toFixed(2),cor:"#5B8FD4"}
+        ].map((m,i)=>h("div",{key:i,style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,padding:"5px 0",borderTop:"1px solid rgba(255,255,255,0.05)"}},
+          h("div",{},
+            h("div",{style:{fontSize:8,color:"#8A8070",letterSpacing:1.2,fontFamily:"monospace"}},m.nome),
+            h("div",{style:{fontSize:6.5,color:"#5A5550",fontStyle:"italic"}},m.sub)
+          ),
+          h("div",{style:{textAlign:"right",fontSize:14,color:m.cor,fontFamily:"monospace",fontWeight:700}},m.a),
+          h("div",{style:{textAlign:"right",fontSize:14,color:m.cor,fontFamily:"monospace",fontWeight:700,opacity:0.85}},m.b)
+        ))
+      ),
+
+      // ========== 4 CENARIOS ==========
+      h("div",{style:{fontSize:8,letterSpacing:2,color:"#2EBFA5",fontFamily:"monospace",marginBottom:8,marginTop:18}},"OS 4 CENARIOS MACROECONOMICOS"),
+      h("p",{style:{fontSize:9,color:"#6A6050",fontStyle:"italic",lineHeight:1.5,marginBottom:10}},
+        "Dalio argumenta que toda economia transita entre 4 estados. O All Weather aloca para que algumas classes prosperem em cada cenario."
+      ),
+      ...CENARIOS.map((cen,idx)=>{
+        const cs=cenStats[idx];
+        const ranking=MPT_CLS.map(cid=>({cid,score:AW_CEN[cid][cen.id]*AW_W[cid]})).filter(x=>x.score>0).sort((a,b)=>b.score-a.score).slice(0,4);
+        return h("div",{key:cen.id,style:{background:"rgba(255,255,255,0.02)",border:"1px solid "+cen.cor+"33",borderRadius:8,padding:"11px 12px",marginBottom:10}},
+          h("div",{style:{display:"flex",alignItems:"center",gap:8,marginBottom:6}},
+            h("span",{style:{fontSize:20}},cen.icon),
+            h("div",{style:{flex:1}},
+              h("div",{style:{fontSize:9,letterSpacing:1.5,color:cen.cor,fontFamily:"monospace",fontWeight:700}},cen.nome),
+              h("div",{style:{fontSize:8,color:"#6A6050",fontStyle:"italic"}},"Ex: ",cen.exemplo)
+            ),
+            h("div",{style:{textAlign:"right"}},
+              h("div",{style:{fontSize:7,color:"#8A8070"}},"PROTECAO"),
+              h("div",{style:{fontSize:13,color:cen.cor,fontFamily:"monospace",fontWeight:700}},(cs.prot*100).toFixed(0)+"%")
+            )
+          ),
+          h("div",{style:{fontSize:8,color:"#8A8070",marginBottom:5,fontFamily:"monospace"}},"CLASSES PROTETORAS:"),
+          h("div",{style:{display:"flex",flexWrap:"wrap",gap:6}},
+            ...ranking.map(r=>{
+              const cl=CL.find(c=>c.id===r.cid);
+              if(!cl)return null;
+              const pct=AW_CEN[r.cid][cen.id]*100;
+              return h("div",{key:r.cid,style:{display:"inline-flex",alignItems:"center",gap:3,padding:"2px 6px",borderRadius:3,background:cl.color+"15",border:"1px solid "+cl.color+"44"}},
+                h("span",{style:{width:5,height:5,borderRadius:"50%",background:cl.color}}),
+                h("span",{style:{fontSize:8,color:cl.color,fontFamily:"monospace",fontWeight:700}},cl.tag),
+                h("span",{style:{fontSize:7,color:"#8A8070",fontFamily:"monospace"}},pct.toFixed(0)+"%")
+              );
+            })
+          )
+        );
+      }),
+
+      // ========== INTERPRETACAO ==========
+      h("div",{style:{background:"rgba(46,191,165,0.05)",border:"1px solid rgba(46,191,165,0.20)",borderRadius:8,padding:"12px 13px",marginBottom:13,marginTop:8}},
+        h("div",{style:{fontSize:8,letterSpacing:2,color:"#2EBFA5",fontFamily:"monospace",marginBottom:8}},"COMPARATIVO"),
+        h("ul",{style:{fontSize:10,color:"#8A8070",lineHeight:1.7,paddingLeft:18,margin:0}},
+          h("li",{},"All Weather seria ",h("strong",{style:{color:statsAW.vol<statsAtualAW.vol?"#4CAF82":"#E89060"}},statsAW.vol<statsAtualAW.vol?"MENOS arriscado":"MAIS arriscado")," que sua alocacao atual (vol ",(statsAW.vol*100).toFixed(1),"% vs ",(statsAtualAW.vol*100).toFixed(1),"%)."),
+          h("li",{},"Sharpe AW: ",h("strong",{style:{color:sharpeAW>=sharpeAtualAW?"#4CAF82":"#E89060"}},sharpeAW.toFixed(2)),sharpeAW>sharpeAtualAW?" (melhor que atual)":" (similar ou pior que atual)","."),
+          h("li",{},"Maior diferenca de alocacao: ",(()=>{
+            let maxD=0,maxC=null;
+            MPT_CLS.forEach(cid=>{
+              const d=Math.abs((AW_W[cid]||0)*100-(cw[cid]||0));
+              if(d>maxD){maxD=d;maxC=cid;}
+            });
+            const cl=maxC?CL.find(c=>c.id===maxC):null;
+            return cl?h("span",{},h("strong",{style:{color:cl.color}},cl.tag)," com ",maxD.toFixed(1),"pp de diferenca"):"n/a";
+          })()),
+          h("li",{},"All Weather tradicionalmente tem ",h("strong",{},"drawdown maximo ~15%")," e ",h("strong",{},"Sharpe historico 0.5-0.8"),".")
+        )
+      ),
+
+      // ========== AVISOS ==========
+      h("div",{style:{background:"rgba(232,144,96,0.06)",border:"1px solid rgba(232,144,96,0.25)",borderRadius:8,padding:"11px 12px",marginBottom:8}},
+        h("div",{style:{fontSize:8,letterSpacing:2,color:"#E89060",fontFamily:"monospace",marginBottom:6}},"CONSIDERACOES IMPORTANTES"),
+        h("ul",{style:{fontSize:9,color:"#6A6050",lineHeight:1.55,paddingLeft:18,margin:0,fontStyle:"italic"}},
+          h("li",{},"All Weather original (Dalio) usa Treasuries longos americanos como ancora (40%). No Brasil, com Selic em ",(rfAW*100).toFixed(1),"%, substituimos por Selic posfixada + Infra IPCA+, que tem dinamica diferente."),
+          h("li",{},"O Brasil quase nao tem cenario 4 (deflacao). Em 60 anos, a maior parte do tempo estivemos nos cenarios 1 e 3 (inflacao alta)."),
+          h("li",{},"Esta adaptacao mantem a filosofia Dalio mas nao garante os retornos historicos do AW original. E referencia, nao receita."),
+          h("li",{},"Voce e Buy & Hold de longo prazo. Migrar para AW exigiria mudancas significativas. Avalie se faz sentido para seu perfil.")
         )
       )
     );
