@@ -125,6 +125,43 @@ const AW_CEN={
   agro:   {c1:0.85,c2:0.4,c3:0.7,c4:0.3}
 };
 
+// ===== STRESS TEST - Cenarios historicos curados =====
+// dd: drawdown peak-to-trough estimado por classe (em decimal, negativo = perda)
+// rec: meses estimados para recuperacao historica
+// Fontes: IBOV, IFIX, S&P500, MSCI ACWI, FTSE NAREIT, LBMA Gold, CoinGecko, FRED
+const STRESS_CEN=[
+  {
+    id:"2008",icone:"\u{1F3E6}",titulo:"2008 - Crise Financeira Global",
+    desc:"Quebra do Lehman Brothers, contagio sistemico global, fuga para qualidade. Bear market severo em acoes globais.",
+    rec:36,
+    dd:{fii:-0.30,acoes_br:-0.50,acoes_ext:-0.50,reits:-0.67,selic:0.08,ouro:0.25,bitcoin:0,infra:-0.25,imoveis:-0.15,agro:-0.35}
+  },
+  {
+    id:"2020",icone:"\u{1F9A0}",titulo:"2020 - Pandemia COVID-19",
+    desc:"Crash em V, BTC e ouro brilharam apos recuperacao, FIIs sofreram. Recuperacao mais rapida da historia.",
+    rec:12,
+    dd:{fii:-0.30,acoes_br:-0.45,acoes_ext:-0.34,reits:-0.42,selic:0.05,ouro:0.25,bitcoin:-0.50,infra:-0.22,imoveis:-0.05,agro:-0.15}
+  },
+  {
+    id:"2015",icone:"\u{1F1E7}\u{1F1F7}",titulo:"2015-2016 - Recessao BR + Impeachment",
+    desc:"Crise politica e fiscal local, EXT sustentado pelo cambio (USD subiu 50%+), Selic em 14.25%.",
+    rec:24,
+    dd:{fii:-0.25,acoes_br:-0.35,acoes_ext:0.15,reits:0.05,selic:0.18,ouro:0.30,bitcoin:1.25,infra:-0.30,imoveis:-0.15,agro:-0.20}
+  },
+  {
+    id:"2022",icone:"\u{1F4C8}",titulo:"2022 - Stagflacao Global",
+    desc:"Inflacao alta + Fed agressivo, crypto winter, ouro lateral, BR foi excecao positiva, commodities subiram.",
+    rec:18,
+    dd:{fii:-0.03,acoes_br:-0.05,acoes_ext:-0.25,reits:-0.28,selic:0.12,ouro:0,bitcoin:-0.77,infra:-0.08,imoveis:-0.03,agro:0.25}
+  },
+  {
+    id:"2026br",icone:"\u{1F525}",titulo:"HIPOTETICO: Crise Fiscal BR 2026+",
+    desc:"Cambio dispara, juros longos sobem violentamente, BR cai, EXT e ouro protegem via cambio. Cenario forward-looking.",
+    rec:30,
+    dd:{fii:-0.25,acoes_br:-0.40,acoes_ext:0.25,reits:0.15,selic:0.15,ouro:0.40,bitcoin:0.30,infra:-0.20,imoveis:-0.10,agro:-0.10}
+  }
+];
+
 // ===== Bolsas de Valores - horarios e feriados =====
 // Horarios em HH:MM no fuso local da bolsa. Intervalo opcional [hh1,hh2].
 // tz: IANA timezone (resolve DST automaticamente via Intl.DateTimeFormat)
@@ -3848,7 +3885,7 @@ function App(){
 
   // TABS
   const tabs=h("div",{style:{display:"flex",borderBottom:"1px solid rgba(255,255,255,0.06)",marginBottom:18,marginTop:10,overflowX:"auto"}},
-    ...[{id:"dashboard",label:"Dashboard"},{id:"positions",label:"Posicoes"},{id:"aporte",label:"Aporte"},{id:"chat",label:"Analise"},{id:"mpt",label:"MPT"},{id:"aw",label:"All Weather"},{id:"history",label:"Historico"}].map(t=>
+    ...[{id:"dashboard",label:"Dashboard"},{id:"positions",label:"Posicoes"},{id:"aporte",label:"Aporte"},{id:"chat",label:"Analise"},{id:"mpt",label:"MPT"},{id:"aw",label:"All Weather"},{id:"stress",label:"Stress Test"},{id:"history",label:"Historico"}].map(t=>
       h("button",{key:t.id,onClick:()=>{setTab(t.id);if(t.id!=="aporte"){setApR(null);setStep("r");}},style:{background:"none",border:"none",borderBottom:tab===t.id?"2px solid #C8A96E":"2px solid transparent",color:tab===t.id?"#C8A96E":"#8A8070",padding:"6px 10px",cursor:"pointer",fontSize:12,marginBottom:-1,flexShrink:0,whiteSpace:"nowrap"}},t.label)
     ),
     h("button",{onClick:()=>{
@@ -5749,6 +5786,421 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         )
       )
     );
+  }
+
+  // STRESS TEST
+  if(tab==="stress"){
+    try{
+      // Pesos atuais e AW para comparacao
+      const wA=MPT_CLS.map(cid=>(cw[cid]||0)/100);
+      const somaA=wA.reduce((a,b)=>a+b,0);
+      if(somaA>0)for(let i=0;i<wA.length;i++)wA[i]/=somaA;
+      const wAW=MPT_CLS.map(cid=>AW_W[cid]||0);
+      const patrim=total;
+      // Calcula impacto de cada cenario nos 2 portfolios
+      const calcImpacto=(pesos,cen)=>{
+        let dd=0;
+        MPT_CLS.forEach((cid,i)=>{
+          dd+=(pesos[i]||0)*(cen.dd[cid]||0);
+        });
+        return dd;
+      };
+      // VaR/CVaR parametrico (anual) baseado nos stats MPT
+      const statsAtualSt=mptStats(wA);
+      const statsAWSt=mptStats(wAW);
+      // VaR 95% = 1.645 sigma, VaR 99% = 2.326 sigma
+      const var95Atual=1.645*statsAtualSt.vol;
+      const var99Atual=2.326*statsAtualSt.vol;
+      const maxDDAtual=var95Atual*1.7;// heuristica historica
+      const var95AW=1.645*statsAWSt.vol;
+      const var99AW=2.326*statsAWSt.vol;
+      const maxDDAW=var95AW*1.7;
+      // Calcula resultados de todos os cenarios
+      const resultados=STRESS_CEN.map(cen=>({
+        cen,
+        ddAtual:calcImpacto(wA,cen),
+        ddAW:calcImpacto(wAW,cen)
+      }));
+      // Pior cenario atual
+      const piorCenario=resultados.reduce((a,b)=>a.ddAtual<b.ddAtual?a:b);
+      // Cenario onde AW protege mais
+      const maiorVantagemAW=resultados.reduce((a,b)=>(a.ddAtual-a.ddAW)<(b.ddAtual-b.ddAW)?a:b);
+
+      content=h("div",{},
+        // Header
+        h("div",{style:{marginBottom:14}},
+          h("div",{style:{fontSize:9,letterSpacing:3,color:"#E89060",fontFamily:"monospace",textTransform:"uppercase",marginBottom:4}},"\u{1F32A} STRESS TEST"),
+          h("p",{style:{fontSize:11,color:"#9A9080",lineHeight:1.6,margin:0}},"Magnitude de drawdowns em cenarios de estresse macro. Compara seu portfolio atual com o All Weather e mostra VaR/CVaR parametrico. Reflete o que importa para Buy & Hold: quanto cai temporariamente e quanto tempo demora para recuperar.")
+        ),
+
+        // ===== CARD VaR/CVaR RESUMIDO =====
+        h("div",{style:{background:"linear-gradient(135deg,rgba(232,144,96,0.05),rgba(91,143,212,0.03))",border:"1px solid rgba(232,144,96,0.20)",borderRadius:9,padding:"13px 14px",marginBottom:14}},
+          h("div",{style:{fontSize:8,letterSpacing:2,color:"#E89060",fontFamily:"monospace",fontWeight:700,marginBottom:8}},"\u{1F4CA} RISCO PARAMETRICO (anual)"),
+          h("p",{style:{fontSize:9,color:"#7A7060",lineHeight:1.5,margin:"0 0 10px",fontStyle:"italic"}},"VaR/CVaR baseados na covariancia MPT. Estimativa estatistica assumindo distribuicao normal (subestima caudas extremas)."),
+          // Legenda das metricas
+          h("div",{style:{background:"rgba(0,0,0,0.18)",borderRadius:5,padding:"8px 10px",marginBottom:10}},
+            h("div",{style:{fontSize:7,letterSpacing:1.5,color:"#8A8070",fontFamily:"monospace",fontWeight:700,marginBottom:5}},"\u{1F4D6} O QUE SIGNIFICA"),
+            h("div",{style:{fontSize:9,color:"#9A9080",lineHeight:1.65}},
+              h("div",{style:{marginBottom:4}},h("strong",{style:{color:"#C8A96E"}},"VaR 95%"),": em 95% dos anos (19 a cada 20), a perda anual nao deve exceder esse valor. Equivale a uma ",h("span",{style:{fontStyle:"italic"}},"crise tipica"),"."),
+              h("div",{style:{marginBottom:4}},h("strong",{style:{color:"#C8A96E"}},"VaR 99%"),": em 99% dos anos (99 a cada 100), a perda anual nao deve exceder esse valor. Representa ",h("span",{style:{fontStyle:"italic"}},"caudas mais extremas"),"."),
+              h("div",{},h("strong",{style:{color:"#E05252"}},"Max DD esperado"),": estimativa da pior queda peak-to-trough projetada em ciclo completo (VaR 95% x 1.7, heuristica historica). Valor maximo que seu patrimonio pode recuar antes de comecar a recuperar.")
+            )
+          ),
+          h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}},
+            // ATUAL
+            h("div",{style:{background:"rgba(224,82,82,0.06)",border:"1px solid rgba(224,82,82,0.25)",borderRadius:7,padding:"10px 11px"}},
+              h("div",{style:{fontSize:8,color:"#E05252",fontFamily:"monospace",letterSpacing:1.5,fontWeight:700,marginBottom:6}},"PORTFOLIO ATUAL"),
+              h("div",{style:{display:"flex",flexDirection:"column",gap:4,fontSize:10,fontFamily:"monospace"}},
+                h("div",{style:{display:"flex",justifyContent:"space-between"}},h("span",{style:{color:"#8A8070"}},"VaR 95%"),h("span",{style:{color:"#E8E2D5",fontWeight:700}},"-"+(var95Atual*100).toFixed(1)+"%")),
+                h("div",{style:{display:"flex",justifyContent:"space-between"}},h("span",{style:{color:"#8A8070"}},"VaR 99%"),h("span",{style:{color:"#E8E2D5",fontWeight:700}},"-"+(var99Atual*100).toFixed(1)+"%")),
+                h("div",{style:{display:"flex",justifyContent:"space-between",paddingTop:4,borderTop:"1px solid rgba(255,255,255,0.06)"}},h("span",{style:{color:"#E05252",fontWeight:700}},"Max DD esperado"),h("span",{style:{color:"#E05252",fontWeight:700,fontSize:11}},"-"+(maxDDAtual*100).toFixed(1)+"%")),
+                h("div",{style:{display:"flex",justifyContent:"space-between",fontSize:9,color:"#6A6050"}},h("span",{},"em valor:"),h("span",{},"-"+MV(fB(patrim*maxDDAtual))))
+              )
+            ),
+            // ALL WEATHER
+            h("div",{style:{background:"rgba(46,191,165,0.06)",border:"1px solid rgba(46,191,165,0.30)",borderRadius:7,padding:"10px 11px"}},
+              h("div",{style:{fontSize:8,color:"#2EBFA5",fontFamily:"monospace",letterSpacing:1.5,fontWeight:700,marginBottom:6}},"ALL WEATHER"),
+              h("div",{style:{display:"flex",flexDirection:"column",gap:4,fontSize:10,fontFamily:"monospace"}},
+                h("div",{style:{display:"flex",justifyContent:"space-between"}},h("span",{style:{color:"#8A8070"}},"VaR 95%"),h("span",{style:{color:"#E8E2D5",fontWeight:700}},"-"+(var95AW*100).toFixed(1)+"%")),
+                h("div",{style:{display:"flex",justifyContent:"space-between"}},h("span",{style:{color:"#8A8070"}},"VaR 99%"),h("span",{style:{color:"#E8E2D5",fontWeight:700}},"-"+(var99AW*100).toFixed(1)+"%")),
+                h("div",{style:{display:"flex",justifyContent:"space-between",paddingTop:4,borderTop:"1px solid rgba(255,255,255,0.06)"}},h("span",{style:{color:"#2EBFA5",fontWeight:700}},"Max DD esperado"),h("span",{style:{color:"#2EBFA5",fontWeight:700,fontSize:11}},"-"+(maxDDAW*100).toFixed(1)+"%")),
+                h("div",{style:{display:"flex",justifyContent:"space-between",fontSize:9,color:"#6A6050"}},h("span",{},"em valor:"),h("span",{},"-"+MV(fB(patrim*maxDDAW))))
+              )
+            )
+          ),
+          h("div",{style:{fontSize:9,color:"#9A9080",lineHeight:1.55,marginTop:9,fontStyle:"italic"}},
+            "Interpretacao: em 95% dos cenarios, sua perda anual nao excede ",h("strong",{style:{color:"#E89060"}},(var95Atual*100).toFixed(1)+"%"),
+            ". Em uma crise severa, o drawdown pode chegar a ",h("strong",{style:{color:"#E05252"}},(maxDDAtual*100).toFixed(1)+"%"),
+            " (",h("strong",{},MV(fB(patrim*maxDDAtual))),"). O AW reduz esse risco para ",h("strong",{style:{color:"#2EBFA5"}},(maxDDAW*100).toFixed(1)+"%"),"."
+          )
+        ),
+
+        // ===== CARDS DE CENARIOS HISTORICOS =====
+        h("div",{style:{marginBottom:14}},
+          h("div",{style:{fontSize:9,letterSpacing:2,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,marginBottom:8}},"\u{1F4D6} CENARIOS HISTORICOS"),
+          h("p",{style:{fontSize:9,color:"#7A7060",lineHeight:1.5,margin:"0 0 10px",fontStyle:"italic"}},"Simula como cada crise impactaria seu portfolio hoje (mantendo a alocacao atual)."),
+          // Legenda das metricas dos cenarios
+          h("div",{style:{background:"rgba(0,0,0,0.18)",borderRadius:5,padding:"8px 10px",marginBottom:12}},
+            h("div",{style:{fontSize:7,letterSpacing:1.5,color:"#8A8070",fontFamily:"monospace",fontWeight:700,marginBottom:5}},"\u{1F4D6} COMO LER OS CARDS"),
+            h("div",{style:{fontSize:9,color:"#9A9080",lineHeight:1.65}},
+              h("div",{style:{marginBottom:4}},h("strong",{style:{color:"#E05252"}},"ATUAL"),": drawdown estimado do SEU portfolio se o cenario se repetisse hoje. Calculado aplicando a perda historica de cada classe sobre o peso atual."),
+              h("div",{style:{marginBottom:4}},h("strong",{style:{color:"#2EBFA5"}},"AW"),": drawdown estimado do portfolio All Weather no mesmo cenario, para comparacao."),
+              h("div",{style:{marginBottom:4}},h("strong",{style:{color:"#C8A96E"}},"Drawdown"),": maior queda observada do pico ao fundo (",h("span",{style:{fontStyle:"italic"}},"peak-to-trough"),"). Valor negativo = perda. Positivo = ganho excepcional no cenario."),
+              h("div",{style:{marginBottom:4}},h("strong",{style:{color:"#C8A96E"}},"Impacto em R$"),": traducao do drawdown em valor monetario sobre seu patrimonio atual."),
+              h("div",{},h("strong",{style:{color:"#C8A96E"}},"Recuperacao historica"),": tempo medio observado para o pico anterior ser retomado apos o fundo. Inclui o periodo de recuperacao real, nao apenas a queda.")
+            )
+          ),
+          ...resultados.map((r,i)=>{
+            const ddPctAtual=Math.abs(r.ddAtual)*100;
+            const ddPctAW=Math.abs(r.ddAW)*100;
+            const valorAtual=patrim*r.ddAtual;
+            const valorAW=patrim*r.ddAW;
+            const diff=r.ddAtual-r.ddAW;// negativo = AW protege mais
+            const awProtege=diff<-0.02;// AW protege se for >2pp melhor
+            // Largura proporcional das barras (max -50% = 100% da barra)
+            const maxScale=50;
+            const wAtualBar=Math.min(100,(ddPctAtual/maxScale)*100);
+            const wAWBar=Math.min(100,(ddPctAW/maxScale)*100);
+            return h("div",{key:r.cen.id,style:{background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:8,padding:"12px 13px",marginBottom:8}},
+              // Header do cenario
+              h("div",{style:{display:"flex",alignItems:"flex-start",gap:9,marginBottom:9}},
+                h("div",{style:{fontSize:20,lineHeight:1,flexShrink:0}},r.cen.icone),
+                h("div",{style:{flex:1,minWidth:0}},
+                  h("div",{style:{fontSize:11,color:"#F0EAD8",fontWeight:700,letterSpacing:0.5,marginBottom:3}},r.cen.titulo),
+                  h("div",{style:{fontSize:9,color:"#7A7060",lineHeight:1.5,fontStyle:"italic"}},r.cen.desc)
+                )
+              ),
+              // Barras comparativas
+              h("div",{style:{marginBottom:8}},
+                // ATUAL
+                h("div",{style:{display:"grid",gridTemplateColumns:"60px 1fr 75px",gap:6,alignItems:"center",fontSize:9,fontFamily:"monospace",marginBottom:5}},
+                  h("span",{style:{color:"#E05252",fontWeight:700,letterSpacing:1.2}},"ATUAL"),
+                  h("div",{style:{position:"relative",height:9,background:"rgba(255,255,255,0.04)",borderRadius:3}},
+                    r.ddAtual<0?h("div",{style:{position:"absolute",top:0,left:0,height:"100%",width:wAtualBar+"%",background:"linear-gradient(90deg,#E05252,#E89060)",borderRadius:3}}):
+                    h("div",{style:{position:"absolute",top:0,left:0,height:"100%",width:wAtualBar+"%",background:"#4CAF82",borderRadius:3,opacity:0.7}})
+                  ),
+                  h("span",{style:{textAlign:"right",color:r.ddAtual<0?"#E05252":"#4CAF82",fontWeight:700,fontSize:10}},(r.ddAtual>=0?"+":"")+(r.ddAtual*100).toFixed(1)+"%")
+                ),
+                // AW
+                h("div",{style:{display:"grid",gridTemplateColumns:"60px 1fr 75px",gap:6,alignItems:"center",fontSize:9,fontFamily:"monospace"}},
+                  h("span",{style:{color:"#2EBFA5",fontWeight:700,letterSpacing:1.2}},"AW"),
+                  h("div",{style:{position:"relative",height:9,background:"rgba(255,255,255,0.04)",borderRadius:3}},
+                    r.ddAW<0?h("div",{style:{position:"absolute",top:0,left:0,height:"100%",width:wAWBar+"%",background:"linear-gradient(90deg,#2EBFA5,#5EB0A0)",borderRadius:3,opacity:0.85}}):
+                    h("div",{style:{position:"absolute",top:0,left:0,height:"100%",width:wAWBar+"%",background:"#4CAF82",borderRadius:3,opacity:0.7}})
+                  ),
+                  h("span",{style:{textAlign:"right",color:r.ddAW<0?"#2EBFA5":"#4CAF82",fontWeight:700,fontSize:10}},(r.ddAW>=0?"+":"")+(r.ddAW*100).toFixed(1)+"%")
+                )
+              ),
+              // Valores em R$ e recuperacao
+              h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,paddingTop:8,borderTop:"1px solid rgba(255,255,255,0.05)"}},
+                h("div",{style:{fontSize:8,color:"#8A8070",fontFamily:"monospace",lineHeight:1.5}},
+                  h("div",{style:{fontSize:7,color:"#6A6050",letterSpacing:1.2,marginBottom:2}},"IMPACTO EM R$"),
+                  h("div",{style:{color:"#E05252",fontSize:10,fontWeight:700}},MV(fB(Math.abs(valorAtual)))),
+                  h("div",{style:{fontSize:7,color:"#6A6050"}},"atual",r.ddAtual>=0?" (ganho)":" (perda)")
+                ),
+                h("div",{style:{fontSize:8,color:"#8A8070",fontFamily:"monospace",lineHeight:1.5,textAlign:"right"}},
+                  h("div",{style:{fontSize:7,color:"#6A6050",letterSpacing:1.2,marginBottom:2}},"RECUPERACAO HIST."),
+                  h("div",{style:{color:"#C8A96E",fontSize:10,fontWeight:700}},r.cen.rec>=12?(r.cen.rec/12).toFixed(1)+" anos":r.cen.rec+" meses"),
+                  h("div",{style:{fontSize:7,color:"#6A6050"}},"para retomar o pico")
+                )
+              ),
+              // Insight (se AW protege mais)
+              awProtege&&h("div",{style:{fontSize:9,color:"#2EBFA5",fontStyle:"italic",marginTop:7,padding:"5px 8px",background:"rgba(46,191,165,0.05)",borderLeft:"3px solid #2EBFA5",borderRadius:"0 4px 4px 0"}},
+                "\u{1F6E1} AW reduz drawdown em ",h("strong",{},Math.abs(diff*100).toFixed(1)+"pp"),
+                " (",MV(fB(Math.abs((valorAtual-valorAW)))),
+                " preservados em patrimonio)."
+              )
+            );
+          })
+        ),
+
+        // ===== GRAFICO COMPARATIVO DE DRAWDOWNS =====
+        (()=>{
+          const W=320,H=200,padL=70,padR=30,padT=10,padB=30;
+          const innerW=W-padL-padR;
+          const innerH=H-padT-padB;
+          // Acha pior drawdown para escala
+          const allValues=resultados.flatMap(r=>[r.ddAtual,r.ddAW]);
+          const minDD=Math.min(...allValues,-0.05);
+          const maxDD=Math.max(...allValues,0.05);
+          const range=maxDD-minDD||0.5;
+          // Zero baseline X position
+          const xZero=padL+innerW*((0-minDD)/range);
+          // Altura por linha
+          const linhaH=innerH/resultados.length;
+          const barH=linhaH*0.35;
+          return h("div",{style:{background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:9,padding:"13px 14px",marginBottom:14}},
+            h("div",{style:{fontSize:9,letterSpacing:2,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,marginBottom:4}},"\u{1F4CA} COMPARATIVO DE DRAWDOWNS"),
+            h("p",{style:{fontSize:9,color:"#7A7060",lineHeight:1.5,margin:"0 0 10px",fontStyle:"italic"}},"Visualizacao consolidada: cada cenario tem 2 barras (ATUAL em vermelho, AW em verde-azulado). Quanto mais a esquerda, maior a perda."),
+            // Legenda do grafico
+            h("div",{style:{background:"rgba(0,0,0,0.18)",borderRadius:5,padding:"8px 10px",marginBottom:10}},
+              h("div",{style:{fontSize:7,letterSpacing:1.5,color:"#8A8070",fontFamily:"monospace",fontWeight:700,marginBottom:5}},"\u{1F4D6} COMO LER ESTE GRAFICO"),
+              h("div",{style:{fontSize:9,color:"#9A9080",lineHeight:1.65}},
+                h("div",{style:{marginBottom:4}},h("strong",{style:{color:"#C8A96E"}},"Eixo horizontal"),": magnitude do drawdown em %. Esquerda = perda, direita = ganho. A linha dourada vertical marca o zero."),
+                h("div",{style:{marginBottom:4}},h("strong",{style:{color:"#E05252"}},"Barra superior (ATUAL)"),": como SEU portfolio reagiria se o cenario se repetisse."),
+                h("div",{style:{marginBottom:4}},h("strong",{style:{color:"#2EBFA5"}},"Barra inferior (AW)"),": como o All Weather reagiria no mesmo cenario."),
+                h("div",{style:{marginBottom:4}},h("strong",{style:{color:"#4CAF82"}},"Barras verdes"),": cenarios onde a alocacao GANHOU dinheiro (raro, mas acontece - ex: 2015 EXT com cambio favoravel)."),
+                h("div",{},h("strong",{style:{color:"#C8A96E"}},"Comparacao visual"),": quanto MAIOR a diferenca entre as duas barras, mais o AW protegeria naquele cenario especifico.")
+              )
+            ),
+            h("div",{style:{display:"flex",justifyContent:"center",marginBottom:6}},
+              h("svg",{width:W,height:H,style:{maxWidth:"100%",height:"auto"}},
+                // Grid vertical (linhas de referencia em -50%, -30%, -10%, 0%, +10%)
+                ...[-0.5,-0.4,-0.3,-0.2,-0.1,0,0.1,0.2,0.3].filter(v=>v>=minDD&&v<=maxDD).map((v,j)=>{
+                  const x=padL+innerW*((v-minDD)/range);
+                  return h("g",{key:"g"+j},
+                    h("line",{x1:x,y1:padT,x2:x,y2:H-padB,stroke:v===0?"#5A5550":"#2A2820",strokeWidth:v===0?1:0.5,strokeDasharray:v===0?"none":"2,2"}),
+                    h("text",{x,y:H-padB+12,textAnchor:"middle",fontSize:8,fill:"#5A5550",fontFamily:"monospace"},(v*100).toFixed(0)+"%")
+                  );
+                }),
+                // Para cada cenario, 2 barras (ATUAL + AW)
+                ...resultados.map((r,i)=>{
+                  const yBase=padT+linhaH*i+linhaH/2;
+                  const yAtual=yBase-barH-1;
+                  const yAW=yBase+1;
+                  // ATUAL bar
+                  const xAtualStart=r.ddAtual<0?padL+innerW*((r.ddAtual-minDD)/range):xZero;
+                  const xAtualEnd=r.ddAtual<0?xZero:padL+innerW*((r.ddAtual-minDD)/range);
+                  const wAtualBar2=Math.max(1,xAtualEnd-xAtualStart);
+                  // AW bar
+                  const xAWStart=r.ddAW<0?padL+innerW*((r.ddAW-minDD)/range):xZero;
+                  const xAWEnd=r.ddAW<0?xZero:padL+innerW*((r.ddAW-minDD)/range);
+                  const wAWBar2=Math.max(1,xAWEnd-xAWStart);
+                  return h("g",{key:"sc"+i},
+                    // Label do cenario (ano)
+                    h("text",{x:padL-6,y:yBase+3,textAnchor:"end",fontSize:9,fill:"#9A9080",fontFamily:"monospace",fontWeight:700},r.cen.id.toUpperCase().slice(0,6)),
+                    // ATUAL
+                    h("rect",{x:xAtualStart,y:yAtual,width:wAtualBar2,height:barH,fill:r.ddAtual<0?"#E05252":"#4CAF82",opacity:0.85,rx:2}),
+                    h("text",{x:r.ddAtual<0?xAtualStart-3:xAtualEnd+3,y:yAtual+barH-1,textAnchor:r.ddAtual<0?"end":"start",fontSize:7,fill:"#E05252",fontFamily:"monospace",fontWeight:700},(r.ddAtual*100).toFixed(1)+"%"),
+                    // AW
+                    h("rect",{x:xAWStart,y:yAW,width:wAWBar2,height:barH,fill:r.ddAW<0?"#2EBFA5":"#4CAF82",opacity:0.85,rx:2}),
+                    h("text",{x:r.ddAW<0?xAWStart-3:xAWEnd+3,y:yAW+barH-1,textAnchor:r.ddAW<0?"end":"start",fontSize:7,fill:"#2EBFA5",fontFamily:"monospace",fontWeight:700},(r.ddAW*100).toFixed(1)+"%")
+                  );
+                }),
+                // Linha do zero destacada
+                h("line",{x1:xZero,y1:padT,x2:xZero,y2:H-padB,stroke:"#C8A96E",strokeWidth:1,opacity:0.4})
+              )
+            ),
+            // Legenda de cores
+            h("div",{style:{display:"flex",justifyContent:"center",gap:14,fontSize:8,fontFamily:"monospace",color:"#8A8070",marginTop:6}},
+              h("div",{style:{display:"flex",alignItems:"center",gap:5}},h("span",{style:{width:10,height:10,background:"#E05252",borderRadius:2}}),h("span",{style:{color:"#E05252"}},"ATUAL")),
+              h("div",{style:{display:"flex",alignItems:"center",gap:5}},h("span",{style:{width:10,height:10,background:"#2EBFA5",borderRadius:2}}),h("span",{style:{color:"#2EBFA5"}},"ALL WEATHER")),
+              h("div",{style:{display:"flex",alignItems:"center",gap:5}},h("span",{style:{width:10,height:10,background:"#4CAF82",borderRadius:2}}),h("span",{style:{color:"#4CAF82"}},"GANHO"))
+            )
+          );
+        })(),
+
+        // ===== MAPA DE CALOR: CLASSES x CENARIOS =====
+        (()=>{
+          // Cores: verde forte (ganho), neutro, vermelho forte (perda)
+          const cellColor=(v)=>{
+            if(v>=0.10)return"rgba(76,175,130,0.5)";
+            if(v>=0.02)return"rgba(76,175,130,0.25)";
+            if(v>=-0.02)return"rgba(255,255,255,0.04)";
+            if(v>=-0.10)return"rgba(232,144,96,0.25)";
+            if(v>=-0.25)return"rgba(232,144,96,0.50)";
+            if(v>=-0.40)return"rgba(224,82,82,0.45)";
+            return"rgba(224,82,82,0.70)";
+          };
+          const cellTextColor=(v)=>{
+            if(v>=0.10)return"#4CAF82";
+            if(v<=-0.25)return"#FFE5E5";
+            if(v<0)return"#E89060";
+            return"#8A8070";
+          };
+          // Pesos atuais por classe para destacar quais importam mais
+          const pesosAtuais={};
+          MPT_CLS.forEach((cid,i)=>{pesosAtuais[cid]=wA[i]*100;});
+          return h("div",{style:{background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:9,padding:"13px 14px",marginBottom:14}},
+            h("div",{style:{fontSize:9,letterSpacing:2,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,marginBottom:4}},"\u{1F4D6} MAPA DE CALOR: CLASSES x CENARIOS"),
+            h("p",{style:{fontSize:9,color:"#7A7060",lineHeight:1.5,margin:"0 0 10px",fontStyle:"italic"}},"Como cada classe se comporta em cada cenario. Verde = ganho, vermelho = perda. Quanto mais escuro, maior a magnitude. Coluna lateral mostra seu peso atual por classe (concentracao = exposicao)."),
+            // Legenda do mapa
+            h("div",{style:{background:"rgba(0,0,0,0.18)",borderRadius:5,padding:"8px 10px",marginBottom:10}},
+              h("div",{style:{fontSize:7,letterSpacing:1.5,color:"#8A8070",fontFamily:"monospace",fontWeight:700,marginBottom:5}},"\u{1F4D6} COMO LER ESTE MAPA"),
+              h("div",{style:{fontSize:9,color:"#9A9080",lineHeight:1.65}},
+                h("div",{style:{marginBottom:4}},h("strong",{style:{color:"#C8A96E"}},"Linhas"),": as 10 classes de ativos do seu portfolio (FII, Acoes BR, Acoes EXT, REITs, Selic, Ouro, Bitcoin, Infra, Imoveis, Agro)."),
+                h("div",{style:{marginBottom:4}},h("strong",{style:{color:"#C8A96E"}},"Colunas"),": os 5 cenarios historicos (2008, 2020, 2015, 2022) + 1 hipotetico (2026+)."),
+                h("div",{style:{marginBottom:4}},h("strong",{style:{color:"#C8A96E"}},"Coluna PESO"),": sua exposicao atual a cada classe. Pesos >=15% aparecem em dourado destacado (concentracao alta = impacto amplificado)."),
+                h("div",{style:{marginBottom:4}},h("strong",{style:{color:"#E05252"}},"Celulas vermelhas"),": classe perdeu valor naquele cenario. Mais escuro = perda mais severa."),
+                h("div",{style:{marginBottom:4}},h("strong",{style:{color:"#4CAF82"}},"Celulas verdes"),": classe ganhou valor (atuou como hedge ou se beneficiou do cenario). Mais escuro = ganho mais expressivo."),
+                h("div",{},h("strong",{style:{color:"#C8A96E"}},"Padrao a observar"),": classes com varias celulas verdes em diferentes cenarios (ex: Selic, Ouro) sao 'ancoras' defensivas. Classes com muitas celulas vermelhas escuras (ex: Acoes, BTC em 2008/2022) amplificam volatilidade.")
+              )
+            ),
+            // Tabela
+            h("div",{style:{overflowX:"auto",marginBottom:6}},
+              h("table",{style:{width:"100%",borderCollapse:"separate",borderSpacing:2,fontSize:8,fontFamily:"monospace"}},
+                // Header
+                h("thead",{},
+                  h("tr",{},
+                    h("th",{style:{textAlign:"left",padding:"4px 6px",color:"#8A8070",letterSpacing:1.2,fontWeight:700}},"CLASSE"),
+                    h("th",{style:{textAlign:"center",padding:"4px 4px",color:"#C8A96E",letterSpacing:1,fontWeight:700,fontSize:7,minWidth:35}},"PESO"),
+                    ...STRESS_CEN.map(c=>h("th",{key:c.id,style:{textAlign:"center",padding:"4px 3px",color:"#8A8070",letterSpacing:0.8,fontWeight:700,fontSize:7,minWidth:38}},c.icone," ",c.id.toUpperCase()))
+                  )
+                ),
+                // Body - cada classe
+                h("tbody",{},
+                  ...MPT_CLS.map(cid=>{
+                    const meta=CL.find(c=>c.id===cid);
+                    if(!meta)return null;
+                    const peso=pesosAtuais[cid]||0;
+                    return h("tr",{key:cid},
+                      // Nome da classe
+                      h("td",{style:{padding:"4px 6px"}},
+                        h("div",{style:{display:"flex",alignItems:"center",gap:5}},
+                          h("span",{style:{width:6,height:6,borderRadius:"50%",background:meta.color,flexShrink:0}}),
+                          h("span",{style:{color:"#E8E2D5",fontSize:9}},meta.name)
+                        )
+                      ),
+                      // Peso atual
+                      h("td",{style:{textAlign:"center",padding:"4px 4px",color:peso>=15?"#C8A96E":peso>=5?"#9A9080":"#6A6050",fontWeight:700,fontSize:9}},peso.toFixed(0)+"%"),
+                      // Celulas por cenario
+                      ...STRESS_CEN.map(cen=>{
+                        const dd=cen.dd[cid]||0;
+                        return h("td",{key:cen.id,style:{textAlign:"center",padding:"5px 3px",background:cellColor(dd),color:cellTextColor(dd),fontWeight:700,fontSize:9,borderRadius:3}},
+                          (dd>=0?"+":"")+(dd*100).toFixed(0)+"%"
+                        );
+                      })
+                    );
+                  })
+                )
+              )
+            ),
+            // Legenda do mapa de calor
+            h("div",{style:{display:"flex",alignItems:"center",justifyContent:"center",gap:6,fontSize:7,fontFamily:"monospace",color:"#6A6050",marginTop:8,flexWrap:"wrap"}},
+              h("span",{},"PERDA SEVERA"),
+              h("span",{style:{width:14,height:10,background:"rgba(224,82,82,0.70)",borderRadius:2}}),
+              h("span",{style:{width:14,height:10,background:"rgba(224,82,82,0.45)",borderRadius:2}}),
+              h("span",{style:{width:14,height:10,background:"rgba(232,144,96,0.50)",borderRadius:2}}),
+              h("span",{style:{width:14,height:10,background:"rgba(232,144,96,0.25)",borderRadius:2}}),
+              h("span",{style:{width:14,height:10,background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:2}}),
+              h("span",{style:{width:14,height:10,background:"rgba(76,175,130,0.25)",borderRadius:2}}),
+              h("span",{style:{width:14,height:10,background:"rgba(76,175,130,0.5)",borderRadius:2}}),
+              h("span",{},"GANHO")
+            ),
+            // Insight de concentracao
+            (()=>{
+              const top3=MPT_CLS.map(cid=>({cid,peso:pesosAtuais[cid]||0})).sort((a,b)=>b.peso-a.peso).slice(0,3);
+              const concentracao=top3.reduce((a,b)=>a+b.peso,0);
+              if(concentracao>=60){
+                return h("div",{style:{fontSize:9,color:"#E89060",fontStyle:"italic",marginTop:8,padding:"6px 9px",background:"rgba(232,144,96,0.05)",borderLeft:"3px solid #E89060",borderRadius:"0 4px 4px 0",lineHeight:1.5}},
+                  "\u26A0 ",top3.map(t=>(CL.find(c=>c.id===t.cid)||{name:"?"}).name).join(", ")," concentram ",concentracao.toFixed(0),"% do patrimonio. Olhe as linhas correspondentes no mapa: como elas se comportam nos cenarios?"
+                );
+              }
+              return h("div",{style:{fontSize:9,color:"#9A9080",fontStyle:"italic",marginTop:8,lineHeight:1.5}},
+                "\u{1F4A1} Dica: classes com peso maior amplificam tanto perdas quanto ganhos nos cenarios. Ouro e Selic frequentemente sao 'porto seguro' em crises - veja como reagem em 2008 e 2026+."
+              );
+            })()
+          );
+        })(),
+
+        // ===== INSIGHT CONSOLIDADO =====
+        h("div",{style:{background:"linear-gradient(135deg,rgba(200,169,110,0.08),rgba(46,191,165,0.04))",border:"1px solid rgba(200,169,110,0.25)",borderRadius:9,padding:"13px 14px",marginBottom:14}},
+          h("div",{style:{display:"flex",alignItems:"center",gap:6,marginBottom:9}},
+            h("span",{style:{fontSize:14}},"\u{1F4A1}"),
+            h("div",{style:{fontSize:9,letterSpacing:2,color:"#C8A96E",fontFamily:"monospace",fontWeight:700}},"INSIGHT CONSOLIDADO")
+          ),
+          // Legenda das metricas usadas no insight
+          h("div",{style:{background:"rgba(0,0,0,0.18)",borderRadius:5,padding:"7px 9px",marginBottom:10}},
+            h("div",{style:{fontSize:7,letterSpacing:1.5,color:"#8A8070",fontFamily:"monospace",fontWeight:700,marginBottom:4}},"\u{1F4D6} METRICAS DESTA SECAO"),
+            h("div",{style:{fontSize:8.5,color:"#9A9080",lineHeight:1.6}},
+              h("div",{style:{marginBottom:3}},h("strong",{style:{color:"#E05252"}},"Pior cenario"),": cenario historico que produz o maior drawdown sobre o portfolio atual."),
+              h("div",{style:{marginBottom:3}},h("strong",{style:{color:"#2EBFA5"}},"Maior vantagem AW"),": cenario onde o All Weather mais reduz a perda em relacao ao portfolio atual."),
+              h("div",{},h("strong",{style:{color:"#C8A96E"}},"Drawdown medio"),": media simples das perdas em todos os cenarios negativos. Razao ATUAL/AW indica quao mais vulneravel seu portfolio esta em relacao ao AW.")
+            )
+          ),
+          // Pior caso
+          h("p",{style:{fontSize:10,color:"#E8E2D5",lineHeight:1.6,margin:"0 0 8px"}},
+            "\u{1F4C9} Pior cenario para seu portfolio atual: ",h("strong",{style:{color:"#E05252"}},piorCenario.cen.titulo),
+            " com drawdown de ",h("strong",{style:{color:"#E05252"}},(piorCenario.ddAtual*100).toFixed(1)+"%"),
+            " (",h("strong",{},MV(fB(patrim*Math.abs(piorCenario.ddAtual)))),
+            "). Recuperacao historica: ",h("strong",{},piorCenario.cen.rec>=12?(piorCenario.cen.rec/12).toFixed(1)+" anos":piorCenario.cen.rec+" meses"),"."
+          ),
+          // Maior vantagem AW
+          (maiorVantagemAW.ddAtual-maiorVantagemAW.ddAW)<-0.05&&h("p",{style:{fontSize:10,color:"#E8E2D5",lineHeight:1.6,margin:"0 0 8px"}},
+            "\u{1F6E1} Cenario onde AW mais protegeria: ",h("strong",{style:{color:"#2EBFA5"}},maiorVantagemAW.cen.titulo),
+            ". AW reduziria a perda em ",h("strong",{style:{color:"#2EBFA5"}},Math.abs((maiorVantagemAW.ddAtual-maiorVantagemAW.ddAW)*100).toFixed(1)+"pp"),"."
+          ),
+          // Media de drawdowns
+          (()=>{
+            const ddNeg=resultados.filter(r=>r.ddAtual<0);
+            const ddMedio=ddNeg.length>0?ddNeg.reduce((a,b)=>a+b.ddAtual,0)/ddNeg.length:0;
+            const ddMedioAW=ddNeg.length>0?ddNeg.reduce((a,b)=>a+b.ddAW,0)/ddNeg.length:0;
+            const ratio=ddMedioAW!==0?Math.abs(ddMedio/ddMedioAW):0;
+            return h("p",{style:{fontSize:10,color:"#E8E2D5",lineHeight:1.6,margin:"0 0 8px"}},
+              "\u{1F4CA} Drawdown medio em cenarios negativos: ATUAL ",h("strong",{style:{color:"#E05252"}},(ddMedio*100).toFixed(1)+"%"),
+              " vs AW ",h("strong",{style:{color:"#2EBFA5"}},(ddMedioAW*100).toFixed(1)+"%"),
+              ". Seu portfolio tem perdas ",h("strong",{},ratio.toFixed(1)+"x"),
+              " maiores em media nos cenarios de estresse."
+            );
+          })(),
+          // Reflexao Buy & Hold
+          h("div",{style:{fontSize:9,color:"#9A9080",lineHeight:1.6,marginTop:10,padding:"8px 10px",background:"rgba(0,0,0,0.15)",borderRadius:5,fontStyle:"italic"}},
+            h("strong",{style:{color:"#C8A96E"}},"Reflexao Buy & Hold: "),
+            "drawdowns sao temporarios para investidores disciplinados, mas magnitude e tempo de recuperacao determinam a tolerancia psicologica. ",
+            "O premio de risco do seu portfolio atual (maior retorno esperado) tem como custo drawdowns maiores. ",
+            "Pergunte-se: voce conseguiria manter a disciplina diante de uma queda de ",h("strong",{style:{color:"#E05252"}},(Math.abs(piorCenario.ddAtual)*100).toFixed(0)+"%"),
+            " no patrimonio (",MV(fB(patrim*Math.abs(piorCenario.ddAtual))),")?"
+          )
+        ),
+
+        // ===== PREMISSAS =====
+        h("div",{style:{background:"rgba(0,0,0,0.15)",borderRadius:6,padding:"9px 11px",marginBottom:8}},
+          h("div",{style:{fontSize:8,letterSpacing:1.5,color:"#6A6050",fontFamily:"monospace",marginBottom:5}},"PREMISSAS"),
+          h("div",{style:{fontSize:8,color:"#7A7060",lineHeight:1.55,fontStyle:"italic"}},
+            "Drawdowns por classe baseados em peak-to-trough historico de indices de referencia (IBOV, IFIX, S&P500, FTSE NAREIT, LBMA Gold, CoinGecko). ",
+            "Aplica-se a alocacao atual ignorando rebalanceamentos. ",
+            "Cenario hipotetico 2026+ e simulacao forward-looking baseada em padroes de crises BR anteriores. ",
+            "VaR/CVaR usa covariancia MPT e distribuicao normal - subestima caudas extremas (use historicos para isso)."
+          )
+        )
+      );
+    }catch(e){
+      console.error("Erro renderizando STRESS:",e);
+      content=h("div",{style:{padding:"24px 16px",background:"rgba(224,82,82,0.06)",border:"1px solid rgba(224,82,82,0.25)",borderRadius:8,marginTop:12}},
+        h("div",{style:{fontSize:11,color:"#E05252",fontFamily:"monospace",fontWeight:700,marginBottom:8}},"\u26A0 Erro ao renderizar Stress Test"),
+        h("div",{style:{fontSize:10,color:"#9A9080",lineHeight:1.6,fontFamily:"monospace",whiteSpace:"pre-wrap"}},e&&e.message?e.message:String(e))
+      );
+    }
   }
 
   if(tab==="history"){
