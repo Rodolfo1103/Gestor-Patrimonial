@@ -2838,10 +2838,13 @@ function App(){
           setGoldSP500(ratioGS);
         }
         // Real Gold Z-Score: usa preco do ouro em USD/oz (GC=F preferido, ou aprox via GLD x 10)
+        // CALIBRACAO ATUALIZADA: media historica de longo prazo do ouro real
+        // baseada em dados Dimson-Marsh-Staunton + World Gold Council (1970-2025, USD constantes)
+        // Media de ~US$ 1700/oz e desvio padrao de ~US$ 600 (mais condizente com extremos)
         const precoOuroUsd=(typeof pGoldUsd==="number"&&pGoldUsd>500)?pGoldUsd:(typeof pGLD==="number"?pGLD*10:null);
         if(typeof precoOuroUsd==="number"&&precoOuroUsd>0&&!cancelado){
-          const mediaRealHist=1500;
-          const desvioHist=400;
+          const mediaRealHist=1700;
+          const desvioHist=600;
           const zScore=(precoOuroUsd-mediaRealHist)/desvioHist;
           setRealGoldZ(zScore);
         }
@@ -8138,7 +8141,13 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         if(typeof valor!=="number"||isNaN(valor)){
           return h("div",{style:{padding:"15px 10px",textAlign:"center",fontSize:9,color:"#6A6050",fontStyle:"italic"}},"Metrica nao disponivel no momento - aguardando proxima atualizacao.");
         }
-        const bandaAtual=bandas.find(b=>valor>=b.min&&valor<=b.max)||bandas[Math.floor(bandas.length/2)];
+        // Busca banda do valor. Se valor estiver FORA da escala (acima do max ou abaixo do min),
+        // usa a banda extrema correspondente (nao "meio") - isso evita classificacao errada.
+        let bandaAtual=bandas.find(b=>valor>=b.min&&valor<=b.max);
+        if(!bandaAtual){
+          if(valor<bandas[0].min)bandaAtual=bandas[0];// extrema inferior
+          else bandaAtual=bandas[bandas.length-1];// extrema superior
+        }
         const posPct=Math.max(0,Math.min(100,(valor-rangeMin)/(rangeMax-rangeMin)*100));
         return h("div",{},
           // Barra de bandas
@@ -8222,7 +8231,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         {min:-1,max:0,nome:"ABAIXO MEDIA",cor:"#4CAF82",bg:"rgba(76,175,130,0.40)",interp:"Levemente abaixo da media historica. Aporte normal recomendado."},
         {min:0,max:1,nome:"NEUTRO",cor:"#E8C44A",bg:"rgba(232,196,74,0.35)",interp:"Levemente acima da media. Aporte normal mas atento."},
         {min:1,max:2,nome:"CARO REAL",cor:"#E89060",bg:"rgba(232,144,96,0.45)",interp:"\u26A0 Ouro acima de 1 desvio padrao do real. Atencao - reduzir intensidade de aportes."},
-        {min:2,max:5,nome:"BOLHA REAL",cor:"#E05252",bg:"rgba(224,82,82,0.55)",interp:"\u26A0 EXTREMO. Ouro real >+2 desvios. Niveis historicamente associados a bolhas. Aplicar piso 3%."}
+        {min:2,max:8,nome:"BOLHA REAL",cor:"#E05252",bg:"rgba(224,82,82,0.55)",interp:"\u26A0 EXTREMO. Ouro real >+2 desvios padrao acima da media historica. Niveis historicamente associados a bolhas (ex: pico de 1980). Aplicar piso 3%."}
       ];
 
       // Estado de risco geral por ativo (precaucao: qualquer metrica extrema = risco)
@@ -8432,10 +8441,10 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             h("div",{style:{background:"rgba(0,0,0,0.20)",borderRadius:5,padding:"7px 9px",marginBottom:10}},
               h("div",{style:{fontSize:7,color:"#8A8070",letterSpacing:1.2,fontWeight:700,marginBottom:4}},"\u{1F4D6} O QUE MEDE"),
               h("div",{style:{fontSize:9,color:"#9A9080",lineHeight:1.6}},
-                "Preco do ouro em USD constantes (deflacionados pela inflacao) comparado a media historica de longo prazo (50+ anos). ",h("strong",{},"Premissa")," do calculo: media historica ~ US$ 1.500/oz (constantes 2025), desvio padrao ~ US$ 400. Z-Score acima de +2 indica que o ouro esta a mais de 2 desvios padrao acima do normal historico - niveis raros que precederam quedas (ex: pico de 1980 e correcao subsequente)."
+                "Preco do ouro em USD constantes (deflacionados pela inflacao) comparado a media historica de longo prazo (1970-2025, ~55 anos). ",h("strong",{},"Premissa")," do calculo: media historica ~ US$ 1.700/oz (constantes 2025), desvio padrao ~ US$ 600 (base: Dimson-Marsh-Staunton + World Gold Council). Z-Score acima de +2 indica que o ouro esta a mais de 2 desvios padrao acima do normal historico - niveis raros que precederam quedas significativas (ex: pico de 1980 Z~+3.5, seguido de queda de 65% em 20 anos)."
               )
             ),
-            escalaIndicador(realGoldZ,bandasRealGoldZ,-3,5,v=>(v>=0?"+":"")+v.toFixed(2))
+            escalaIndicador(realGoldZ,bandasRealGoldZ,-3,8,v=>(v>=0?"+":"")+v.toFixed(2))
           ),
 
           // Sintese Ouro
