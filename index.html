@@ -2747,26 +2747,47 @@ function App(){
             }
           }
         }catch(e){console.warn("NUPL erro:",e);}
+      }
 
-        // ===== BITCOIN: Pi Cycle =====
-        // 1a tentativa: bgeometrics
-        try{
+      // ===== BITCOIN: Pi Cycle (independente da bgKey) =====
+      // PI CYCLE TOP - Formato confirmado da API charts.bitcoin.com:
+      // {success:true, data:{price:[{timestamp,price}], ma111:[{timestamp,value}], ma350x2:[{timestamp,value}]}}
+      try{
+        let achouPi=false;
+        // 1a tentativa: charts.bitcoin.com (gratuito, sem autenticacao, formato verificado)
+        const j=await fetchProx("https://charts.bitcoin.com/api/v1/charts/pi-cycle-top?interval=daily&timespan=30d&limit=30",null,12000);
+        if(j&&typeof j==="object"&&j.data){
+          const ma111Arr=j.data.ma111;
+          const ma350Arr=j.data.ma350x2;
+          if(Array.isArray(ma111Arr)&&Array.isArray(ma350Arr)&&ma111Arr.length>0&&ma350Arr.length>0){
+            const last111=ma111Arr[ma111Arr.length-1];
+            const last350=ma350Arr[ma350Arr.length-1];
+            const ma111=last111&&typeof last111.value==="number"?last111.value:null;
+            const ma350x2=last350&&typeof last350.value==="number"?last350.value:null;
+            if(typeof ma111==="number"&&typeof ma350x2==="number"&&ma111>0&&ma350x2>0){
+              const ratio=ma111/ma350x2;
+              const isTopSignal=ratio>=1.0;
+              if(!cancelado){
+                setPiCycle({ma111,ma350x2,ratio,isTopSignal,ts:Date.now()});
+                achouPi=true;
+              }
+            }
+          }
+        }
+        // 2a tentativa: bgeometrics (fallback - raramente funciona no free tier)
+        if(!achouPi&&bgKey){
           const endpoints=[
             "https://bitcoin-data.com/api/v1/pi-cycle-top/last",
             "https://bitcoin-data.com/v1/pi-cycle-top/last",
             "https://bitcoin-data.com/api/v1/pi-cycle-top",
-            "https://bitcoin-data.com/v1/pi-cycle-top",
-            "https://api.bgeometrics.com/v1/pi-cycle-top/last",
-            "https://api.bgeometrics.com/v1/pi-cycle-top"
+            "https://api.bgeometrics.com/v1/pi-cycle-top/last"
           ];
-          let achouPi=false;
           for(const ep of endpoints){
             if(cancelado||achouPi)break;
-            const j=await fetchProx(ep,{"x-api-key":bgKey,"accept":"application/json"});
-            if(!j||typeof j==="string")continue;
+            const jb=await fetchProx(ep,{"x-api-key":bgKey,"accept":"application/json"});
+            if(!jb||typeof jb==="string")continue;
             let ma111=null,ma350x2=null;
-            // Tenta varios formatos
-            const obj=j.data&&!Array.isArray(j.data)?j.data:(Array.isArray(j.data)&&j.data.length>0?j.data[j.data.length-1]:j);
+            const obj=jb.data&&!Array.isArray(jb.data)?jb.data:(Array.isArray(jb.data)&&jb.data.length>0?jb.data[jb.data.length-1]:jb);
             if(obj&&typeof obj==="object"){
               ma111=parseFloat(obj.ma111||obj.MA111||obj["111ma"]||obj.sma111||obj["111dma"]||0);
               ma350x2=parseFloat(obj.ma350x2||obj["350maX2"]||obj["350x2"]||obj.sma350x2||obj["350dma_x2"]||0);
@@ -2774,33 +2795,14 @@ function App(){
             }
             if(ma111>0&&ma350x2>0){
               const ratio=ma111/ma350x2;
-              const isTopSignal=ratio>=1.0;
-              if(!cancelado)setPiCycle({ma111,ma350x2,ratio,isTopSignal,ts:Date.now()});
-              achouPi=true;
-            }
-          }
-          // 2a tentativa: charts.bitcoin.com (gratuito, sem autenticacao)
-          if(!achouPi){
-            const j=await fetchProx("https://charts.bitcoin.com/api/v1/charts/pi-cycle-top?interval=daily&limit=1",null,8000);
-            if(j&&typeof j==="object"){
-              let ma111=null,ma350x2=null,priceAt=null;
-              const arr=Array.isArray(j)?j:(Array.isArray(j.data)?j.data:null);
-              if(arr&&arr.length>0){
-                const last=arr[arr.length-1];
-                ma111=parseFloat(last.ma111||last["111dma"]||last.sma111||0);
-                ma350x2=parseFloat(last.ma350x2||last["350dmaX2"]||last["2x350dma"]||0);
-                if(!ma350x2&&(last.ma350||last["350dma"])){
-                  ma350x2=parseFloat(last.ma350||last["350dma"])*2;
-                }
-              }
-              if(ma111>0&&ma350x2>0){
-                const ratio=ma111/ma350x2;
-                if(!cancelado)setPiCycle({ma111,ma350x2,ratio,isTopSignal:ratio>=1.0,ts:Date.now()});
+              if(!cancelado){
+                setPiCycle({ma111,ma350x2,ratio,isTopSignal:ratio>=1.0,ts:Date.now()});
+                achouPi=true;
               }
             }
           }
-        }catch(e){console.warn("Pi Cycle erro:",e);}
-      }
+        }
+      }catch(e){console.warn("Pi Cycle erro:",e);}
 
       // ===== OURO: usa ETFs ao inves de futures (CORS mais permissivo) =====
       // GLD = ETF de ouro, SLV = ETF de prata, SPY = ETF S&P500
