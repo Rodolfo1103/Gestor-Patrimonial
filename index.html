@@ -448,9 +448,18 @@ function mptCovar(){
   return cov;
 }
 // Calcula retorno esperado e volatilidade de um vetor de pesos w (mesma ordem que MPT_CLS)
-function mptStats(w){
+// selicDinamica (opcional): substitui MPT_RET.selic pelo valor real da Selic atual
+// Isso evita o bug de Selic = 10% fixo enquanto rf = 14.5% real (geraria Sharpe negativo absurdo)
+function mptStats(w,selicDinamica){
   const n=MPT_CLS.length;
-  let ret=0;for(let i=0;i<n;i++)ret+=w[i]*MPT_RET[MPT_CLS[i]];
+  let ret=0;
+  for(let i=0;i<n;i++){
+    const cId=MPT_CLS[i];
+    // Para Selic, usa valor dinamico se fornecido (premio sobre rf)
+    // O modelo: Selic gera EXATAMENTE rf (sem premio, sem desconto)
+    const retClasse=(cId==="selic"&&typeof selicDinamica==="number")?selicDinamica:MPT_RET[cId];
+    ret+=w[i]*retClasse;
+  }
   const cov=mptCovar();
   let varP=0;
   for(let i=0;i<n;i++)for(let j=0;j<n;j++)varP+=w[i]*w[j]*cov[i][j];
@@ -470,6 +479,7 @@ function mptBeta(w){
   return covPortBR/varBR;
 }
 // Monte Carlo: gera N portfolios aleatorios e retorna {ret, vol, sharpe, w}
+// rf eh a Selic decimal atual (ex: 0.145). Usada tambem como retorno modelado da Selic
 function mptMonteCarlo(N,rf){
   const out=[];
   const n=MPT_CLS.length;
@@ -497,13 +507,13 @@ function mptMonteCarlo(N,rf){
   // Tipo 1: Diversificados (Dirichlet uniforme alpha=1)
   for(let k=0;k<N_DIV;k++){
     const w=dirichletSample(new Array(n).fill(1.0));
-    const st=mptStats(w);
+    const st=mptStats(w,rf);
     out.push({ret:st.ret,vol:st.vol,sharpe:mptSharpe(st.ret,st.vol,rf),w});
   }
   // Tipo 2: Moderadamente concentrados (alpha=0.3 - cria desigualdade entre pesos)
   for(let k=0;k<N_MED;k++){
     const w=dirichletSample(new Array(n).fill(0.3));
-    const st=mptStats(w);
+    const st=mptStats(w,rf);
     out.push({ret:st.ret,vol:st.vol,sharpe:mptSharpe(st.ret,st.vol,rf),w});
   }
   // Tipo 3: Muito concentrados (escolhe 1-3 classes aleatorias e poe 60-95% nelas)
@@ -527,7 +537,7 @@ function mptMonteCarlo(N,rf){
     let sDem=0;
     demais.forEach(i=>{w[i]=Math.random();sDem+=w[i];});
     demais.forEach(i=>{w[i]=(w[i]/sDem)*restoTotal;});
-    const st=mptStats(w);
+    const st=mptStats(w,rf);
     out.push({ret:st.ret,vol:st.vol,sharpe:mptSharpe(st.ret,st.vol,rf),w});
   }
   return out;
@@ -3827,7 +3837,7 @@ function App(){
       const somaAporte=wAporte.reduce((a,b)=>a+b,0);
       if(somaAporte>0)for(let i=0;i<wAporte.length;i++)wAporte[i]/=somaAporte;
       const rfAporte=(typeof selicAtual==="number"&&selicAtual>0?selicAtual:14.50)/100;
-      const statsAporte=mptStats(wAporte);
+      const statsAporte=mptStats(wAporte,rfAporte);
       const sharpeAporte=mptSharpe(statsAporte.ret,statsAporte.vol,rfAporte);
       // Acha melhor retorno na mesma volatilidade (alvo fronteira)
       let maxRetMesmaVol=statsAporte.ret;
@@ -5349,8 +5359,9 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             return novoTotal>0?novoBRL/novoTotal:0;
           });
           // Stats pos-aporte
-          const statsPos=mptStats(novosPesos);
-          const sharpePos=mptSharpe(statsPos.ret,statsPos.vol,(typeof selicAtual==="number"&&selicAtual>0?selicAtual:14.50)/100);
+          const rfPos=(typeof selicAtual==="number"&&selicAtual>0?selicAtual:14.50)/100;
+          const statsPos=mptStats(novosPesos,rfPos);
+          const sharpePos=mptSharpe(statsPos.ret,statsPos.vol,rfPos);
           // Eficiencia fronteira pos
           let maxRetPos=statsPos.ret;
           for(const p of mptCache){
@@ -5594,16 +5605,16 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
     const somaA=wAlvo.reduce((a,b)=>a+b,0);
     if(somaA>0){for(let i=0;i<wAlvo.length;i++)wAlvo[i]/=somaA;}
     const rfAtual=(typeof selicAtual==="number"&&selicAtual>0?selicAtual:14.50)/100;// taxa livre risco anual
-    const statsAtual=mptStats(wAtual);
+    const statsAtual=mptStats(wAtual,rfAtual);
     const sharpeAtual=mptSharpe(statsAtual.ret,statsAtual.vol,rfAtual);
     const betaAtual=mptBeta(wAtual);
     // Stats do ALVO
-    const statsAlvo=mptStats(wAlvo);
+    const statsAlvo=mptStats(wAlvo,rfAtual);
     const sharpeAlvo=mptSharpe(statsAlvo.ret,statsAlvo.vol,rfAtual);
     const betaAlvo=mptBeta(wAlvo);
     // Stats do ALL WEATHER (Dalio adaptado ao BR)
     const wAW=MPT_CLS.map(cid=>AW_W[cid]||0);
-    const statsAW=mptStats(wAW);
+    const statsAW=mptStats(wAW,rfAtual);
     const sharpeAW=mptSharpe(statsAW.ret,statsAW.vol,rfAtual);
     const betaAW=mptBeta(wAW);
 
@@ -6804,14 +6815,14 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
   if(tab==="aw"){
     const rfAW=(typeof selicAtual==="number"&&selicAtual>0?selicAtual:10)/100;
     const wAW=MPT_CLS.map(cid=>AW_W[cid]||0);
-    const statsAW=mptStats(wAW);
+    const statsAW=mptStats(wAW,rfAW);
     const sharpeAW=mptSharpe(statsAW.ret,statsAW.vol,rfAW);
     const betaAW=mptBeta(wAW);
     // Stats do portfolio atual (pra comparacao)
     const wAtualAW=MPT_CLS.map(cid=>(cw[cid]||0)/100);
     const somaWA=wAtualAW.reduce((a,b)=>a+b,0);
     if(somaWA>0){for(let i=0;i<wAtualAW.length;i++)wAtualAW[i]/=somaWA;}
-    const statsAtualAW=mptStats(wAtualAW);
+    const statsAtualAW=mptStats(wAtualAW,rfAW);
     const sharpeAtualAW=mptSharpe(statsAtualAW.ret,statsAtualAW.vol,rfAW);
 
     // Calcula peso por cenario (soma ponderada)
@@ -7128,12 +7139,12 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
       CL.forEach(c=>wAtual[c.id]=(cw[c.id]||0)/100);
       // Stats YPB (usa engine MPT)
       const wYPB_arr=MPT_CLS.map(cid=>YPB_W[cid]||0);
-      const statsYPB=mptStats(wYPB_arr);
       const rfAtualY=(typeof selicAtual==="number"&&selicAtual>0?selicAtual:14.50)/100;
+      const statsYPB=mptStats(wYPB_arr,rfAtualY);
       const sharpeYPB=mptSharpe(statsYPB.ret,statsYPB.vol,rfAtualY);
       // Stats atual
       const wAtual_arr=MPT_CLS.map(cid=>wAtual[cid]||0);
-      const statsAtual=mptStats(wAtual_arr);
+      const statsAtual=mptStats(wAtual_arr,rfAtualY);
       const sharpeAtual=mptSharpe(statsAtual.ret,statsAtual.vol,rfAtualY);
       // Calcula buckets para o portfolio atual e YPB
       const calcBucket=(wMap,ids)=>ids.reduce((s,id)=>s+(wMap[id]||0),0);
@@ -7344,8 +7355,9 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         return dd;
       };
       // VaR/CVaR parametrico (anual) baseado nos stats MPT
-      const statsAtualSt=mptStats(wA);
-      const statsAWSt=mptStats(wAW);
+      const rfStress=(typeof selicAtual==="number"&&selicAtual>0?selicAtual:14.50)/100;
+      const statsAtualSt=mptStats(wA,rfStress);
+      const statsAWSt=mptStats(wAW,rfStress);
       // VaR 95% = 1.645 sigma, VaR 99% = 2.326 sigma
       const var95Atual=1.645*statsAtualSt.vol;
       const var99Atual=2.326*statsAtualSt.vol;
