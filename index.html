@@ -5714,16 +5714,40 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
 
       // ========== NOTA DE EFICIENCIA ==========
       (()=>{
-        // Eficiencia de fronteira: dado a volatilidade atual, quanto retorno voce captura do maximo possivel?
-        // Procura no Monte Carlo o portfolio com volatilidade similar (margem 1.5%) e maior retorno
+        // ===== NOTA DE EFICIENCIA HIBRIDA =====
+        // Combina 2 dimensoes para evitar inflar nota de portfolios com risco extremo:
+        // (1) Eficiencia de FRONTEIRA: quanto retorno voce captura do maximo possivel na sua vol
+        // (2) Eficiencia de SHARPE: quanto seu Sharpe captura do melhor Sharpe possivel no MC
+        // Formula: 70% fronteira + 30% Sharpe (penaliza portfolios com Sharpe ruim)
+
+        // (1) Eficiencia de fronteira na faixa de volatilidade
         let maxRetSimVol=statsAtual.ret;
         for(const p of mcResult){
           if(Math.abs(p.vol-statsAtual.vol)<0.015&&p.ret>maxRetSimVol)maxRetSimVol=p.ret;
         }
-        // Eficiencia = quanto retorno voce captura do maximo possivel na sua volatilidade
         const efFront=Math.max(0,Math.min(100,(statsAtual.ret/Math.max(0.001,maxRetSimVol))*100));
-        // Nota = eficiencia de fronteira (100% do score - metrica unica e justa para B&H)
-        const notaFinal=efFront;
+        // (2) Eficiencia de Sharpe (vs melhor Sharpe absoluto do Monte Carlo)
+        let bestSharpeAbs=mcResult[0]?mcResult[0].sharpe:0;
+        let worstSharpeAbs=mcResult[0]?mcResult[0].sharpe:0;
+        for(const p of mcResult){
+          if(p.sharpe>bestSharpeAbs)bestSharpeAbs=p.sharpe;
+          if(p.sharpe<worstSharpeAbs)worstSharpeAbs=p.sharpe;
+        }
+        // Normaliza Sharpe entre [worst, best] para escala 0-100
+        const sharpeRange=bestSharpeAbs-worstSharpeAbs;
+        const efSharpe=sharpeRange>0?Math.max(0,Math.min(100,((sharpeAtual-worstSharpeAbs)/sharpeRange)*100)):50;
+        // Nota hibrida: 70% fronteira + 30% Sharpe
+        const notaFinal=efFront*0.70+efSharpe*0.30;
+        // Funcao reutilizavel para calcular a nota de qualquer portfolio do MC
+        const calcNotaHibrida=(p)=>{
+          let maxRet=p.ret;
+          for(const q of mcResult){
+            if(q.vol<=p.vol+0.01&&Math.abs(q.vol-p.vol)<0.025&&q.ret>maxRet)maxRet=q.ret;
+          }
+          const ef=Math.max(0,Math.min(100,(p.ret/Math.max(0.001,maxRet))*100));
+          const efS=sharpeRange>0?Math.max(0,Math.min(100,((p.sharpe-worstSharpeAbs)/sharpeRange)*100)):50;
+          return ef*0.70+efS*0.30;
+        };
         // Conceito A-F estilo escolar
         let conceito,corConceito,descConceito,detalheConceito;
         if(notaFinal>=85){
@@ -5812,34 +5836,55 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           ),
           // ========== HISTOGRAMA: DISTRIBUICAO DOS PORTFOLIOS ==========
           (()=>{
-            // Calcula a nota de cada portfolio do Monte Carlo
-            // Comparacao com fronteira: maior retorno disponivel em qualquer vol <= sua vol
-            // (ou seja: para o nivel de risco, qual o melhor retorno possivel?)
-            const calcNotaPortfolio=p=>{
-              let maxRet=p.ret;
-              for(const q of mcResult){
-                // Considera portfolios com vol SIMILAR ou MENOR (faixa ampla 2%)
-                if(q.vol<=p.vol+0.01&&Math.abs(q.vol-p.vol)<0.025&&q.ret>maxRet)maxRet=q.ret;
-              }
-              return Math.max(0,Math.min(100,(p.ret/Math.max(0.001,maxRet))*100));
-            };
+            // Reutiliza a funcao calcNotaHibrida (definida acima) que combina:
+            // 70% eficiencia de fronteira + 30% eficiencia de Sharpe
+            // Isso garante que portfolios com Sharpe ruim sejam penalizados corretamente.
+            const calcNotaPortfolio=calcNotaHibrida;
             // Amostra 1500 portfolios para distribuicao (rapidez)
             const amostra=[];
             const stepAm=Math.max(1,Math.floor(mcResult.length/1500));
             for(let i=0;i<mcResult.length;i+=stepAm)amostra.push(mcResult[i]);
             const notas=amostra.map(calcNotaPortfolio);
             const distrib={A:0,B:0,C:0,D:0,F:0};
-            notas.forEach(n=>{
-              if(n>=85)distrib.A++;
-              else if(n>=75)distrib.B++;
-              else if(n>=65)distrib.C++;
-              else if(n>=50)distrib.D++;
-              else distrib.F++;
+            // Acumuladores de peso por classe para cada faixa de nota
+            const acumPesos={A:{},B:{},C:{},D:{},F:{}};
+            MPT_CLS.forEach(cId=>{["A","B","C","D","F"].forEach(g=>{acumPesos[g][cId]=0;});});
+            notas.forEach((n,idx)=>{
+              let faixa;
+              if(n>=85)faixa="A";
+              else if(n>=75)faixa="B";
+              else if(n>=65)faixa="C";
+              else if(n>=50)faixa="D";
+              else faixa="F";
+              distrib[faixa]++;
+              // Soma pesos do portfolio para a faixa
+              const p=amostra[idx];
+              if(p&&p.w){
+                MPT_CLS.forEach((cId,i)=>{
+                  acumPesos[faixa][cId]+=(p.w[i]||0);
+                });
+              }
             });
             const total=amostra.length;
             const pcts={A:distrib.A/total*100,B:distrib.B/total*100,C:distrib.C/total*100,D:distrib.D/total*100,F:distrib.F/total*100};
             const maxPct=Math.max(pcts.A,pcts.B,pcts.C,pcts.D,pcts.F);
             const cores={A:"#4CAF82",B:"#7DD17D",C:"#E8C44A",D:"#E89060",F:"#E05252"};
+            // Calcula Top 3 classes de cada faixa (peso medio)
+            const top3PorFaixa={};
+            ["A","B","C","D","F"].forEach(g=>{
+              if(distrib[g]===0){top3PorFaixa[g]=[];return;}
+              const arr=MPT_CLS.map(cId=>{
+                const cl=CL.find(c=>c.id===cId)||{};
+                return {
+                  id:cId,
+                  tag:cl.tag||cId.slice(0,3).toUpperCase(),
+                  color:cl.color||"#9A9080",
+                  pesoMedio:(acumPesos[g][cId]/distrib[g])*100// em %
+                };
+              });
+              arr.sort((a,b)=>b.pesoMedio-a.pesoMedio);
+              top3PorFaixa[g]=arr.slice(0,3);
+            });
             // Notas de referencia: media, melhor (Sharpe max), pior (Sharpe min)
             const notaMedia=notas.reduce((a,b)=>a+b,0)/notas.length;
             let bestS=mcResult[0],worstS=mcResult[0];
@@ -5856,21 +5901,36 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                 h("div",{style:{color:"#C8A96E",fontWeight:700,fontSize:8,letterSpacing:1.2,marginBottom:5,fontFamily:"monospace"}},"\u{1F4D6} COMO ESTA SIMULACAO E CONSTRUIDA"),
                 h("div",{style:{marginBottom:3}},h("strong",{},"Universo:")," ",mcResult.length.toLocaleString("pt-BR")," portfolios sao gerados sorteando aleatoriamente pesos para as ",MPT_CLS.length," classes do seu portfolio (FII, Acoes BR, Acoes EXT, REITs, Selic, Ouro, BTC, Infra, Imoveis, Agro)."),
                 h("div",{style:{marginBottom:3}},h("strong",{},"3 estrategias de geracao:")," 60% sao bem ",h("em",{},"diversificados"),", 25% sao ",h("em",{},"moderadamente concentrados"),", 15% sao ",h("em",{},"muito concentrados")," em poucas classes - para explorar todo o espaco de possibilidades, do super-balanceado ao super-concentrado."),
-                h("div",{style:{marginBottom:3}},h("strong",{},"Calculo da nota:")," para cada portfolio simulado, calculamos retorno esperado, volatilidade e qual % do MELHOR retorno alcancavel para aquela faixa de risco ele captura. Quanto mais perto de 100%, mais proximo da fronteira eficiente de Markowitz."),
+                h("div",{style:{marginBottom:3}},h("strong",{},"Calculo da nota (formula hibrida):")," ",h("strong",{style:{color:"#4CAF82"}},"70% eficiencia de fronteira")," (qual % do melhor retorno possivel voce captura para sua volatilidade) + ",h("strong",{style:{color:"#5B8FD4"}},"30% eficiencia de Sharpe")," (sua posicao no espectro entre o pior e o melhor Sharpe simulado). Isso penaliza portfolios com risco extremo mesmo que tecnicamente \"capturem retorno\" na sua faixa de vol."),
                 h("div",{},h("strong",{},"Premissas (R/E):")," cada classe tem um retorno esperado e volatilidade calibrados (ver bloco \"Premissas R/E\" mais abaixo), e a matriz de correlacao entre classes e empirica. Tudo recalibrado dinamicamente conforme a Selic atual e ajustes da IA.")
               ),
-              h("div",{style:{fontSize:8.5,color:"#6A6050",fontStyle:"italic",marginBottom:8,lineHeight:1.4}},"Distribuicao das notas dos ",total," portfolios simulados (",mcResult.length.toLocaleString("pt-BR")," ao todo):"),
-              h("div",{style:{display:"flex",alignItems:"flex-end",gap:6,height:90,padding:"0 4px"}},
+              h("div",{style:{fontSize:8.5,color:"#6A6050",fontStyle:"italic",marginBottom:8,lineHeight:1.4}},"Distribuicao das notas dos ",total," portfolios simulados, com ",h("strong",{style:{color:"#9A9080"}},"DNA")," (top 3 classes mais predominantes por nota):"),
+              h("div",{style:{display:"flex",alignItems:"flex-end",gap:6,height:160,padding:"0 4px"}},
                 ...["A","B","C","D","F"].map(g=>{
                   const alturaPct=maxPct>0?(pcts[g]/maxPct)*100:0;
                   const isSeu=g===conceito;
+                  const top3=top3PorFaixa[g];
                   return h("div",{key:g,style:{flex:1,display:"flex",flexDirection:"column",alignItems:"center",height:"100%",justifyContent:"flex-end"}},
+                    // % no topo
                     h("div",{style:{fontSize:8,color:cores[g],fontFamily:"monospace",fontWeight:700,marginBottom:3}},pcts[g].toFixed(0)+"%"),
-                    h("div",{style:{width:"100%",height:alturaPct+"%",background:cores[g],opacity:isSeu?1:0.4,borderRadius:"3px 3px 0 0",border:isSeu?"2px solid #FFF":"none",transition:"all 0.3s"}}),
+                    // Barra com DNA dentro
+                    h("div",{style:{width:"100%",height:alturaPct+"%",minHeight:distrib[g]>0?38:0,background:cores[g],opacity:isSeu?1:0.35,borderRadius:"3px 3px 0 0",border:isSeu?"2px solid #FFF":"none",transition:"all 0.3s",display:"flex",flexDirection:"column",justifyContent:"flex-start",alignItems:"center",padding:"4px 2px",overflow:"hidden",position:"relative"}},
+                      // DNA (top 3 classes dentro da barra)
+                      distrib[g]>0&&top3.length>0?h("div",{style:{display:"flex",flexDirection:"column",gap:1,alignItems:"center",width:"100%"}},
+                        ...top3.map((c,i)=>h("div",{key:c.id,style:{fontSize:7,fontFamily:"monospace",fontWeight:700,color:"#0D0F14",textShadow:"none",lineHeight:1.1,opacity:1-i*0.15,whiteSpace:"nowrap"}},
+                          c.tag," ",c.pesoMedio.toFixed(0),"%"
+                        ))
+                      ):null
+                    ),
+                    // Letra abaixo
                     h("div",{style:{fontSize:9,color:cores[g],fontFamily:"Georgia,serif",fontWeight:700,marginTop:4}},g),
                     isSeu&&h("div",{style:{fontSize:7,color:cores[g],fontWeight:700,fontFamily:"monospace",marginTop:1}},"VOCE")
                   );
                 })
+              ),
+              // Mini-legenda explicando o DNA
+              h("div",{style:{fontSize:8,color:"#7A7060",fontStyle:"italic",marginTop:8,padding:"6px 9px",background:"rgba(0,0,0,0.18)",borderRadius:4,lineHeight:1.5}},
+                "\u{1F9EC} ",h("strong",{style:{color:"#9A9080"}},"DNA dentro de cada barra"),": peso medio das 3 classes mais predominantes nos portfolios daquela nota. Ex: portfolios nota ",h("strong",{style:{color:"#4CAF82"}},"A")," tendem a ter pesos balanceados entre as classes; portfolios nota ",h("strong",{style:{color:"#E05252"}},"F")," tendem a ser concentrados (60-95%) em poucas classes."
               ),
               // BLOCO COMPARATIVO: VOCE vs MELHOR vs MEDIA vs PIOR
               h("div",{style:{marginTop:12,padding:"9px 11px",background:"rgba(0,0,0,0.20)",borderRadius:5}},
