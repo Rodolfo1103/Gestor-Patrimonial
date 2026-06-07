@@ -2203,6 +2203,8 @@ function App(){
   const [insightTs,setInsightTs]=useState(0);
   const [insightLoad,setInsightLoad]=useState(false);
   const [insightErr,setInsightErr]=useState("");
+  const [insightSnap,setInsightSnap]=useState(null);// snapshot do portfolio quando insight foi gerado
+  const [insightAutoTry,setInsightAutoTry]=useState(false);// flag para auto-gerar uma vez por sessao
   const [editBands,setEditBands]=useState(false);
   const [bandsVer,setBandsVer]=useState(0); // forca re-render quando bandas mudam
   const [editAporte,setEditAporte]=useState(false);
@@ -2438,6 +2440,7 @@ function App(){
         // Carrega insight da IA persistido criptografado
         if(typeof dd.insight==="string"&&dd.insight)setInsight(dd.insight);
         if(typeof dd.insightTs==="number")setInsightTs(dd.insightTs);
+        if(dd.insightSnap&&typeof dd.insightSnap==="object")setInsightSnap(dd.insightSnap);
         // Indices de inflacao
         if(dd.infIPCA&&typeof dd.infIPCA==="object")setInfIPCA(dd.infIPCA);
         if(dd.infIGPM&&typeof dd.infIGPM==="object")setInfIGPM(dd.infIGPM);
@@ -2461,12 +2464,12 @@ function App(){
     if(!inited||!aesKey)return;
     (async()=>{
       try{
-        const obj={port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,selicAtual,metaMensalIF,cenarioIPCA,dataNascimento,insightRenda,insightRendaTs,insightRendaSnap,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,piCycle,nupl,goldSilver,goldSP500,realGoldZ,fx:{...FX},btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,infIPCA,infIGPM,infINCC,infCPI};
+        const obj={port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,selicAtual,metaMensalIF,cenarioIPCA,dataNascimento,insightRenda,insightRendaTs,insightRendaSnap,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,piCycle,nupl,goldSilver,goldSP500,realGoldZ,fx:{...FX},btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,insightSnap,infIPCA,infIGPM,infINCC,infCPI};
         const enc=await aesEncrypt(aesKey,obj);
         localStorage.setItem(SK_ENC,enc);
       }catch(e){}
     })();
-  },[port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,selicAtual,metaMensalIF,cenarioIPCA,dataNascimento,insightRenda,insightRendaTs,insightRendaSnap,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,piCycle,nupl,goldSilver,goldSP500,realGoldZ,btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,infIPCA,infIGPM,infINCC,infCPI,inited,aesKey]);
+  },[port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,selicAtual,metaMensalIF,cenarioIPCA,dataNascimento,insightRenda,insightRendaTs,insightRendaSnap,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,piCycle,nupl,goldSilver,goldSP500,realGoldZ,btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,insightSnap,infIPCA,infIGPM,infINCC,infCPI,inited,aesKey]);
 
   // Auto-lock por inatividade (15 min)
   useEffect(()=>{
@@ -4056,11 +4059,18 @@ function App(){
     if(!apiKey)return;
     if(insightLoad)return;
     if(!hasPos)return;
-    // Soma posicoes ponderadas por classe e risco/retorno
+    // ===== Tamanho e numero de ativos =====
+    const totalPatrimBRL=total;
+    const numAtivos=Object.keys(port).filter(t=>{const p=port[t];return p&&pv(t,p,ccy)>0;}).length;
+    const numClassesAtivas=CL.filter(c=>(cw[c.id]||0)>1).length;
+    // ===== Composicao e status =====
+    const composicao={};CL.forEach(c=>{composicao[c.tag]=(cw[c.id]||0).toFixed(1)+"%";});
+    const status={};CL.forEach(c=>{const w=cw[c.id]||0;status[c.tag]=w<c.min?"abaixo":w>c.max&&!c.flex?"acima":"ok";});
+    // ===== Risco/retorno ponderados =====
     let totW=0,wR=0,wE=0;
     CL.forEach(c=>{const p=RR[c.id],w=cw[c.id]||0;if(p&&w>0){totW+=w;wR+=p.r*w;wE+=p.e*w;}});
     const portR=totW>0?wR/totW:0,portE=totW>0?wE/totW:0;
-    // Exposicao cambial
+    // ===== Exposicao cambial =====
     const byCcy={};
     Object.entries(port).forEach(([t,p])=>{
       if(!p)return;const v=pv(t,p,ccy);if(!v)return;
@@ -4069,33 +4079,178 @@ function App(){
     });
     const ccyPct={};const totalCcy=Object.values(byCcy).reduce((s,v)=>s+v,0);
     Object.entries(byCcy).forEach(([c,v])=>{ccyPct[c]=((v/totalCcy)*100).toFixed(1)+"%";});
-    const composicao={};CL.forEach(c=>{composicao[c.tag]=(cw[c.id]||0).toFixed(1)+"%";});
-    const status={};CL.forEach(c=>{const w=cw[c.id]||0;status[c.tag]=w<c.min?"abaixo":w>c.max&&!c.flex?"acima":"ok";});
-    const prompt="Analista patrimonial senior Buy&Hold para aposentadoria.\\n"+
-      "COMPOSICAO ATUAL: "+JSON.stringify(composicao)+"\\n"+
-      "STATUS por classe (vs bandas alvo): "+JSON.stringify(status)+"\\n"+
-      "RISCO ponderado do portfolio: "+portR.toFixed(2)+"/10\\n"+
-      "RETORNO esperado ponderado: "+portE.toFixed(2)+"/10\\n"+
-      "EXPOSICAO CAMBIAL: "+JSON.stringify(ccyPct)+"\\n"+
-      "Patrimonio total: R$ "+Math.round(total)+"\\n\\n"+
-      "FILOSOFIA DO INVESTIDOR (respeitar): Quality at a reasonable price. Foco PRIMARIO em QUALIDADE dos ativos (vantagem competitiva, gestao, geracao de caixa). Aceita pagar preco justo por excelencia. Receia value trap (negocio em decadencia barato). Aportes continuos com dollar cost averaging - tempo dilui pontos de entrada. NUNCA pagar preco claramente acima de fundamentos.\\n\\n"+
-      "Gere um insight CURTO (3 paragrafos, max 80 palavras CADA) sobre:\\n"+
-      "1) Diagnostico da composicao atual (quais distorcoes principais e qualidade implicita)\\n"+
-      "2) Como OTIMIZAR (acoes concretas que priorizem qualidade ao preco justo, nao busca cega por desconto)\\n"+
-      "3) Riscos cambiais, de concentracao ou potencial value trap em alguma classe\\n\\n"+
-      "Tom: direto, objetivo, sem rodeios. Sem markdown. Use paragrafos separados por linha em branco.";
+    // ===== METRICAS MPT (Markowitz): Sharpe Esperado, Fronteira, Nota Hibrida =====
+    const wAtual=MPT_CLS.map(cid=>(cw[cid]||0)/100);
+    const sNorm=wAtual.reduce((s,v)=>s+v,0);
+    if(sNorm>0)for(let i=0;i<wAtual.length;i++)wAtual[i]/=sNorm;
+    const rfAtual=(typeof selicAtual==="number"&&selicAtual>0?selicAtual:14.50)/100;
+    const stMPT=mptStats(wAtual,rfAtual);
+    const sharpeEsp=mptSharpe(stMPT.ret,stMPT.vol,rfAtual);
+    // HHI e ENB
+    let hhi=0;for(const w of wAtual)hhi+=w*w;
+    const enbHerf=hhi>0?1/hhi:0;
+    // Correlacao media ponderada
+    let corrMP=0,contCM=0;
+    for(let i=0;i<wAtual.length;i++)for(let j=i+1;j<wAtual.length;j++){
+      if(wAtual[i]>0&&wAtual[j]>0){
+        corrMP+=wAtual[i]*wAtual[j]*Math.abs(MPT_COR[i][j]);
+        contCM+=wAtual[i]*wAtual[j];
+      }
+    }
+    const corrMedia=contCM>0?corrMP/contCM:0;
+    const enbEf=enbHerf*(1-corrMedia*corrMedia);
+    // ===== ALINHAMENTO COM ALL WEATHER =====
+    const protCenAtual={c1:0,c2:0,c3:0,c4:0};
+    MPT_CLS.forEach(cid=>{
+      const w=(cw[cid]||0)/100;
+      protCenAtual.c1+=w*(AW_CEN[cid].c1||0);
+      protCenAtual.c2+=w*(AW_CEN[cid].c2||0);
+      protCenAtual.c3+=w*(AW_CEN[cid].c3||0);
+      protCenAtual.c4+=w*(AW_CEN[cid].c4||0);
+    });
+    const protCenAW={c1:0,c2:0,c3:0,c4:0};
+    MPT_CLS.forEach(cid=>{
+      const w=AW_W[cid]||0;
+      protCenAW.c1+=w*(AW_CEN[cid].c1||0);
+      protCenAW.c2+=w*(AW_CEN[cid].c2||0);
+      protCenAW.c3+=w*(AW_CEN[cid].c3||0);
+      protCenAW.c4+=w*(AW_CEN[cid].c4||0);
+    });
+    const gapAW=Math.abs(protCenAtual.c1-protCenAW.c1)+Math.abs(protCenAtual.c2-protCenAW.c2)+Math.abs(protCenAtual.c3-protCenAW.c3)+Math.abs(protCenAtual.c4-protCenAW.c4);
+    const alinhAW=gapAW<0.20?"ALTO":gapAW<0.40?"MODERADO":"BAIXO";
+    // ===== ALINHAMENTO COM YALE/SWENSEN (YPB) =====
+    const bucketsYPB={
+      equity:YPB_BUCKETS.equity.reduce((s,id)=>s+((cw[id]||0)/100),0),
+      realAssets:YPB_BUCKETS.realAssets.reduce((s,id)=>s+((cw[id]||0)/100),0),
+      altLiquid:(cw.bitcoin||0)/100,
+      inflationHedge:(cw.ouro||0)/100,
+      fixedNominal:((cw.selic||0)+(cw.treasuries||0))/100
+    };
+    const ypbBuckets={equity:0.40,realAssets:0.40,altLiquid:0.03,inflationHedge:0.05,fixedNominal:0.12};
+    let gapYPB=0;
+    Object.keys(ypbBuckets).forEach(k=>gapYPB+=Math.abs(bucketsYPB[k]-ypbBuckets[k]));
+    const alinhYPB=gapYPB<0.20?"ALTO":gapYPB<0.40?"MODERADO":"BAIXO";
+    // ===== CAPACIDADE DE RENDA (motores: FII+Infra+Agro) =====
+    const motoresRendaIds=["fii","infra","agro"];
+    const valorMotores=motoresRendaIds.reduce((s,id)=>{
+      const cl=CL.find(c=>c.id===id);if(!cl)return s;
+      const wPct=(cw[id]||0)/100;
+      return s+wPct*total;
+    },0);
+    const yieldMedio={fii:0.085,infra:0.10,agro:0.10};// yields medios renda passiva
+    const rendaAnualEstimada=motoresRendaIds.reduce((s,id)=>{
+      const wPct=(cw[id]||0)/100;
+      return s+wPct*total*(yieldMedio[id]||0)*0.85;// 85% liquido de IR
+    },0);
+    const rendaMensalEst=rendaAnualEstimada/12;
+    const swrAnual=total*0.04;// 4% Bengen
+    const swrMensal=swrAnual/12;
+    // ===== Macro =====
+    const ipcaAnual=infIPCA&&typeof infIPCA.anual==="number"?infIPCA.anual:0;
+    // ===== Snapshot para deteccao de mudancas =====
+    const snapAtual={
+      patrimonio:total,
+      composicao:Object.fromEntries(CL.map(c=>[c.id,cw[c.id]||0])),
+      selic:typeof selicAtual==="number"?selicAtual:14.50,
+      ipca:ipcaAnual*100,
+      ts:Date.now()
+    };
+    const prompt="Voce e um analista patrimonial senior especializado em Buy&Hold para aposentadoria, com profundo conhecimento das tres correntes academicas mais importantes da teoria de portfolio moderna: (1) Modern Portfolio Theory de Markowitz com fronteira eficiente, (2) All Weather Portfolio de Ray Dalio com balanceamento por cenarios macro, (3) Endowment Model de David Swensen/Yale com forte equity bias e ativos reais.\\n\\n"+
+      "=== DADOS QUANTITATIVOS DO PORTFOLIO ===\\n"+
+      "TAMANHO: R$ "+totalPatrimBRL.toLocaleString("pt-BR",{maximumFractionDigits:0})+"\\n"+
+      "NUMERO DE ATIVOS: "+numAtivos+" tickers em "+numClassesAtivas+" classes ativas (>1%)\\n"+
+      "COMPOSICAO POR CLASSE: "+JSON.stringify(composicao)+"\\n"+
+      "STATUS vs BANDAS ALVO: "+JSON.stringify(status)+"\\n"+
+      "EXPOSICAO CAMBIAL: "+JSON.stringify(ccyPct)+"\\n\\n"+
+      "=== METRICAS DE DIVERSIFICACAO (CORRELACAO vs DISPERSAO) ===\\n"+
+      "HHI (concentracao por pesos): "+hhi.toFixed(3)+" (minimo teorico "+(1/MPT_CLS.length).toFixed(3)+", maximo 1.000)\\n"+
+      "ENB Herfindahl (apostas se ignorar correlacoes): "+enbHerf.toFixed(2)+"\\n"+
+      "Correlacao Media Ponderada absoluta entre classes: "+corrMedia.toFixed(3)+"\\n"+
+      "ENB Efetivo (apostas verdadeiramente independentes, Meucci 2009): "+enbEf.toFixed(2)+"\\n"+
+      "  - Faixas: <2 critico, 2-3 fraco, 3-4 regular, 4-5 bom, >=5 excelente\\n\\n"+
+      "=== EFICIENCIA RISCO x RETORNO (Markowitz) ===\\n"+
+      "Sharpe Esperado: "+sharpeEsp.toFixed(3)+" (forward-looking, baseado em premissas teoricas)\\n"+
+      "  - Faixas: <0 ruim, 0-0.5 regular, 0.5-1.0 bom, >=1.0 excelente\\n"+
+      "Risco ponderado: "+portR.toFixed(2)+"/10\\n"+
+      "Retorno esperado ponderado: "+portE.toFixed(2)+"/10\\n"+
+      "Selic atual (taxa livre de risco): "+(rfAtual*100).toFixed(2)+"% a.a.\\n\\n"+
+      "=== CAPACIDADE DE RENDA E PERPETUIDADE ===\\n"+
+      "Patrimonio total: R$ "+total.toLocaleString("pt-BR",{maximumFractionDigits:0})+"\\n"+
+      "Capital nos motores de renda (FII+Infra+Agro): R$ "+valorMotores.toLocaleString("pt-BR",{maximumFractionDigits:0})+" ("+((valorMotores/total)*100).toFixed(1)+"% do total)\\n"+
+      "Renda passiva estimada (liquida IR): R$ "+rendaAnualEstimada.toLocaleString("pt-BR",{maximumFractionDigits:0})+"/ano = R$ "+rendaMensalEst.toLocaleString("pt-BR",{maximumFractionDigits:0})+"/mes\\n"+
+      "Safe Withdrawal Rate 4% (Bengen): R$ "+swrAnual.toLocaleString("pt-BR",{maximumFractionDigits:0})+"/ano = R$ "+swrMensal.toLocaleString("pt-BR",{maximumFractionDigits:0})+"/mes (saque perpetuo seguro)\\n"+
+      "Inflacao IPCA anual: "+ipcaAnual.toFixed(2)+"%\\n\\n"+
+      "=== ALINHAMENTO COM MODELOS CIENTIFICOS ===\\n"+
+      "ALL WEATHER (Ray Dalio): protecao por cenario - c1 (cresc+infl+) "+(protCenAtual.c1*100).toFixed(0)+"% vs ideal "+(protCenAW.c1*100).toFixed(0)+"%; c2 (cresc+infl-) "+(protCenAtual.c2*100).toFixed(0)+"% vs "+(protCenAW.c2*100).toFixed(0)+"%; c3 (cresc-infl+) "+(protCenAtual.c3*100).toFixed(0)+"% vs "+(protCenAW.c3*100).toFixed(0)+"%; c4 (cresc-infl-) "+(protCenAtual.c4*100).toFixed(0)+"% vs "+(protCenAW.c4*100).toFixed(0)+"%. Alinhamento: "+alinhAW+"\\n"+
+      "YALE/SWENSEN (YPB - Yale Pragmatico Brasil): Equity "+(bucketsYPB.equity*100).toFixed(1)+"% (ideal "+(ypbBuckets.equity*100).toFixed(0)+"%); Real Assets "+(bucketsYPB.realAssets*100).toFixed(1)+"% (ideal "+(ypbBuckets.realAssets*100).toFixed(0)+"%); Alt Liquidos "+(bucketsYPB.altLiquid*100).toFixed(1)+"% (ideal "+(ypbBuckets.altLiquid*100).toFixed(0)+"%); Hedge Inflacao "+(bucketsYPB.inflationHedge*100).toFixed(1)+"% (ideal "+(ypbBuckets.inflationHedge*100).toFixed(0)+"%); Renda Fixa "+(bucketsYPB.fixedNominal*100).toFixed(1)+"% (ideal "+(ypbBuckets.fixedNominal*100).toFixed(0)+"%). Alinhamento: "+alinhYPB+"\\n\\n"+
+      "=== FILOSOFIA DO INVESTIDOR (RESPEITAR) ===\\n"+
+      "Buy & Hold rigoroso (zero vendas). Quality at a reasonable price (Munger, Terry Smith). Foco em qualidade de ativos (vantagem competitiva, gestao, geracao de caixa). Aceita pagar preco justo por excelencia. Receia value trap. Aportes continuos com dollar cost averaging. NUNCA pagar preco acima de fundamentos.\\n\\n"+
+      "=== INSTRUCOES DO INSIGHT ===\\n"+
+      "Gere uma analise estrategica HOLISTICA do portfolio em PROSA CORRIDA (sem topicos numerados, sem markdown, sem bullets), em 5 paragrafos coesos, totalizando 350-450 palavras. A estrutura logica deve seguir esta sequencia tematica:\\n\\n"+
+      "PARAGRAFO 1 - VISAO GERAL: tamanho do patrimonio (mencionar R$), numero de ativos e classes ativas, distribuicao geral. Comece estabelecendo o contexto quantitativo e o estagio patrimonial.\\n\\n"+
+      "PARAGRAFO 2 - DIVERSIFICACAO REAL: comente sobre a relacao entre dispersao de pesos (HHI/ENB Herfindahl) e correlacoes (Correlacao Media, ENB Efetivo). Aborde se a diversificacao e REAL ou APARENTE. Mencione o gap entre ENB Herfindahl e ENB Efetivo. Diga claramente se o portfolio tem apostas independentes ou se classes redundantes geram falsa sensacao de diversificacao.\\n\\n"+
+      "PARAGRAFO 3 - EFICIENCIA RISCO x RETORNO: comente o Sharpe Esperado e o que ele revela sobre se o investidor esta sendo recompensado pelo risco assumido. Discuta a posicao na fronteira de Markowitz - se proximo ou distante do otimo teorico.\\n\\n"+
+      "PARAGRAFO 4 - GERACAO DE RENDA E PERPETUIDADE: avalie a capacidade dos motores de renda (FII+Infra+Agro), compare com o SWR 4% de Bengen. Comente se o portfolio tem capacidade real de sustentar aposentadoria perpetua ou se ainda esta em fase de acumulacao. Mencione o impacto da inflacao IPCA na renda real.\\n\\n"+
+      "PARAGRAFO 5 - APROXIMACAO COM MODELOS ACADEMICOS: faca o diagnostico de alinhamento com os tres modelos: (a) Fronteira Eficiente de Markowitz, (b) All Weather de Dalio (resiliencia macro), (c) Yale/Swensen (equity bias + real assets + minimo de renda fixa). Conclua com a sintese: a qual filosofia o portfolio mais se aproxima atualmente e em que direcao o investidor deveria caminhar.\\n\\n"+
+      "TOM: analista senior, objetivo, factual. Sem rodeios. Sem mencionar autores diretamente (Markowitz, Dalio, Swensen aparecem como modelos, nao como citacoes). Sem markdown, sem bullets, sem numeros romanos, sem cabecalhos. Paragrafos separados por uma linha em branco. Respeite o limite de 350-450 palavras totais.";
     setInsightLoad(true);setInsightErr("");
     try{
       const txt=await callAPI([{role:"user",content:prompt}],apiKey);
       setInsight(txt);
       setInsightTs(Date.now());
+      setInsightSnap(snapAtual);
     }catch(e){setInsightErr(e.message);}
     setInsightLoad(false);
-  },[apiKey,hasPos,cw,port,ccy,total,insightLoad]);
+  },[apiKey,hasPos,cw,port,ccy,total,insightLoad,selicAtual,infIPCA]);
 
-  // Insight: gerado APENAS quando voce clica em "atualizar" (botao no card).
-  // Nao regenera ao abrir, nao regenera apos "ATUALIZAR PRECOS".
-  // Buy & hold = analise estrategica, nao precisa ser frequente.
+  // ===== AUTO-TRIGGER: gera o primeiro insight automaticamente quando o app abre =====
+  // Condicoes: tem API key, tem posicoes, nao tem insight ainda, e nao tentou ainda nesta sessao
+  useEffect(()=>{
+    if(!inited||!apiKey||!hasPos||insight||insightLoad||insightAutoTry)return;
+    setInsightAutoTry(true);
+    const t=setTimeout(()=>{genInsight(false);},4000);// 4s apos init para nao competir com outros loads
+    return ()=>clearTimeout(t);
+  },[inited,apiKey,hasPos,insight,insightLoad,insightAutoTry,genInsight]);
+
+  // ===== DETECTOR DE MUDANCAS SIGNIFICATIVAS =====
+  // Compara snapshot ao gerar insight com o estado atual; retorna lista de alertas se houver mudancas
+  const insightAlertas=useMemo(()=>{
+    if(!insightSnap||!hasPos)return [];
+    const alertas=[];
+    // 1) Variacao % do tamanho do portfolio > 10%
+    if(insightSnap.patrimonio>0){
+      const varPat=((total-insightSnap.patrimonio)/insightSnap.patrimonio)*100;
+      if(Math.abs(varPat)>10){
+        alertas.push({tipo:"patrimonio",texto:"Patrimonio variou "+(varPat>=0?"+":"")+varPat.toFixed(1)+"% desde o ultimo insight (R$ "+insightSnap.patrimonio.toLocaleString("pt-BR",{maximumFractionDigits:0})+" \u2192 R$ "+total.toLocaleString("pt-BR",{maximumFractionDigits:0})+")"});
+      }
+    }
+    // 2) Variacao > 50% no peso de qualquer classe
+    CL.forEach(c=>{
+      const pAntes=(insightSnap.composicao||{})[c.id]||0;
+      const pAgora=cw[c.id]||0;
+      // pelo menos 1pp absoluto E mais de 50% relativo (evita alertas em pesos minusculos)
+      if(pAntes>0&&Math.abs(pAgora-pAntes)>1){
+        const varRel=((pAgora-pAntes)/pAntes)*100;
+        if(Math.abs(varRel)>50){
+          alertas.push({tipo:"classe",texto:c.name+" variou "+(varRel>=0?"+":"")+varRel.toFixed(0)+"% no peso ("+pAntes.toFixed(1)+"% \u2192 "+pAgora.toFixed(1)+"%)"});
+        }
+      }
+    });
+    // 3) Mudanca > 3pp na Selic (pra cima ou pra baixo)
+    const selicAgora=typeof selicAtual==="number"?selicAtual:14.50;
+    if(typeof insightSnap.selic==="number"){
+      const dSelic=selicAgora-insightSnap.selic;
+      if(Math.abs(dSelic)>3){
+        alertas.push({tipo:"selic",texto:"Selic mudou "+(dSelic>=0?"+":"")+dSelic.toFixed(2)+"pp ("+insightSnap.selic.toFixed(2)+"% \u2192 "+selicAgora.toFixed(2)+"%)"});
+      }
+    }
+    // 4) IPCA anualizado > 8%
+    const ipcaAnualAtual=infIPCA&&typeof infIPCA.anual==="number"?infIPCA.anual:0;
+    if(ipcaAnualAtual>8){
+      alertas.push({tipo:"ipca",texto:"IPCA anualizado em "+ipcaAnualAtual.toFixed(2)+"% (acima do limite de 8% - pressao inflacionaria significativa)"});
+    }
+    return alertas;
+  },[insightSnap,hasPos,total,cw,selicAtual,infIPCA]);
 
   // === INSIGHT MENSAL: gerado automaticamente no fechamento do mes ===
   // Loading state
@@ -4632,14 +4787,26 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           alert("Chave invalida. A chave deve comecar com sk-ant-...");
         }
       };
-      const insightCard=hasPos?(apiKey?h("div",{style:{marginBottom:18,padding:"14px",background:"linear-gradient(135deg,rgba(200,169,110,0.08),rgba(91,143,212,0.04))",border:"1px solid "+(insightErr?"rgba(224,82,82,0.35)":"rgba(200,169,110,0.25)"),borderRadius:10}},
+      const insightCard=hasPos?(apiKey?h("div",{style:{marginBottom:18,padding:"14px",background:"linear-gradient(135deg,rgba(200,169,110,0.08),rgba(91,143,212,0.04))",border:"1px solid "+(insightErr?"rgba(224,82,82,0.35)":insightAlertas&&insightAlertas.length>0?"rgba(232,196,74,0.45)":"rgba(200,169,110,0.25)"),borderRadius:10}},
         h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8,gap:6,flexWrap:"wrap"}},
           h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase"}},"Insight Claude IA"),
           h("div",{style:{display:"flex",gap:5,alignItems:"center"}},
             insight&&insightTs>0&&h("span",{style:{fontSize:8,color:"#5A5550",fontFamily:"monospace",marginRight:4}},"gerado: "+new Date(insightTs).toLocaleDateString("pt-BR")),
             h("button",{onClick:trocarChave,style:{background:"none",border:"1px solid rgba(255,255,255,0.15)",borderRadius:4,color:"#8A8070",fontSize:9,padding:"3px 9px",cursor:"pointer",fontFamily:"monospace"}},"chave"),
-            h("button",{onClick:()=>genInsight(true),disabled:insightLoad,style:{background:"none",border:"1px solid rgba(200,169,110,0.3)",borderRadius:4,color:insightLoad?"#5A5550":"#C8A96E",fontSize:9,padding:"3px 9px",cursor:insightLoad?"not-allowed":"pointer",fontFamily:"monospace"}},insightLoad?"...":"atualizar")
+            h("button",{onClick:()=>genInsight(true),disabled:insightLoad,style:{background:insightAlertas&&insightAlertas.length>0?"rgba(232,196,74,0.15)":"none",border:"1px solid "+(insightAlertas&&insightAlertas.length>0?"rgba(232,196,74,0.5)":"rgba(200,169,110,0.3)"),borderRadius:4,color:insightLoad?"#5A5550":insightAlertas&&insightAlertas.length>0?"#E8C44A":"#C8A96E",fontSize:9,padding:"3px 9px",cursor:insightLoad?"not-allowed":"pointer",fontFamily:"monospace"}},insightLoad?"...":(insightAlertas&&insightAlertas.length>0?"atualizar \u26A0":"atualizar"))
           )
+        ),
+        // Banner de alertas quando ha mudancas significativas
+        insightAlertas&&insightAlertas.length>0&&!insightLoad&&h("div",{style:{padding:"9px 11px",background:"rgba(232,196,74,0.10)",border:"1px solid rgba(232,196,74,0.35)",borderRadius:6,marginBottom:10}},
+          h("div",{style:{display:"flex",alignItems:"center",gap:6,marginBottom:5}},
+            h("span",{style:{fontSize:11}},"\u26A0\uFE0F"),
+            h("span",{style:{fontSize:9,color:"#E8C44A",fontFamily:"monospace",fontWeight:700,letterSpacing:1.2}},"MUDANCAS SIGNIFICATIVAS DETECTADAS"),
+            h("span",{style:{fontSize:8,color:"#7A7060",fontFamily:"monospace"}},"(insight pode estar desatualizado)")
+          ),
+          h("div",{style:{display:"flex",flexDirection:"column",gap:2,paddingLeft:18}},
+            ...insightAlertas.map((a,i)=>h("div",{key:i,style:{fontSize:9,color:"#9A9080",lineHeight:1.5}},"\u2022 ",a.texto))
+          ),
+          h("div",{style:{fontSize:8,color:"#7A7060",marginTop:6,paddingLeft:18,fontStyle:"italic"}},"Clique em ",h("strong",{style:{color:"#E8C44A"}},"atualizar")," para regenerar com os dados atuais.")
         ),
         insightLoad&&!insight?h("div",{style:{padding:"12px 0",color:"#8A8070",fontSize:11,fontStyle:"italic",textAlign:"center"}},"Analisando portfolio..."):
         insightErr?h("div",{},
@@ -4647,7 +4814,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           insightErr.toLowerCase().includes("api")||insightErr.toLowerCase().includes("key")?h("div",{style:{fontSize:10,color:"#8A8070",lineHeight:1.5,padding:"6px 0"}},"A chave parece invalida ou expirada. Clique em ",h("b",{style:{color:"#C8A96E"}},"chave")," acima para inserir uma nova."):null
         ):
         insight?h("div",{style:{fontSize:12,color:"#C8C0B0",lineHeight:1.7,whiteSpace:"pre-wrap"}},insight):
-        h("div",{style:{fontSize:11,color:"#8A8070",fontStyle:"italic",lineHeight:1.6,padding:"6px 0"}},"Clique em ",h("b",{style:{color:"#C8A96E",fontStyle:"normal"}},"atualizar")," acima para gerar uma analise do portfolio pela IA.")
+        h("div",{style:{fontSize:11,color:"#8A8070",fontStyle:"italic",lineHeight:1.6,padding:"6px 0"}},"Gerando primeiro insight automaticamente...")
       ):h("div",{style:{marginBottom:18,padding:"12px 14px",background:"rgba(200,169,110,0.04)",border:"1px dashed rgba(200,169,110,0.25)",borderRadius:10,textAlign:"center"}},
         h("div",{style:{fontSize:11,color:"#8A8070",marginBottom:8,lineHeight:1.6}},"Configure sua chave API para insights automaticos da IA sobre seu portfolio."),
         h("button",{onClick:trocarChave,style:{background:"none",border:"1px solid rgba(200,169,110,0.4)",borderRadius:5,color:"#C8A96E",fontSize:10,padding:"5px 12px",cursor:"pointer",fontFamily:"monospace"}},"Configurar chave API")
@@ -5381,26 +5548,172 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                 h("div",{style:{marginBottom:5}},h("strong",{style:{color:"#5B8FD4"}},"Por que e melhor que contar classes")," - um portfolio com 11 classes mas todas correlacionadas em 80% (todas sobem e descem juntas) tem ENB ~2 (so 2 apostas reais). Ja um portfolio com 5 classes verdadeiramente descorrelacionadas tem ENB ~5. ",h("strong",{},"ENB conta apostas INDEPENDENTES, nao classes.")),
                 h("div",{},h("strong",{style:{color:"#5B8FD4"}},"Como e calculado")," - ENB Efetivo = ENB Herfindahl x (1 - Correlacao Media Ponderada\u00B2). O primeiro termo penaliza concentracao em pesos, o segundo penaliza concentracao em fatores de risco correlacionados.")
               ),
-              // Grid de 4 metricas comparativas
-              h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}},
-                // ENB EFETIVO
-                h("div",{style:{background:"rgba(0,0,0,0.25)",borderRadius:6,padding:"10px 12px",borderLeft:"3px solid #9C7DC2"}},
-                  h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",letterSpacing:1.2,marginBottom:4}},"ENB EFETIVO"),
-                  h("div",{style:{display:"flex",alignItems:"baseline",justifyContent:"space-between",gap:6}},
+              // ===== CARD ENB EFETIVO EM DESTAQUE COM BARRA DE GRADACAO =====
+              (()=>{
+                // Faixas para gradacao (n=11 classes max teorico)
+                const enbMax=MPT_CLS.length;// max teorico
+                // Posicao em % na barra 0-enbMax
+                const enbPos=Math.min(100,(enbEfetivo/enbMax)*100);
+                const enbYPBPos=Math.min(100,(enbEfetivoYPB/enbMax)*100);
+                // Cor por faixa
+                const enbCor=enbEfetivo>=5?"#4CAF82":enbEfetivo>=4?"#7DD17D":enbEfetivo>=3?"#E8C44A":enbEfetivo>=2?"#E89060":"#E05252";
+                const enbStatus=enbEfetivo>=5?"EXCELENTE":enbEfetivo>=4?"BOM":enbEfetivo>=3?"REGULAR":enbEfetivo>=2?"FRACO":"CRITICO";
+                const enbDesc=enbEfetivo>=5?"Mais de 5 apostas verdadeiramente independentes - diversificacao excepcional, raro em portfolios reais":
+                              enbEfetivo>=4?"4-5 apostas independentes - diversificacao genuina, alinhada com a recomendacao academica de Meucci":
+                              enbEfetivo>=3?"3-4 apostas independentes - razoavel mas ha espaco para melhorar":
+                              enbEfetivo>=2?"2-3 apostas - portfolio tem classes mas com correlacoes elevadas":
+                              "Portfolio comporta-se como tendo menos de 2 apostas - fragil";
+                return h("div",{style:{background:"linear-gradient(135deg,rgba(156,125,194,0.15),rgba(0,0,0,0.20))",borderRadius:7,padding:"14px 16px",borderLeft:"4px solid "+enbCor,marginBottom:9}},
+                  // Header
+                  h("div",{style:{display:"flex",alignItems:"baseline",justifyContent:"space-between",gap:8,marginBottom:8,flexWrap:"wrap"}},
                     h("div",{},
-                      h("div",{style:{fontSize:9,color:"#7A7060",fontFamily:"monospace"}},"Voce"),
-                      h("div",{style:{fontSize:16,color:enbEfetivo>=4?"#4CAF82":enbEfetivo>=3?"#E8C44A":"#E89060",fontFamily:"Georgia,serif",fontWeight:700,fontStyle:"italic"}},enbEfetivo.toFixed(2))
+                      h("div",{style:{fontSize:8,color:"#9C7DC2",fontFamily:"monospace",letterSpacing:1.5,fontWeight:700,marginBottom:3}},"\u{1F3AF} ENB EFETIVO - METRICA PRINCIPAL DE DESCORRELACAO"),
+                      h("div",{style:{fontSize:7.5,color:"#7A7060",fontStyle:"italic"}},"Numero de apostas verdadeiramente independentes (Meucci 2009)")
                     ),
-                    h("div",{style:{textAlign:"right"}},
-                      h("div",{style:{fontSize:9,color:"#7A7060",fontFamily:"monospace"}},"YPB"),
-                      h("div",{style:{fontSize:13,color:"#9C7DC2",fontFamily:"Georgia,serif",fontWeight:700,fontStyle:"italic",opacity:0.85}},enbEfetivoYPB.toFixed(2))
+                    h("div",{style:{display:"flex",alignItems:"baseline",gap:10}},
+                      h("div",{style:{textAlign:"right"}},
+                        h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",letterSpacing:1}},"VOCE"),
+                        h("div",{style:{fontSize:22,color:enbCor,fontFamily:"Georgia,serif",fontWeight:700,fontStyle:"italic",lineHeight:1}},enbEfetivo.toFixed(2))
+                      ),
+                      h("div",{style:{textAlign:"right",opacity:0.85}},
+                        h("div",{style:{fontSize:7,color:"#9C7DC2",fontFamily:"monospace",letterSpacing:1}},"YPB"),
+                        h("div",{style:{fontSize:16,color:"#9C7DC2",fontFamily:"Georgia,serif",fontWeight:700,fontStyle:"italic",lineHeight:1}},enbEfetivoYPB.toFixed(2))
+                      )
                     )
                   ),
-                  h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",fontStyle:"italic",marginTop:5,lineHeight:1.4}},"apostas verdadeiramente independentes (ideal \u2265 4)")
-                ),
+                  // BARRA DE GRADACAO COM FAIXAS
+                  h("div",{style:{position:"relative",marginBottom:9,paddingTop:14}},
+                    // Background da barra com gradient de faixas
+                    h("div",{style:{position:"relative",height:14,borderRadius:4,overflow:"hidden",background:"linear-gradient(90deg,rgba(224,82,82,0.25) 0%, rgba(224,82,82,0.25) 18%, rgba(232,144,96,0.25) 18%, rgba(232,144,96,0.25) 27%, rgba(232,196,74,0.25) 27%, rgba(232,196,74,0.25) 36%, rgba(125,209,125,0.25) 36%, rgba(125,209,125,0.25) 45%, rgba(76,175,130,0.30) 45%, rgba(76,175,130,0.30) 100%)",border:"1px solid rgba(255,255,255,0.05)"}},
+                      // Linhas separadoras de faixa
+                      ...[2,3,4,5].map(v=>h("div",{key:v,style:{position:"absolute",left:(v/enbMax*100)+"%",top:0,bottom:0,width:1,background:"rgba(255,255,255,0.20)"}})),
+                      // Marker YPB
+                      h("div",{style:{position:"absolute",left:enbYPBPos+"%",top:-2,bottom:-2,width:2,background:"#9C7DC2",opacity:0.8,zIndex:1}}),
+                      // Marker VOCE
+                      h("div",{style:{position:"absolute",left:enbPos+"%",top:-4,bottom:-4,width:3,background:enbCor,zIndex:2,boxShadow:"0 0 4px "+enbCor}})
+                    ),
+                    // Labels das faixas embaixo
+                    h("div",{style:{position:"relative",height:18,marginTop:3}},
+                      ...[
+                        {pos:9,label:"CRITICO",color:"#E05252"},
+                        {pos:22.5,label:"FRACO",color:"#E89060"},
+                        {pos:31.5,label:"REGULAR",color:"#E8C44A"},
+                        {pos:40.5,label:"BOM",color:"#7DD17D"},
+                        {pos:72,label:"EXCELENTE",color:"#4CAF82"}
+                      ].map((f,i)=>h("div",{key:i,style:{position:"absolute",left:f.pos+"%",top:0,fontSize:6.5,color:f.color,fontFamily:"monospace",fontWeight:700,letterSpacing:0.5,transform:"translateX(-50%)"}},f.label)),
+                      // Marcadores numericos no topo da barra
+                      h("div",{style:{position:"absolute",top:-19,left:0,right:0,height:10}},
+                        ...[0,2,3,4,5,enbMax].map((v,i)=>h("div",{key:i,style:{position:"absolute",left:(v/enbMax*100)+"%",fontSize:7,color:"#7A7060",fontFamily:"monospace",transform:"translateX(-50%)"}},v.toString()))
+                      )
+                    )
+                  ),
+                  // Status + descricao + posicao YPB
+                  h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,padding:"7px 10px",background:"rgba(0,0,0,0.30)",borderRadius:5,marginTop:14}},
+                    h("div",{style:{display:"flex",alignItems:"center",gap:6,flex:"1 1 auto"}},
+                      h("span",{style:{fontSize:8,color:enbCor,fontFamily:"monospace",fontWeight:700,letterSpacing:1.2,padding:"2px 6px",background:enbCor+"22",borderRadius:3,border:"1px solid "+enbCor+"66"}},enbStatus),
+                      h("span",{style:{fontSize:8.5,color:"#9A9080",fontStyle:"italic",lineHeight:1.4}},enbDesc)
+                    )
+                  ),
+                  // Legenda dos marcadores
+                  h("div",{style:{display:"flex",alignItems:"center",justifyContent:"center",gap:14,marginTop:7,fontSize:7,fontFamily:"monospace",color:"#7A7060"}},
+                    h("div",{style:{display:"flex",alignItems:"center",gap:4}},h("span",{style:{display:"inline-block",width:8,height:8,background:enbCor,borderRadius:1}}),"VOCE ("+enbEfetivo.toFixed(2)+")"),
+                    h("div",{style:{display:"flex",alignItems:"center",gap:4}},h("span",{style:{display:"inline-block",width:8,height:8,background:"#9C7DC2",borderRadius:1,opacity:0.8}}),"YPB ("+enbEfetivoYPB.toFixed(2)+")")
+                  )
+                );
+              })(),
+
+              // ===== COMPARACAO ENB EFETIVO vs HERFINDAHL (insight chave) =====
+              (()=>{
+                // gap entre os dois indica nivel de redundancia
+                const gap=enbHerfindahl-enbEfetivo;
+                const gapPct=enbHerfindahl>0?(gap/enbHerfindahl)*100:0;
+                let diagnostico,corDiag;
+                if(gapPct<20){
+                  diagnostico="DIVERSIFICACAO REAL - suas classes sao verdadeiramente independentes. As correlacoes entre elas sao baixas, entao o ganho de espalhar pesos se converte integralmente em diversificacao de risco.";
+                  corDiag="#4CAF82";
+                }else if(gapPct<40){
+                  diagnostico="DIVERSIFICACAO MISTA - algumas classes do portfolio se movem juntas, reduzindo o beneficio teorico de espalhar pesos. Ha redundancia moderada.";
+                  corDiag="#E8C44A";
+                }else{
+                  diagnostico="DIVERSIFICACAO APARENTE - voce tem muitas classes (alto Herfindahl) mas elas sao correlacionadas demais. Boa parte do portfolio se move junto, mascarando a falta de diversificacao real.";
+                  corDiag="#E89060";
+                }
+                return h("div",{style:{padding:"11px 13px",background:"rgba(91,143,212,0.06)",border:"1px solid rgba(91,143,212,0.30)",borderRadius:7,marginBottom:9}},
+                  h("div",{style:{fontSize:8.5,letterSpacing:1.2,color:"#5B8FD4",fontFamily:"monospace",fontWeight:700,marginBottom:7}},"\u{1F50D} ENB EFETIVO vs ENB HERFINDAHL - QUAL A DIFERENCA?"),
+                  // Explicacao didatica
+                  h("div",{style:{fontSize:9,color:"#9A9080",lineHeight:1.6,marginBottom:9}},
+                    h("p",{style:{margin:"0 0 5px"}},h("strong",{style:{color:"#5B8FD4"}},"ENB Herfindahl")," conta apostas considerando ",h("strong",{},"apenas os pesos"),". Se voce tem N classes com pesos iguais, ele da N. Se voce tem 90% em uma classe, ele da ~1. ",h("em",{},"Mas ele ignora se as classes se movem juntas.")),
+                    h("p",{style:{margin:"0 0 5px"}},h("strong",{style:{color:"#9C7DC2"}},"ENB Efetivo")," (Meucci) corrige isso multiplicando por (1 - correlacao\u00B2). Se as classes sao correlacionadas, ele ",h("strong",{},"penaliza"),". E o verdadeiro numero de apostas independentes."),
+                    h("p",{style:{margin:0}},h("strong",{},"O gap entre eles revela o nivel de redundancia"),": quanto maior o gap, mais voce tem ",h("em",{},"classes redundantes")," (espalha pesos, mas elas se movem juntas).")
+                  ),
+                  // Comparacao visual com seu portfolio
+                  h("div",{style:{padding:"9px 11px",background:"rgba(0,0,0,0.25)",borderRadius:5,marginBottom:9}},
+                    h("div",{style:{fontSize:7.5,color:"#7A7060",fontFamily:"monospace",letterSpacing:1,marginBottom:6}},"NO SEU PORTFOLIO:"),
+                    // Barra comparativa
+                    h("div",{style:{display:"flex",flexDirection:"column",gap:5}},
+                      // ENB Herfindahl
+                      h("div",{style:{display:"grid",gridTemplateColumns:"110px 1fr 42px",gap:6,alignItems:"center",fontSize:8,fontFamily:"monospace"}},
+                        h("span",{style:{color:"#5B8FD4",fontWeight:700}},"ENB Herfindahl"),
+                        h("div",{style:{position:"relative",height:8,background:"rgba(255,255,255,0.04)",borderRadius:3,overflow:"hidden"}},
+                          h("div",{style:{position:"absolute",top:0,left:0,height:"100%",width:(enbHerfindahl/MPT_CLS.length*100)+"%",background:"#5B8FD4",opacity:0.65,borderRadius:3}})
+                        ),
+                        h("span",{style:{textAlign:"right",color:"#5B8FD4",fontWeight:700}},enbHerfindahl.toFixed(2))
+                      ),
+                      // ENB Efetivo
+                      h("div",{style:{display:"grid",gridTemplateColumns:"110px 1fr 42px",gap:6,alignItems:"center",fontSize:8,fontFamily:"monospace"}},
+                        h("span",{style:{color:"#9C7DC2",fontWeight:700}},"ENB Efetivo"),
+                        h("div",{style:{position:"relative",height:8,background:"rgba(255,255,255,0.04)",borderRadius:3,overflow:"hidden"}},
+                          h("div",{style:{position:"absolute",top:0,left:0,height:"100%",width:(enbEfetivo/MPT_CLS.length*100)+"%",background:"#9C7DC2",opacity:0.9,borderRadius:3}})
+                        ),
+                        h("span",{style:{textAlign:"right",color:"#9C7DC2",fontWeight:700}},enbEfetivo.toFixed(2))
+                      )
+                    ),
+                    // Gap numerico
+                    h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginTop:7,paddingTop:6,borderTop:"1px solid rgba(255,255,255,0.06)",fontSize:8,fontFamily:"monospace"}},
+                      h("div",{style:{color:"#7A7060"}},"Gap (redundancia)"),
+                      h("div",{style:{color:corDiag,fontWeight:700}},"-",gap.toFixed(2)," (",gapPct.toFixed(0),"% perda)")
+                    )
+                  ),
+                  // Diagnostico
+                  h("div",{style:{fontSize:9,color:"#9A9080",lineHeight:1.6,padding:"8px 10px",background:corDiag+"15",border:"1px solid "+corDiag+"40",borderRadius:5}},
+                    h("div",{style:{fontSize:7.5,letterSpacing:1,color:corDiag,fontFamily:"monospace",fontWeight:700,marginBottom:4}},"DIAGNOSTICO"),
+                    diagnostico
+                  ),
+                  // Exemplos didaticos
+                  h("details",{style:{marginTop:9}},
+                    h("summary",{style:{fontSize:8,letterSpacing:1.2,color:"#9A9080",fontFamily:"monospace",fontWeight:700,cursor:"pointer",userSelect:"none"}},"\u{1F4CB} 3 EXEMPLOS CLASSICOS PARA ENTENDER"),
+                    h("div",{style:{marginTop:7,fontSize:8.5,color:"#9A9080",lineHeight:1.6}},
+                      // Exemplo 1
+                      h("div",{style:{marginBottom:7,padding:"7px 9px",background:"rgba(76,175,130,0.05)",borderLeft:"2px solid #4CAF82",borderRadius:"0 3px 3px 0"}},
+                        h("strong",{style:{color:"#4CAF82"}},"\u2728 IDEAL: 5 classes verdadeiramente independentes"),
+                        h("div",{style:{marginTop:3,fontSize:8}},"20% acoes BR, 20% ouro, 20% renda fixa, 20% imoveis, 20% BTC. Correlacao media ~0.15."),
+                        h("div",{style:{marginTop:3,fontFamily:"monospace",fontSize:7.5,color:"#7A7060"}},"ENB Herfindahl = 5.00 \u2022 ENB Efetivo = 4.89 \u2022 Gap ~2%"),
+                        h("div",{style:{marginTop:3,fontSize:8,fontStyle:"italic",color:"#7A7060"}},"O gap minimo prova que cada classe e uma aposta REAL e independente.")
+                      ),
+                      // Exemplo 2
+                      h("div",{style:{marginBottom:7,padding:"7px 9px",background:"rgba(232,196,74,0.05)",borderLeft:"2px solid #E8C44A",borderRadius:"0 3px 3px 0"}},
+                        h("strong",{style:{color:"#E8C44A"}},"\u26A0 MODERADO: muitas classes, algumas correlacionadas"),
+                        h("div",{style:{marginTop:3,fontSize:8}},"11 classes balanceadas mas com FIIs+acoes BR+infra+agro+REITs todas com correlacao ~0.4-0.5 entre si."),
+                        h("div",{style:{marginTop:3,fontFamily:"monospace",fontSize:7.5,color:"#7A7060"}},"ENB Herfindahl = 11.00 \u2022 ENB Efetivo = 4.85 \u2022 Gap ~56%"),
+                        h("div",{style:{marginTop:3,fontSize:8,fontStyle:"italic",color:"#7A7060"}},"Apesar de 11 classes, o ENB Efetivo revela que voce so tem ~5 apostas independentes.")
+                      ),
+                      // Exemplo 3
+                      h("div",{style:{padding:"7px 9px",background:"rgba(224,82,82,0.05)",borderLeft:"2px solid #E05252",borderRadius:"0 3px 3px 0"}},
+                        h("strong",{style:{color:"#E05252"}},"\u274C ARMADILHA: diversificacao aparente"),
+                        h("div",{style:{marginTop:3,fontSize:8}},"60% acoes BR, 30% FIIs, 10% renda fixa. Acoes BR e FIIs com correlacao ~0.6 (\"so se diversifica em IBOV\")."),
+                        h("div",{style:{marginTop:3,fontFamily:"monospace",fontSize:7.5,color:"#7A7060"}},"ENB Herfindahl = 2.27 \u2022 ENB Efetivo = 1.78 \u2022 Gap ~22%"),
+                        h("div",{style:{marginTop:3,fontSize:8,fontStyle:"italic",color:"#7A7060"}},"Tres classes, mas funcionam como ~1.8 apostas (dependentes do ciclo brasileiro).")
+                      )
+                    )
+                  )
+                );
+              })(),
+
+              // Grid de 3 metricas comparativas (sem ENB Efetivo, ja em destaque acima)
+              h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}},
                 // ENB HERFINDAHL
                 h("div",{style:{background:"rgba(0,0,0,0.25)",borderRadius:6,padding:"10px 12px",borderLeft:"3px solid #5B8FD4"}},
-                  h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",letterSpacing:1.2,marginBottom:4}},"ENB HERFINDAHL (sem correl.)"),
+                  h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",letterSpacing:1.2,marginBottom:4}},"ENB HERFINDAHL"),
                   h("div",{style:{display:"flex",alignItems:"baseline",justifyContent:"space-between",gap:6}},
                     h("div",{},
                       h("div",{style:{fontSize:9,color:"#7A7060",fontFamily:"monospace"}},"Voce"),
@@ -5415,7 +5728,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                 ),
                 // CORRELACAO MEDIA PONDERADA
                 h("div",{style:{background:"rgba(0,0,0,0.25)",borderRadius:6,padding:"10px 12px",borderLeft:"3px solid #E89060"}},
-                  h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",letterSpacing:1.2,marginBottom:4}},"CORREL. MEDIA PONDERADA"),
+                  h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",letterSpacing:1.2,marginBottom:4}},"CORREL. MEDIA POND."),
                   h("div",{style:{display:"flex",alignItems:"baseline",justifyContent:"space-between",gap:6}},
                     h("div",{},
                       h("div",{style:{fontSize:9,color:"#7A7060",fontFamily:"monospace"}},"Voce"),
@@ -5426,11 +5739,11 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                       h("div",{style:{fontSize:13,color:"#9C7DC2",fontFamily:"Georgia,serif",fontWeight:700,fontStyle:"italic",opacity:0.85}},corrMediaYPB.toFixed(3))
                     )
                   ),
-                  h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",fontStyle:"italic",marginTop:5,lineHeight:1.4}},"correl. absoluta media entre classes (menor = melhor)")
+                  h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",fontStyle:"italic",marginTop:5,lineHeight:1.4}},"correl. absoluta media (menor = melhor)")
                 ),
                 // HHI
                 h("div",{style:{background:"rgba(0,0,0,0.25)",borderRadius:6,padding:"10px 12px",borderLeft:"3px solid #C8A96E"}},
-                  h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",letterSpacing:1.2,marginBottom:4}},"HHI (CONCENTRACAO)"),
+                  h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",letterSpacing:1.2,marginBottom:4}},"HHI (CONCENTR.)"),
                   h("div",{style:{display:"flex",alignItems:"baseline",justifyContent:"space-between",gap:6}},
                     h("div",{},
                       h("div",{style:{fontSize:9,color:"#7A7060",fontFamily:"monospace"}},"Voce"),
