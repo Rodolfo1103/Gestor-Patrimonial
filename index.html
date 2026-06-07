@@ -417,7 +417,7 @@ function mptMonteCarlo(N,rf){
   }
   return out;
 }
-const SELIC_ANCORA=10;// Selic % a.a. considerada na premissa base
+const SELIC_ANCORA=14.50;// Selic % a.a. considerada na premissa base (atualizada 2026)
 // RR efetivo: comeca como base, depois eh recalibrado por Selic + IA
 // Mutavel apenas via funcao recalibrarRR (nao mutar diretamente)
 let RR={...RR_BASE};
@@ -2993,10 +2993,10 @@ function App(){
   // ===== MPT Monte Carlo cache (recalcula apenas quando cw ou Selic mudam) =====
   // Quantize pra evitar recalcular a cada centesimo de %
   const cwKey=MPT_CLS.map(cid=>Math.round((cw[cid]||0)*10)/10).join(",");
-  const rfKey=Math.round((selicAtual||10)*10)/10;
+  const rfKey=Math.round((selicAtual||14.50)*10)/10;
   const mptCache=useMemo(()=>{
     try{
-      const rf=(typeof selicAtual==="number"&&selicAtual>0?selicAtual:10)/100;
+      const rf=(typeof selicAtual==="number"&&selicAtual>0?selicAtual:14.50)/100;
       return mptMonteCarlo(8000,rf);
     }catch(e){console.error("Erro Monte Carlo:",e);return[];}
   },[cwKey,rfKey]);
@@ -3932,7 +3932,7 @@ function App(){
       const wAporte=MPT_CLS.map(cid=>(cw[cid]||0)/100);
       const somaAporte=wAporte.reduce((a,b)=>a+b,0);
       if(somaAporte>0)for(let i=0;i<wAporte.length;i++)wAporte[i]/=somaAporte;
-      const rfAporte=(typeof selicAtual==="number"&&selicAtual>0?selicAtual:10)/100;
+      const rfAporte=(typeof selicAtual==="number"&&selicAtual>0?selicAtual:14.50)/100;
       const statsAporte=mptStats(wAporte);
       const sharpeAporte=mptSharpe(statsAporte.ret,statsAporte.vol,rfAporte);
       // Acha melhor retorno na mesma volatilidade (alvo fronteira)
@@ -5305,7 +5305,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           });
           // Stats pos-aporte
           const statsPos=mptStats(novosPesos);
-          const sharpePos=mptSharpe(statsPos.ret,statsPos.vol,(typeof selicAtual==="number"&&selicAtual>0?selicAtual:10)/100);
+          const sharpePos=mptSharpe(statsPos.ret,statsPos.vol,(typeof selicAtual==="number"&&selicAtual>0?selicAtual:14.50)/100);
           // Eficiencia fronteira pos
           let maxRetPos=statsPos.ret;
           for(const p of mptCache){
@@ -5548,7 +5548,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
     });
     const somaA=wAlvo.reduce((a,b)=>a+b,0);
     if(somaA>0){for(let i=0;i<wAlvo.length;i++)wAlvo[i]/=somaA;}
-    const rfAtual=(typeof selicAtual==="number"&&selicAtual>0?selicAtual:10)/100;// taxa livre risco anual
+    const rfAtual=(typeof selicAtual==="number"&&selicAtual>0?selicAtual:14.50)/100;// taxa livre risco anual
     const statsAtual=mptStats(wAtual);
     const sharpeAtual=mptSharpe(statsAtual.ret,statsAtual.vol,rfAtual);
     const betaAtual=mptBeta(wAtual);
@@ -5561,12 +5561,57 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
     const statsAW=mptStats(wAW);
     const sharpeAW=mptSharpe(statsAW.ret,statsAW.vol,rfAtual);
     const betaAW=mptBeta(wAW);
+
+    // ===== SHARPE/SORTINO HISTORICO (baseado em retornos mensais reais do portfolio) =====
+    // Diferente do Sharpe modelo (que usa premissas), estes usam DADOS REAIS dos ultimos 12 meses
+    let sharpeHist=null,sortinoHist=null,retAnualHist=null,volAnualHist=null,volDownAnualHist=null,nMesesHist=0;
+    try{
+      if(Array.isArray(histMensal)&&histMensal.length>=4){
+        const snapsHist=histMensal.slice().sort((a,b)=>new Date(a.date)-new Date(b.date));
+        // Pega os ultimos 13 snapshots (gera ate 12 retornos mensais)
+        const ultimos=snapsHist.slice(-13);
+        const retornosMensais=[];
+        for(let i=1;i<ultimos.length;i++){
+          const ant=ultimos[i-1],atu=ultimos[i];
+          if(!ant.totalPatrimBRL||!atu.totalPatrimBRL)continue;
+          const aporte=atu.apValue||0;
+          // Retorno = (Vfinal - Aporte) / Vinicial - 1
+          const ret=(atu.totalPatrimBRL-aporte)/ant.totalPatrimBRL-1;
+          if(!isNaN(ret)&&isFinite(ret)){
+            retornosMensais.push(ret);
+          }
+        }
+        nMesesHist=retornosMensais.length;
+        if(nMesesHist>=3){
+          // Retorno medio mensal e anualizado
+          const retMedioMes=retornosMensais.reduce((s,r)=>s+r,0)/nMesesHist;
+          retAnualHist=Math.pow(1+retMedioMes,12)-1;// composto anual
+          // Volatilidade mensal (desvio padrao) e anualizada
+          const variancia=retornosMensais.reduce((s,r)=>s+Math.pow(r-retMedioMes,2),0)/nMesesHist;
+          const volMes=Math.sqrt(variancia);
+          volAnualHist=volMes*Math.sqrt(12);
+          // Volatilidade Downside (so retornos abaixo do alvo = 0, ou seja, retornos negativos)
+          const downsideRets=retornosMensais.filter(r=>r<0);
+          if(downsideRets.length>0){
+            const downsideVariancia=downsideRets.reduce((s,r)=>s+Math.pow(r,2),0)/nMesesHist;// nota: divide por n total (Sortino classico)
+            const volDownMes=Math.sqrt(downsideVariancia);
+            volDownAnualHist=volDownMes*Math.sqrt(12);
+          }
+          // Sharpe e Sortino
+          const excessoAnual=retAnualHist-rfAtual;
+          if(volAnualHist>0)sharpeHist=excessoAnual/volAnualHist;
+          if(volDownAnualHist&&volDownAnualHist>0)sortinoHist=excessoAnual/volDownAnualHist;
+          else if(downsideRets.length===0)sortinoHist=Infinity;// nenhum retorno negativo no periodo
+        }
+      }
+    }catch(e){console.warn("Erro calculo Sharpe/Sortino:",e);}
+
     // Monte Carlo: usa cache do useMemo (recalcula so quando cw ou Selic mudam)
     const mcResult=mptCache;
     // Encontra portfolio com maior Sharpe (tangencia)
     // RESTRICAO: nenhuma classe pode ter mais de 40% (evita concentracoes irrealistas tipo 80% Bitcoin)
     // e Bitcoin/Ouro/Agro/Imoveis nao podem passar de 15% cada (perfil B&H realista)
-    const limitesMax={fii:0.40,acoes_br:0.30,acoes_ext:0.35,reits:0.15,selic:0.40,ouro:0.15,bitcoin:0.10,infra:0.20,imoveis:0.15,agro:0.15};
+    const limitesMax={fii:0.40,acoes_br:0.30,acoes_ext:0.35,reits:0.15,selic:0.40,treasuries:0.20,ouro:0.15,bitcoin:0.10,infra:0.20,imoveis:0.15,agro:0.15};
     const portfolioValido=p=>{
       for(let i=0;i<MPT_CLS.length;i++){
         if(p.w[i]>limitesMax[MPT_CLS[i]])return false;
@@ -6307,6 +6352,113 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           h("li",{},"Migrar do ATUAL pro ALVO ",sharpeAlvo>sharpeAtual?h("strong",{style:{color:"#4CAF82"}},"melhora"):h("strong",{style:{color:"#E89060"}},"piora")," o Sharpe em ",h("strong",{},((sharpeAlvo-sharpeAtual)).toFixed(2))," pontos (",((sharpeAlvo-sharpeAtual)/Math.max(0.01,Math.abs(sharpeAtual))*100).toFixed(0),"% relativo)."),
           h("li",{},"Eficiencia ATUAL: ",h("strong",{style:{color:"#E05252"}},(sharpeAtual/bestSharpe.sharpe*100).toFixed(0)+"%")," vs ALVO: ",h("strong",{style:{color:"#5B8FD4"}},(sharpeAlvo/bestSharpe.sharpe*100).toFixed(0)+"%")," do maximo teorico (OTIMO)."),
           h("li",{},"Beta ATUAL ",h("strong",{},betaAtual.toFixed(2))," vs ALVO ",h("strong",{},betaAlvo.toFixed(2)),". Para cada 1% de IBOV, espera-se ",h("strong",{},(betaAtual*100).toFixed(0)+"%")," (atual) / ",h("strong",{},(betaAlvo*100).toFixed(0)+"%")," (alvo) no portfolio.")
+        )
+      ),
+
+      // ========== PERFORMANCE AJUSTADA AO RISCO (Sharpe + Sortino historicos) ==========
+      h("div",{style:{background:"linear-gradient(135deg,rgba(91,143,212,0.07),rgba(91,143,212,0.02))",border:"1px solid rgba(91,143,212,0.30)",borderRadius:9,padding:"14px 16px",marginBottom:14}},
+        h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10,gap:8,flexWrap:"wrap"}},
+          h("div",{},
+            h("div",{style:{fontSize:9,letterSpacing:2,color:"#5B8FD4",fontFamily:"monospace",fontWeight:700,textTransform:"uppercase"}},"\u{1F4CA} PERFORMANCE AJUSTADA AO RISCO"),
+            h("div",{style:{fontSize:8,color:"#7A7060",marginTop:3,fontStyle:"italic"}},"Calculado sobre retornos mensais REAIS do portfolio "+(nMesesHist>0?"("+nMesesHist+" meses)":"(historico insuficiente)"))
+          ),
+          h("div",{style:{textAlign:"right"}},
+            h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",letterSpacing:1.2}},"SELIC USADA COMO RF"),
+            h("div",{style:{fontSize:11,color:"#5B8FD4",fontFamily:"monospace",fontWeight:700}},(rfAtual*100).toFixed(2)+"% a.a.")
+          )
+        ),
+        nMesesHist<3?(
+          h("div",{style:{padding:"12px 14px",background:"rgba(0,0,0,0.18)",borderRadius:6,fontSize:10,color:"#9A9080",lineHeight:1.6,fontStyle:"italic"}},
+            "\u26A0 Sao necessarios pelo menos 3 meses de historico para calcular Sharpe e Sortino confiaveis. Voce tem "+nMesesHist+" mes(es) de retornos mensais. Continue registrando snapshots mensais para que essas metricas fiquem disponiveis."
+          )
+        ):h("div",{},
+          // Grid com Retorno, Vol total, Vol Downside
+          h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:12}},
+            h("div",{style:{background:"rgba(0,0,0,0.20)",borderRadius:6,padding:"9px 11px",borderLeft:"3px solid #4CAF82"}},
+              h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",letterSpacing:1.2,marginBottom:3}},"RETORNO ANUAL"),
+              h("div",{style:{fontSize:14,color:retAnualHist>=0?"#4CAF82":"#E05252",fontFamily:"monospace",fontWeight:700}},(retAnualHist*100).toFixed(2)+"%"),
+              h("div",{style:{fontSize:7,color:"#5A5550",marginTop:2,fontFamily:"monospace"}},"composto a.a.")
+            ),
+            h("div",{style:{background:"rgba(0,0,0,0.20)",borderRadius:6,padding:"9px 11px",borderLeft:"3px solid #E8C44A"}},
+              h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",letterSpacing:1.2,marginBottom:3}},"VOL. TOTAL"),
+              h("div",{style:{fontSize:14,color:"#E8C44A",fontFamily:"monospace",fontWeight:700}},(volAnualHist*100).toFixed(2)+"%"),
+              h("div",{style:{fontSize:7,color:"#5A5550",marginTop:2,fontFamily:"monospace"}},"desvio padrao a.a.")
+            ),
+            h("div",{style:{background:"rgba(0,0,0,0.20)",borderRadius:6,padding:"9px 11px",borderLeft:"3px solid #E89060"}},
+              h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",letterSpacing:1.2,marginBottom:3}},"VOL. DOWNSIDE"),
+              h("div",{style:{fontSize:14,color:"#E89060",fontFamily:"monospace",fontWeight:700}},volDownAnualHist?(volDownAnualHist*100).toFixed(2)+"%":"0,00%"),
+              h("div",{style:{fontSize:7,color:"#5A5550",marginTop:2,fontFamily:"monospace"}},"so quedas a.a.")
+            )
+          ),
+          // SHARPE
+          (()=>{
+            const sh=sharpeHist;
+            const corS=sh===null?"#7A7060":sh>=1?"#4CAF82":sh>=0.5?"#E8C44A":sh>=0?"#E89060":"#E05252";
+            const intS=sh===null?"Insuficiente":sh>=1?"EXCELENTE":sh>=0.5?"BOM":sh>=0?"REGULAR":"NEGATIVO";
+            return h("div",{style:{background:"rgba(0,0,0,0.20)",borderRadius:6,padding:"11px 13px",marginBottom:10,borderLeft:"3px solid "+corS}},
+              h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6,gap:6,flexWrap:"wrap"}},
+                h("div",{},
+                  h("div",{style:{fontSize:9,letterSpacing:1.5,color:"#C8A96E",fontFamily:"monospace",fontWeight:700}},"INDICE DE SHARPE"),
+                  h("div",{style:{fontSize:8,color:"#7A7060",fontStyle:"italic",marginTop:2}},"Retorno excedente por unidade de risco TOTAL")
+                ),
+                h("div",{style:{textAlign:"right"}},
+                  h("div",{style:{fontSize:16,color:corS,fontFamily:"monospace",fontWeight:700}},sh!==null?sh.toFixed(3):"---"),
+                  h("div",{style:{fontSize:8,color:corS,fontFamily:"monospace",fontWeight:700,letterSpacing:1.5}},intS)
+                )
+              ),
+              h("div",{style:{fontSize:9,color:"#9A9080",lineHeight:1.55,marginTop:4}},
+                h("strong",{style:{color:"#C8A96E"}},"Formula"),": (Retorno Portfolio - Selic) / Volatilidade Total. ",
+                h("strong",{style:{color:"#5B8FD4"}},"Interpretacao"),": >1.0 excelente (raro), 0.5-1.0 bom (faixa tipica de portfolios bem diversificados), 0-0.5 regular, <0 ruim (Selic pura seria melhor). ",
+                "Sharpe mede o ",h("em",{},"premio de risco que voce esta capturando")," por unidade de oscilacao total - se positivo, voce esta sendo recompensado por tomar risco em vez de ficar so na Selic."
+              )
+            );
+          })(),
+          // SORTINO
+          (()=>{
+            const so=sortinoHist;
+            const finita=so!==null&&isFinite(so);
+            const corS=!finita?"#4CAF82":so>=1.5?"#4CAF82":so>=0.8?"#E8C44A":so>=0?"#E89060":"#E05252";
+            const intS=so===null?"Insuficiente":!finita?"EXCEPCIONAL":so>=1.5?"EXCELENTE":so>=0.8?"BOM":so>=0?"REGULAR":"NEGATIVO";
+            const valDisplay=so===null?"---":!finita?"\u221E":so.toFixed(3);
+            return h("div",{style:{background:"rgba(0,0,0,0.20)",borderRadius:6,padding:"11px 13px",marginBottom:6,borderLeft:"3px solid "+corS}},
+              h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6,gap:6,flexWrap:"wrap"}},
+                h("div",{},
+                  h("div",{style:{fontSize:9,letterSpacing:1.5,color:"#C8A96E",fontFamily:"monospace",fontWeight:700}},"INDICE DE SORTINO"),
+                  h("div",{style:{fontSize:8,color:"#7A7060",fontStyle:"italic",marginTop:2}},"Retorno excedente por unidade de risco DOWNSIDE")
+                ),
+                h("div",{style:{textAlign:"right"}},
+                  h("div",{style:{fontSize:16,color:corS,fontFamily:"monospace",fontWeight:700}},valDisplay),
+                  h("div",{style:{fontSize:8,color:corS,fontFamily:"monospace",fontWeight:700,letterSpacing:1.5}},intS)
+                )
+              ),
+              h("div",{style:{fontSize:9,color:"#9A9080",lineHeight:1.55,marginTop:4}},
+                h("strong",{style:{color:"#C8A96E"}},"Formula"),": (Retorno Portfolio - Selic) / Volatilidade Downside. ",
+                h("strong",{style:{color:"#5B8FD4"}},"Diferenca para Sharpe"),": Sortino so penaliza ",h("em",{},"oscilacoes negativas"),". Volatilidade para cima nao e \"risco\" (voce nao se incomoda quando sobe). ",
+                "Sortino mais alto que Sharpe indica que sua volatilidade vem mais de movimentos positivos do que negativos. ",
+                h("strong",{style:{color:"#5B8FD4"}},"Interpretacao"),": >1.5 excelente, 0.8-1.5 bom, 0-0.8 regular, <0 ruim. ",
+                !finita?"Seu portfolio nao teve nenhum mes negativo no periodo analisado - cenario excepcional.":""
+              )
+            );
+          })(),
+          // Comparativo Sharpe vs Sortino
+          (()=>{
+            if(sharpeHist===null||sortinoHist===null||!isFinite(sortinoHist))return null;
+            const dif=sortinoHist-sharpeHist;
+            const corD=dif>=0.3?"#4CAF82":dif>=0?"#E8C44A":"#E89060";
+            return h("div",{style:{background:"rgba(91,143,212,0.05)",borderRadius:5,padding:"8px 10px",fontSize:9,color:"#9A9080",lineHeight:1.6,borderLeft:"3px solid "+corD,fontStyle:"italic"}},
+              h("strong",{style:{color:corD,fontStyle:"normal"}},"\u{1F50D} ANALISE"),": ",
+              dif>=0.3?
+                "Sortino significativamente maior que Sharpe ("+dif.toFixed(2)+" de diferenca). Indica que sua volatilidade vem majoritariamente de movimentos POSITIVOS. Excelente sinal de qualidade da carteira - voce esta sendo bem remunerado pelos riscos que importam."
+              :dif>=0?
+                "Sortino levemente acima do Sharpe ("+dif.toFixed(2)+" de diferenca). Volatilidade do portfolio e relativamente equilibrada entre movimentos pra cima e pra baixo. Padrao normal de carteira diversificada."
+              :
+                "Sortino abaixo do Sharpe (diferenca "+dif.toFixed(2)+"). Indica que parte significativa da volatilidade vem de movimentos NEGATIVOS. Considere revisar a composicao para reduzir downside."
+            );
+          })(),
+          // Disclaimer transparencia
+          h("div",{style:{fontSize:8,color:"#6A6050",marginTop:10,fontStyle:"italic",lineHeight:1.5,padding:"6px 8px",background:"rgba(0,0,0,0.15)",borderRadius:4}},
+            "\u{1F4DD} ",h("strong",{},"Como sao calculados"),": retornos mensais reais do seu portfolio (descontando aportes), anualizados via composicao. Sharpe usa volatilidade total, Sortino usa apenas a volatilidade dos meses com retorno negativo. Janela: ate 12 ultimos meses disponiveis. Quanto mais meses voce acumular, mais confiavel a metrica."
+          )
         )
       ),
 
