@@ -5748,7 +5748,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           const efS=sharpeRange>0?Math.max(0,Math.min(100,((p.sharpe-worstSharpeAbs)/sharpeRange)*100)):50;
           return ef*0.70+efS*0.30;
         };
-        // Conceito A-F estilo escolar
+        // Conceito A-F estilo escolar (faixas calibradas: 5 pontos para A, depois 10pp ate D, 15pp E, <40 F)
         let conceito,corConceito,descConceito,detalheConceito;
         if(notaFinal>=85){
           conceito="A";corConceito="#4CAF82";descConceito="Excelente";
@@ -5759,9 +5759,12 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         }else if(notaFinal>=65){
           conceito="C";corConceito="#E8C44A";descConceito="Bom";
           detalheConceito="Posicao razoavel mas com espaco claro para otimizacao. A diversificacao pode ser aprimorada e a relacao risco/retorno pode ser melhorada via ajustes direcionados nas classes que mais divergem do alvo.";
-        }else if(notaFinal>=50){
+        }else if(notaFinal>=55){
           conceito="D";corConceito="#E89060";descConceito="Regular";
           detalheConceito="Ha desvios relevantes em relacao a fronteira eficiente. Possivelmente concentracao excessiva em uma ou duas classes, ou alocacao subotima entre risco e retorno. Rebalanceamento estruturado pode trazer ganhos significativos sem aumentar o risco total.";
+        }else if(notaFinal>=40){
+          conceito="E";corConceito="#D67050";descConceito="Fragil";
+          detalheConceito="Alocacao com fragilidades evidentes. Concentracao excessiva penalizando relacao risco-retorno OU diversificacao em classes pouco eficientes. Revisao estruturada da composicao recomendada com priorizacao de classes com melhor Sharpe historico.";
         }else{
           conceito="F";corConceito="#E05252";descConceito="Insatisfatorio";
           detalheConceito="Alocacao distante da fronteira eficiente. Risco assumido nao esta sendo compensado adequadamente em retorno esperado. Revisao profunda da estrutura recomendada - provavelmente excesso de concentracao em classes correlacionadas ou alocacao incoerente com o perfil.";
@@ -5823,11 +5826,12 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
               h("div",{style:{color:"#6A6050",letterSpacing:1.5}},"INTERPRETACAO")
             ),
             ...[
-              {c:"A",cor:"#4CAF82",faixa:"85-100%",desc:"Praticamente na fronteira eficiente. Pouco espaco para melhoria."},
-              {c:"B",cor:"#7DD17D",faixa:"75-85%",desc:"Proximo ao otimo do seu perfil. Ajustes finos possiveis."},
-              {c:"C",cor:"#E8C44A",faixa:"65-75%",desc:"Posicao razoavel com espaco claro para otimizacao."},
-              {c:"D",cor:"#E89060",faixa:"50-65%",desc:"Desvios relevantes da fronteira. Rebalanceamento traz ganhos significativos."},
-              {c:"F",cor:"#E05252",faixa:"<50%",desc:"Distante da fronteira. Revisao profunda recomendada."}
+              {c:"A",cor:"#4CAF82",faixa:"85-100",desc:"Praticamente na fronteira eficiente. Pouco espaco para melhoria."},
+              {c:"B",cor:"#7DD17D",faixa:"75-85",desc:"Proximo ao otimo do seu perfil. Ajustes finos possiveis."},
+              {c:"C",cor:"#E8C44A",faixa:"65-75",desc:"Posicao razoavel com espaco claro para otimizacao."},
+              {c:"D",cor:"#E89060",faixa:"55-65",desc:"Desvios relevantes da fronteira. Rebalanceamento traz ganhos significativos."},
+              {c:"E",cor:"#D67050",faixa:"40-55",desc:"Alocacao fragil. Concentracao excessiva ou diversificacao em classes pouco eficientes."},
+              {c:"F",cor:"#E05252",faixa:"<40",desc:"Distante da fronteira. Revisao profunda recomendada."}
             ].map((n,i)=>h("div",{key:i,style:{display:"grid",gridTemplateColumns:"32px 70px 1fr",gap:8,padding:"5px 0",borderTop:i>0?"1px solid rgba(255,255,255,0.04)":"none",alignItems:"center",background:n.c===conceito?"rgba(200,169,110,0.05)":"transparent",borderRadius:n.c===conceito?4:0,paddingLeft:n.c===conceito?6:0}},
               h("div",{style:{fontSize:14,color:n.cor,fontFamily:"Georgia,serif",fontWeight:700,textAlign:"center"}},n.c),
               h("div",{style:{fontSize:9,color:n.cor,fontFamily:"monospace",fontWeight:700}},n.faixa),
@@ -5845,16 +5849,17 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             const stepAm=Math.max(1,Math.floor(mcResult.length/1500));
             for(let i=0;i<mcResult.length;i+=stepAm)amostra.push(mcResult[i]);
             const notas=amostra.map(calcNotaPortfolio);
-            const distrib={A:0,B:0,C:0,D:0,F:0};
+            const distrib={A:0,B:0,C:0,D:0,E:0,F:0};
             // Acumuladores de peso por classe para cada faixa de nota
-            const acumPesos={A:{},B:{},C:{},D:{},F:{}};
-            MPT_CLS.forEach(cId=>{["A","B","C","D","F"].forEach(g=>{acumPesos[g][cId]=0;});});
+            const acumPesos={A:{},B:{},C:{},D:{},E:{},F:{}};
+            MPT_CLS.forEach(cId=>{["A","B","C","D","E","F"].forEach(g=>{acumPesos[g][cId]=0;});});
             notas.forEach((n,idx)=>{
               let faixa;
               if(n>=85)faixa="A";
               else if(n>=75)faixa="B";
               else if(n>=65)faixa="C";
-              else if(n>=50)faixa="D";
+              else if(n>=55)faixa="D";
+              else if(n>=40)faixa="E";
               else faixa="F";
               distrib[faixa]++;
               // Soma pesos do portfolio para a faixa
@@ -5866,12 +5871,12 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
               }
             });
             const total=amostra.length;
-            const pcts={A:distrib.A/total*100,B:distrib.B/total*100,C:distrib.C/total*100,D:distrib.D/total*100,F:distrib.F/total*100};
-            const maxPct=Math.max(pcts.A,pcts.B,pcts.C,pcts.D,pcts.F);
-            const cores={A:"#4CAF82",B:"#7DD17D",C:"#E8C44A",D:"#E89060",F:"#E05252"};
+            const pcts={A:distrib.A/total*100,B:distrib.B/total*100,C:distrib.C/total*100,D:distrib.D/total*100,E:distrib.E/total*100,F:distrib.F/total*100};
+            const maxPct=Math.max(pcts.A,pcts.B,pcts.C,pcts.D,pcts.E,pcts.F);
+            const cores={A:"#4CAF82",B:"#7DD17D",C:"#E8C44A",D:"#E89060",E:"#D67050",F:"#E05252"};
             // Calcula Top 3 classes de cada faixa (peso medio)
             const top3PorFaixa={};
-            ["A","B","C","D","F"].forEach(g=>{
+            ["A","B","C","D","E","F"].forEach(g=>{
               if(distrib[g]===0){top3PorFaixa[g]=[];return;}
               const arr=MPT_CLS.map(cId=>{
                 const cl=CL.find(c=>c.id===cId)||{};
@@ -5894,6 +5899,33 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             }
             const notaMelhor=calcNotaPortfolio(bestS);
             const notaPior=calcNotaPortfolio(worstS);
+
+            // ===== ENCONTRA PORTFOLIO COM MAIOR e MENOR NOTA HIBRIDA =====
+            // Procura no MC inteiro (nao na amostra de 1500) para precisao
+            let pBestNota=mcResult[0],pWorstNota=mcResult[0];
+            let bestNotaVal=calcNotaPortfolio(pBestNota);
+            let worstNotaVal=bestNotaVal;
+            for(const p of mcResult){
+              const n=calcNotaPortfolio(p);
+              if(n>bestNotaVal){bestNotaVal=n;pBestNota=p;}
+              if(n<worstNotaVal){worstNotaVal=n;pWorstNota=p;}
+            }
+            // Composicao ordenada (top 5 classes) de cada extremo
+            const composicaoOrdenada=(p)=>{
+              if(!p||!p.w)return[];
+              return MPT_CLS.map((cId,i)=>{
+                const cl=CL.find(c=>c.id===cId)||{};
+                return {
+                  id:cId,
+                  tag:cl.tag||cId.slice(0,3).toUpperCase(),
+                  name:cl.name||cId,
+                  color:cl.color||"#9A9080",
+                  peso:(p.w[i]||0)*100
+                };
+              }).sort((a,b)=>b.peso-a.peso);
+            };
+            const compMelhor=composicaoOrdenada(pBestNota);
+            const compPior=composicaoOrdenada(pWorstNota);
             return h("div",{style:{marginTop:14,paddingTop:12,borderTop:"1px solid rgba(255,255,255,0.05)"}},
               h("div",{style:{fontSize:8,letterSpacing:1.8,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,marginBottom:4}},"\u{1F4CA} DISTRIBUICAO DE PORTFOLIOS POSSIVEIS"),
               // EXPLICACAO DETALHADA DA METODOLOGIA
@@ -5905,8 +5937,8 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                 h("div",{},h("strong",{},"Premissas (R/E):")," cada classe tem um retorno esperado e volatilidade calibrados (ver bloco \"Premissas R/E\" mais abaixo), e a matriz de correlacao entre classes e empirica. Tudo recalibrado dinamicamente conforme a Selic atual e ajustes da IA.")
               ),
               h("div",{style:{fontSize:8.5,color:"#6A6050",fontStyle:"italic",marginBottom:8,lineHeight:1.4}},"Distribuicao das notas dos ",total," portfolios simulados, com ",h("strong",{style:{color:"#9A9080"}},"DNA")," (top 3 classes mais predominantes por nota):"),
-              h("div",{style:{display:"flex",alignItems:"flex-end",gap:6,height:160,padding:"0 4px"}},
-                ...["A","B","C","D","F"].map(g=>{
+              h("div",{style:{display:"flex",alignItems:"flex-end",gap:5,height:160,padding:"0 4px"}},
+                ...["A","B","C","D","E","F"].map(g=>{
                   const alturaPct=maxPct>0?(pcts[g]/maxPct)*100:0;
                   const isSeu=g===conceito;
                   const top3=top3PorFaixa[g];
@@ -5962,6 +5994,59 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                   )
                 )
               ),
+              // ===== COMPOSICOES EXTREMAS: MELHOR (A) e PIOR (F) =====
+              h("div",{style:{marginTop:10,display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}},
+                // MELHOR COMPOSICAO POSSIVEL (NOTA MAXIMA)
+                h("div",{style:{background:"linear-gradient(135deg,rgba(76,175,130,0.10),rgba(76,175,130,0.02))",border:"1px solid rgba(76,175,130,0.40)",borderRadius:6,padding:"10px 11px"}},
+                  h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:6,marginBottom:6}},
+                    h("div",{style:{fontSize:8,color:"#4CAF82",fontFamily:"monospace",fontWeight:700,letterSpacing:1}},"\u{1F3C6} MELHOR"),
+                    h("div",{style:{fontSize:13,color:"#4CAF82",fontFamily:"Georgia,serif",fontWeight:700,fontStyle:"italic"}},"A ",bestNotaVal.toFixed(0))
+                  ),
+                  h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",marginBottom:6,lineHeight:1.4}},
+                    "Ret ",h("strong",{style:{color:"#4CAF82"}},(pBestNota.ret*100).toFixed(1)+"%")," \u2022 Vol ",h("strong",{},(pBestNota.vol*100).toFixed(1)+"%")," \u2022 Sharpe ",h("strong",{style:{color:"#4CAF82"}},pBestNota.sharpe.toFixed(2))
+                  ),
+                  // Top 5 pesos em mini-barras
+                  h("div",{style:{display:"flex",flexDirection:"column",gap:3}},
+                    ...compMelhor.slice(0,5).map(c=>h("div",{key:c.id,style:{display:"flex",alignItems:"center",gap:5,fontSize:7.5,fontFamily:"monospace"}},
+                      h("div",{style:{width:34,color:c.color,fontWeight:700,fontSize:7,letterSpacing:0.5,whiteSpace:"nowrap"}},c.tag),
+                      h("div",{style:{flex:1,height:7,background:"rgba(0,0,0,0.30)",borderRadius:2,overflow:"hidden",position:"relative"}},
+                        h("div",{style:{position:"absolute",left:0,top:0,bottom:0,width:Math.min(100,c.peso*1.5)+"%",background:c.color,opacity:0.85,transition:"width 0.3s"}})
+                      ),
+                      h("div",{style:{width:30,textAlign:"right",color:"#E8E2D5",fontWeight:700,fontSize:8}},c.peso.toFixed(1)+"%")
+                    ))
+                  ),
+                  h("div",{style:{fontSize:7,color:"#7A7060",fontStyle:"italic",marginTop:6,lineHeight:1.4}},
+                    "Top 5 classes desta composicao otima. ",h("strong",{},"Pesos balanceados")," entre classes complementares."
+                  )
+                ),
+                // PIOR COMPOSICAO POSSIVEL (NOTA MINIMA)
+                h("div",{style:{background:"linear-gradient(135deg,rgba(224,82,82,0.10),rgba(224,82,82,0.02))",border:"1px solid rgba(224,82,82,0.40)",borderRadius:6,padding:"10px 11px"}},
+                  h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:6,marginBottom:6}},
+                    h("div",{style:{fontSize:8,color:"#E05252",fontFamily:"monospace",fontWeight:700,letterSpacing:1}},"\u{1F480} PIOR"),
+                    h("div",{style:{fontSize:13,color:"#E05252",fontFamily:"Georgia,serif",fontWeight:700,fontStyle:"italic"}},"F ",worstNotaVal.toFixed(0))
+                  ),
+                  h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",marginBottom:6,lineHeight:1.4}},
+                    "Ret ",h("strong",{style:{color:pWorstNota.ret<0?"#E05252":"#E89060"}},(pWorstNota.ret*100).toFixed(1)+"%")," \u2022 Vol ",h("strong",{style:{color:"#E89060"}},(pWorstNota.vol*100).toFixed(1)+"%")," \u2022 Sharpe ",h("strong",{style:{color:"#E05252"}},pWorstNota.sharpe.toFixed(2))
+                  ),
+                  // Top 5 pesos em mini-barras
+                  h("div",{style:{display:"flex",flexDirection:"column",gap:3}},
+                    ...compPior.slice(0,5).map(c=>h("div",{key:c.id,style:{display:"flex",alignItems:"center",gap:5,fontSize:7.5,fontFamily:"monospace"}},
+                      h("div",{style:{width:34,color:c.color,fontWeight:700,fontSize:7,letterSpacing:0.5,whiteSpace:"nowrap"}},c.tag),
+                      h("div",{style:{flex:1,height:7,background:"rgba(0,0,0,0.30)",borderRadius:2,overflow:"hidden",position:"relative"}},
+                        h("div",{style:{position:"absolute",left:0,top:0,bottom:0,width:Math.min(100,c.peso*1.5)+"%",background:c.color,opacity:0.85,transition:"width 0.3s"}})
+                      ),
+                      h("div",{style:{width:30,textAlign:"right",color:"#E8E2D5",fontWeight:700,fontSize:8}},c.peso.toFixed(1)+"%")
+                    ))
+                  ),
+                  h("div",{style:{fontSize:7,color:"#7A7060",fontStyle:"italic",marginTop:6,lineHeight:1.4}},
+                    "Top 5 classes desta composicao desastrosa. ",h("strong",{},"Concentracao excessiva")," em poucas classes."
+                  )
+                )
+              ),
+              // Nota explicativa
+              h("div",{style:{fontSize:8,color:"#7A7060",fontStyle:"italic",marginTop:8,padding:"6px 9px",background:"rgba(0,0,0,0.15)",borderRadius:4,lineHeight:1.55}},
+                "\u{1F4A1} ",h("strong",{style:{color:"#9A9080"}},"Casos extremos encontrados entre os ",mcResult.length.toLocaleString("pt-BR")," portfolios simulados"),". A melhor composicao mostra que ",h("strong",{style:{color:"#4CAF82"}},"diversificacao inteligente")," gera notas proximas de 100. A pior mostra como ",h("strong",{style:{color:"#E05252"}},"concentracao excessiva")," destroi o equilibrio risco-retorno."
+              ),
               h("div",{style:{fontSize:8.5,color:"#9A9080",lineHeight:1.55,marginTop:10,padding:"8px 10px",background:"rgba(0,0,0,0.18)",borderLeft:"3px solid "+corConceito,borderRadius:"0 4px 4px 0"}},
                 "Sua nota ",h("strong",{style:{color:corConceito}},conceito)," (",notaFinal.toFixed(0),") ",
                 notaFinal>=notaMedia+15?h("span",{},"esta ",h("strong",{style:{color:"#4CAF82"}},"+"+(notaFinal-notaMedia).toFixed(0)+" pontos acima da media")," dos portfolios simulados. ",notaFinal>=notaMelhor-5?"Posicao muito proxima do otimo possivel.":"Bem acima do tipico."):
@@ -5975,14 +6060,27 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
 
       // ========== INSIGHT GLOBAL ==========
       (()=>{
-        // Calcula eficiencia de fronteira de cada portfolio (% retorno capturado na sua vol)
-        // Esta e a MESMA metodologia da nota A-F: justa para qualquer perfil de risco
-        const calcEfFronteira=(ret,vol)=>{
+        // Recalcula bestSharpe e worstSharpe absolutos do MC (mesmos do bloco nota A-F)
+        let bestSharpeAbsG=mcResult[0]?mcResult[0].sharpe:0;
+        let worstSharpeAbsG=mcResult[0]?mcResult[0].sharpe:0;
+        for(const p of mcResult){
+          if(p.sharpe>bestSharpeAbsG)bestSharpeAbsG=p.sharpe;
+          if(p.sharpe<worstSharpeAbsG)worstSharpeAbsG=p.sharpe;
+        }
+        const sharpeRangeG=bestSharpeAbsG-worstSharpeAbsG;
+        // ===== FORMULA UNIFICADA (mesma do bloco "NOTA DE EFICIENCIA") =====
+        // 70% eficiencia de fronteira + 30% eficiencia de Sharpe
+        // Garante COERENCIA TOTAL entre os blocos do card MPT
+        const calcEfHibrida=(ret,vol,sharpe)=>{
+          // (1) Eficiencia de fronteira na faixa de vol (margem 1.5%)
           let maxRet=ret;
           for(const p of mcResult){
             if(Math.abs(p.vol-vol)<0.015&&p.ret>maxRet)maxRet=p.ret;
           }
-          return Math.max(0,Math.min(100,(ret/Math.max(0.001,maxRet))*100));
+          const ef=Math.max(0,Math.min(100,(ret/Math.max(0.001,maxRet))*100));
+          // (2) Eficiencia de Sharpe (0-100 entre pior e melhor do MC)
+          const efS=sharpeRangeG>0?Math.max(0,Math.min(100,((sharpe-worstSharpeAbsG)/sharpeRangeG)*100)):50;
+          return ef*0.70+efS*0.30;
         };
         const portfs=[
           {nome:"ATUAL",cor:"#E05252",ret:statsAtual.ret,vol:statsAtual.vol,sharpe:sharpeAtual,beta:betaAtual},
@@ -5994,10 +6092,10 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         const melhorSharpe=compar.reduce((a,b)=>a.sharpe>b.sharpe?a:b);
         const menorVol=compar.reduce((a,b)=>a.vol<b.vol?a:b);
         const maiorRet=compar.reduce((a,b)=>a.ret>b.ret?a:b);
-        // Eficiencia de fronteira (metrica unica e coerente com a nota A-F)
-        const efAtual=calcEfFronteira(statsAtual.ret,statsAtual.vol);
-        const efAlvo=calcEfFronteira(statsAlvo.ret,statsAlvo.vol);
-        const efAW=calcEfFronteira(statsAW.ret,statsAW.vol);
+        // Eficiencia HIBRIDA (70% fronteira + 30% Sharpe) - mesma metrica da nota A-F
+        const efAtual=calcEfHibrida(statsAtual.ret,statsAtual.vol,sharpeAtual);
+        const efAlvo=calcEfHibrida(statsAlvo.ret,statsAlvo.vol,sharpeAlvo);
+        const efAW=calcEfHibrida(statsAW.ret,statsAW.vol,sharpeAW);
         // Identifica o MAIS eficiente pela MESMA metrica usada no ranking
         const ranking=[
           {n:"ATUAL",v:efAtual},
@@ -6011,16 +6109,16 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         // Estrategia recomendada (baseada na MESMA metrica do ranking)
         let estrategia="",estrategiaCor="#8A8070";
         if(lider.n==="ATUAL"){
-          estrategia="Seu portfolio atual e o MAIS eficiente entre os 3 comparativos (captura "+efAtual.toFixed(0)+"% da fronteira eficiente). Continue na trajetoria atual respeitando margem de seguranca.";
+          estrategia="Seu portfolio atual e o MAIS eficiente entre os 3 comparativos (nota de eficiencia "+efAtual.toFixed(0)+", combinando fronteira + Sharpe). Continue na trajetoria atual respeitando margem de seguranca.";
           estrategiaCor="#4CAF82";
         }else if(lider.n==="ALVO"&&(efAlvo-efAtual)>2){
-          estrategia="A alocacao ALVO (suas bandas medias) captura "+efAlvo.toFixed(0)+"% da fronteira, "+(efAlvo-efAtual).toFixed(1)+"pp acima do atual. Migrar gradualmente via aportes pode melhorar a eficiencia.";
+          estrategia="A alocacao ALVO (suas bandas medias) tem nota "+efAlvo.toFixed(0)+", "+(efAlvo-efAtual).toFixed(1)+" pontos acima do atual ("+efAtual.toFixed(0)+"). Migrar gradualmente via aportes pode melhorar a eficiencia.";
           estrategiaCor="#5B8FD4";
         }else if(lider.n==="ALL WEATHER"&&(efAW-efAtual)>2){
-          estrategia="O All Weather captura "+efAW.toFixed(0)+"% da fronteira, "+(efAW-efAtual).toFixed(1)+"pp acima do atual. Considere maior exposicao defensiva como hedge macroeconomico.";
+          estrategia="O All Weather tem nota "+efAW.toFixed(0)+", "+(efAW-efAtual).toFixed(1)+" pontos acima do atual ("+efAtual.toFixed(0)+"). Considere maior exposicao defensiva como hedge macroeconomico.";
           estrategiaCor="#2EBFA5";
         }else{
-          estrategia="Os 3 portfolios estao em eficiencia similar (variacao <2pp). Mantenha a filosofia atual e foque em margem de seguranca nas compras.";
+          estrategia="Os 3 portfolios estao em eficiencia similar (variacao <2 pontos: ATUAL "+efAtual.toFixed(0)+", ALVO "+efAlvo.toFixed(0)+", AW "+efAW.toFixed(0)+"). Mantenha a filosofia atual e foque em margem de seguranca nas compras.";
           estrategiaCor="#8A8070";
         }
 
@@ -6040,7 +6138,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
 
           // BLOCO 2: Ranking de eficiencia
           h("div",{style:{marginBottom:11}},
-            h("div",{style:{fontSize:8,letterSpacing:1.5,color:"#8A8070",fontFamily:"monospace",marginBottom:5}},"RANKING DE EFICIENCIA (% retorno capturado da fronteira)"),
+            h("div",{style:{fontSize:8,letterSpacing:1.5,color:"#8A8070",fontFamily:"monospace",marginBottom:5}},"RANKING DE EFICIENCIA (mesma formula da Nota A-F)"),
             ...[
               {n:"ATUAL",c:"#E05252",v:efAtual,s:sharpeAtual},
               {n:"ALVO",c:"#5B8FD4",v:efAlvo,s:sharpeAlvo},
