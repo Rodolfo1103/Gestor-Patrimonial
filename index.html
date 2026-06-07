@@ -1136,7 +1136,7 @@ function RiskChart({cw,selicAtual,calibracaoRR_TS,calibracaoRR_texto,calibracaoR
           h("circle",{cx,cy,r:"14",fill:"#FFD700",fillOpacity:"0.10"}),
           // Estrela com drop shadow
           h("polygon",{points:star.join(" "),fill:"#FFD700",fillOpacity:0.98,stroke:"#0D0F14",strokeWidth:"1.5",filter:"url(#starShadow)"}),
-          h("title",{},"Portfolio agregado - Risco "+portR.toFixed(1)+"/10 | Retorno esperado "+portE.toFixed(1)+"/10 | Eficiencia "+ratio.toFixed(2)),
+          h("title",{},"Portfolio agregado - Risco "+portR.toFixed(1)+"/10 | Retorno esperado "+portE.toFixed(1)+"/10 | Eficiencia BRUTA (R/R) "+ratio.toFixed(2)+" - NAO desconta Selic, veja Sharpe real na aba MPT"),
           // Indice de eficiencia dentro da estrela (bem pequeno)
           h("text",{x:cx,y:cy+1.2,textAnchor:"middle",fill:"#0D0F14",fontSize:"4.5",fontWeight:"700",fontFamily:"monospace"},ratio.toFixed(2)),
           // Label PORTFOLIO abaixo da estrela - elegante, sutil, proximo
@@ -1185,8 +1185,8 @@ function RiskChart({cw,selicAtual,calibracaoRR_TS,calibracaoRR_texto,calibracaoR
       const linhas=[];
       // Linha 1: situacao geral
       linhas.push({label:"Situacao",valor:"Perfil "+riscoTxt+" com retorno esperado "+retTxt+"."});
-      // Linha 2: eficiencia
-      linhas.push({label:"Eficiencia R/R",valor:"Razao retorno/risco = "+ratio.toFixed(2)+" ("+eficienciaTxt.toLowerCase()+"). "+(ratio>=1.5?"Voce captura retorno superior por unidade de risco assumido.":ratio>=1.2?"Combinacao saudavel - retorno justifica o risco.":ratio>=1.0?"Equilibrio aceitavel, mas ha espaco para otimizacao.":"O risco assumido nao esta sendo bem remunerado.")});
+      // Linha 2: eficiencia bruta (NAO e Sharpe - nao desconta Selic)
+      linhas.push({label:"Eficiencia Bruta R/R",valor:"Retorno bruto / Risco = "+ratio.toFixed(2)+" ("+eficienciaTxt.toLowerCase()+"). "+(ratio>=1.5?"O portfolio captura mais retorno teorico por unidade de risco. ATENCAO: nao desconta Selic - veja Sharpe real na aba MPT.":ratio>=1.2?"Combinacao teorica saudavel. ATENCAO: nao desconta Selic - veja Sharpe real na aba MPT.":ratio>=1.0?"Equilibrio aceitavel teoricamente. Para avaliar excesso sobre Selic, veja Sharpe na aba MPT.":"O risco assumido nao esta bem remunerado mesmo em termos brutos.")});
       // Linha 3: principais drivers
       if(contribR.length>0&&contribE.length>0){
         const topR=contribR.slice(0,2).map(x=>x.tag).join(" e ");
@@ -1209,7 +1209,7 @@ function RiskChart({cw,selicAtual,calibracaoRR_TS,calibracaoRR_texto,calibracaoR
       linhas.push({label:"Diagnostico",valor:obs});
       return h("div",{style:{marginTop:14,padding:"11px 13px",background:"linear-gradient(135deg,rgba(255,215,0,0.05),rgba(200,169,110,0.03))",border:"1px solid rgba(255,215,0,0.2)",borderRadius:8}},
         h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:9,gap:8,flexWrap:"wrap"}},
-          h("div",{style:{fontSize:9,letterSpacing:3,color:"#FFD700",fontFamily:"monospace",textTransform:"uppercase"}},"Diagnostico Risco x Retorno"),
+          h("div",{style:{fontSize:9,letterSpacing:3,color:"#FFD700",fontFamily:"monospace",textTransform:"uppercase"}},"Diagnostico Risco x Retorno (BRUTO)"),
           h("span",{style:{fontSize:9,color:eficienciaColor,fontFamily:"monospace",fontWeight:700,padding:"2px 8px",border:"1px solid "+eficienciaColor+"66",borderRadius:3,letterSpacing:1}},eficienciaTxt)
         ),
         // Linha de scores
@@ -1222,6 +1222,12 @@ function RiskChart({cw,selicAtual,calibracaoRR_TS,calibracaoRR_texto,calibracaoR
             h("div",{style:{fontSize:8,color:"#7A7570",letterSpacing:1,marginBottom:2}},"RETORNO ESPERADO"),
             h("div",{style:{display:"flex",alignItems:"baseline",gap:4}},h("span",{style:{fontSize:14,color:retColor,fontWeight:700}},portE.toFixed(1)),h("span",{style:{fontSize:9,color:"#5A5550"}},"/10"),h("span",{style:{fontSize:9,color:retColor,marginLeft:4}},retTxt))
           )
+        ),
+        // === LEGENDA ESCLARECEDORA SOBRE METRICA BRUTA ===
+        h("div",{style:{padding:"7px 9px",marginBottom:9,background:"rgba(91,143,212,0.06)",borderLeft:"3px solid #5B8FD4",borderRadius:"0 5px 5px 0",fontSize:8,color:"#9A9080",lineHeight:1.55}},
+          h("strong",{style:{color:"#5B8FD4",fontFamily:"monospace",letterSpacing:1,fontSize:7}},"\u2139 SOBRE ESTA METRICA"),
+          h("div",{style:{marginTop:3}},"A ",h("strong",{},"Eficiencia Bruta R/R")," (",h("span",{style:{fontFamily:"monospace"}},"retorno teorico \u00f7 risco"),") mede se o portfolio captura mais retorno por unidade de risco. ",h("strong",{style:{color:"#E89060"}},"NAO desconta a Selic"),", entao SEMPRE da numero positivo se ha retorno esperado."),
+          h("div",{style:{marginTop:4}},"Para saber se voce esta REALMENTE batendo o caixa (Selic ",typeof selicAtual==="number"?selicAtual.toFixed(2)+"%":"~14.50%",") consulte o ",h("strong",{style:{color:"#C8A96E"}},"Indice de Sharpe")," na aba ",h("strong",{},"MPT"),", que usa retornos reais do seu portfolio e subtrai a Selic.")
         ),
         // === BARRA DE CALIBRACAO COM DIAGNOSTICO DE AFERICAO ===
         (()=>{
@@ -1296,10 +1302,17 @@ function RiskChart({cw,selicAtual,calibracaoRR_TS,calibracaoRR_texto,calibracaoR
             ),
             // Linha 2: Métricas em grid (Selic atual / Aferição / Variação Selic)
             h("div",{style:{display:"flex",gap:14,flexWrap:"wrap",fontSize:9,paddingTop:4,borderTop:"1px dashed rgba(255,255,255,0.06)"}},
-              // Selic atual
-              h("div",{style:{display:"flex",flexDirection:"column"}},
-                h("span",{style:{fontSize:7,color:"#7A7570",letterSpacing:1}},"SELIC ATUAL"),
-                h("span",{style:{color:"#5B8FD4",fontWeight:700,fontSize:10}},typeof selicAtual==="number"?selicAtual.toFixed(2)+"%":"--")
+              // Selic atual (clicavel para editar manualmente em caso de API falhar)
+              h("div",{style:{display:"flex",flexDirection:"column",cursor:"pointer"},onClick:()=>{
+                const atual=typeof selicAtual==="number"?selicAtual.toFixed(2):"";
+                const inp=window.prompt("Selic atual (% a.a.) - se a API do BCB falhou, insira manualmente:",atual);
+                if(inp===null)return;
+                const v=parseFloat(String(inp).replace(",","."));
+                if(!isNaN(v)&&v>0&&v<50){setSelicAtual(v);}
+                else if(inp!==""){alert("Valor invalido. Use formato como 14.50");}
+              },title:"Clique para editar manualmente"},
+                h("span",{style:{fontSize:7,color:"#7A7570",letterSpacing:1}},"SELIC ATUAL \u270E"),
+                h("span",{style:{color:"#5B8FD4",fontWeight:700,fontSize:10,textDecoration:"underline",textDecorationStyle:"dotted",textDecorationColor:"rgba(91,143,212,0.4)"}},typeof selicAtual==="number"?selicAtual.toFixed(2)+"%":"--")
               ),
               // Ultima afericao
               h("div",{style:{display:"flex",flexDirection:"column"}},
