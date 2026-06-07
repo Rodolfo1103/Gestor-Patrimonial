@@ -7975,9 +7975,16 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                 proventosTs?"Ultima atualizacao: "+new Date(proventosTs).toLocaleDateString("pt-BR",{day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"}):"Nunca atualizado - clique para buscar"
               )
             ),
-            h("button",{onClick:buscarProventos,disabled:proventosLoading,style:{padding:"8px 14px",background:proventosLoading?"rgba(76,175,130,0.2)":"linear-gradient(135deg,#4CAF82,#2E8B5C)",border:"none",borderRadius:6,color:proventosLoading?"#7A7060":"#FFF",fontSize:11,fontFamily:"monospace",fontWeight:700,cursor:proventosLoading?"wait":"pointer",letterSpacing:1}},proventosLoading?"BUSCANDO...":"\u21BB ATUALIZAR PROVENTOS"),
-            h("input",{type:"text",value:diagTicker,onChange:e=>setDiagTicker(e.target.value.toUpperCase().trim()),placeholder:"PH",style:{padding:"6px 9px",marginLeft:6,width:60,background:"rgba(0,0,0,0.30)",border:"1px solid rgba(91,143,212,0.30)",borderRadius:4,color:"#E8E2D5",fontSize:10,fontFamily:"monospace",textAlign:"center",letterSpacing:1}}),
-            h("button",{onClick:async()=>{
+            h("button",{onClick:buscarProventos,disabled:proventosLoading,style:{padding:"8px 14px",background:proventosLoading?"rgba(76,175,130,0.2)":"linear-gradient(135deg,#4CAF82,#2E8B5C)",border:"none",borderRadius:6,color:proventosLoading?"#7A7060":"#FFF",fontSize:11,fontFamily:"monospace",fontWeight:700,cursor:proventosLoading?"wait":"pointer",letterSpacing:1}},proventosLoading?"BUSCANDO...":"\u21BB ATUALIZAR PROVENTOS")
+          ),
+
+          // ===== LINHA DE DIAGNOSTICO (separada, sempre visivel) =====
+          h("div",{style:{marginTop:10,paddingTop:10,borderTop:"1px dashed rgba(255,255,255,0.08)"}},
+            h("div",{style:{fontSize:8,letterSpacing:1.5,color:"#5B8FD4",fontFamily:"monospace",fontWeight:700,marginBottom:6}},"\u{1F50D} DIAGNOSTICAR DIVIDENDO DE UM TICKER NO YAHOO"),
+            h("div",{style:{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}},
+              h("span",{style:{fontSize:9,color:"#9A9080",fontFamily:"monospace"}},"Ticker:"),
+              h("input",{type:"text",value:diagTicker,onChange:e=>setDiagTicker(e.target.value.toUpperCase().trim()),placeholder:"PH",style:{padding:"7px 10px",width:90,background:"rgba(0,0,0,0.30)",border:"1px solid rgba(91,143,212,0.45)",borderRadius:5,color:"#E8E2D5",fontSize:12,fontFamily:"monospace",textAlign:"center",letterSpacing:2,fontWeight:700}}),
+              h("button",{onClick:async()=>{
               const tUp=(diagTicker||"PH").toUpperCase().trim();
               const sym=YH_MAP[tUp]||tUp;
               setDiagLoading(true);
@@ -8033,7 +8040,8 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                 divs:lista,moeda
               });
               setDiagLoading(false);
-            },style:{padding:"8px 14px",marginLeft:6,background:diagLoading?"rgba(91,143,212,0.10)":"rgba(91,143,212,0.20)",border:"1px solid rgba(91,143,212,0.45)",borderRadius:6,color:"#5B8FD4",fontSize:10,fontFamily:"monospace",cursor:diagLoading?"wait":"pointer",letterSpacing:1}},diagLoading?"BUSCANDO...":"\u{1F50D} DIAGNOSTICAR")
+            },style:{padding:"7px 12px",background:diagLoading?"rgba(91,143,212,0.10)":"rgba(91,143,212,0.20)",border:"1px solid rgba(91,143,212,0.45)",borderRadius:5,color:"#5B8FD4",fontSize:10,fontFamily:"monospace",cursor:diagLoading?"wait":"pointer",letterSpacing:1,fontWeight:700}},diagLoading?"BUSCANDO...":"\u{1F50D} CONSULTAR YAHOO")
+            )
           ),
           // ===== PAINEL DE RESULTADO DO DIAGNOSTICO =====
           diagYahoo&&h("div",{style:{marginTop:10,padding:"12px 14px",background:diagYahoo.status==="ok"?"rgba(76,175,130,0.06)":diagYahoo.status==="erro"?"rgba(224,82,82,0.06)":"rgba(232,196,74,0.06)",border:"1px solid "+(diagYahoo.status==="ok"?"rgba(76,175,130,0.30)":diagYahoo.status==="erro"?"rgba(224,82,82,0.30)":"rgba(232,196,74,0.30)"),borderRadius:6}},
