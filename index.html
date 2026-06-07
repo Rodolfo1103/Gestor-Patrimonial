@@ -7984,67 +7984,58 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             h("div",{style:{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}},
               h("span",{style:{fontSize:9,color:"#9A9080",fontFamily:"monospace"}},"Ticker:"),
               h("input",{type:"text",value:diagTicker,onChange:e=>setDiagTicker(e.target.value.toUpperCase().trim()),placeholder:"PH",style:{padding:"7px 10px",width:90,background:"rgba(0,0,0,0.30)",border:"1px solid rgba(91,143,212,0.45)",borderRadius:5,color:"#E8E2D5",fontSize:12,fontFamily:"monospace",textAlign:"center",letterSpacing:2,fontWeight:700}}),
-              h("button",{type:"button",onClick:async(ev)=>{
-              if(ev&&ev.preventDefault)ev.preventDefault();
-              // FEEDBACK IMEDIATO: mostra que o clique foi capturado, mesmo se algo falhar depois
+              h("button",{type:"button",onClick:()=>{
+              // Versao simplificada para garantir clicabilidade no tablet Samsung
               const tUp=(diagTicker||"PH").toUpperCase().trim();
               const sym=YH_MAP[tUp]||tUp;
-              setDiagYahoo({ticker:tUp,sym,status:"buscando",msg:"\u23F3 Clique recebido. Iniciando consulta ao Yahoo para "+sym+"..."});
+              // 1. FEEDBACK IMEDIATO - sempre executa, garantia de que o clique foi capturado
+              setDiagYahoo({ticker:tUp,sym,status:"buscando",msg:"\u23F3 Clique capturado! Tentando buscar dividendos de "+sym+"..."});
               setDiagLoading(true);
-              // Pequeno delay para garantir que o setState renderize antes do fetch
-              await new Promise(r=>setTimeout(r,50));
-              const proxies=[
-                u=>u,
-                u=>"https://corsproxy.io/?url="+encodeURIComponent(u),
-                u=>"https://api.allorigins.win/raw?url="+encodeURIComponent(u),
-                u=>"https://api.codetabs.com/v1/proxy/?quest="+encodeURIComponent(u)
-              ];
+              // 2. Inicia fetch em background sem bloquear
               const urlBase="https://query1.finance.yahoo.com/v8/finance/chart/"+encodeURIComponent(sym)+"?interval=1d&range=6mo&events=div";
-              let tentativa=0;
-              let respOk=null,httpStatus=null,erroMsg="";
-              for(const mk of proxies){
-                tentativa++;
-                try{
-                  const ctrl=new AbortController();
-                  const tid=setTimeout(()=>ctrl.abort(),9000);
-                  const resp=await fetch(mk(urlBase),{signal:ctrl.signal});
-                  clearTimeout(tid);
-                  httpStatus=resp.status;
-                  if(!resp.ok){erroMsg="HTTP "+resp.status;continue;}
-                  const txt=await resp.text();
-                  if(!txt||txt.length<30){erroMsg="Resposta vazia";continue;}
+              const proxiesL=[
+                urlBase,
+                "https://corsproxy.io/?url="+encodeURIComponent(urlBase),
+                "https://api.allorigins.win/raw?url="+encodeURIComponent(urlBase),
+                "https://api.codetabs.com/v1/proxy/?quest="+encodeURIComponent(urlBase)
+              ];
+              // Funcao para tentar uma URL e retornar Promise
+              const tentar=(idx)=>{
+                if(idx>=proxiesL.length){
+                  setDiagYahoo({ticker:tUp,sym,status:"erro",msg:"Todas as "+proxiesL.length+" tentativas falharam. Pode ser bloqueio de rede/CORS no seu navegador. Tente: (1) outro navegador, (2) WiFi diferente, (3) desligar VPN se estiver usando."});
+                  setDiagLoading(false);
+                  return;
+                }
+                const nomes=["direto","corsproxy.io","allorigins","codetabs"];
+                setDiagYahoo({ticker:tUp,sym,status:"buscando",msg:"\u23F3 Tentando "+nomes[idx]+" ("+(idx+1)+"/"+proxiesL.length+")..."});
+                fetch(proxiesL[idx]).then(resp=>{
+                  if(!resp.ok)throw new Error("HTTP "+resp.status);
+                  return resp.text();
+                }).then(txt=>{
+                  if(!txt||txt.length<30)throw new Error("Resposta vazia");
                   const j=JSON.parse(txt);
-                  if(!j.chart||!j.chart.result||!j.chart.result[0]){erroMsg="Estrutura JSON invalida";continue;}
-                  respOk={j,tentativa,proxyName:tentativa===1?"direto":tentativa===2?"corsproxy.io":tentativa===3?"allorigins":"codetabs"};
-                  break;
-                }catch(e){erroMsg=e&&e.message?e.message:String(e);}
-              }
-              if(!respOk){
-                setDiagYahoo({ticker:tUp,sym,status:"erro",msg:"Falha em todas as "+proxies.length+" tentativas. Ultimo erro: "+erroMsg+" (HTTP "+httpStatus+")"});
-                setDiagLoading(false);
-                return;
-              }
-              const j=respOk.j;
-              const evs=j.chart.result[0].events;
-              const divs=evs&&evs.dividends;
-              const moeda=(j.chart.result[0].meta&&j.chart.result[0].meta.currency)||"?";
-              if(!divs){
-                setDiagYahoo({ticker:tUp,sym,status:"sem_dividendos",msg:"Yahoo respondeu OK (via "+respOk.proxyName+", moeda="+moeda+") mas NAO retornou eventos de dividendos. Pode ser: (1) empresa nao paga dividendos no periodo, (2) feed do Yahoo sem dados, (3) simbolo ("+sym+") incorreto.",divs:[],moeda});
-                setDiagLoading(false);
-                return;
-              }
-              const lista=Object.values(divs).map(d=>({
-                date:new Date((d.date||0)*1000).toISOString().slice(0,10),
-                valor:d.amount,
-                ts:d.date
-              })).sort((a,b)=>b.ts-a.ts);
-              setDiagYahoo({
-                ticker:tUp,sym,status:"ok",
-                msg:"Yahoo respondeu via "+respOk.proxyName+" - "+lista.length+" dividendo(s) nos ultimos 6 meses",
-                divs:lista,moeda
-              });
-              setDiagLoading(false);
-            },style:{padding:"9px 14px",background:"rgba(91,143,212,0.30)",border:"1px solid rgba(91,143,212,0.60)",borderRadius:5,color:"#FFF",fontSize:11,fontFamily:"monospace",cursor:"pointer",letterSpacing:1,fontWeight:700,touchAction:"manipulation"}},diagLoading?"BUSCANDO...":"\u{1F50D} CONSULTAR YAHOO")
+                  if(!j.chart||!j.chart.result||!j.chart.result[0])throw new Error("Estrutura invalida");
+                  const evs=j.chart.result[0].events;
+                  const divs=evs&&evs.dividends;
+                  const moeda=(j.chart.result[0].meta&&j.chart.result[0].meta.currency)||"?";
+                  if(!divs){
+                    setDiagYahoo({ticker:tUp,sym,status:"sem_dividendos",msg:"Yahoo OK via "+nomes[idx]+" (moeda="+moeda+") mas SEM eventos de dividendo nos ultimos 6 meses. Verifique se o simbolo "+sym+" esta correto.",divs:[],moeda});
+                    setDiagLoading(false);
+                    return;
+                  }
+                  const lista=Object.values(divs).map(d=>({
+                    date:new Date((d.date||0)*1000).toISOString().slice(0,10),
+                    valor:d.amount,ts:d.date
+                  })).sort((a,b)=>b.ts-a.ts);
+                  setDiagYahoo({ticker:tUp,sym,status:"ok",msg:"Yahoo OK via "+nomes[idx]+" - "+lista.length+" dividendo(s) encontrado(s)",divs:lista,moeda});
+                  setDiagLoading(false);
+                }).catch(e=>{
+                  // Tenta proximo proxy
+                  setTimeout(()=>tentar(idx+1),200);
+                });
+              };
+              tentar(0);
+            },style:{padding:"10px 16px",background:"#5B8FD4",border:"2px solid #5B8FD4",borderRadius:5,color:"#FFF",fontSize:11,fontFamily:"monospace",cursor:"pointer",letterSpacing:1,fontWeight:700,touchAction:"manipulation",WebkitTapHighlightColor:"rgba(91,143,212,0.5)",WebkitAppearance:"none",appearance:"none"}},diagLoading?"BUSCANDO...":"\u{1F50D} CONSULTAR YAHOO")
             )
           ),
           // ===== PAINEL DE RESULTADO DO DIAGNOSTICO =====
