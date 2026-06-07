@@ -7984,11 +7984,15 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             h("div",{style:{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}},
               h("span",{style:{fontSize:9,color:"#9A9080",fontFamily:"monospace"}},"Ticker:"),
               h("input",{type:"text",value:diagTicker,onChange:e=>setDiagTicker(e.target.value.toUpperCase().trim()),placeholder:"PH",style:{padding:"7px 10px",width:90,background:"rgba(0,0,0,0.30)",border:"1px solid rgba(91,143,212,0.45)",borderRadius:5,color:"#E8E2D5",fontSize:12,fontFamily:"monospace",textAlign:"center",letterSpacing:2,fontWeight:700}}),
-              h("button",{onClick:async()=>{
+              h("button",{type:"button",onClick:async(ev)=>{
+              if(ev&&ev.preventDefault)ev.preventDefault();
+              // FEEDBACK IMEDIATO: mostra que o clique foi capturado, mesmo se algo falhar depois
               const tUp=(diagTicker||"PH").toUpperCase().trim();
               const sym=YH_MAP[tUp]||tUp;
+              setDiagYahoo({ticker:tUp,sym,status:"buscando",msg:"\u23F3 Clique recebido. Iniciando consulta ao Yahoo para "+sym+"..."});
               setDiagLoading(true);
-              setDiagYahoo({ticker:tUp,sym,status:"buscando",msg:"Consultando Yahoo Finance..."});
+              // Pequeno delay para garantir que o setState renderize antes do fetch
+              await new Promise(r=>setTimeout(r,50));
               const proxies=[
                 u=>u,
                 u=>"https://corsproxy.io/?url="+encodeURIComponent(u),
@@ -8040,7 +8044,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                 divs:lista,moeda
               });
               setDiagLoading(false);
-            },style:{padding:"7px 12px",background:diagLoading?"rgba(91,143,212,0.10)":"rgba(91,143,212,0.20)",border:"1px solid rgba(91,143,212,0.45)",borderRadius:5,color:"#5B8FD4",fontSize:10,fontFamily:"monospace",cursor:diagLoading?"wait":"pointer",letterSpacing:1,fontWeight:700}},diagLoading?"BUSCANDO...":"\u{1F50D} CONSULTAR YAHOO")
+            },style:{padding:"9px 14px",background:"rgba(91,143,212,0.30)",border:"1px solid rgba(91,143,212,0.60)",borderRadius:5,color:"#FFF",fontSize:11,fontFamily:"monospace",cursor:"pointer",letterSpacing:1,fontWeight:700,touchAction:"manipulation"}},diagLoading?"BUSCANDO...":"\u{1F50D} CONSULTAR YAHOO")
             )
           ),
           // ===== PAINEL DE RESULTADO DO DIAGNOSTICO =====
