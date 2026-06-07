@@ -8047,11 +8047,53 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
       const anosChave=[5,10,15,20];
       // Independencia Financeira: % atingido em relacao a meta corrigida pela inflacao do cenario
       const metaAnual=metaMensalIF*12;
-      const ifPctAtual=(rBase.totalLiqAnual/metaAnual)*100;
-      // Comparacao em valor NOMINAL: renda futura vs meta corrigida pela inflacao
-      const ifPctBase5=(proj[4].rendaTotalNominal.base/(proj[4].metaNominalCorrigida*12))*100;
-      const ifPctBase10=(proj[9].rendaTotalNominal.base/(proj[9].metaNominalCorrigida*12))*100;
-      const ifPctBase20=(proj[19].rendaTotalNominal.base/(proj[19].metaNominalCorrigida*12))*100;
+
+      // ===== FUNCAO REUTILIZAVEL: calcula renda RTE em um ano N para um cenario IPCA =====
+      // Usa metodologia ICR-RTE: dividendos liquidos + SWR 4% sobre classes nao-motoras
+      // SEM consumo do principal - apenas a capacidade primaria daquele ano
+      // Aplica o ajuste de cresc real conforme cenario (igual ao ICR-RTE)
+      const calcRTERendaAno=(ano,ipcaRate)=>{
+        const cresAjuste=IPCA_CENARIOS.base-ipcaRate;
+        let rendaDivLiq=0,swrNaoMotor=0;
+        CL.forEach(c=>{
+          const v0=valorClasse[c.id]||0;
+          if(v0<=0||c.id==="imoveis")return;
+          const cresValor=VALORIZA_REAL[c.id]||0;
+          const cresRenda=Math.max(0,(CRESC_REAL_RENDA[c.id]||0)+cresAjuste);
+          const val=v0*Math.pow(1+cresValor,ano)*Math.pow(1+ipcaRate,ano);
+          const dy=YIELD_CLASSE[c.id]?YIELD_CLASSE[c.id].base:0;
+          const ir=IR_DIV[c.id]||0;
+          if(dy>0){
+            rendaDivLiq+=val*dy*Math.pow(1+cresRenda,ano)*(1-ir);
+          }
+          if(!FUNDOS_RENDA_MOTORES.includes(c.id)){
+            swrNaoMotor+=val*SWR;
+          }
+        });
+        return rendaDivLiq+swrNaoMotor;
+      };
+
+      // Cobertura ICR-RTE HOJE (ano 0, sem inflacao)
+      const rendaRTEHoje=rBase.rendaLiqAnual+(function(){
+        let swr=0;
+        CL.forEach(c=>{
+          const v=valorClasse[c.id]||0;
+          if(v<=0||c.id==="imoveis")return;
+          if(!FUNDOS_RENDA_MOTORES.includes(c.id))swr+=v*SWR;
+        });
+        return swr;
+      })();
+      const ifPctAtual=(rendaRTEHoje/metaAnual)*100;
+      // Cobertura RTE em 5/10/15/20 anos para cada cenario IPCA
+      const calcCobAno=(ano,ipcaRate)=>{
+        const renda=calcRTERendaAno(ano,ipcaRate);
+        const metaCorr=metaMensalIF*12*Math.pow(1+ipcaRate,ano);
+        return(renda/metaCorr)*100;
+      };
+      // Para os 3 cenarios, calcula a cobertura nos anos chave (incluindo 25 e 30)
+      const ifPctBase5=calcCobAno(5,IPCA_CENARIOS.base);
+      const ifPctBase10=calcCobAno(10,IPCA_CENARIOS.base);
+      const ifPctBase20=calcCobAno(20,IPCA_CENARIOS.base);
 
       // ===== INDICE DE COBERTURA DA RENDA (ICR) =====
       // Calcula para os 3 cenarios IPCA (oti, base, pes):
@@ -8068,6 +8110,8 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         // Patrimonio simulado e renda anual ao longo do tempo
         let patrimSim=totalPortfolio;
         let anosSustentando=0;
+        // Ajuste de cresc_renda real conforme cenario (base eh referencia)
+        const cresAjusteLoop=IPCA_CENARIOS.base-ipcaRate;
         for(let n=1;n<=50;n++){
           // ICR CLASSICO: usa APENAS dividendos liquidos (sem SWR)
           let rendaAnoLiq=0;
@@ -8076,7 +8120,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             const v0=valorClasse[c.id]||0;
             if(v0<=0)return;
             const cresValor=VALORIZA_REAL[c.id]||0;
-            const cresRenda=CRESC_REAL_RENDA[c.id]||0;
+            const cresRenda=Math.max(0,(CRESC_REAL_RENDA[c.id]||0)+cresAjusteLoop);
             const val=v0*Math.pow(1+cresValor,n)*Math.pow(1+ipcaRate,n);
             valorAnoTotal+=val;
             const dy=YIELD_CLASSE[c.id]?YIELD_CLASSE[c.id].base:0;
@@ -8155,19 +8199,24 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           if(horizonteTotal===null)horizonteTotal="indefinido";
         }
         // Cobertura em 20 anos (ICR classico: apenas dividendos liq)
+        // PREMISSA: cresRenda esta calibrado para IPCA 5.5% (cenario base).
+        // Em otimista (IPCA 3%), o crescimento real efetivo da renda e MAIOR.
+        // Em pessimista (IPCA 8.5%), e MENOR (a inflacao alta corroi mais).
+        // Ajuste: cresRendaAjustado = cresRenda + (IPCA_base - ipcaRate)
+        const cresAjuste=IPCA_CENARIOS.base-ipcaRate;
         let rendaAno20=0;
         CL.forEach(c=>{
           const v0=valorClasse[c.id]||0;
           if(v0<=0)return;
           const cresValor=VALORIZA_REAL[c.id]||0;
-          const cresRenda=CRESC_REAL_RENDA[c.id]||0;
+          const cresRenda=Math.max(0,(CRESC_REAL_RENDA[c.id]||0)+cresAjuste);
+          // Valor cresce REAL + IPCA (nominal)
           const val=v0*Math.pow(1+cresValor,20)*Math.pow(1+ipcaRate,20);
           const dy=YIELD_CLASSE[c.id]?YIELD_CLASSE[c.id].base:0;
           const ir=IR_DIV[c.id]||0;
           if(dy>0){
             rendaAno20+=val*dy*Math.pow(1+cresRenda,20)*(1-ir);
           }
-          // SEM SWR no ICR classico
         });
         const metaAno20=metaMensalIF*12*Math.pow(1+ipcaRate,20);
         const cob20=rendaAno20/metaAno20;
@@ -8209,7 +8258,9 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         let dadosAno20=null;
         // Imoveis fisicos sao excluidos da simulacao (iliquidos)
         valClasse.imoveis=0;
-        for(let n=1;n<=100;n++){
+        // Ajuste de cresc renda real conforme cenario
+        const cresAjusteRTE=IPCA_CENARIOS.base-ipcaRate;
+        for(let n=1;n<=200;n++){
           const metaAno=metaMensalIF*12*Math.pow(1+ipcaRate,n);
           // 1. Cresce o valor de cada classe (real + inflacao)
           CL.forEach(c=>{
@@ -8223,7 +8274,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             const v=valClasse[c.id]||0;
             if(v<=0)return;
             const dy=YIELD_CLASSE[c.id]?YIELD_CLASSE[c.id].base:0;
-            const cresRenda=CRESC_REAL_RENDA[c.id]||0;
+            const cresRenda=Math.max(0,(CRESC_REAL_RENDA[c.id]||0)+cresAjusteRTE);
             const ir=IR_DIV[c.id]||0;
             // Dividendos de TODAS as classes que pagam
             if(dy>0){
@@ -8504,7 +8555,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         h("div",{style:{background:"linear-gradient(135deg,rgba(76,175,130,0.10),rgba(76,175,130,0.02))",border:"2px solid rgba(76,175,130,0.45)",borderRadius:9,padding:"14px 16px",marginBottom:14,boxShadow:"0 0 0 1px rgba(76,175,130,0.10)"}},
           h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:10,flexWrap:"wrap"}},
             h("div",{},
-              h("div",{style:{fontSize:10,letterSpacing:2,color:"#4CAF82",fontFamily:"monospace",fontWeight:700,textTransform:"uppercase"}},"\u{1F6E1}\u{FE0F} INDICE DE COBERTURA DA RENDA (ICR)"),
+              h("div",{style:{fontSize:10,letterSpacing:2,color:"#4CAF82",fontFamily:"monospace",fontWeight:700,textTransform:"uppercase"}},"\u{1F6E1}\u{FE0F} ICR: INDICE DE COBERTURA DA RENDA LIQUIDA"),
               h("div",{style:{fontSize:8,color:"#7A7060",marginTop:3,fontStyle:"italic"}},"Quantas vezes a renda passiva LIQUIDA do portfolio cobre a meta de R$"+(metaMensalIF/1000).toFixed(0)+"k/mes")
             )
           ),
@@ -8610,7 +8661,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             h("div",{style:{display:"flex",alignItems:"baseline",justifyContent:"space-between",gap:8,flexWrap:"wrap"}},
               h("div",{},
                 h("div",{style:{fontSize:8,letterSpacing:1.5,color:"#9A9080",fontFamily:"monospace",fontWeight:700,marginBottom:3}},"COBERTURA HOJE (RENDA PRIMARIA)"),
-                h("div",{style:{fontSize:8,color:"#7A7060",fontStyle:"italic"}},"Dividendos liq + SWR sobre BTC/Ouro"),
+                h("div",{style:{fontSize:8,color:"#7A7060",fontStyle:"italic"}},"Dividendos liq + SWR 4% sobre classes nao-motoras"),
                 h("div",{style:{fontSize:8,color:"#9A9080",fontFamily:"monospace",marginTop:4}},fB(rteBase.rendaPrimariaHoje/12)+"/mes")
               ),
               h("div",{style:{textAlign:"right"}},
@@ -8650,11 +8701,11 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                   h("div",{style:{fontSize:11,color:cen.data.horizonteCobertura==="indefinido"?"#4CAF82":cen.data.horizonteCobertura>=20?"#4CAF82":cen.data.horizonteCobertura>=10?"#E8C44A":"#E89060",fontFamily:"monospace",fontWeight:700}},horCobTxt),
                   h("div",{style:{fontSize:6,color:"#7A7060",fontFamily:"monospace",fontStyle:"italic"}},"renda dispensa saque")
                 ),
-                // Horizonte ate consumir FIIs
+                // Horizonte ate consumir motores
                 h("div",{style:{marginBottom:6}},
-                  h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",letterSpacing:1,marginBottom:1}},"FIIs PRESERVADOS"),
+                  h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",letterSpacing:1,marginBottom:1}},"MOTORES PRESERVADOS"),
                   h("div",{style:{fontSize:11,color:cen.data.horizonteAteFII==="indefinido"?"#4CAF82":cen.data.horizonteAteFII>=30?"#4CAF82":cen.data.horizonteAteFII>=15?"#E8C44A":"#E89060",fontFamily:"monospace",fontWeight:700}},horFIITxt),
-                  h("div",{style:{fontSize:6,color:"#7A7060",fontFamily:"monospace",fontStyle:"italic"}},"sem tocar nos FIIs")
+                  h("div",{style:{fontSize:6,color:"#7A7060",fontFamily:"monospace",fontStyle:"italic"}},"FII+Infra+Agro intactos")
                 ),
                 // Horizonte total (falencia)
                 h("div",{},
@@ -8683,7 +8734,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           h("div",{style:{background:"rgba(0,0,0,0.15)",borderRadius:5,padding:"8px 10px",fontSize:8.5,color:"#9A9080",lineHeight:1.6}},
             h("div",{style:{marginBottom:4}},h("strong",{style:{color:"#4CAF82"}},"COBERTURA ANO 20"),": razao renda primaria / meta no ano 20. Se <1.0, ja esta consumindo principal."),
             h("div",{style:{marginBottom:4}},h("strong",{style:{color:"#E8C44A"}},"COBERTURA PASSIVA PURA"),": anos que a renda passiva (sem saques de principal) cobre a meta corrigida."),
-            h("div",{style:{marginBottom:4}},h("strong",{style:{color:"#F7931A"}},"FIIs PRESERVADOS"),": anos que voce consegue manter o motor de renda intocado, consumindo outras classes primeiro."),
+            h("div",{style:{marginBottom:4}},h("strong",{style:{color:"#F7931A"}},"MOTORES PRESERVADOS"),": anos que voce mantem os 3 motores de renda (FII + Infra + Agro) intocados, consumindo outras classes primeiro."),
             h("div",{},h("strong",{style:{color:"#E89060"}},"FALENCIA TOTAL"),": ano em que TODAS as classes liquidas zeraram. Imoveis fisicos sobrevivem (excluidos da simulacao).")
           )
         ),
@@ -8752,14 +8803,21 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                 // SETA: idade ate quando o ICR-RTE mantem renda sem vender motores (FII+Infra+Agro)
                 (()=>{
                   const horM=cen.data.horMotores;
+                  // So mostra "indefinido" se REALMENTE ultrapassou simulacao (200 anos)
                   if(horM==="indefinido"){
-                    // Motores nunca consumidos - mostrar marca de "indefinido" no extremo direito
                     return h("div",{key:"mot",style:{position:"absolute",right:3,top:0,bottom:14,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}},
                       h("div",{style:{fontSize:9,color:"#F7931A",fontWeight:700,lineHeight:1}},"\u25BC"),
-                      h("div",{style:{fontSize:6,color:"#F7931A",fontFamily:"monospace",fontWeight:700,letterSpacing:0.5,whiteSpace:"nowrap",textShadow:"0 1px 2px rgba(0,0,0,0.7)"}},"motores \u221E")
+                      h("div",{style:{fontSize:6,color:"#F7931A",fontFamily:"monospace",fontWeight:700,letterSpacing:0.5,whiteSpace:"nowrap",textShadow:"0 1px 2px rgba(0,0,0,0.7)"}},"\u221E motores")
                     );
                   }
                   const idadeMot=idadeAtual+horM;
+                  // Se idade > 110 (max da regua), posiciona no fim da regua mas mostra valor numerico
+                  if(idadeMot>MAX_IDADE){
+                    return h("div",{key:"mot",style:{position:"absolute",right:3,top:0,bottom:14,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-start",pointerEvents:"none",zIndex:5}},
+                      h("div",{style:{fontSize:11,color:"#F7931A",fontWeight:700,lineHeight:1,textShadow:"0 1px 2px rgba(0,0,0,0.8)"}},"\u25BC"),
+                      h("div",{style:{fontSize:6,color:"#F7931A",fontFamily:"monospace",fontWeight:700,letterSpacing:0.5,whiteSpace:"nowrap",textShadow:"0 1px 2px rgba(0,0,0,0.7)",marginTop:-1,background:"rgba(0,0,0,0.6)",padding:"1px 3px",borderRadius:2}},idadeMot+"a")
+                    );
+                  }
                   const pctMot=Math.min(100,Math.max(0,((idadeMot-MIN_IDADE)/(MAX_IDADE-MIN_IDADE))*100));
                   return h("div",{key:"mot",style:{position:"absolute",left:"calc("+pctMot+"% - 8px)",top:0,bottom:14,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-start",pointerEvents:"none",zIndex:5}},
                     h("div",{style:{fontSize:11,color:"#F7931A",fontWeight:700,lineHeight:1,textShadow:"0 1px 2px rgba(0,0,0,0.8)"}},"\u25BC"),
@@ -8778,8 +8836,8 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                 h("br"),
                 h("span",{style:{color:"#F7931A"}},"\u25BC ICR-RTE")," sustenta renda sem vender motores (FII+Infra+Agro) ate ",
                 cen.data.horMotores==="indefinido"?
-                  h("strong",{style:{color:"#F7931A"}},"INDEFINIDAMENTE (>100 anos)"):
-                  h("strong",{},"seus "+(idadeAtual+cen.data.horMotores)+" anos")
+                  h("strong",{style:{color:"#F7931A"}},"PERPETUIDADE PRATICA (>200 anos)"):
+                  h("strong",{style:{color:"#F7931A"}},"seus "+(idadeAtual+cen.data.horMotores)+" anos")
               )
             );
           }),
@@ -8822,15 +8880,54 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             h("div",{style:{fontSize:11,color:"#E8E2D5",lineHeight:1.7,marginBottom:8}},
               "Atualmente voce tem a capacidade de viver com"
             ),
-            h("div",{style:{fontSize:22,color:"#9C7DC2",fontFamily:"Georgia,serif",fontWeight:700,marginBottom:6,letterSpacing:1}},
+            h("div",{style:{fontSize:22,color:"#9C7DC2",fontFamily:"Georgia,serif",fontWeight:700,marginBottom:2,letterSpacing:1}},
               fB(capMax.mensalMax)," / mes"
             ),
+            h("div",{style:{fontSize:8,color:"#7A7060",fontFamily:"monospace",fontStyle:"italic",letterSpacing:1,marginBottom:8}},
+              "(em poder de compra de HOJE)"
+            ),
             h("div",{style:{fontSize:11,color:"#E8E2D5",lineHeight:1.7,marginBottom:4}},
-              h("strong",{style:{color:"#5B8FD4"}},"PARA A PERPETUIDADE")," (alem de 100 anos)"
+              "ate seus ",h("strong",{style:{color:"#5B8FD4"}},IDADE_TRANQUILIDADE_PLENA," anos")
             ),
             h("div",{style:{fontSize:9,color:"#7A7060",lineHeight:1.6,fontStyle:"italic",marginTop:8}},
               "preservando seus Fundos de Renda (FIIs + Infra + Agro) como motor permanente"
-            )
+            ),
+
+            // EQUIVALENTE NOMINAL AOS 100 ANOS em cada cenario IPCA
+            (()=>{
+              const anosAteIdadeLimite=IDADE_TRANQUILIDADE_PLENA-idadeAtual;
+              if(anosAteIdadeLimite<=0)return null;
+              const equivOti=capMax.mensalMax*Math.pow(1+IPCA_CENARIOS.oti,anosAteIdadeLimite);
+              const equivBase=capMax.mensalMax*Math.pow(1+IPCA_CENARIOS.base,anosAteIdadeLimite);
+              const equivPes=capMax.mensalMax*Math.pow(1+IPCA_CENARIOS.pes,anosAteIdadeLimite);
+              return h("div",{style:{background:"rgba(0,0,0,0.25)",borderRadius:6,padding:"9px 11px",marginTop:11,textAlign:"left"}},
+                h("div",{style:{fontSize:7.5,color:"#9C7DC2",fontFamily:"monospace",fontWeight:700,letterSpacing:1.5,marginBottom:6,textAlign:"center"}},"\u{1F4B2} EQUIVALENTE NOMINAL AOS ",IDADE_TRANQUILIDADE_PLENA," ANOS (em ",anosAteIdadeLimite," anos no futuro)"),
+                h("div",{style:{fontSize:8,color:"#7A7060",fontStyle:"italic",marginBottom:7,textAlign:"center"}},"O mesmo poder de compra de ",fB(capMax.mensalMax),"/mes de hoje sera equivalente a:"),
+                h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6}},
+                  h("div",{style:{background:"rgba(76,175,130,0.08)",borderLeft:"2px solid #4CAF82",padding:"5px 7px",borderRadius:3}},
+                    h("div",{style:{fontSize:7,color:"#4CAF82",fontFamily:"monospace",fontWeight:700,letterSpacing:0.5,marginBottom:1}},"OTIMISTA"),
+                    h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace"}},"IPCA 3.0%"),
+                    h("div",{style:{fontSize:11,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700,marginTop:2}},fB(equivOti)),
+                    h("div",{style:{fontSize:6.5,color:"#7A7060",fontFamily:"monospace"}},"/mes")
+                  ),
+                  h("div",{style:{background:"rgba(232,196,74,0.08)",borderLeft:"2px solid #E8C44A",padding:"5px 7px",borderRadius:3}},
+                    h("div",{style:{fontSize:7,color:"#E8C44A",fontFamily:"monospace",fontWeight:700,letterSpacing:0.5,marginBottom:1}},"BASE"),
+                    h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace"}},"IPCA 5.5%"),
+                    h("div",{style:{fontSize:11,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700,marginTop:2}},fB(equivBase)),
+                    h("div",{style:{fontSize:6.5,color:"#7A7060",fontFamily:"monospace"}},"/mes")
+                  ),
+                  h("div",{style:{background:"rgba(232,144,96,0.08)",borderLeft:"2px solid #E89060",padding:"5px 7px",borderRadius:3}},
+                    h("div",{style:{fontSize:7,color:"#E89060",fontFamily:"monospace",fontWeight:700,letterSpacing:0.5,marginBottom:1}},"PESSIMISTA"),
+                    h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace"}},"IPCA 8.5%"),
+                    h("div",{style:{fontSize:11,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700,marginTop:2}},fB(equivPes)),
+                    h("div",{style:{fontSize:6.5,color:"#7A7060",fontFamily:"monospace"}},"/mes")
+                  )
+                ),
+                h("div",{style:{fontSize:7.5,color:"#7A7060",fontStyle:"italic",marginTop:7,textAlign:"center",lineHeight:1.4}},
+                  "\u{1F4A1} Como a renda passiva e crescimento real do portfolio acompanham a inflacao, esses valores nominais serao ",h("strong",{},"sustentaveis sem consumir o principal")," nos motores."
+                )
+              );
+            })()
           ),
 
           // ===== COMPARACAO COM SUA META =====
@@ -8950,23 +9047,26 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           )
         ),
 
-        // ===== INDEPENDENCIA FINANCEIRA =====
+        // ===== INDEPENDENCIA FINANCEIRA (metodologia ICR-RTE) =====
         h("div",{style:{background:"linear-gradient(135deg,rgba(200,169,110,0.10),rgba(200,169,110,0.02))",border:"1px solid rgba(200,169,110,0.40)",borderRadius:9,padding:"14px 16px",marginBottom:14}},
-          h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,marginBottom:10,flexWrap:"wrap"}},
+          h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,marginBottom:8,flexWrap:"wrap"}},
             h("div",{},
               h("div",{style:{fontSize:9,letterSpacing:2,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,textTransform:"uppercase"}},"\u{1F3DC}\u{FE0F} INDEPENDENCIA FINANCEIRA"),
-              h("div",{style:{fontSize:8,color:"#7A7060",marginTop:3,fontStyle:"italic"}},"Quanto do seu estilo de vida o portfolio ja cobre (meta corrigida pela inflacao)")
+              h("div",{style:{fontSize:8,color:"#7A7060",marginTop:3,fontStyle:"italic"}},"Quanto a estrategia ICR-RTE cobre da sua meta (dividendos liq + 4% sobre nao-motoras)")
             ),
-            // Editor de meta
             h("div",{style:{display:"flex",alignItems:"center",gap:6}},
               h("span",{style:{fontSize:9,color:"#9A9080",fontFamily:"monospace"}},"Meta hoje: R$"),
               h("input",{type:"number",value:metaMensalIF,onChange:e=>{const v=parseFloat(e.target.value);if(!isNaN(v)&&v>0)setMetaMensalIF(v);},style:{width:80,padding:"5px 8px",background:"rgba(0,0,0,0.30)",border:"1px solid rgba(200,169,110,0.40)",borderRadius:4,color:"#E8E2D5",fontSize:10,fontFamily:"monospace",textAlign:"center",fontWeight:700}}),
               h("span",{style:{fontSize:9,color:"#9A9080",fontFamily:"monospace"}},"/mes")
             )
           ),
+          // Explicacao da metodologia
+          h("div",{style:{background:"rgba(247,147,26,0.06)",border:"1px solid rgba(247,147,26,0.25)",borderLeft:"3px solid #F7931A",borderRadius:"0 5px 5px 0",padding:"7px 10px",marginBottom:10,fontSize:8.5,color:"#9A9080",lineHeight:1.55}},
+            h("div",{},h("strong",{style:{color:"#F7931A"}},"\u{1F525} Metodologia ICR-RTE"),": cobertura calculada como ",h("strong",{},"dividendos liquidos de TODAS as classes")," + ",h("strong",{},"SWR 4% ao ano sobre classes nao-motoras"),". Motores ",h("strong",{style:{color:"#F7931A"}},"FII + Infra + Agro")," sao preservados (so dividendos, sem saque). Meta corrigida pela inflacao do cenario selecionado.")
+          ),
           // SELETOR DE CENARIO IPCA
           h("div",{style:{background:"rgba(0,0,0,0.25)",borderRadius:6,padding:"9px 10px",marginBottom:10}},
-            h("div",{style:{fontSize:7,letterSpacing:1.5,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,marginBottom:6}},"\u{1F4C8} CENARIO DE INFLACAO (para corrigir a meta ao longo dos anos)"),
+            h("div",{style:{fontSize:7,letterSpacing:1.5,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,marginBottom:6}},"\u{1F4C8} CENARIO DE INFLACAO (corrige a meta ao longo dos anos)"),
             h("div",{style:{display:"flex",gap:5,flexWrap:"wrap"}},
               ...[
                 {id:"oti",label:"OTIMISTA",rate:IPCA_CENARIOS.oti,desc:"banda baixa BC (3%)"},
@@ -8983,32 +9083,32 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
               })
             )
           ),
-          // Barra de progresso atual
+          // Barra HOJE
           h("div",{style:{marginBottom:10}},
             h("div",{style:{display:"flex",justifyContent:"space-between",fontSize:9,color:"#9A9080",marginBottom:5,fontFamily:"monospace"}},
-              h("span",{},"HOJE (meta R$"+(metaMensalIF/1000).toFixed(1)+"k/mes)"),
+              h("span",{},"HOJE - renda RTE = ",fB(rendaRTEHoje/12),"/m vs meta R$",(metaMensalIF/1000).toFixed(1),"k/m"),
               h("span",{style:{color:ifPctAtual>=100?"#4CAF82":ifPctAtual>=70?"#E8C44A":ifPctAtual>=40?"#E89060":"#E05252",fontWeight:700}},ifPctAtual.toFixed(1)+"% da meta")
             ),
             h("div",{style:{position:"relative",height:14,background:"rgba(0,0,0,0.30)",borderRadius:4,overflow:"hidden",border:"1px solid rgba(255,255,255,0.08)"}},
               h("div",{style:{position:"absolute",left:0,top:0,bottom:0,width:Math.min(100,ifPctAtual)+"%",background:"linear-gradient(90deg,#C8A96E,#A8893E)",transition:"width 0.4s"}})
             )
           ),
-          // Projecoes em 5/10/20 anos
+          // Projecoes nos anos chave (com cenario selecionado)
           h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}},
             ...[5,10,20].map(anoT=>{
-              const p=proj[anoT-1];
-              const rendaNominal=p.rendaTotalNominal.base/12;
-              const metaCorrigida=p.metaNominalCorrigida;
-              const pctNominal=(rendaNominal/metaCorrigida)*100;
+              const ipcaSel=IPCA_CENARIOS[cenarioIPCA];
+              const rendaRTE_ano=calcRTERendaAno(anoT,ipcaSel);
+              const metaCorrigida=metaMensalIF*12*Math.pow(1+ipcaSel,anoT);
+              const pctRTE=(rendaRTE_ano/metaCorrigida)*100;
               return h("div",{key:anoT,style:{background:"rgba(0,0,0,0.20)",borderRadius:5,padding:"8px 9px",textAlign:"center"}},
                 h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",letterSpacing:1,marginBottom:2}},"EM "+anoT+" ANOS"),
-                h("div",{style:{fontSize:13,color:pctNominal>=100?"#4CAF82":pctNominal>=70?"#E8C44A":"#E8E2D5",fontFamily:"monospace",fontWeight:700}},pctNominal.toFixed(0)+"%"),
-                h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",marginTop:3}},"renda: "+fB(rendaNominal)+"/m"),
-                h("div",{style:{fontSize:7,color:"#C8A96E",fontFamily:"monospace",marginTop:1}},"meta: "+fB(metaCorrigida)+"/m")
+                h("div",{style:{fontSize:13,color:pctRTE>=100?"#4CAF82":pctRTE>=70?"#E8C44A":"#E8E2D5",fontFamily:"monospace",fontWeight:700}},pctRTE.toFixed(0)+"%"),
+                h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",marginTop:3}},"renda RTE: "+fB(rendaRTE_ano/12)+"/m"),
+                h("div",{style:{fontSize:7,color:"#C8A96E",fontFamily:"monospace",marginTop:1}},"meta: "+fB(metaCorrigida/12)+"/m")
               );
             })
           ),
-          h("div",{style:{fontSize:8,color:"#7A7060",marginTop:8,fontStyle:"italic",lineHeight:1.5}},"\u{1F4A1} ",h("strong",{},"Tudo em valores NOMINAIS do ano correspondente"),": renda projetada vs meta corrigida pela inflacao do cenario ",cenarioIPCA==="oti"?"OTIMISTA":cenarioIPCA==="base"?"BASE":"PESSIMISTA",". A comparacao e \"como sera la na frente\", nao em poder de compra de hoje.")
+          h("div",{style:{fontSize:8,color:"#7A7060",marginTop:8,fontStyle:"italic",lineHeight:1.5}},"\u{1F4A1} ",h("strong",{},"Valores NOMINAIS do ano correspondente"),". Cenario ",cenarioIPCA==="oti"?"OTIMISTA":cenarioIPCA==="base"?"BASE":"PESSIMISTA"," (IPCA ",(IPCA_CENARIOS[cenarioIPCA]*100).toFixed(1),"% a.a.). Metodologia: dividendos liquidos + SWR 4% sobre classes nao-motoras. Motores preservados.")
         ),
 
         // ===== TABELA DE PROJECAO POR ANO CHAVE =====
@@ -9058,47 +9158,56 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
 
         // ===== GRAFICO DE PROJECAO =====
         h("div",{style:{marginBottom:14}},
-          h("div",{style:{fontSize:8,letterSpacing:1.5,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,marginBottom:6}},"\u{1F4C8} EVOLUCAO DA RENDA MENSAL vs META CORRIGIDA POR INFLACAO (valores nominais)"),
+          h("div",{style:{fontSize:8,letterSpacing:1.5,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,marginBottom:6}},"\u{1F4C8} EVOLUCAO DA RENDA ICR-RTE vs META CORRIGIDA (valores nominais, 30 anos)"),
           // BLOCO COMO LER
           h("div",{style:{background:"rgba(0,0,0,0.20)",borderRadius:5,padding:"7px 10px",marginBottom:8,fontSize:8.5,color:"#9A9080",lineHeight:1.55,borderLeft:"3px solid #C8A96E"}},
-            h("div",{style:{marginBottom:2}},h("strong",{style:{color:"#C8A96E"}},"\u{1F4D6} COMO LER")," - 4 linhas:"),
+            h("div",{style:{marginBottom:2}},h("strong",{style:{color:"#C8A96E"}},"\u{1F4D6} COMO LER")," - 4 linhas (metodologia ICR-RTE: dividendos liquidos + 4% sobre nao-motoras, motores FII/Infra/Agro preservados):"),
             h("div",{},
-              h("span",{style:{color:"#E89060"}},"\u2500 \u2500 Pessimista"),", ",
-              h("span",{style:{color:"#4CAF82",fontWeight:700}},"\u2500 Base"),", ",
-              h("span",{style:{color:"#5B8FD4"}},"\u2500 \u2500 Otimista"),": renda total mensal projetada (cresce com DY + cresc real). ",
-              h("span",{style:{color:"#C8A96E"}},"\u2500 \u2500 Meta IF"),": valor da meta corrigida pela inflacao do cenario selecionado. ",
-              h("strong",{},"Cruzamento")," das linhas com a meta = momento em que voce alcanca/perde IF."
+              h("span",{style:{color:"#5B8FD4",fontWeight:700}},"\u2500 Otimista")," (IPCA 3%), ",
+              h("span",{style:{color:"#4CAF82",fontWeight:700}},"\u2500 Base")," (5.5%), ",
+              h("span",{style:{color:"#E89060",fontWeight:700}},"\u2500 Pessimista")," (8.5%): renda ICR-RTE mensal. ",
+              h("span",{style:{color:"#C8A96E"}},"\u2500 \u2500 Meta IF (BASE)"),": meta crescendo com inflacao do cenario base. ",
+              h("strong",{},"Abaixo")," de cada marcador 5/10/15/20/25/30a: valor da meta nominal corrigida pela inflacao do cenario BASE."
             )
           ),
           h("div",{style:{background:"rgba(0,0,0,0.20)",borderRadius:6,padding:"12px",overflowX:"auto"}},
             (()=>{
-              const W=320,H=160,padL=44,padR=8,padT=8,padB=24;
+              const W=360,H=200,padL=44,padR=12,padT=8,padB=44;
               const iw=W-padL-padR,ih=H-padT-padB;
-              // Maior valor de renda real (pessimista..otimista) entre todos os anos
-              // E também a META corrigida no ano 20 (para o eixo Y caber tudo)
-              let maxR=Math.max(rBase.totalLiqAnual/12,metaMensalIF);
-              proj.forEach(p=>{
-                maxR=Math.max(maxR,p.rendaTotalNominal.oti/12);
-                maxR=Math.max(maxR,p.metaNominalCorrigida);
-              });
+              const HORIZONTE_MAX=30;
+              const anosMarcadores=[5,10,15,20,25,30];
+              // Renda RTE em cada ano para cada cenario
+              const calcRTE_grafico=(ano,ipcaRate)=>calcRTERendaAno(ano,ipcaRate);
+              // Calcula maxR para escala
+              let maxR=Math.max(rendaRTEHoje/12,metaMensalIF);
+              for(let n=1;n<=HORIZONTE_MAX;n++){
+                maxR=Math.max(maxR,calcRTE_grafico(n,IPCA_CENARIOS.oti)/12);
+                maxR=Math.max(maxR,calcRTE_grafico(n,IPCA_CENARIOS.base)/12);
+                maxR=Math.max(maxR,calcRTE_grafico(n,IPCA_CENARIOS.pes)/12);
+                maxR=Math.max(maxR,metaMensalIF*Math.pow(1+IPCA_CENARIOS.base,n));
+              }
               maxR=maxR*1.10;
-              // Pontos de cada cenario (renda real mensal)
-              const xAno=(ano)=>padL+(ano/20)*iw;
+              const xAno=(ano)=>padL+(ano/HORIZONTE_MAX)*iw;
               const yVal=(v)=>padT+ih-(v/maxR)*ih;
-              const buildLine=(getter)=>{
-                let d="M "+padL+" "+yVal(rBase.totalLiqAnual/12);// comeca em "hoje" (ano 0)
-                proj.forEach(p=>{
-                  d+=" L "+xAno(p.ano)+" "+yVal(getter(p));
-                });
+              const buildLine=(ipcaRate)=>{
+                let d="M "+padL+" "+yVal(rendaRTEHoje/12);
+                for(let n=1;n<=HORIZONTE_MAX;n++){
+                  d+=" L "+xAno(n)+" "+yVal(calcRTE_grafico(n,ipcaRate)/12);
+                }
                 return d;
               };
-              // Curva da META corrigida pela inflacao (cresce ao longo do tempo)
-              const buildMetaLine=()=>{
+              const buildMetaLine=(ipcaRate)=>{
                 let d="M "+padL+" "+yVal(metaMensalIF);
-                proj.forEach(p=>{
-                  d+=" L "+xAno(p.ano)+" "+yVal(p.metaNominalCorrigida);
-                });
+                for(let n=1;n<=HORIZONTE_MAX;n++){
+                  d+=" L "+xAno(n)+" "+yVal(metaMensalIF*Math.pow(1+ipcaRate,n));
+                }
                 return d;
+              };
+              // Cobertura em cada ano chave para cada cenario
+              const cobertura=(ano,ipcaRate)=>{
+                const r=calcRTE_grafico(ano,ipcaRate);
+                const m=metaMensalIF*12*Math.pow(1+ipcaRate,ano);
+                return r/m;
               };
               return h("svg",{viewBox:"0 0 "+W+" "+H,style:{width:"100%",height:"auto",display:"block"}},
                 // Grid horizontal
@@ -9109,36 +9218,59 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                     h("text",{key:"grl"+i,x:padL-4,y:y+3,fontSize:7,fill:"#6A6050",textAnchor:"end",fontFamily:"monospace"},"R$"+((maxR*p)/1000).toFixed(0)+"k")
                   ];
                 }).flat(),
-                // Linha META (curva crescente pela inflacao)
-                h("path",{d:buildMetaLine(),fill:"none",stroke:"#C8A96E",strokeWidth:1.2,strokeDasharray:"4,3",opacity:0.7}),
-                h("text",{x:W-padR-4,y:yVal(proj[19].metaNominalCorrigida)-3,fontSize:7,fill:"#C8A96E",textAnchor:"end",fontFamily:"monospace",fontWeight:700},"META "+fB(proj[19].metaNominalCorrigida)),
-                // Linha PESSIMISTA (renda nominal)
-                h("path",{d:buildLine(p=>p.rendaTotalNominal.pes/12),fill:"none",stroke:"#E89060",strokeWidth:1.2,opacity:0.6,strokeDasharray:"3,2"}),
-                // Linha BASE (renda nominal)
-                h("path",{d:buildLine(p=>p.rendaTotalNominal.base/12),fill:"none",stroke:"#4CAF82",strokeWidth:2.2}),
-                // Linha OTIMISTA (renda nominal)
-                h("path",{d:buildLine(p=>p.rendaTotalNominal.oti/12),fill:"none",stroke:"#5B8FD4",strokeWidth:1.2,opacity:0.6,strokeDasharray:"3,2"}),
-                // Marcadores anos-chave
-                ...anosChave.map(ano=>{
-                  const p=proj[ano-1];
+                // Linha META BASE (curva crescente pela inflacao base)
+                h("path",{d:buildMetaLine(IPCA_CENARIOS.base),fill:"none",stroke:"#C8A96E",strokeWidth:1.4,strokeDasharray:"4,3",opacity:0.75}),
+                h("text",{x:W-padR-4,y:yVal(metaMensalIF*Math.pow(1+IPCA_CENARIOS.base,HORIZONTE_MAX))-4,fontSize:7,fill:"#C8A96E",textAnchor:"end",fontFamily:"monospace",fontWeight:700},"META "+fB(metaMensalIF*Math.pow(1+IPCA_CENARIOS.base,HORIZONTE_MAX))),
+                // Linha PESSIMISTA (RTE)
+                h("path",{d:buildLine(IPCA_CENARIOS.pes),fill:"none",stroke:"#E89060",strokeWidth:1.3,opacity:0.7,strokeDasharray:"3,2"}),
+                // Linha BASE (RTE)
+                h("path",{d:buildLine(IPCA_CENARIOS.base),fill:"none",stroke:"#4CAF82",strokeWidth:2.2}),
+                // Linha OTIMISTA (RTE)
+                h("path",{d:buildLine(IPCA_CENARIOS.oti),fill:"none",stroke:"#5B8FD4",strokeWidth:1.3,opacity:0.7,strokeDasharray:"3,2"}),
+                // Marcadores anos-chave (com cobertura % para cada cenario)
+                ...anosMarcadores.map(ano=>{
                   const x=xAno(ano);
-                  const y=yVal(p.rendaTotalNominal.base/12);
+                  const yBase=yVal(calcRTE_grafico(ano,IPCA_CENARIOS.base)/12);
+                  const cobOti=cobertura(ano,IPCA_CENARIOS.oti);
+                  const cobBase=cobertura(ano,IPCA_CENARIOS.base);
+                  const cobPes=cobertura(ano,IPCA_CENARIOS.pes);
+                  const metaNominalBase=metaMensalIF*Math.pow(1+IPCA_CENARIOS.base,ano);
                   return [
-                    h("circle",{key:"m"+ano,cx:x,cy:y,r:3,fill:"#4CAF82",stroke:"#0D0F14",strokeWidth:1.5}),
-                    h("text",{key:"ml"+ano,x:x,y:H-padB+13,fontSize:7,fill:"#9A9080",textAnchor:"middle",fontFamily:"monospace"},ano+"a")
+                    // ponto principal na linha base
+                    h("circle",{key:"m"+ano,cx:x,cy:yBase,r:3,fill:"#4CAF82",stroke:"#0D0F14",strokeWidth:1.5}),
+                    // Label do ano
+                    h("text",{key:"ml"+ano,x:x,y:H-padB+11,fontSize:8,fill:"#C8A96E",textAnchor:"middle",fontFamily:"monospace",fontWeight:700},ano+"a"),
+                    // Meta nominal corrigida (BASE) abaixo do ano
+                    h("text",{key:"mn"+ano,x:x,y:H-padB+21,fontSize:6.5,fill:"#9A9080",textAnchor:"middle",fontFamily:"monospace"},"meta:"),
+                    h("text",{key:"mnv"+ano,x:x,y:H-padB+29,fontSize:7,fill:"#C8A96E",textAnchor:"middle",fontFamily:"monospace",fontWeight:700},fB(metaNominalBase).replace("R$ ","")),
+                    // Coberturas dos 3 cenarios em mini-tags acima do ponto
+                    h("g",{key:"cb"+ano,transform:"translate("+x+","+(yBase-9)+")"},
+                      h("text",{x:0,y:0,fontSize:6,fill:"#5B8FD4",textAnchor:"middle",fontFamily:"monospace",fontWeight:700},cobOti.toFixed(1)+"x"),
+                      h("text",{x:0,y:-6,fontSize:6,fill:"#4CAF82",textAnchor:"middle",fontFamily:"monospace",fontWeight:700},cobBase.toFixed(1)+"x"),
+                      h("text",{x:0,y:-12,fontSize:6,fill:"#E89060",textAnchor:"middle",fontFamily:"monospace",fontWeight:700},cobPes.toFixed(1)+"x")
+                    )
                   ];
                 }).flat(),
-                // Labels eixo X
-                h("text",{x:padL,y:H-padB+13,fontSize:7,fill:"#9A9080",textAnchor:"start",fontFamily:"monospace"},"hoje"),
-                h("text",{x:W-padR,y:H-padB+13,fontSize:7,fill:"#9A9080",textAnchor:"end",fontFamily:"monospace"},"20a")
+                // Label hoje
+                h("text",{x:padL,y:H-padB+11,fontSize:8,fill:"#9A9080",textAnchor:"start",fontFamily:"monospace",fontWeight:700},"hoje"),
+                h("text",{x:padL,y:H-padB+21,fontSize:6.5,fill:"#9A9080",textAnchor:"start",fontFamily:"monospace"},"meta:"),
+                h("text",{x:padL,y:H-padB+29,fontSize:7,fill:"#C8A96E",textAnchor:"start",fontFamily:"monospace",fontWeight:700},fB(metaMensalIF).replace("R$ ",""))
               );
             })(),
             // Legenda
             h("div",{style:{display:"flex",justifyContent:"center",gap:12,marginTop:8,fontSize:8,color:"#9A9080",fontFamily:"monospace",flexWrap:"wrap"}},
-              h("div",{style:{display:"flex",alignItems:"center",gap:4}},h("div",{style:{width:14,height:2,background:"#E89060",opacity:0.6}}),h("span",{},"Pessimista")),
-              h("div",{style:{display:"flex",alignItems:"center",gap:4}},h("div",{style:{width:14,height:2,background:"#4CAF82"}}),h("span",{},"Base")),
-              h("div",{style:{display:"flex",alignItems:"center",gap:4}},h("div",{style:{width:14,height:2,background:"#5B8FD4",opacity:0.6}}),h("span",{},"Otimista")),
-              h("div",{style:{display:"flex",alignItems:"center",gap:4}},h("div",{style:{width:14,height:2,background:"#C8A96E",opacity:0.7}}),h("span",{},"Meta IF"))
+              h("div",{style:{display:"flex",alignItems:"center",gap:4}},h("div",{style:{width:14,height:2,background:"#5B8FD4",opacity:0.7}}),h("span",{},"Otimista (IPCA 3%)")),
+              h("div",{style:{display:"flex",alignItems:"center",gap:4}},h("div",{style:{width:14,height:2,background:"#4CAF82"}}),h("span",{},"Base (5.5%)")),
+              h("div",{style:{display:"flex",alignItems:"center",gap:4}},h("div",{style:{width:14,height:2,background:"#E89060",opacity:0.7}}),h("span",{},"Pessimista (8.5%)")),
+              h("div",{style:{display:"flex",alignItems:"center",gap:4}},h("div",{style:{width:14,height:2,background:"#C8A96E",opacity:0.7}}),h("span",{},"Meta IF (base)"))
+            ),
+            // Mini legenda das coberturas mostradas
+            h("div",{style:{textAlign:"center",marginTop:5,fontSize:8,color:"#7A7060",fontFamily:"monospace",lineHeight:1.5}},
+              "\u{1F4A1} Acima de cada ponto: cobertura ICR-RTE nos 3 cenarios (",
+              h("span",{style:{color:"#5B8FD4",fontWeight:700}},"oti"),"/",
+              h("span",{style:{color:"#4CAF82",fontWeight:700}},"base"),"/",
+              h("span",{style:{color:"#E89060",fontWeight:700}},"pes"),
+              "). Abaixo: meta nominal no cenario BASE."
             )
           )
         ),
