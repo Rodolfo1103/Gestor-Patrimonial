@@ -5249,22 +5249,33 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         try{
           // Pesos atuais
           const wMap={};CL.forEach(c=>wMap[c.id]=(cw[c.id]||0)/100);
-          const equityBias=YPB_BUCKETS.equity.reduce((s,id)=>s+(wMap[id]||0),0)+(wMap.reits||0);
-          const realAssetsBias=YPB_BUCKETS.realAssets.reduce((s,id)=>s+(wMap[id]||0),0);
-          const altLiquid=wMap.bitcoin||0;
-          const fixedNominal=(wMap.selic||0)+(wMap.treasuries||0);
-          const inflationHedge=wMap.ouro||0;
+          // Buckets atual vs YPB
+          const buckets={
+            equity:{label:"Equity (Acoes BR+EXT)",ids:YPB_BUCKETS.equity,color:"#4CAF82",yaleMin:0.40,yaleMax:0.55,explicacao:"Acoes puras - captam premio de risco de longo prazo. Yale considera equity o motor de retorno secular."},
+            realAssets:{label:"Real Assets (FII+REITs+Infra+Imoveis+Agro)",ids:YPB_BUCKETS.realAssets,color:"#C8A96E",yaleMin:0.35,yaleMax:0.55,explicacao:"Ativos reais com fluxo de caixa indexados a inflacao. Yale enfatiza heavy allocation aqui (real estate + recursos naturais) por gerar renda + hedge inflacionario."},
+            altLiquid:{label:"Alternativos Liquidos (Bitcoin)",ids:YPB_BUCKETS.altLiquid,color:"#F7931A",yaleMin:0.01,yaleMax:0.06,explicacao:"Substituto B&H para a alocacao de Yale em PE/VC (inacessivel ao retail). BTC oferece descorrelacao com sistema financeiro classico, mas com volatilidade alta - exposicao prudente."},
+            inflationHedge:{label:"Hedge Inflacionario (Ouro)",ids:YPB_BUCKETS.inflationHedge,color:"#E8C44A",yaleMin:0.03,yaleMax:0.07,explicacao:"Hedge classico contra inflacao estrutural e desordem monetaria. Yale tem pouca exposicao explicita, mas YPB inclui 5% pelo cenario brasileiro de juros voláteis."},
+            fixedNominal:{label:"Renda Fixa Nominal (Selic+Treasuries)",ids:YPB_BUCKETS.fixedNominal,color:"#5B8FD4",yaleMin:0.10,yaleMax:0.15,explicacao:"Liquidez produtiva. Yale evita renda fixa pesada porque erode retorno real. YPB mantem ~12% como reserva estrategica e oportunismo contraciclico."}
+          };
+          // Calcula real% e YPB% para cada bucket
+          Object.keys(buckets).forEach(k=>{
+            const b=buckets[k];
+            b.real=b.ids.reduce((s,id)=>s+(wMap[id]||0),0);
+            b.ypb=b.ids.reduce((s,id)=>s+(YPB_W[id]||0),0);
+            // diferenca
+            b.diff=b.real-b.ypb;
+            // status
+            if(b.real>=b.yaleMin&&b.real<=b.yaleMax)b.status="alinhado";
+            else if(b.real<b.yaleMin)b.status="abaixo";
+            else b.status="acima";
+          });
 
-          // ENB (Effective Number of Bets) - inverso da soma dos quadrados dos pesos (Herfindahl invertido)
-          // Quanto maior, mais "bets independentes" voce tem. Range: 1 (concentracao total) ate N (perfeitamente uniforme)
+          // ENB calculations
           const wArr=MPT_CLS.map(cid=>wMap[cid]||0);
           let sumSq=0;wArr.forEach(w=>sumSq+=w*w);
           const enbHerfindahl=sumSq>0?1/sumSq:0;
-          // ENB ajustado por correlacao (versao mais sofisticada usando autovalores da matriz)
-          // Aproximacao: ENB efetivo = ENB Herfindahl x (1 - corrMediaPond ao quadrado)
-          // Quanto mais correlacionado, menor o ENB efetivo
-          let corrMP=0;
-          let cont=0;
+          // Correlacao media ponderada absoluta entre pares com peso > 0
+          let corrMP=0,cont=0;
           for(let i=0;i<wArr.length;i++){
             for(let j=i+1;j<wArr.length;j++){
               if(wArr[i]>0&&wArr[j]>0){
@@ -5273,64 +5284,217 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
               }
             }
           }
-          const corrMediaPond2=cont>0?corrMP/cont:0;
-          const enbEfetivo=enbHerfindahl*(1-corrMediaPond2*corrMediaPond2);
+          const corrMediaPond=cont>0?corrMP/cont:0;
+          const enbEfetivo=enbHerfindahl*(1-corrMediaPond*corrMediaPond);
+          // ENB YPB para comparacao
+          const wArrYPB=MPT_CLS.map(cid=>YPB_W[cid]||0);
+          let sumSqYPB=0;wArrYPB.forEach(w=>sumSqYPB+=w*w);
+          const enbHerfYPB=sumSqYPB>0?1/sumSqYPB:0;
+          let corrMP_YPB=0,cont_YPB=0;
+          for(let i=0;i<wArrYPB.length;i++){
+            for(let j=i+1;j<wArrYPB.length;j++){
+              if(wArrYPB[i]>0&&wArrYPB[j]>0){
+                corrMP_YPB+=wArrYPB[i]*wArrYPB[j]*Math.abs(MPT_COR[i][j]);
+                cont_YPB+=wArrYPB[i]*wArrYPB[j];
+              }
+            }
+          }
+          const corrMediaYPB=cont_YPB>0?corrMP_YPB/cont_YPB:0;
+          const enbEfetivoYPB=enbHerfYPB*(1-corrMediaYPB*corrMediaYPB);
 
-          // Classificacoes
-          const eqColor=equityBias>=0.40&&equityBias<=0.55?"#4CAF82":equityBias<0.30?"#E89060":equityBias>0.65?"#E8C44A":"#9B9B9B";
-          const eqText=equityBias>=0.40&&equityBias<=0.55?"ALINHADO YPB":equityBias<0.30?"BAIXO":equityBias>0.65?"AGRESSIVO":"DEFENSIVO";
-          const raColor=realAssetsBias>=0.35&&realAssetsBias<=0.55?"#4CAF82":realAssetsBias<0.20?"#E89060":realAssetsBias>0.60?"#E8C44A":"#9B9B9B";
-          const raText=realAssetsBias>=0.35&&realAssetsBias<=0.55?"ALINHADO YPB":realAssetsBias<0.20?"BAIXO HEDGE":realAssetsBias>0.60?"CONCENTRADO":"MODERADO";
-          const enbColor=enbEfetivo>=4?"#4CAF82":enbEfetivo>=3?"#E8C44A":"#E89060";
-          const enbText=enbEfetivo>=5?"EXCELENTE":enbEfetivo>=4?"BOM":enbEfetivo>=3?"REGULAR":"FRACO";
+          // HHI (Herfindahl-Hirschman Index)
+          const hhiAtual=sumSq;
+          const hhiYPB=sumSqYPB;
 
-          return h("div",{style:{background:"linear-gradient(135deg,rgba(156,125,194,0.08),rgba(156,125,194,0.02))",border:"1px solid rgba(156,125,194,0.30)",borderRadius:9,padding:"14px 16px",marginBottom:14}},
+          // Numero de classes com peso significativo (>1%)
+          const classesAtivas=wArr.filter(w=>w>0.01).length;
+          const classesAtivasYPB=wArrYPB.filter(w=>w>0.01).length;
+
+          // Helpers
+          const formatPct=v=>(v*100).toFixed(1)+"%";
+          const corStatus={alinhado:"#4CAF82",abaixo:"#E89060",acima:"#E8C44A"};
+          const txtStatus={alinhado:"ALINHADO",abaixo:"ABAIXO YPB",acima:"ACIMA YPB"};
+
+          return h("div",{style:{background:"linear-gradient(135deg,rgba(156,125,194,0.10),rgba(156,125,194,0.02))",border:"2px solid rgba(156,125,194,0.40)",borderRadius:10,padding:"16px 18px",marginBottom:14,boxShadow:"0 0 0 1px rgba(156,125,194,0.10)"}},
+            // Header
             h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10,gap:8,flexWrap:"wrap"}},
               h("div",{},
-                h("div",{style:{fontSize:9,letterSpacing:2,color:"#9C7DC2",fontFamily:"monospace",fontWeight:700,textTransform:"uppercase"}},"\u{1F3DB}\u{FE0F} METRICAS SWENSEN / YALE"),
-                h("div",{style:{fontSize:8,color:"#7A7060",marginTop:3,fontStyle:"italic"}},"Bias filosofico do portfolio + numero efetivo de apostas independentes")
+                h("div",{style:{fontSize:11,letterSpacing:2.5,color:"#9C7DC2",fontFamily:"monospace",fontWeight:700,textTransform:"uppercase"}},"\u{1F3DB}\u{FE0F} METRICAS SWENSEN / YALE PRAGMATICO BR"),
+                h("div",{style:{fontSize:8.5,color:"#7A7060",marginTop:3,fontStyle:"italic"}},"Comparacao detalhada: seu portfolio vs YPB (Yale Endowment adaptado ao Brasil)")
               ),
               h("a",{href:"#",onClick:(e)=>{e.preventDefault();setTab("yale");},style:{fontSize:8,color:"#9C7DC2",fontFamily:"monospace",textDecoration:"underline",letterSpacing:1}},"VER ABA YALE \u2192")
             ),
-            // Grid 3 metricas
-            h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:10}},
-              // Equity Bias
-              h("div",{style:{background:"rgba(0,0,0,0.20)",borderRadius:6,padding:"9px 11px",borderLeft:"3px solid "+eqColor}},
-                h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",letterSpacing:1.2,marginBottom:3}},"EQUITY BIAS"),
-                h("div",{style:{fontSize:14,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700}},(equityBias*100).toFixed(1)+"%"),
-                h("div",{style:{fontSize:7,color:eqColor,fontFamily:"monospace",fontWeight:700,marginTop:2,letterSpacing:1}},eqText)
-              ),
-              // Real Assets Bias
-              h("div",{style:{background:"rgba(0,0,0,0.20)",borderRadius:6,padding:"9px 11px",borderLeft:"3px solid "+raColor}},
-                h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",letterSpacing:1.2,marginBottom:3}},"REAL ASSETS"),
-                h("div",{style:{fontSize:14,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700}},(realAssetsBias*100).toFixed(1)+"%"),
-                h("div",{style:{fontSize:7,color:raColor,fontFamily:"monospace",fontWeight:700,marginTop:2,letterSpacing:1}},raText)
-              ),
-              // ENB
-              h("div",{style:{background:"rgba(0,0,0,0.20)",borderRadius:6,padding:"9px 11px",borderLeft:"3px solid "+enbColor}},
-                h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",letterSpacing:1.2,marginBottom:3}},"ENB EFETIVO"),
-                h("div",{style:{fontSize:14,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700}},enbEfetivo.toFixed(2)),
-                h("div",{style:{fontSize:7,color:enbColor,fontFamily:"monospace",fontWeight:700,marginTop:2,letterSpacing:1}},enbText)
+
+            // ===== EXPLICACAO INICIAL =====
+            h("div",{style:{padding:"9px 11px",background:"rgba(0,0,0,0.20)",borderRadius:6,marginBottom:11,fontSize:9,color:"#9A9080",lineHeight:1.6,borderLeft:"3px solid #9C7DC2"}},
+              h("strong",{style:{color:"#9C7DC2"}},"\u{1F4DA} CONTEXTO")," - David Swensen geriu o Yale Endowment por 36 anos com retorno medio de 13.7% a.a. Sua filosofia: ",h("em",{},"\"equity bias forte + diversificacao em ativos reais + minimo de renda fixa nominal\""),". O ",h("strong",{},"Yale Pragmatico Brasil (YPB)")," adapta isso ao retail brasileiro - como nao temos acesso a PE/VC/hedge funds, substituimos por Bitcoin (alternativo liquido), aumentamos FIIs (substituto de real estate institucional) e mantemos renda fixa minima dado o regime de juros volatil."
+            ),
+
+            // ===== COMPARACAO POR BUCKET =====
+            h("div",{style:{marginBottom:11}},
+              h("div",{style:{fontSize:9,letterSpacing:1.5,color:"#9C7DC2",fontFamily:"monospace",fontWeight:700,marginBottom:7}},"\u{1F4CA} ALOCACAO POR BUCKET FILOSOFICO"),
+              h("div",{style:{display:"flex",flexDirection:"column",gap:7}},
+                ...Object.entries(buckets).map(([k,b])=>{
+                  // Calcula limites visuais para barra
+                  const maxBar=Math.max(b.real,b.ypb,b.yaleMax)*1.1;
+                  return h("div",{key:k,style:{padding:"9px 11px",background:"rgba(0,0,0,0.20)",borderRadius:5,borderLeft:"3px solid "+b.color}},
+                    // Linha 1: nome + valores
+                    h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:8,marginBottom:6,flexWrap:"wrap"}},
+                      h("div",{style:{fontSize:9,color:b.color,fontFamily:"monospace",fontWeight:700,letterSpacing:0.8,flex:"1 1 200px"}},b.label),
+                      h("div",{style:{display:"flex",gap:8,fontSize:9,fontFamily:"monospace",flexShrink:0}},
+                        h("span",{style:{color:"#E8E2D5",fontWeight:700}},"VOCE: ",formatPct(b.real)),
+                        h("span",{style:{color:"#9C7DC2",fontWeight:700}},"YPB: ",formatPct(b.ypb)),
+                        h("span",{style:{color:corStatus[b.status],fontWeight:700,fontSize:7,padding:"1px 5px",background:corStatus[b.status]+"22",borderRadius:3,letterSpacing:1}},txtStatus[b.status])
+                      )
+                    ),
+                    // Linha 2: barras paralelas
+                    h("div",{style:{position:"relative",height:18,marginBottom:5}},
+                      // Faixa Yale ideal (background)
+                      h("div",{style:{position:"absolute",top:0,bottom:0,left:(b.yaleMin/maxBar*100)+"%",width:((b.yaleMax-b.yaleMin)/maxBar*100)+"%",background:"rgba(76,175,130,0.10)",border:"1px dashed rgba(76,175,130,0.30)",borderRadius:2}}),
+                      // Barra VOCE (em cima)
+                      h("div",{style:{position:"absolute",top:0,height:7,left:0,width:(b.real/maxBar*100)+"%",background:b.color,opacity:0.85,borderRadius:2}}),
+                      // Barra YPB (em baixo)
+                      h("div",{style:{position:"absolute",bottom:0,height:7,left:0,width:(b.ypb/maxBar*100)+"%",background:"#9C7DC2",opacity:0.55,borderRadius:2,border:"1px dashed rgba(156,125,194,0.6)"}})
+                    ),
+                    // Linha 3: diff numerico
+                    h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,fontSize:7.5,fontFamily:"monospace"}},
+                      h("div",{style:{color:"#7A7060"}},
+                        h("span",{style:{color:b.color}},"\u25A0 voce")," | ",
+                        h("span",{style:{color:"#9C7DC2"}},"\u25A0 YPB")," | ",
+                        h("span",{style:{color:"#4CAF82"}},"faixa Yale ",formatPct(b.yaleMin),"-",formatPct(b.yaleMax))
+                      ),
+                      h("div",{style:{color:b.diff>0.03?"#E8C44A":b.diff<-0.03?"#E89060":"#9A9080"}},"\u0394 ",(b.diff>=0?"+":"")+(b.diff*100).toFixed(1),"pp vs YPB")
+                    ),
+                    // Linha 4: explicacao Swensen
+                    h("div",{style:{fontSize:8,color:"#7A7060",fontStyle:"italic",marginTop:5,lineHeight:1.5}},b.explicacao)
+                  );
+                })
               )
             ),
-            // Legenda explicativa
-            h("div",{style:{background:"rgba(0,0,0,0.15)",borderRadius:5,padding:"8px 10px",fontSize:8.5,color:"#9A9080",lineHeight:1.55}},
-              h("div",{style:{marginBottom:5}},
-                h("strong",{style:{color:"#4CAF82"}},"Equity Bias")," (acoes BR+EXT+REITs): predominancia de equity no portfolio. ",
-                h("strong",{},"Yale modelo: 40-55%."),
-                " Equity capta retorno de longo prazo (premio de risco)."
+
+            // ===== ENB E METRICAS DE DESCORRELACAO =====
+            h("div",{style:{marginBottom:11}},
+              h("div",{style:{fontSize:9,letterSpacing:1.5,color:"#9C7DC2",fontFamily:"monospace",fontWeight:700,marginBottom:7}},"\u{1F9EC} ENB EFETIVO E METRICAS DE DESCORRELACAO"),
+              // Explicacao didatica
+              h("div",{style:{padding:"9px 11px",background:"rgba(0,0,0,0.25)",borderRadius:5,marginBottom:8,fontSize:9,color:"#9A9080",lineHeight:1.6,borderLeft:"3px solid #5B8FD4"}},
+                h("div",{style:{marginBottom:5}},h("strong",{style:{color:"#5B8FD4"}},"\u{1F4D8} O QUE E O ENB EFETIVO")," - sigla para ",h("strong",{},"Effective Number of Bets")," (Numero Efetivo de Apostas Independentes). E uma metrica de Meucci (2009) que responde: ",h("em",{},"\"de quantas apostas REALMENTE independentes seu portfolio se compoe?\"")),
+                h("div",{style:{marginBottom:5}},h("strong",{style:{color:"#5B8FD4"}},"Por que e melhor que contar classes")," - um portfolio com 11 classes mas todas correlacionadas em 80% (todas sobem e descem juntas) tem ENB ~2 (so 2 apostas reais). Ja um portfolio com 5 classes verdadeiramente descorrelacionadas tem ENB ~5. ",h("strong",{},"ENB conta apostas INDEPENDENTES, nao classes.")),
+                h("div",{},h("strong",{style:{color:"#5B8FD4"}},"Como e calculado")," - ENB Efetivo = ENB Herfindahl x (1 - Correlacao Media Ponderada\u00B2). O primeiro termo penaliza concentracao em pesos, o segundo penaliza concentracao em fatores de risco correlacionados.")
               ),
-              h("div",{style:{marginBottom:5}},
-                h("strong",{style:{color:"#C8A96E"}},"Real Assets")," (FIIs+REITs+Infra+Imoveis+Agro): exposicao a real estate e recursos naturais. ",
-                h("strong",{},"Yale modelo: 35-55%."),
-                " Protege contra inflacao estrutural."
+              // Grid de 4 metricas comparativas
+              h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}},
+                // ENB EFETIVO
+                h("div",{style:{background:"rgba(0,0,0,0.25)",borderRadius:6,padding:"10px 12px",borderLeft:"3px solid #9C7DC2"}},
+                  h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",letterSpacing:1.2,marginBottom:4}},"ENB EFETIVO"),
+                  h("div",{style:{display:"flex",alignItems:"baseline",justifyContent:"space-between",gap:6}},
+                    h("div",{},
+                      h("div",{style:{fontSize:9,color:"#7A7060",fontFamily:"monospace"}},"Voce"),
+                      h("div",{style:{fontSize:16,color:enbEfetivo>=4?"#4CAF82":enbEfetivo>=3?"#E8C44A":"#E89060",fontFamily:"Georgia,serif",fontWeight:700,fontStyle:"italic"}},enbEfetivo.toFixed(2))
+                    ),
+                    h("div",{style:{textAlign:"right"}},
+                      h("div",{style:{fontSize:9,color:"#7A7060",fontFamily:"monospace"}},"YPB"),
+                      h("div",{style:{fontSize:13,color:"#9C7DC2",fontFamily:"Georgia,serif",fontWeight:700,fontStyle:"italic",opacity:0.85}},enbEfetivoYPB.toFixed(2))
+                    )
+                  ),
+                  h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",fontStyle:"italic",marginTop:5,lineHeight:1.4}},"apostas verdadeiramente independentes (ideal \u2265 4)")
+                ),
+                // ENB HERFINDAHL
+                h("div",{style:{background:"rgba(0,0,0,0.25)",borderRadius:6,padding:"10px 12px",borderLeft:"3px solid #5B8FD4"}},
+                  h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",letterSpacing:1.2,marginBottom:4}},"ENB HERFINDAHL (sem correl.)"),
+                  h("div",{style:{display:"flex",alignItems:"baseline",justifyContent:"space-between",gap:6}},
+                    h("div",{},
+                      h("div",{style:{fontSize:9,color:"#7A7060",fontFamily:"monospace"}},"Voce"),
+                      h("div",{style:{fontSize:16,color:"#E8E2D5",fontFamily:"Georgia,serif",fontWeight:700,fontStyle:"italic"}},enbHerfindahl.toFixed(2))
+                    ),
+                    h("div",{style:{textAlign:"right"}},
+                      h("div",{style:{fontSize:9,color:"#7A7060",fontFamily:"monospace"}},"YPB"),
+                      h("div",{style:{fontSize:13,color:"#9C7DC2",fontFamily:"Georgia,serif",fontWeight:700,fontStyle:"italic",opacity:0.85}},enbHerfYPB.toFixed(2))
+                    )
+                  ),
+                  h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",fontStyle:"italic",marginTop:5,lineHeight:1.4}},"so pesos, ignora correlacoes (1/HHI)")
+                ),
+                // CORRELACAO MEDIA PONDERADA
+                h("div",{style:{background:"rgba(0,0,0,0.25)",borderRadius:6,padding:"10px 12px",borderLeft:"3px solid #E89060"}},
+                  h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",letterSpacing:1.2,marginBottom:4}},"CORREL. MEDIA PONDERADA"),
+                  h("div",{style:{display:"flex",alignItems:"baseline",justifyContent:"space-between",gap:6}},
+                    h("div",{},
+                      h("div",{style:{fontSize:9,color:"#7A7060",fontFamily:"monospace"}},"Voce"),
+                      h("div",{style:{fontSize:16,color:corrMediaPond<=0.30?"#4CAF82":corrMediaPond<=0.45?"#E8C44A":"#E89060",fontFamily:"Georgia,serif",fontWeight:700,fontStyle:"italic"}},corrMediaPond.toFixed(3))
+                    ),
+                    h("div",{style:{textAlign:"right"}},
+                      h("div",{style:{fontSize:9,color:"#7A7060",fontFamily:"monospace"}},"YPB"),
+                      h("div",{style:{fontSize:13,color:"#9C7DC2",fontFamily:"Georgia,serif",fontWeight:700,fontStyle:"italic",opacity:0.85}},corrMediaYPB.toFixed(3))
+                    )
+                  ),
+                  h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",fontStyle:"italic",marginTop:5,lineHeight:1.4}},"correl. absoluta media entre classes (menor = melhor)")
+                ),
+                // HHI
+                h("div",{style:{background:"rgba(0,0,0,0.25)",borderRadius:6,padding:"10px 12px",borderLeft:"3px solid #C8A96E"}},
+                  h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",letterSpacing:1.2,marginBottom:4}},"HHI (CONCENTRACAO)"),
+                  h("div",{style:{display:"flex",alignItems:"baseline",justifyContent:"space-between",gap:6}},
+                    h("div",{},
+                      h("div",{style:{fontSize:9,color:"#7A7060",fontFamily:"monospace"}},"Voce"),
+                      h("div",{style:{fontSize:16,color:hhiAtual<=0.13?"#4CAF82":hhiAtual<=0.18?"#E8C44A":"#E89060",fontFamily:"Georgia,serif",fontWeight:700,fontStyle:"italic"}},hhiAtual.toFixed(3))
+                    ),
+                    h("div",{style:{textAlign:"right"}},
+                      h("div",{style:{fontSize:9,color:"#7A7060",fontFamily:"monospace"}},"YPB"),
+                      h("div",{style:{fontSize:13,color:"#9C7DC2",fontFamily:"Georgia,serif",fontWeight:700,fontStyle:"italic",opacity:0.85}},hhiYPB.toFixed(3))
+                    )
+                  ),
+                  h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",fontStyle:"italic",marginTop:5,lineHeight:1.4}},"soma pesos\u00B2 (",(1/MPT_CLS.length).toFixed(3)," = ideal)")
+                )
               ),
-              h("div",{},
-                h("strong",{style:{color:"#9C7DC2"}},"ENB Efetivo")," (Effective Number of Bets): numero de \"apostas independentes\" no portfolio, ajustado por correlacao entre classes. Diferente de \"numero de classes\". Um portfolio com 11 classes mas 90% correlacionadas tem ENB ~2; um com 5 classes descorrelacionadas tem ENB ~5. ",
-                h("strong",{},"Ideal: >=4."),
-                " Voce: ",h("strong",{style:{color:enbColor}},enbEfetivo.toFixed(2)),"."
+              // Explicacao adicional sobre cada metrica
+              h("details",{style:{marginTop:8,paddingTop:6,borderTop:"1px solid rgba(255,255,255,0.05)"}},
+                h("summary",{style:{fontSize:8,letterSpacing:1.2,color:"#9A9080",fontFamily:"monospace",fontWeight:700,cursor:"pointer",userSelect:"none"}},"\u{1F4D6} ENTENDA CADA METRICA DE DESCORRELACAO"),
+                h("div",{style:{marginTop:8,fontSize:8.5,color:"#9A9080",lineHeight:1.6}},
+                  h("div",{style:{marginBottom:6,padding:"6px 9px",background:"rgba(156,125,194,0.05)",borderLeft:"2px solid #9C7DC2",borderRadius:"0 3px 3px 0"}},
+                    h("strong",{style:{color:"#9C7DC2"}},"ENB Efetivo"),": Numero Efetivo de Apostas Independentes. ",h("strong",{},"Formula"),": ENB Herfindahl x (1 - corr\u00B2). ",h("strong",{},"Ideal"),": >= 4 (poucas classes mas verdadeiramente diversificadas) ou >= 5 (excelente). ",h("strong",{},"Interpretacao"),": se ENB = 4.5, voce tem o equivalente a 4.5 \"apostas\" totalmente independentes no portfolio."
+                  ),
+                  h("div",{style:{marginBottom:6,padding:"6px 9px",background:"rgba(91,143,212,0.05)",borderLeft:"2px solid #5B8FD4",borderRadius:"0 3px 3px 0"}},
+                    h("strong",{style:{color:"#5B8FD4"}},"ENB Herfindahl"),": versao simplificada que so olha pesos (ignora correlacoes). E o ",h("strong",{},"1/HHI"),". ",h("strong",{},"Range"),": 1 (100% em uma classe) ate N=",MPT_CLS.length," (perfeitamente uniforme). ",h("strong",{},"Comparacao com ENB Efetivo")," - se ENB Herfindahl for muito maior que ENB Efetivo, voce tem MUITAS classes mas com alta correlacao entre elas."
+                  ),
+                  h("div",{style:{marginBottom:6,padding:"6px 9px",background:"rgba(232,144,96,0.05)",borderLeft:"2px solid #E89060",borderRadius:"0 3px 3px 0"}},
+                    h("strong",{style:{color:"#E89060"}},"Correlacao Media Ponderada"),": correlacao ",h("strong",{},"absoluta")," media entre todos os pares de classes do portfolio, ponderada pelos seus pesos. ",h("strong",{},"Ideal"),": < 0.30 (baixa correlacao = real diversificacao). ",h("strong",{},"Interpretacao"),": valores > 0.50 indicam que muitas classes se movem juntas - estamos diversificando ",h("em",{},"so na aparencia"),"."
+                  ),
+                  h("div",{style:{padding:"6px 9px",background:"rgba(200,169,110,0.05)",borderLeft:"2px solid #C8A96E",borderRadius:"0 3px 3px 0"}},
+                    h("strong",{style:{color:"#C8A96E"}},"HHI (Herfindahl-Hirschman)"),": soma dos pesos ao quadrado. ",h("strong",{},"Ideal"),": ",(1/MPT_CLS.length).toFixed(3)," (perfeita diversificacao entre as ",MPT_CLS.length," classes). ",h("strong",{},"Maximo"),": 1.0 (100% concentrado em uma classe). ",h("strong",{},"Uso"),": metrica classica usada na antitrust e em finance para medir concentracao - quanto menor, melhor a distribuicao de pesos."
+                  )
+                )
               )
-            )
+            ),
+
+            // ===== INSIGHT PERSONALIZADO =====
+            (()=>{
+              const desviosImportantes=Object.entries(buckets).filter(([k,b])=>Math.abs(b.diff)>0.05);
+              const alinhados=Object.entries(buckets).filter(([k,b])=>b.status==="alinhado");
+              const enbDelta=enbEfetivo-enbEfetivoYPB;
+              return h("div",{style:{padding:"10px 12px",background:"rgba(76,175,130,0.05)",border:"1px solid rgba(76,175,130,0.25)",borderRadius:6}},
+                h("div",{style:{fontSize:9,letterSpacing:1.2,color:"#4CAF82",fontFamily:"monospace",fontWeight:700,marginBottom:6}},"\u{1F4A1} DIAGNOSTICO COMPARATIVO"),
+                h("p",{style:{fontSize:10,color:"#E8E2D5",lineHeight:1.7,margin:"0 0 8px",fontFamily:"Georgia,serif",fontStyle:"italic"}},
+                  // Alinhamento geral
+                  alinhados.length>=4?h("span",{},"Seu portfolio esta ",h("strong",{style:{color:"#4CAF82"}},"FORTEMENTE alinhado")," ao YPB em ",alinhados.length," dos 5 buckets filosoficos. "):
+                  alinhados.length>=3?h("span",{},"Seu portfolio esta ",h("strong",{style:{color:"#E8C44A"}},"razoavelmente alinhado")," ao YPB em ",alinhados.length," dos 5 buckets. "):
+                  h("span",{},"Seu portfolio diverge do YPB em varios buckets (",h("strong",{style:{color:"#E89060"}},"apenas "+alinhados.length+" de 5 alinhados"),"). "),
+                  // ENB
+                  enbDelta>=0.5?h("span",{},"Surpreendentemente, seu ",h("strong",{},"ENB Efetivo ("+enbEfetivo.toFixed(2)+") supera o YPB ("+enbEfetivoYPB.toFixed(2)+")"),", o que indica que seu portfolio tem mais apostas independentes mesmo divergindo da composicao ideal - boa diversificacao genuina. "):
+                  Math.abs(enbDelta)<0.5?h("span",{},"Seu ",h("strong",{},"ENB Efetivo ("+enbEfetivo.toFixed(2)+") esta proximo do YPB ("+enbEfetivoYPB.toFixed(2)+")"),", indicando nivel similar de diversificacao genuina. "):
+                  h("span",{},"Seu ",h("strong",{style:{color:"#E89060"}},"ENB Efetivo ("+enbEfetivo.toFixed(2)+") esta abaixo do YPB ("+enbEfetivoYPB.toFixed(2)+")"),", sinal de que algumas classes podem estar correlacionadas demais. "),
+                  // Correlacao
+                  corrMediaPond<=0.30?h("span",{},"Sua ",h("strong",{style:{color:"#4CAF82"}},"correlacao media de "+corrMediaPond.toFixed(2)+" e baixa"),", indicando ",h("em",{},"verdadeira diversificacao"),"."):
+                  corrMediaPond<=0.45?h("span",{},"Sua ",h("strong",{style:{color:"#E8C44A"}},"correlacao media de "+corrMediaPond.toFixed(2)+" e moderada"),", aceitavel mas ha espaco para melhorar."):
+                  h("span",{},"Sua ",h("strong",{style:{color:"#E89060"}},"correlacao media de "+corrMediaPond.toFixed(2)+" e alta"),", indicando que muitas classes se movem juntas - diversificacao mais aparente do que real.")
+                ),
+                // Acoes especificas
+                desviosImportantes.length>0&&h("div",{style:{fontSize:8.5,color:"#9A9080",lineHeight:1.6,padding:"7px 9px",background:"rgba(0,0,0,0.20)",borderRadius:4,marginTop:6}},
+                  h("div",{style:{fontSize:7.5,letterSpacing:1,color:"#E8C44A",fontFamily:"monospace",fontWeight:700,marginBottom:4}},"\u26A1 DESVIOS RELEVANTES (> 5pp)"),
+                  ...desviosImportantes.map(([k,b])=>h("div",{key:k,style:{marginBottom:2}},
+                    "\u2022 ",h("strong",{style:{color:b.color}},b.label.split(" (")[0]),": voce ",h("strong",{},formatPct(b.real)),", YPB sugere ",h("strong",{},formatPct(b.ypb)),
+                    " (",b.diff>0?h("span",{style:{color:"#E8C44A"}},"+"+(b.diff*100).toFixed(1)+"pp acima"):h("span",{style:{color:"#E89060"}},(b.diff*100).toFixed(1)+"pp abaixo"),")"
+                  ))
+                )
+              );
+            })()
           );
         }catch(e){
           console.error("Erro swensenBlock:",e);
