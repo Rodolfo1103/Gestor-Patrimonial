@@ -22,6 +22,7 @@ input,textarea{font-size:16px!important;}
 .dp span:nth-child(2){animation-delay:.2s;}
 .dp span:nth-child(3){animation-delay:.4s;}
 @keyframes dp{0%,100%{opacity:.3;transform:scale(.8)}50%{opacity:1;transform:scale(1)}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}
 </style>
 </head>
 <body>
@@ -157,6 +158,73 @@ const YPB_BUCKETS={
   altLiquid:["bitcoin"],// alternativos liquidos (substituto de PE/VC)
   fixedNominal:["selic","treasuries"]// renda fixa nominal
 };
+
+// ===== CAPACIDADE DE RENDA DO PORTFOLIO =====
+// Premissas para mensurar geracao de renda em 3 cenarios: pessimista (pes), base, otimista (oti)
+// Yield = % anual de pagamentos sobre o valor da classe
+// Crescimento real = taxa de crescimento real (acima da inflacao) da renda gerada
+// IR = imposto de renda sobre os pagamentos (em decimal)
+
+// DY anual por classe (em decimal, 3 cenarios)
+const YIELD_CLASSE={
+  fii:       {pes:0.085,base:0.10, oti:0.115},
+  acoes_br:  {pes:0.035,base:0.055,oti:0.07},
+  acoes_ext: {pes:0.012,base:0.020,oti:0.030},
+  reits:     {pes:0.040,base:0.055,oti:0.070},
+  selic:     {pes:0.060,base:0.085,oti:0.110},// yield real da Selic (varia com Selic nominal - inflacao)
+  treasuries:{pes:0.025,base:0.040,oti:0.055},// blend TLT/IEF/VTIP
+  ouro:      {pes:0,base:0,oti:0},// nao paga dividendo
+  bitcoin:   {pes:0,base:0,oti:0},// nao paga dividendo
+  infra:     {pes:0.085,base:0.100,oti:0.115},
+  imoveis:   {pes:0.040,base:0.060,oti:0.080},// aluguel sobre valor
+  agro:      {pes:0.090,base:0.105,oti:0.120}
+};
+// Crescimento real anual da renda gerada (acima da inflacao)
+// FIIs reajustam alugueis pelo IPCA + crescimento operacional
+// Acoes BR: dividendos crescem com lucros corporativos
+// Selic: yield real aproximado, sem crescimento autonomo
+const CRESC_REAL_RENDA={
+  fii:0.025,acoes_br:0.060,acoes_ext:0.050,reits:0.030,
+  selic:0,treasuries:0,ouro:0,bitcoin:0,
+  infra:0.040,imoveis:0.020,agro:0.035
+};
+// Valorizacao real anual (para ativos sem renda - Bitcoin, Ouro)
+// Esses ativos nao pagam mas podem ser sacados via SWR
+const VALORIZA_REAL={
+  fii:0.015,acoes_br:0.045,acoes_ext:0.055,reits:0.025,
+  selic:0,treasuries:0.005,ouro:0.020,bitcoin:0.100,
+  infra:0.020,imoveis:0.015,agro:0.030
+};
+// IR sobre dividendos (em decimal)
+const IR_DIV={
+  fii:0,// FII isento PF
+  acoes_br:0,// dividendos isentos no Brasil (apenas JCP teria 15%, mas raro)
+  acoes_ext:0.30,// retencao na fonte EUA 30% (sem tratado completo BR-EUA)
+  reits:0.30,// REITs nao tem tratado com BR
+  selic:0.15,// IR retido na fonte (faixa minima apos 720 dias)
+  treasuries:0.30,// cupons sao "interest income" - 30% retencao EUA
+  ouro:0,bitcoin:0,// nao geram renda
+  infra:0,// FII de infra (FI-Infra) isento
+  imoveis:0.275,// aluguel via Carne-Leao (faixa media)
+  agro:0// FIAGRO isento PF
+};
+// Safe Withdrawal Rate (regra dos 4% para 30+ anos)
+const SWR=0.04;// 4% anual
+// Inflacao esperada para deflacionar projecoes em poder de compra atual
+const IPCA_PROJETADO=0.04;// 4% a.a. (valor default historico)
+// IPCA por cenario para correcao da meta de IF e deflacao da renda real
+// Otimista: banda baixa da meta do BC (3%)
+// Base: media historica 2005-2025 ~5.5% a.a.
+// Pessimista: crise tipo 2015-2016 (IPCA chegou a 10.67% em 2015)
+const IPCA_CENARIOS={
+  oti:0.030,// banda baixa da meta BC (centro 3%, banda -1.5pp)
+  base:0.055,// media historica 20 anos
+  pes:0.085// cenario crise (medio biênio 2015-2016)
+};
+// Idade alvo para "tranquilidade plena" (centenarismo conservador)
+const IDADE_TRANQUILIDADE_PLENA=100;
+// Fundos de Renda Preservados (motores de renda nao consumidos na estrategia FIRE conservadora)
+const FUNDOS_RENDA_MOTORES=["fii","infra","agro"];
 
 // ===== STRESS TEST - Cenarios historicos curados =====
 // dd: drawdown peak-to-trough estimado por classe (em decimal, negativo = perda)
@@ -2004,6 +2072,13 @@ function App(){
   const [insightMensal,setInsightMensal]=useState(null);
   // Selic atual buscada do BCB (taxa de meta - serie 432)
   const [selicAtual,setSelicAtual]=useState(null);
+  // Meta de gasto mensal para Independencia Financeira (configuravel)
+  const [metaMensalIF,setMetaMensalIF]=useState(35000);
+  // Data de nascimento - persistida para calcular idade dinamicamente
+  // Padrao: 01/01/1986 (40 anos em 2026). Editavel na aba Renda.
+  const [dataNascimento,setDataNascimento]=useState("1986-01-01");
+  // Cenario de inflacao para corrigir a meta IF na aba Renda (oti|base|pes)
+  const [cenarioIPCA,setCenarioIPCA]=useState("base");
   // Ajustes IA dos scores de risco/retorno por classe (sobrescreve a recalibracao por Selic)
   const [ajustesRR_IA,setAjustesRR_IA]=useState(null);// {fii:{r,e},acoes_br:{r,e},...}
   const [calibracaoRR_TS,setCalibracaoRR_TS]=useState(null);// timestamp da ultima calibracao IA
@@ -2241,6 +2316,9 @@ function App(){
         if(dd.idxMensal&&typeof dd.idxMensal==="object")setIdxMensal(dd.idxMensal);
         if(dd.insightMensal&&typeof dd.insightMensal==="object")setInsightMensal(dd.insightMensal);
         if(typeof dd.selicAtual==="number"&&dd.selicAtual>0)setSelicAtual(dd.selicAtual);
+        if(typeof dd.metaMensalIF==="number"&&dd.metaMensalIF>0)setMetaMensalIF(dd.metaMensalIF);
+        if(typeof dd.dataNascimento==="string"&&/^\d{4}-\d{2}-\d{2}$/.test(dd.dataNascimento))setDataNascimento(dd.dataNascimento);
+        if(typeof dd.cenarioIPCA==="string"&&["oti","base","pes"].includes(dd.cenarioIPCA))setCenarioIPCA(dd.cenarioIPCA);
         if(dd.ajustesRR_IA&&typeof dd.ajustesRR_IA==="object")setAjustesRR_IA(dd.ajustesRR_IA);
         if(typeof dd.calibracaoRR_TS==="number")setCalibracaoRR_TS(dd.calibracaoRR_TS);
         if(typeof dd.calibracaoRR_texto==="string")setCalibracaoRR_texto(dd.calibracaoRR_texto);
@@ -2292,12 +2370,12 @@ function App(){
     if(!inited||!aesKey)return;
     (async()=>{
       try{
-        const obj={port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,selicAtual,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,piCycle,nupl,goldSilver,goldSP500,realGoldZ,fx:{...FX},btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,infIPCA,infIGPM,infINCC,infCPI};
+        const obj={port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,selicAtual,metaMensalIF,cenarioIPCA,dataNascimento,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,piCycle,nupl,goldSilver,goldSP500,realGoldZ,fx:{...FX},btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,infIPCA,infIGPM,infINCC,infCPI};
         const enc=await aesEncrypt(aesKey,obj);
         localStorage.setItem(SK_ENC,enc);
       }catch(e){}
     })();
-  },[port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,selicAtual,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,piCycle,nupl,goldSilver,goldSP500,realGoldZ,btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,infIPCA,infIGPM,infINCC,infCPI,inited,aesKey]);
+  },[port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,selicAtual,metaMensalIF,cenarioIPCA,dataNascimento,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,piCycle,nupl,goldSilver,goldSP500,realGoldZ,btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,infIPCA,infIGPM,infINCC,infCPI,inited,aesKey]);
 
   // Auto-lock por inatividade (15 min)
   useEffect(()=>{
@@ -4175,7 +4253,7 @@ function App(){
 
   // TABS
   const tabs=h("div",{style:{display:"flex",borderBottom:"1px solid rgba(255,255,255,0.06)",marginBottom:18,marginTop:10,overflowX:"auto"}},
-    ...[{id:"dashboard",label:"Dashboard"},{id:"positions",label:"Posicoes"},{id:"aporte",label:"Aporte"},{id:"chat",label:"Analise"},{id:"mpt",label:"MPT"},{id:"aw",label:"All Weather"},{id:"yale",label:"Yale"},{id:"stress",label:"Stress Test"},{id:"projecao",label:"Projecoes"},{id:"btcouro",label:"BTC/Ouro"},{id:"treasuries",label:"Treasuries"},{id:"history",label:"Historico"}].map(t=>
+    ...[{id:"dashboard",label:"Dashboard"},{id:"positions",label:"Posicoes"},{id:"aporte",label:"Aporte"},{id:"chat",label:"Analise"},{id:"mpt",label:"MPT"},{id:"aw",label:"All Weather"},{id:"yale",label:"Yale"},{id:"stress",label:"Stress Test"},{id:"projecao",label:"Projecoes"},{id:"renda",label:"Renda"},{id:"btcouro",label:"BTC/Ouro"},{id:"treasuries",label:"Treasuries"},{id:"history",label:"Historico"}].map(t=>
       h("button",{key:t.id,onClick:()=>{setTab(t.id);if(t.id!=="aporte"){setApR(null);setStep("r");}},style:{background:"none",border:"none",borderBottom:tab===t.id?"2px solid #C8A96E":"2px solid transparent",color:tab===t.id?"#C8A96E":"#8A8070",padding:"6px 10px",cursor:"pointer",fontSize:12,marginBottom:-1,flexShrink:0,whiteSpace:"nowrap"}},t.label)
     ),
     h("button",{onClick:()=>{
@@ -4437,7 +4515,14 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         insightMensal&&insightMensal.texto?h("div",{style:{fontSize:11,color:"#C8C0B0",lineHeight:1.7,whiteSpace:"pre-wrap"}},insightMensal.texto):
         h("div",{style:{fontSize:11,color:"#7A7570",fontStyle:"italic"}},"Sera gerado automaticamente no fechamento do proximo mes. Ou clique em atualizar para forcar agora.")
       ):null;
-      content=h("div",{},h(BolsasCard,{port,cls}),aporteCard,insightCard,h(AllocChart,{cw,ct,fB,MV,hideVal}),h(RiskChart,{cw,selicAtual,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,recalibrarRR_viaIA,calibracaoLoad,calibracaoErr,hasAjustesIA:!!ajustesRR_IA,apiKey}),h(EvolChart,{histMensal,hist,showUSD,setShowUSD,hideVal}),h(ComparativoChart,{histMensal,idxMensal,hideVal}),insightMensalCard,h(HeatmapChart,{hist}),h(CurrencyChart,{port,cls,hideVal}),topPos);
+      // Data do dia formatada em portugues - discreta e elegante
+      const hojeData=new Date();
+      const diasSem=["domingo","segunda-feira","terca-feira","quarta-feira","quinta-feira","sexta-feira","sabado"];
+      const meses=["janeiro","fevereiro","marco","abril","maio","junho","julho","agosto","setembro","outubro","novembro","dezembro"];
+      const dataHoje=diasSem[hojeData.getDay()]+", "+hojeData.getDate()+" de "+meses[hojeData.getMonth()]+" de "+hojeData.getFullYear();
+      const dateHeader=h("div",{style:{fontSize:10,color:"#7A7060",fontFamily:"Georgia,serif",fontStyle:"italic",letterSpacing:0.5,marginBottom:14,paddingBottom:9,borderBottom:"1px solid rgba(200,169,110,0.12)",textAlign:"right"}},dataHoje);
+
+      content=h("div",{},dateHeader,h(BolsasCard,{port,cls}),aporteCard,insightCard,h(AllocChart,{cw,ct,fB,MV,hideVal}),h(RiskChart,{cw,selicAtual,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,recalibrarRR_viaIA,calibracaoLoad,calibracaoErr,hasAjustesIA:!!ajustesRR_IA,apiKey}),h(EvolChart,{histMensal,hist,showUSD,setShowUSD,hideVal}),h(ComparativoChart,{histMensal,idxMensal,hideVal}),insightMensalCard,h(HeatmapChart,{hist}),h(CurrencyChart,{port,cls,hideVal}),topPos);
     }
   }  // POSITIONS
   if(tab==="positions"){
@@ -7831,6 +7916,1101 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
       console.error("Erro renderizando PROJECAO:",e);
       content=h("div",{style:{padding:"24px 16px",background:"rgba(224,82,82,0.06)",border:"1px solid rgba(224,82,82,0.25)",borderRadius:8,marginTop:12}},
         h("div",{style:{fontSize:11,color:"#E05252",fontFamily:"monospace",fontWeight:700,marginBottom:8}},"\u26A0 Erro ao renderizar Projecoes"),
+        h("div",{style:{fontSize:10,color:"#9A9080",lineHeight:1.6,fontFamily:"monospace",whiteSpace:"pre-wrap"}},e&&e.message?e.message:String(e))
+      );
+    }
+  }
+
+  // ============================================
+  // CAPACIDADE DE RENDA DO PORTFOLIO
+  // ============================================
+  if(tab==="renda"){
+    try{
+      // ===== IDADE CALCULADA DINAMICAMENTE A PARTIR DA DATA DE NASCIMENTO =====
+      // Recalcula a cada render, refletindo automaticamente a passagem do tempo
+      let idadeAtual=40;// fallback
+      try{
+        const dn=new Date(dataNascimento+"T00:00:00");
+        const hoje=new Date();
+        let idade=hoje.getFullYear()-dn.getFullYear();
+        const mDiff=hoje.getMonth()-dn.getMonth();
+        if(mDiff<0||(mDiff===0&&hoje.getDate()<dn.getDate())){
+          idade--;
+        }
+        if(!isNaN(idade)&&idade>0&&idade<150)idadeAtual=idade;
+      }catch(e){console.warn("Erro calculando idade:",e);}
+      // Timestamp do calculo (atualizado a cada render da aba)
+      const tsCalculo=new Date();
+      const tsFmt=tsCalculo.toLocaleString("pt-BR",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"});
+
+      // Calcula valor atual de cada classe (em BRL)
+      const valorClasse={};
+      let totalPortfolio=0;
+      CL.forEach(c=>{
+        let v=0;
+        const tickersClasse=allT(c.id);
+        tickersClasse.forEach(t=>{
+          const p=port[t];
+          if(!p||!p.qty||!p.price)return;
+          const cc=ccy[t]||"BRL";
+          v+=(p.qty||0)*(p.price||0)*(FX[cc]||1);
+        });
+        valorClasse[c.id]=v;
+        totalPortfolio+=v;
+      });
+
+      // ===== CENARIO BASE (atual): calcula renda passiva + SWR =====
+      const calcRenda=(cenario)=>{
+        // cenario: "pes" | "base" | "oti"
+        let rendaBrutaAnual=0;
+        let rendaLiqAnual=0;
+        let swrLiqAnual=0;// SWR aplicado a ativos que NAO pagam dividendos (BTC/Ouro)
+        const decomp=[];// detalhamento por classe
+        CL.forEach(c=>{
+          const v=valorClasse[c.id]||0;
+          if(v<=0){decomp.push({id:c.id,name:c.name,color:c.color,valor:0,dy:0,bruta:0,liq:0,ir:0});return;}
+          const dy=YIELD_CLASSE[c.id]?YIELD_CLASSE[c.id][cenario]:0;
+          const ir=IR_DIV[c.id]||0;
+          const brutaCl=v*dy;
+          const liqCl=brutaCl*(1-ir);
+          rendaBrutaAnual+=brutaCl;
+          rendaLiqAnual+=liqCl;
+          decomp.push({id:c.id,name:c.name,color:c.color,valor:v,dy:dy,bruta:brutaCl,liq:liqCl,ir:ir});
+          // SWR sobre ativos sem dividendo (BTC e Ouro)
+          if(dy===0&&v>0){
+            swrLiqAnual+=v*SWR;// nao tem IR aqui (saque do principal nao gera renda)
+          }
+        });
+        return{rendaBrutaAnual,rendaLiqAnual,swrLiqAnual,totalLiqAnual:rendaLiqAnual+swrLiqAnual,decomp};
+      };
+
+      const rPes=calcRenda("pes");
+      const rBase=calcRenda("base");
+      const rOti=calcRenda("oti");
+
+      // ===== PROJECAO LONGO PRAZO =====
+      // Para cada ano N de 1 a 20: cresce o valor de cada classe pela valorizacao real, 
+      // e a renda pela DY x (1 + crescimento_real)^N
+      // IMPORTANTE: usa IPCA do cenario selecionado pelo usuario para deflacionar e corrigir meta
+      // ATENCAO: usuario optou por NAO considerar aportes - apenas crescimento organico
+      const ipcaSel=IPCA_CENARIOS[cenarioIPCA];// IPCA do cenario escolhido
+      const proj=[];// [{ano, valorTotal, rendaLiqNominalBase, rendaLiqRealBase, ...}]
+      for(let ano=1;ano<=20;ano++){
+        let valorPortAnoBase=0,valorPortAnoPes=0,valorPortAnoOti=0;
+        let rendaBaseLiq=0,rendaBaseSwr=0;
+        let rendaPesLiq=0,rendaPesSwr=0;
+        let rendaOtiLiq=0,rendaOtiSwr=0;
+        CL.forEach(c=>{
+          const v0=valorClasse[c.id]||0;
+          if(v0<=0)return;
+          const cresValor=VALORIZA_REAL[c.id]||0;
+          const cresRenda=CRESC_REAL_RENDA[c.id]||0;
+          // Valor cresce em termos REAIS (deflacionado), depois aplicamos IPCA do cenario
+          const valBase=v0*Math.pow(1+cresValor,ano)*Math.pow(1+ipcaSel,ano);// nominal
+          const valPes=v0*Math.pow(1+Math.max(0,cresValor-0.01),ano)*Math.pow(1+ipcaSel,ano);
+          const valOti=v0*Math.pow(1+cresValor+0.01,ano)*Math.pow(1+ipcaSel,ano);
+          valorPortAnoBase+=valBase;valorPortAnoPes+=valPes;valorPortAnoOti+=valOti;
+          // Renda cresce DY x (1+cresRenda)^N x (1+IPCA)^N (renda nominal)
+          const dyBase=YIELD_CLASSE[c.id]?YIELD_CLASSE[c.id].base:0;
+          const dyPes=YIELD_CLASSE[c.id]?YIELD_CLASSE[c.id].pes:0;
+          const dyOti=YIELD_CLASSE[c.id]?YIELD_CLASSE[c.id].oti:0;
+          const ir=IR_DIV[c.id]||0;
+          if(dyBase>0){
+            rendaBaseLiq+=valBase*dyBase*Math.pow(1+cresRenda,ano)*(1-ir);
+            rendaPesLiq+=valPes*dyPes*Math.pow(1+Math.max(0,cresRenda-0.005),ano)*(1-ir);
+            rendaOtiLiq+=valOti*dyOti*Math.pow(1+cresRenda+0.005,ano)*(1-ir);
+          }else{
+            // SWR sobre ativos sem dividendo
+            rendaBaseSwr+=valBase*SWR;
+            rendaPesSwr+=valPes*SWR;
+            rendaOtiSwr+=valOti*SWR;
+          }
+        });
+        // Deflaciona para poder de compra atual usando IPCA do cenario
+        const deflator=Math.pow(1+ipcaSel,ano);
+        // Meta corrigida pela inflacao do cenario (em valor NOMINAL futuro)
+        const metaCorrigidaNominal=metaMensalIF*deflator;
+        proj.push({
+          ano,
+          patrimNominal:{pes:valorPortAnoPes,base:valorPortAnoBase,oti:valorPortAnoOti},
+          patrimReal:{pes:valorPortAnoPes/deflator,base:valorPortAnoBase/deflator,oti:valorPortAnoOti/deflator},
+          rendaLiqNominal:{pes:rendaPesLiq,base:rendaBaseLiq,oti:rendaOtiLiq},
+          rendaLiqReal:{pes:rendaPesLiq/deflator,base:rendaBaseLiq/deflator,oti:rendaOtiLiq/deflator},
+          rendaTotalNominal:{pes:rendaPesLiq+rendaPesSwr,base:rendaBaseLiq+rendaBaseSwr,oti:rendaOtiLiq+rendaOtiSwr},
+          rendaTotalReal:{pes:(rendaPesLiq+rendaPesSwr)/deflator,base:(rendaBaseLiq+rendaBaseSwr)/deflator,oti:(rendaOtiLiq+rendaOtiSwr)/deflator},
+          metaNominalCorrigida:metaCorrigidaNominal,// meta mensal corrigida pela inflacao
+          metaRealConstante:metaMensalIF// meta em poder de compra atual (constante)
+        });
+      }
+
+      // Anos-chave para destaque
+      const anosChave=[5,10,15,20];
+      // Independencia Financeira: % atingido em relacao a meta corrigida pela inflacao do cenario
+      const metaAnual=metaMensalIF*12;
+      const ifPctAtual=(rBase.totalLiqAnual/metaAnual)*100;
+      // Comparacao em valor NOMINAL: renda futura vs meta corrigida pela inflacao
+      const ifPctBase5=(proj[4].rendaTotalNominal.base/(proj[4].metaNominalCorrigida*12))*100;
+      const ifPctBase10=(proj[9].rendaTotalNominal.base/(proj[9].metaNominalCorrigida*12))*100;
+      const ifPctBase20=(proj[19].rendaTotalNominal.base/(proj[19].metaNominalCorrigida*12))*100;
+
+      // ===== INDICE DE COBERTURA DA RENDA (ICR) =====
+      // Calcula para os 3 cenarios IPCA (oti, base, pes):
+      // (1) Cobertura atual: renda total mensal / meta mensal
+      // (2) Horizonte de cobertura: por quantos anos a renda passiva cobre 100% da meta corrigida
+      // (3) Horizonte de sustentabilidade total: quantos anos o patrimonio sustenta (considerando consumo do principal apos quebra da renda)
+      const calcICR=(ipcaRate)=>{
+        // Cobertura HOJE
+        const cobAtual=rBase.totalLiqAnual/(metaMensalIF*12);
+        // SIMULACAO ANO A ANO ate 50 anos
+        let horizonteCobertura=null;// ano em que a renda nao cobre mais
+        let horizonteTotal=null;// ano em que o patrimonio acaba
+        // Patrimonio simulado e renda anual ao longo do tempo
+        let patrimSim=totalPortfolio;
+        let anosSustentando=0;
+        for(let n=1;n<=50;n++){
+          // Recalcula renda e patrimonio nesse ano para esse IPCA
+          let rendaAnoLiq=0;
+          let valorAnoTotal=0;
+          let swrAno=0;
+          CL.forEach(c=>{
+            const v0=valorClasse[c.id]||0;
+            if(v0<=0)return;
+            const cresValor=VALORIZA_REAL[c.id]||0;
+            const cresRenda=CRESC_REAL_RENDA[c.id]||0;
+            const val=v0*Math.pow(1+cresValor,n)*Math.pow(1+ipcaRate,n);
+            valorAnoTotal+=val;
+            const dy=YIELD_CLASSE[c.id]?YIELD_CLASSE[c.id].base:0;
+            const ir=IR_DIV[c.id]||0;
+            if(dy>0){
+              rendaAnoLiq+=val*dy*Math.pow(1+cresRenda,n)*(1-ir);
+            }else{
+              swrAno+=val*SWR;
+            }
+          });
+          const rendaTotalAno=rendaAnoLiq+swrAno;
+          const metaAno=metaMensalIF*12*Math.pow(1+ipcaRate,n);
+          // Verifica cobertura
+          if(horizonteCobertura===null&&rendaTotalAno<metaAno){
+            horizonteCobertura=n-1;// ultimo ano ANTES de quebrar
+          }
+        }
+        // Se nunca quebrou em 50 anos
+        if(horizonteCobertura===null){
+          horizonteCobertura="indefinido";
+        }
+        // HORIZONTE DE SUSTENTABILIDADE TOTAL
+        // Se renda nunca quebra -> indefinido
+        // Caso contrario: simular consumo do principal apos quebra
+        if(horizonteCobertura==="indefinido"){
+          horizonteTotal="indefinido";
+        }else{
+          // A partir do ano horizonteCobertura+1, comeca a consumir
+          let patrim=totalPortfolio;
+          // Crescimento composto ate o ponto onde a renda quebra (usa medias ponderadas das classes)
+          // Calcula crescimento medio real do patrimonio (ponderado por peso atual de cada classe)
+          let crescMedio=0;
+          CL.forEach(c=>{
+            const v=valorClasse[c.id]||0;
+            if(v<=0)return;
+            const peso=v/totalPortfolio;
+            crescMedio+=peso*(VALORIZA_REAL[c.id]||0);
+          });
+          // Patrimonio cresce ate o ano de quebra
+          patrim=patrim*Math.pow(1+crescMedio,horizonteCobertura)*Math.pow(1+ipcaRate,horizonteCobertura);
+          // Agora simula consumo apos quebra
+          let n=horizonteCobertura;
+          while(n<200){// limite de seguranca de 200 anos
+            n++;
+            // Renda passiva neste ano (continua crescendo)
+            let rendaAnoLiq=0;
+            CL.forEach(c=>{
+              const v0=valorClasse[c.id]||0;
+              if(v0<=0)return;
+              const cresValor=VALORIZA_REAL[c.id]||0;
+              const cresRenda=CRESC_REAL_RENDA[c.id]||0;
+              const dy=YIELD_CLASSE[c.id]?YIELD_CLASSE[c.id].base:0;
+              const ir=IR_DIV[c.id]||0;
+              if(dy>0){
+                // Renda do ano e proporcional ao patrim atual vs original
+                const fracPatrim=patrim/totalPortfolio;
+                if(fracPatrim>0){
+                  const valEstim=v0*Math.pow(1+cresValor,n)*Math.pow(1+ipcaRate,n)*fracPatrim;
+                  rendaAnoLiq+=valEstim*dy*Math.pow(1+cresRenda,n)*(1-ir);
+                }
+              }
+            });
+            // Meta deste ano
+            const metaAno=metaMensalIF*12*Math.pow(1+ipcaRate,n);
+            // Deficit
+            const deficit=metaAno-rendaAnoLiq;
+            if(deficit>0){
+              patrim-=deficit;
+            }
+            // Patrimonio cresce em valorizacao mas paga o deficit
+            patrim=patrim*(1+crescMedio)*(1+ipcaRate);
+            if(patrim<=0){
+              horizonteTotal=n;
+              break;
+            }
+          }
+          if(horizonteTotal===null)horizonteTotal="indefinido";
+        }
+        // Cobertura em 20 anos (para mostrar tendencia)
+        let rendaAno20=0,swrAno20=0;
+        CL.forEach(c=>{
+          const v0=valorClasse[c.id]||0;
+          if(v0<=0)return;
+          const cresValor=VALORIZA_REAL[c.id]||0;
+          const cresRenda=CRESC_REAL_RENDA[c.id]||0;
+          const val=v0*Math.pow(1+cresValor,20)*Math.pow(1+ipcaRate,20);
+          const dy=YIELD_CLASSE[c.id]?YIELD_CLASSE[c.id].base:0;
+          const ir=IR_DIV[c.id]||0;
+          if(dy>0){
+            rendaAno20+=val*dy*Math.pow(1+cresRenda,20)*(1-ir);
+          }else{
+            swrAno20+=val*SWR;
+          }
+        });
+        const metaAno20=metaMensalIF*12*Math.pow(1+ipcaRate,20);
+        const cob20=(rendaAno20+swrAno20)/metaAno20;
+        return{cobAtual,cob20,horizonteCobertura,horizonteTotal,ipcaRate};
+      };
+      const icrOti=calcICR(IPCA_CENARIOS.oti);
+      const icrBase=calcICR(IPCA_CENARIOS.base);
+      const icrPes=calcICR(IPCA_CENARIOS.pes);
+
+      // ===== ICR-RTE (Renda Total Estrategica - FIRE com FIIs preservados) =====
+      // Ordem de consumo: Selic > Treasuries > Ouro > Bitcoin > REITs > Acoes EXT > Acoes BR > Agro > Infra > FIIs
+      // Imoveis fisicos sao excluidos (iliquidos)
+      const ordemConsumo=["selic","treasuries","ouro","bitcoin","reits","acoes_ext","acoes_br","agro","infra","fii"];
+      const calcICR_RTE=(ipcaRate)=>{
+        // Cobertura HOJE: renda passiva dividendos liq + SWR 4% sobre BTC+Ouro
+        const rendaPassivaHoje=rBase.rendaLiqAnual;
+        const swrInicialHoje=rBase.swrLiqAnual;
+        const rendaPrimariaHoje=rendaPassivaHoje+swrInicialHoje;
+        const cobAtual=rendaPrimariaHoje/(metaMensalIF*12);
+
+        // Simulacao ano a ano ate 100 anos
+        const valClasse={};
+        CL.forEach(c=>{valClasse[c.id]=valorClasse[c.id]||0;});
+        let anoQuebraDividendos=null;
+        let anoConsumirFII=null;
+        let anoFalencia=null;
+        let dadosAno20=null;
+        // Imoveis fisicos sao excluidos da simulacao (iliquidos)
+        valClasse.imoveis=0;
+        for(let n=1;n<=100;n++){
+          const metaAno=metaMensalIF*12*Math.pow(1+ipcaRate,n);
+          // 1. Cresce o valor de cada classe (real + inflacao)
+          CL.forEach(c=>{
+            if(valClasse[c.id]<=0)return;
+            const cresValor=VALORIZA_REAL[c.id]||0;
+            valClasse[c.id]*=(1+cresValor)*(1+ipcaRate);
+          });
+          // 2. Renda passiva (dividendos liq) + SWR sobre BTC+Ouro
+          let rendaDivLiq=0,swrNaoPag=0;
+          CL.forEach(c=>{
+            const v=valClasse[c.id]||0;
+            if(v<=0)return;
+            const dy=YIELD_CLASSE[c.id]?YIELD_CLASSE[c.id].base:0;
+            const cresRenda=CRESC_REAL_RENDA[c.id]||0;
+            const ir=IR_DIV[c.id]||0;
+            if(dy>0){
+              rendaDivLiq+=v*dy*Math.pow(1+cresRenda,n)*(1-ir);
+            }else{
+              swrNaoPag+=v*SWR;
+            }
+          });
+          const rendaPrimaria=rendaDivLiq+swrNaoPag;
+          if(anoQuebraDividendos===null&&rendaPrimaria<metaAno){
+            anoQuebraDividendos=n;
+          }
+          // 3. SWR sobre BTC e Ouro CONSOME o principal
+          if(valClasse.bitcoin>0)valClasse.bitcoin=Math.max(0,valClasse.bitcoin-valClasse.bitcoin*SWR);
+          if(valClasse.ouro>0)valClasse.ouro=Math.max(0,valClasse.ouro-valClasse.ouro*SWR);
+          // 4. Calcula deficit e consome classes em ordem
+          let deficit=Math.max(0,metaAno-rendaPrimaria);
+          for(const cid of ordemConsumo){
+            if(deficit<=0)break;
+            if(!valClasse[cid]||valClasse[cid]<=0)continue;
+            const saque=Math.min(valClasse[cid],deficit);
+            valClasse[cid]-=saque;
+            deficit-=saque;
+            if(cid==="fii"&&anoConsumirFII===null){
+              anoConsumirFII=n;
+            }
+          }
+          // 5. Captura snapshot ano 20
+          if(n===20){
+            dadosAno20={
+              metaAno,rendaPrimaria,
+              cobertura:rendaPrimaria/metaAno,
+              patrimonioRestante:Object.values(valClasse).reduce((s,v)=>s+(v||0),0),
+              fiiRestante:valClasse.fii||0,
+              fiiInicial:valorClasse.fii||0,
+              pctFiiPreservado:(valorClasse.fii||0)>0?(valClasse.fii/(valorClasse.fii||1))*100:0
+            };
+          }
+          // 6. Verifica falencia
+          const patrimTotal=Object.values(valClasse).reduce((s,v)=>s+(v||0),0);
+          if(patrimTotal<=0&&anoFalencia===null){
+            anoFalencia=n;
+            break;
+          }
+          if(patrimTotal<metaAno*0.5&&anoFalencia===null){
+            anoFalencia=n;
+          }
+        }
+        // Alerta de insustentabilidade
+        let cresMedioReal=0;
+        let rendaDyTotal=0;
+        CL.forEach(c=>{
+          const v=valorClasse[c.id]||0;
+          if(v<=0)return;
+          const peso=v/totalPortfolio;
+          cresMedioReal+=peso*(VALORIZA_REAL[c.id]||0);
+          const dy=YIELD_CLASSE[c.id]?YIELD_CLASSE[c.id].base:0;
+          const ir=IR_DIV[c.id]||0;
+          rendaDyTotal+=v*dy*(1-ir);
+        });
+        // Taxa de saque combinada (HOJE): renda passiva + SWR 4% sobre BTC/Ouro / patrim total
+        const taxaSaqueCombinada=(rendaDyTotal+(valorClasse.bitcoin+valorClasse.ouro||0)*SWR)/totalPortfolio;
+        const taxaCrescTotal=cresMedioReal+(rendaDyTotal/totalPortfolio);
+        const alertaInsustentabilidade=(metaMensalIF*12/totalPortfolio)>taxaCrescTotal+0.005?{
+          taxaConsumo:metaMensalIF*12/totalPortfolio,
+          taxaCresc:taxaCrescTotal
+        }:null;
+
+        return{
+          cobAtual,rendaPrimariaHoje,
+          horizonteCobertura:anoQuebraDividendos===null?"indefinido":anoQuebraDividendos-1,
+          horizonteAteFII:anoConsumirFII===null?"indefinido":anoConsumirFII-1,
+          horizonteTotal:anoFalencia===null?"indefinido":anoFalencia,
+          dadosAno20,alertaInsustentabilidade,ipcaRate
+        };
+      };
+      const rteOti=calcICR_RTE(IPCA_CENARIOS.oti);
+      const rteBase=calcICR_RTE(IPCA_CENARIOS.base);
+      const rtePes=calcICR_RTE(IPCA_CENARIOS.pes);
+
+      // ===== BANDA DE TRANQUILIDADE FINANCEIRA =====
+      // Para cada cenario: a partir da idade atual (40), por quantos anos a meta R$X/mes corrigida pela inflacao
+      // sera coberta. Usa a mesma logica do calcICR_RTE (consumo ordenado preservando FIIs como ultimo).
+      const calcBandaTranquilidade=(rteResult)=>{
+        // O horizonte total ja calculado no ICR-RTE diz quantos anos o portfolio dura
+        // Converte em idade alcancada
+        const horTotal=rteResult.horizonteTotal;
+        if(horTotal==="indefinido"){
+          return{anosCobertura:"indefinido",idadeAlcancada:"100+",classificacao:"plena"};
+        }
+        const idadeFinal=idadeAtual+horTotal;
+        let classif="atencao";
+        if(idadeFinal>=IDADE_TRANQUILIDADE_PLENA)classif="plena";
+        else if(idadeFinal>=90)classif="confortavel";
+        else if(idadeFinal>=75)classif="razoavel";
+        else classif="atencao";
+        return{anosCobertura:horTotal,idadeAlcancada:idadeFinal,classificacao:classif};
+      };
+      const bandaOti=calcBandaTranquilidade(rteOti);
+      const bandaBase=calcBandaTranquilidade(rteBase);
+      const bandaPes=calcBandaTranquilidade(rtePes);
+
+      // ===== CAPACIDADE MAXIMA SUSTENTAVEL (Bengen 4% conservador) =====
+      // Pergunta: qual e o maior gasto mensal X que preserva FII+Infra+Agro INDEFINIDAMENTE?
+      //
+      // Equacao: X*12 = renda_passiva_motores + SWR sobre tudo restante - mantendo o saque das 
+      // classes consumiveis dentro do crescimento real total (para serem sustentaveis)
+      //
+      // Logica: 
+      //   1. Renda passiva liquida dos MOTORES (FII+Infra+Agro) - nao tocados nunca
+      //   2. Renda passiva liquida das demais classes pagadoras
+      //   3. SWR 4% sobre classes nao-pagadoras (BTC+Ouro)
+      //   4. SWR 4% sobre classes pagadoras nao-motoras (Selic+Treasuries+REITs+Acoes BR+EXT)
+      // O SWR de 4% sobre essas e considerado sustentavel pela regra de Bengen
+      const calcCapMax=()=>{
+        let rendaMotores=0;// renda dos FIIs+Infra+Agro (preservados)
+        let rendaConsumiveis=0;// dividendos das classes que aceitam saque
+        let swrSobreConsumiveis=0;// 4% sobre patrim que pode ser sacado sustentavelmente
+        const detalhes={motores:[],consumiveis:[]};
+        CL.forEach(c=>{
+          const v=valorClasse[c.id]||0;
+          if(v<=0)return;
+          if(c.id==="imoveis")return;// imoveis fisicos excluidos (iliquidos)
+          const dy=YIELD_CLASSE[c.id]?YIELD_CLASSE[c.id].base:0;
+          const ir=IR_DIV[c.id]||0;
+          const rendaLiq=v*dy*(1-ir);
+          if(FUNDOS_RENDA_MOTORES.includes(c.id)){
+            // Motor: usa SOMENTE a renda passiva (nao consome principal)
+            rendaMotores+=rendaLiq;
+            detalhes.motores.push({id:c.id,name:c.name,color:c.color,valor:v,renda:rendaLiq,dy:dy*(1-ir)});
+          }else{
+            // Consumivel: renda passiva + SWR 4% sobre o principal
+            rendaConsumiveis+=rendaLiq;
+            swrSobreConsumiveis+=v*SWR;
+            detalhes.consumiveis.push({id:c.id,name:c.name,color:c.color,valor:v,renda:rendaLiq,swr:v*SWR,total:rendaLiq+v*SWR});
+          }
+        });
+        const totalAnual=rendaMotores+rendaConsumiveis+swrSobreConsumiveis;
+        return{
+          totalAnual,
+          mensalMax:totalAnual/12,
+          rendaMotores,
+          rendaConsumiveis,
+          swrSobreConsumiveis,
+          detalhes,
+          // Patrimonio preservado nos motores
+          patrimMotores:FUNDOS_RENDA_MOTORES.reduce((s,id)=>s+(valorClasse[id]||0),0),
+          patrimConsumiveis:CL.filter(c=>!FUNDOS_RENDA_MOTORES.includes(c.id)&&c.id!=="imoveis").reduce((s,c)=>s+(valorClasse[c.id]||0),0)
+        };
+      };
+      const capMax=calcCapMax();
+      // Quantos anos a capacidade maxima sustenta a meta atual?
+      // Se capMax.mensalMax >= meta, a meta e sustentavel indefinidamente
+      // Se nao, o portfolio precisa consumir os consumiveis mais rapido - menos anos
+      const capMaxCobre=capMax.mensalMax>=metaMensalIF;
+
+      // ===== RENDER =====
+      content=h("div",{},
+        // Header com timestamp e editor de data de nascimento
+        h("div",{style:{marginBottom:14}},
+          h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:8,flexWrap:"wrap",marginBottom:6}},
+            h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase"}},"\u{1F4B0} CAPACIDADE DE RENDA DO PORTFOLIO"),
+            // Timestamp do calculo
+            h("div",{style:{display:"flex",alignItems:"center",gap:5,padding:"3px 8px",background:"rgba(76,175,130,0.08)",border:"1px solid rgba(76,175,130,0.25)",borderRadius:4}},
+              h("div",{style:{width:6,height:6,borderRadius:"50%",background:"#4CAF82",animation:"pulse 2s ease-in-out infinite"}}),
+              h("span",{style:{fontSize:8,color:"#4CAF82",fontFamily:"monospace",fontWeight:700,letterSpacing:1}},"AO VIVO"),
+              h("span",{style:{fontSize:8,color:"#7A7060",fontFamily:"monospace"}},"recalculado as ",tsFmt)
+            )
+          ),
+          h("p",{style:{fontSize:11,color:"#9A9080",lineHeight:1.6,margin:"0 0 8px"}},"Mensuracao da geracao de renda do portfolio atual baseada em premissas teoricas (yield medio por classe + crescimento real + IR). ",h("strong",{style:{color:"#4CAF82"}},"Atualiza dinamicamente")," conforme posicoes, precos, cambio e composicao mudam. Considera APENAS o patrimonio atual evoluindo organicamente - sem aportes adicionais."),
+          // Linha de edicao da data de nascimento
+          h("div",{style:{display:"flex",alignItems:"center",gap:8,padding:"6px 10px",background:"rgba(91,143,212,0.05)",border:"1px solid rgba(91,143,212,0.20)",borderRadius:5,fontSize:9,color:"#9A9080",fontFamily:"monospace",flexWrap:"wrap"}},
+            h("span",{},"\u{1F382} Data de nascimento:"),
+            h("input",{type:"date",value:dataNascimento,onChange:e=>{const v=e.target.value;if(/^\d{4}-\d{2}-\d{2}$/.test(v))setDataNascimento(v);},style:{padding:"4px 7px",background:"rgba(0,0,0,0.30)",border:"1px solid rgba(91,143,212,0.40)",borderRadius:4,color:"#E8E2D5",fontSize:10,fontFamily:"monospace"}}),
+            h("span",{style:{color:"#5B8FD4",fontWeight:700,fontSize:10}},"\u2192 Idade atual: ",idadeAtual," anos")
+          )
+        ),
+
+        // ===== INDICE DE COBERTURA DA RENDA (ICR) =====
+        h("div",{style:{background:"linear-gradient(135deg,rgba(76,175,130,0.10),rgba(76,175,130,0.02))",border:"2px solid rgba(76,175,130,0.45)",borderRadius:9,padding:"14px 16px",marginBottom:14,boxShadow:"0 0 0 1px rgba(76,175,130,0.10)"}},
+          h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:10,flexWrap:"wrap"}},
+            h("div",{},
+              h("div",{style:{fontSize:10,letterSpacing:2,color:"#4CAF82",fontFamily:"monospace",fontWeight:700,textTransform:"uppercase"}},"\u{1F6E1}\u{FE0F} INDICE DE COBERTURA DA RENDA (ICR)"),
+              h("div",{style:{fontSize:8,color:"#7A7060",marginTop:3,fontStyle:"italic"}},"Quantas vezes a renda do portfolio cobre a meta de R$"+(metaMensalIF/1000).toFixed(0)+"k/mes + horizonte de sustentabilidade")
+            )
+          ),
+
+          // ===== LINHA 1: COBERTURA ATUAL (HOJE) =====
+          // (Igual nos 3 cenarios pois a inflacao nao afeta o presente)
+          h("div",{style:{background:"rgba(0,0,0,0.25)",borderRadius:6,padding:"11px 13px",marginBottom:10}},
+            h("div",{style:{display:"flex",alignItems:"baseline",justifyContent:"space-between",gap:8,flexWrap:"wrap"}},
+              h("div",{},
+                h("div",{style:{fontSize:8,letterSpacing:1.5,color:"#9A9080",fontFamily:"monospace",fontWeight:700,marginBottom:3}},"COBERTURA HOJE"),
+                h("div",{style:{fontSize:8,color:"#7A7060",fontStyle:"italic"}},"Renda total / Meta atual")
+              ),
+              h("div",{style:{textAlign:"right"}},
+                h("div",{style:{fontSize:26,color:icrBase.cobAtual>=1.5?"#4CAF82":icrBase.cobAtual>=1.0?"#E8C44A":"#E89060",fontFamily:"Georgia,serif",fontWeight:700,lineHeight:1}},icrBase.cobAtual.toFixed(2)+"x"),
+                h("div",{style:{fontSize:8,color:"#7A7060",fontFamily:"monospace",marginTop:3}},icrBase.cobAtual>=1.5?"SOBRA "+((icrBase.cobAtual-1)*100).toFixed(0)+"%":icrBase.cobAtual>=1.0?"COBRE COM FOLGA APERTADA":"FALTA "+((1-icrBase.cobAtual)*100).toFixed(0)+"%")
+              )
+            )
+          ),
+
+          // ===== LINHA 2: 3 CENARIOS LADO A LADO =====
+          h("div",{style:{fontSize:8,letterSpacing:1.5,color:"#9A9080",fontFamily:"monospace",fontWeight:700,marginBottom:6,paddingLeft:2}},"PROJECAO POR CENARIO DE INFLACAO (meta cresce com IPCA)"),
+          h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:10}},
+            ...[
+              {data:icrOti,label:"OTIMISTA",cor:"#4CAF82",ipca:"3.0%"},
+              {data:icrBase,label:"BASE",cor:"#E8C44A",ipca:"5.5%"},
+              {data:icrPes,label:"PESSIMISTA",cor:"#E89060",ipca:"8.5%"}
+            ].map(cen=>{
+              const cob20=cen.data.cob20;
+              const horCobTxt=cen.data.horizonteCobertura==="indefinido"?"\u221E (>50 anos)":cen.data.horizonteCobertura+" anos";
+              const horTotTxt=cen.data.horizonteTotal==="indefinido"?"\u221E":cen.data.horizonteTotal+" anos";
+              const tudoIndef=cen.data.horizonteCobertura==="indefinido";
+              return h("div",{key:cen.label,style:{background:"rgba(0,0,0,0.20)",border:"1px solid "+cen.cor+"40",borderRadius:6,padding:"10px 11px",borderLeft:"3px solid "+cen.cor}},
+                h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:6}},
+                  h("div",{style:{fontSize:9,color:cen.cor,fontFamily:"monospace",fontWeight:700,letterSpacing:1.2}},cen.label),
+                  h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace"}},"IPCA "+cen.ipca)
+                ),
+                // Cobertura em 20 anos
+                h("div",{style:{marginBottom:8,paddingBottom:7,borderBottom:"1px solid rgba(255,255,255,0.06)"}},
+                  h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",letterSpacing:1,marginBottom:2}},"COBERTURA EM 20 ANOS"),
+                  h("div",{style:{fontSize:18,color:cob20>=1.5?"#4CAF82":cob20>=1.0?"#E8C44A":"#E89060",fontFamily:"Georgia,serif",fontWeight:700,lineHeight:1}},cob20.toFixed(2)+"x"),
+                  h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",marginTop:2}},cob20>=1.0?"renda cobre meta":"renda NAO cobre")
+                ),
+                // Horizonte de cobertura
+                h("div",{style:{marginBottom:6}},
+                  h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",letterSpacing:1,marginBottom:1}},"HORIZONTE COBERTURA"),
+                  h("div",{style:{fontSize:11,color:tudoIndef?"#4CAF82":cen.data.horizonteCobertura>=20?"#4CAF82":cen.data.horizonteCobertura>=10?"#E8C44A":"#E89060",fontFamily:"monospace",fontWeight:700}},horCobTxt),
+                  h("div",{style:{fontSize:6,color:"#7A7060",fontFamily:"monospace",fontStyle:"italic"}},"renda passiva cobre")
+                ),
+                // Horizonte de sustentabilidade total
+                h("div",{},
+                  h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",letterSpacing:1,marginBottom:1}},"SUSTENTABILIDADE TOTAL"),
+                  h("div",{style:{fontSize:11,color:tudoIndef?"#4CAF82":cen.data.horizonteTotal==="indefinido"?"#4CAF82":cen.data.horizonteTotal>=30?"#E8C44A":"#E89060",fontFamily:"monospace",fontWeight:700}},horTotTxt),
+                  h("div",{style:{fontSize:6,color:"#7A7060",fontFamily:"monospace",fontStyle:"italic"}},tudoIndef?"renda nunca falha":"consumindo principal")
+                )
+              );
+            })
+          ),
+
+          // ===== LEGENDA EXPLICATIVA =====
+          h("div",{style:{background:"rgba(0,0,0,0.15)",borderRadius:5,padding:"8px 10px",fontSize:8.5,color:"#9A9080",lineHeight:1.6}},
+            h("div",{style:{marginBottom:4}},h("strong",{style:{color:"#4CAF82"}},"COBERTURA")," (ex: 1.45x): quantas vezes a renda mensal cobre a meta. Acima de 1.0 = portfolio cobre integralmente; abaixo = falta complementar."),
+            h("div",{style:{marginBottom:4}},h("strong",{style:{color:"#E8C44A"}},"HORIZONTE COBERTURA"),": quantos anos a ",h("em",{},"renda passiva pura")," cobre 100% da meta corrigida pela inflacao - sem consumir o principal. ",h("strong",{},"\u221E")," = indefinidamente (>50 anos)."),
+            h("div",{},h("strong",{style:{color:"#E89060"}},"SUSTENTABILIDADE TOTAL"),": se a renda passiva falhar, quantos anos ADICIONAIS o patrimonio sustenta o gasto consumindo o principal. ",h("strong",{},"\u221E")," = renda nunca falha, principal preservado.")
+          )
+        ),
+
+        // ===== ICR-RTE: RENDA TOTAL ESTRATEGICA (FIRE com FIIs preservados) =====
+        h("div",{style:{background:"linear-gradient(135deg,rgba(247,147,26,0.10),rgba(247,147,26,0.02))",border:"2px solid rgba(247,147,26,0.45)",borderRadius:9,padding:"14px 16px",marginBottom:14,boxShadow:"0 0 0 1px rgba(247,147,26,0.10)"}},
+          h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:10,flexWrap:"wrap"}},
+            h("div",{},
+              h("div",{style:{fontSize:10,letterSpacing:2,color:"#F7931A",fontFamily:"monospace",fontWeight:700,textTransform:"uppercase"}},"\u{1F525} ICR-RTE: RENDA TOTAL ESTRATEGICA (FIRE)"),
+              h("div",{style:{fontSize:8,color:"#7A7060",marginTop:3,fontStyle:"italic"}},"Renda passiva + saque ordenado consumindo classes 1 a 1, preservando FIIs como motor de renda ate o fim")
+            )
+          ),
+
+          // ===== EXPLICACAO RAPIDA DA ESTRATEGIA =====
+          h("div",{style:{background:"rgba(0,0,0,0.20)",borderRadius:5,padding:"8px 10px",marginBottom:10,fontSize:8.5,color:"#9A9080",lineHeight:1.55}},
+            h("div",{style:{fontSize:8,letterSpacing:1.5,color:"#F7931A",fontFamily:"monospace",fontWeight:700,marginBottom:5}},"\u{1F4D6} REGRAS DA SIMULACAO"),
+            h("div",{style:{marginBottom:3}},"\u2022 Renda primaria = dividendos liquidos + 4% sobre BTC+Ouro (sem dividendos)"),
+            h("div",{style:{marginBottom:3}},"\u2022 Deficit (meta - renda primaria) e coberto consumindo classes nesta ordem:"),
+            h("div",{style:{marginBottom:3,paddingLeft:14,fontFamily:"monospace",fontSize:8}},"Selic \u2192 Treasuries \u2192 Ouro \u2192 BTC \u2192 REITs \u2192 Acoes EXT \u2192 Acoes BR \u2192 Agro \u2192 Infra \u2192 ",h("strong",{style:{color:"#F7931A"}},"FIIs (ultimo)")),
+            h("div",{style:{marginBottom:3}},"\u2022 Imoveis fisicos: excluidos (iliquidos, nao consumiveis)"),
+            h("div",{},"\u2022 Ativos USD: assumidos convertiveis a BRL ao cambio do momento")
+          ),
+
+          // ===== LINHA 1: COBERTURA ATUAL (HOJE - igual nos 3 cenarios) =====
+          h("div",{style:{background:"rgba(0,0,0,0.25)",borderRadius:6,padding:"11px 13px",marginBottom:10}},
+            h("div",{style:{display:"flex",alignItems:"baseline",justifyContent:"space-between",gap:8,flexWrap:"wrap"}},
+              h("div",{},
+                h("div",{style:{fontSize:8,letterSpacing:1.5,color:"#9A9080",fontFamily:"monospace",fontWeight:700,marginBottom:3}},"COBERTURA HOJE (RENDA PRIMARIA)"),
+                h("div",{style:{fontSize:8,color:"#7A7060",fontStyle:"italic"}},"Dividendos liq + SWR sobre BTC/Ouro"),
+                h("div",{style:{fontSize:8,color:"#9A9080",fontFamily:"monospace",marginTop:4}},fB(rteBase.rendaPrimariaHoje/12)+"/mes")
+              ),
+              h("div",{style:{textAlign:"right"}},
+                h("div",{style:{fontSize:26,color:rteBase.cobAtual>=1.5?"#4CAF82":rteBase.cobAtual>=1.0?"#E8C44A":"#E89060",fontFamily:"Georgia,serif",fontWeight:700,lineHeight:1}},rteBase.cobAtual.toFixed(2)+"x"),
+                h("div",{style:{fontSize:8,color:"#7A7060",fontFamily:"monospace",marginTop:3}},rteBase.cobAtual>=1.5?"SOBRA "+((rteBase.cobAtual-1)*100).toFixed(0)+"%":rteBase.cobAtual>=1.0?"COBRE":"FALTA "+((1-rteBase.cobAtual)*100).toFixed(0)+"%")
+              )
+            )
+          ),
+
+          // ===== LINHA 2: 3 CENARIOS LADO A LADO =====
+          h("div",{style:{fontSize:8,letterSpacing:1.5,color:"#9A9080",fontFamily:"monospace",fontWeight:700,marginBottom:6,paddingLeft:2}},"PROJECAO POR CENARIO COM CONSUMO ORDENADO"),
+          h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:10}},
+            ...[
+              {data:rteOti,label:"OTIMISTA",cor:"#4CAF82",ipca:"3.0%"},
+              {data:rteBase,label:"BASE",cor:"#E8C44A",ipca:"5.5%"},
+              {data:rtePes,label:"PESSIMISTA",cor:"#E89060",ipca:"8.5%"}
+            ].map(cen=>{
+              const horCobTxt=cen.data.horizonteCobertura==="indefinido"?"\u221E (>100a)":cen.data.horizonteCobertura+" anos";
+              const horFIITxt=cen.data.horizonteAteFII==="indefinido"?"\u221E nunca":cen.data.horizonteAteFII+" anos";
+              const horTotTxt=cen.data.horizonteTotal==="indefinido"?"\u221E":cen.data.horizonteTotal+" anos";
+              const cob20=cen.data.dadosAno20?cen.data.dadosAno20.cobertura:0;
+              const pctFII=cen.data.dadosAno20?cen.data.dadosAno20.pctFiiPreservado:0;
+              return h("div",{key:cen.label,style:{background:"rgba(0,0,0,0.20)",border:"1px solid "+cen.cor+"40",borderRadius:6,padding:"10px 11px",borderLeft:"3px solid "+cen.cor}},
+                h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:6}},
+                  h("div",{style:{fontSize:9,color:cen.cor,fontFamily:"monospace",fontWeight:700,letterSpacing:1.2}},cen.label),
+                  h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace"}},"IPCA "+cen.ipca)
+                ),
+                // Cobertura ano 20
+                h("div",{style:{marginBottom:7,paddingBottom:6,borderBottom:"1px solid rgba(255,255,255,0.06)"}},
+                  h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",letterSpacing:1,marginBottom:1}},"COBERTURA ANO 20"),
+                  h("div",{style:{fontSize:14,color:cob20>=1.0?"#4CAF82":cob20>=0.5?"#E8C44A":"#E89060",fontFamily:"Georgia,serif",fontWeight:700,lineHeight:1}},cob20.toFixed(2)+"x"),
+                  h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",marginTop:2}},"FIIs preservados: ",h("strong",{style:{color:pctFII>=80?"#4CAF82":pctFII>=50?"#E8C44A":"#E89060"}},pctFII.toFixed(0)+"%"))
+                ),
+                // Horizonte renda passiva pura cobre
+                h("div",{style:{marginBottom:6}},
+                  h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",letterSpacing:1,marginBottom:1}},"COBERTURA PASSIVA PURA"),
+                  h("div",{style:{fontSize:11,color:cen.data.horizonteCobertura==="indefinido"?"#4CAF82":cen.data.horizonteCobertura>=20?"#4CAF82":cen.data.horizonteCobertura>=10?"#E8C44A":"#E89060",fontFamily:"monospace",fontWeight:700}},horCobTxt),
+                  h("div",{style:{fontSize:6,color:"#7A7060",fontFamily:"monospace",fontStyle:"italic"}},"renda dispensa saque")
+                ),
+                // Horizonte ate consumir FIIs
+                h("div",{style:{marginBottom:6}},
+                  h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",letterSpacing:1,marginBottom:1}},"FIIs PRESERVADOS"),
+                  h("div",{style:{fontSize:11,color:cen.data.horizonteAteFII==="indefinido"?"#4CAF82":cen.data.horizonteAteFII>=30?"#4CAF82":cen.data.horizonteAteFII>=15?"#E8C44A":"#E89060",fontFamily:"monospace",fontWeight:700}},horFIITxt),
+                  h("div",{style:{fontSize:6,color:"#7A7060",fontFamily:"monospace",fontStyle:"italic"}},"sem tocar nos FIIs")
+                ),
+                // Horizonte total (falencia)
+                h("div",{},
+                  h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",letterSpacing:1,marginBottom:1}},"FALENCIA TOTAL"),
+                  h("div",{style:{fontSize:11,color:cen.data.horizonteTotal==="indefinido"?"#4CAF82":cen.data.horizonteTotal>=40?"#4CAF82":cen.data.horizonteTotal>=20?"#E8C44A":"#E89060",fontFamily:"monospace",fontWeight:700}},horTotTxt),
+                  h("div",{style:{fontSize:6,color:"#7A7060",fontFamily:"monospace",fontStyle:"italic"}},"patrimonio zera")
+                )
+              );
+            })
+          ),
+
+          // ===== ALERTA DE INSUSTENTABILIDADE (se aplicavel) =====
+          (rteBase.alertaInsustentabilidade||rtePes.alertaInsustentabilidade)&&h("div",{style:{background:"rgba(224,82,82,0.08)",border:"1px solid rgba(224,82,82,0.40)",borderLeft:"4px solid #E05252",borderRadius:5,padding:"9px 11px",marginBottom:10}},
+            h("div",{style:{fontSize:9,letterSpacing:1.5,color:"#E05252",fontFamily:"monospace",fontWeight:700,marginBottom:5}},"\u26A0 ALERTA DE INSUSTENTABILIDADE"),
+            h("div",{style:{fontSize:9,color:"#E8E2D5",lineHeight:1.55,marginBottom:5}},
+              "Sua taxa de consumo anual (meta R$",(metaMensalIF*12/totalPortfolio*100).toFixed(2),"% do patrimonio) EXCEDE a taxa de crescimento total esperada do portfolio (",
+              rteBase.alertaInsustentabilidade?(rteBase.alertaInsustentabilidade.taxaCresc*100).toFixed(2):(rtePes.alertaInsustentabilidade.taxaCresc*100).toFixed(2),
+              "%/ano)."
+            ),
+            h("div",{style:{fontSize:8,color:"#9A9080",lineHeight:1.55,fontStyle:"italic"}},
+              "Em portugues claro: voce esta consumindo o portfolio mais rapido do que ele cresce. Isso significa que mesmo com renda passiva + valorizacao, o patrimonio diminui em termos reais. Considere: (1) reduzir a meta, (2) aumentar exposicao a real assets (FIIs/Infra/Agro), (3) ou aceitar consumo finito do principal."
+            )
+          ),
+
+          // ===== LEGENDA EXPLICATIVA =====
+          h("div",{style:{background:"rgba(0,0,0,0.15)",borderRadius:5,padding:"8px 10px",fontSize:8.5,color:"#9A9080",lineHeight:1.6}},
+            h("div",{style:{marginBottom:4}},h("strong",{style:{color:"#4CAF82"}},"COBERTURA ANO 20"),": razao renda primaria / meta no ano 20. Se <1.0, ja esta consumindo principal."),
+            h("div",{style:{marginBottom:4}},h("strong",{style:{color:"#E8C44A"}},"COBERTURA PASSIVA PURA"),": anos que a renda passiva (sem saques de principal) cobre a meta corrigida."),
+            h("div",{style:{marginBottom:4}},h("strong",{style:{color:"#F7931A"}},"FIIs PRESERVADOS"),": anos que voce consegue manter o motor de renda intocado, consumindo outras classes primeiro."),
+            h("div",{},h("strong",{style:{color:"#E89060"}},"FALENCIA TOTAL"),": ano em que TODAS as classes liquidas zeraram. Imoveis fisicos sobrevivem (excluidos da simulacao).")
+          )
+        ),
+
+        // ============================================
+        // ===== BANDA DE TRANQUILIDADE FINANCEIRA =====
+        // ============================================
+        h("div",{style:{background:"linear-gradient(135deg,rgba(91,143,212,0.10),rgba(91,143,212,0.02))",border:"2px solid rgba(91,143,212,0.45)",borderRadius:9,padding:"14px 16px",marginBottom:14,boxShadow:"0 0 0 1px rgba(91,143,212,0.10)"}},
+          h("div",{style:{marginBottom:10}},
+            h("div",{style:{fontSize:10,letterSpacing:2,color:"#5B8FD4",fontFamily:"monospace",fontWeight:700,textTransform:"uppercase"}},"\u{1F596}\u{FE0F} BANDA DE TRANQUILIDADE FINANCEIRA"),
+            h("div",{style:{fontSize:8,color:"#7A7060",marginTop:3,fontStyle:"italic"}},"Idade atual ",idadeAtual," anos. Mostra ate que idade o portfolio sustenta R$",(metaMensalIF/1000).toFixed(0),"k/mes corrigidos pela inflacao em cada cenario.")
+          ),
+
+          // Para cada cenario, mostra a banda visual
+          ...[
+            {data:bandaOti,label:"OTIMISTA",cor:"#4CAF82",ipca:"IPCA 3.0%"},
+            {data:bandaBase,label:"BASE",cor:"#E8C44A",ipca:"IPCA 5.5%"},
+            {data:bandaPes,label:"PESSIMISTA",cor:"#E89060",ipca:"IPCA 8.5%"}
+          ].map(cen=>{
+            const idadeF=cen.data.idadeAlcancada;
+            const idadeFinalNum=idadeF==="100+"?105:idadeF;
+            // Mapeia idade para porcentagem da regua (40 a 110 = 0 a 100%)
+            const MIN_IDADE=40,MAX_IDADE=110;
+            const pctRegua=Math.min(100,Math.max(0,((idadeFinalNum-MIN_IDADE)/(MAX_IDADE-MIN_IDADE))*100));
+            // Cor da classificacao
+            const corClas=cen.data.classificacao==="plena"?"#5B8FD4":cen.data.classificacao==="confortavel"?"#4CAF82":cen.data.classificacao==="razoavel"?"#E8C44A":"#E89060";
+            const txtClas=cen.data.classificacao==="plena"?"TRANQUILIDADE PLENA":cen.data.classificacao==="confortavel"?"CONFORTAVEL":cen.data.classificacao==="razoavel"?"RAZOAVEL":"ATENCAO";
+            return h("div",{key:cen.label,style:{marginBottom:14}},
+              // Header do cenario
+              h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:6,gap:6}},
+                h("div",{},
+                  h("span",{style:{fontSize:9,color:cen.cor,fontFamily:"monospace",fontWeight:700,letterSpacing:1.2}},cen.label),
+                  h("span",{style:{fontSize:7,color:"#7A7060",marginLeft:6,fontFamily:"monospace"}},cen.ipca)
+                ),
+                h("div",{style:{fontSize:8,color:corClas,fontFamily:"monospace",fontWeight:700,letterSpacing:1.2,padding:"2px 7px",border:"1px solid "+corClas+"66",borderRadius:3}},txtClas)
+              ),
+              // Regua visual (40 a 110 anos)
+              h("div",{style:{position:"relative",height:34,background:"rgba(0,0,0,0.30)",borderRadius:5,border:"1px solid rgba(255,255,255,0.06)",overflow:"hidden"}},
+                // Bandas coloridas de fundo (faixas de tranquilidade)
+                // 40-60 (0-28.6%): atencao
+                h("div",{style:{position:"absolute",left:"0%",top:0,bottom:0,width:"28.6%",background:"rgba(232,144,96,0.10)"}}),
+                // 60-75 (28.6-50%): razoavel
+                h("div",{style:{position:"absolute",left:"28.6%",top:0,bottom:0,width:"21.4%",background:"rgba(232,196,74,0.10)"}}),
+                // 75-90 (50-71.4%): confortavel
+                h("div",{style:{position:"absolute",left:"50%",top:0,bottom:0,width:"21.4%",background:"rgba(76,175,130,0.10)"}}),
+                // 90-110 (71.4-100%): plena
+                h("div",{style:{position:"absolute",left:"71.4%",top:0,bottom:0,width:"28.6%",background:"rgba(91,143,212,0.10)"}}),
+                // Marcadores de idade (50, 60, 70, 80, 90, 100)
+                ...[50,60,70,80,90,100].map(idade=>{
+                  const pct=((idade-MIN_IDADE)/(MAX_IDADE-MIN_IDADE))*100;
+                  return [
+                    h("div",{key:"line"+idade,style:{position:"absolute",left:pct+"%",top:0,bottom:0,width:1,background:"rgba(255,255,255,0.10)"}}),
+                    h("div",{key:"lbl"+idade,style:{position:"absolute",left:"calc("+pct+"% - 7px)",bottom:1,fontSize:6,color:"#7A7060",fontFamily:"monospace",fontWeight:600,width:14,textAlign:"center"}},idade)
+                  ];
+                }).flat(),
+                // Barra de cobertura
+                h("div",{style:{position:"absolute",left:0,top:0,bottom:14,width:pctRegua+"%",background:"linear-gradient(90deg,"+cen.cor+"50,"+cen.cor+"90)",borderRight:"2px solid "+cen.cor}}),
+                // Label da idade final no marcador
+                pctRegua<100&&h("div",{style:{position:"absolute",left:"calc("+pctRegua+"% - 18px)",top:3,fontSize:8,color:"#FFF",fontFamily:"monospace",fontWeight:700,textShadow:"0 1px 2px rgba(0,0,0,0.8)",background:"rgba(0,0,0,0.5)",padding:"1px 3px",borderRadius:2,minWidth:32,textAlign:"center"}},idadeF+"a"),
+                pctRegua>=100&&h("div",{style:{position:"absolute",right:3,top:3,fontSize:8,color:"#FFF",fontFamily:"monospace",fontWeight:700,textShadow:"0 1px 2px rgba(0,0,0,0.8)",background:"rgba(91,143,212,0.7)",padding:"1px 4px",borderRadius:2}},"\u221E 100+")
+              ),
+              // Texto explicativo
+              h("div",{style:{fontSize:8,color:"#9A9080",marginTop:5,fontStyle:"italic"}},
+                cen.data.anosCobertura==="indefinido"?
+                  "Renda sustentavel ate ALEM dos "+IDADE_TRANQUILIDADE_PLENA+" anos. Perpetuidade pratica em poder de compra real.":
+                  "Portfolio sustenta a meta por "+cen.data.anosCobertura+" anos - chegaria ate seus "+idadeF+" anos."
+              )
+            );
+          }),
+
+          // Legenda das faixas
+          h("div",{style:{background:"rgba(0,0,0,0.18)",borderRadius:5,padding:"8px 10px",fontSize:8.5,color:"#9A9080",lineHeight:1.6,marginTop:4}},
+            h("div",{style:{fontSize:8,letterSpacing:1.5,color:"#5B8FD4",fontFamily:"monospace",fontWeight:700,marginBottom:5}},"\u{1F4D6} FAIXAS DE TRANQUILIDADE"),
+            h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:4}},
+              h("div",{},h("span",{style:{color:"#E89060"}},"\u25A0 ATENCAO")," (",idadeAtual,"-60a): cobertura curta"),
+              h("div",{},h("span",{style:{color:"#E8C44A"}},"\u25A0 RAZOAVEL")," (60-75a): media de expectativa"),
+              h("div",{},h("span",{style:{color:"#4CAF82"}},"\u25A0 CONFORTAVEL")," (75-90a): idade avancada"),
+              h("div",{},h("span",{style:{color:"#5B8FD4"}},"\u25A0 PLENA")," (90+a): centenarismo")
+            )
+          )
+        ),
+
+        // ============================================
+        // ===== CAPACIDADE MAXIMA SUSTENTAVEL =====
+        // ============================================
+        h("div",{style:{background:"linear-gradient(135deg,rgba(156,125,194,0.10),rgba(156,125,194,0.02))",border:"2px solid rgba(156,125,194,0.45)",borderRadius:9,padding:"14px 16px",marginBottom:14,boxShadow:"0 0 0 1px rgba(156,125,194,0.10)"}},
+          h("div",{style:{marginBottom:10}},
+            h("div",{style:{fontSize:10,letterSpacing:2,color:"#9C7DC2",fontFamily:"monospace",fontWeight:700,textTransform:"uppercase"}},"\u{1F3DB}\u{FE0F} CAPACIDADE MAXIMA SUSTENTAVEL"),
+            h("div",{style:{fontSize:8,color:"#7A7060",marginTop:3,fontStyle:"italic"}},"Renda passiva dos motores (FIIs+Infra+Agro) + SWR 4% nas demais classes. Bengen-conservadora.")
+          ),
+
+          // ===== INSIGHT PRINCIPAL =====
+          h("div",{style:{background:"rgba(156,125,194,0.10)",border:"1px solid rgba(156,125,194,0.35)",borderRadius:7,padding:"14px 16px",marginBottom:12,textAlign:"center"}},
+            h("div",{style:{fontSize:8,color:"#9C7DC2",fontFamily:"monospace",fontWeight:700,letterSpacing:2,marginBottom:5}},"\u{1F4A1} INSIGHT"),
+            h("div",{style:{fontSize:11,color:"#E8E2D5",lineHeight:1.7,marginBottom:8}},
+              "Atualmente voce tem a capacidade de viver com"
+            ),
+            h("div",{style:{fontSize:22,color:"#9C7DC2",fontFamily:"Georgia,serif",fontWeight:700,marginBottom:6,letterSpacing:1}},
+              fB(capMax.mensalMax)," / mes"
+            ),
+            h("div",{style:{fontSize:11,color:"#E8E2D5",lineHeight:1.7,marginBottom:4}},
+              h("strong",{style:{color:"#5B8FD4"}},"PARA A PERPETUIDADE")," (alem de 100 anos)"
+            ),
+            h("div",{style:{fontSize:9,color:"#7A7060",lineHeight:1.6,fontStyle:"italic",marginTop:8}},
+              "preservando seus Fundos de Renda (FIIs + Infra + Agro) como motor permanente"
+            )
+          ),
+
+          // ===== COMPARACAO COM SUA META =====
+          h("div",{style:{background:"rgba(0,0,0,0.20)",borderRadius:6,padding:"11px 13px",marginBottom:12}},
+            h("div",{style:{fontSize:8,letterSpacing:1.5,color:"#9A9080",fontFamily:"monospace",fontWeight:700,marginBottom:8}},"COMPARACAO COM SUA META ATUAL"),
+            h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}},
+              h("div",{style:{textAlign:"center",padding:"8px 4px",background:"rgba(0,0,0,0.20)",borderRadius:5}},
+                h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",letterSpacing:1,marginBottom:3}},"META ATUAL"),
+                h("div",{style:{fontSize:13,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700}},fB(metaMensalIF)),
+                h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",marginTop:2}},"/mes")
+              ),
+              h("div",{style:{textAlign:"center",padding:"8px 4px",background:"rgba(156,125,194,0.10)",borderRadius:5,border:"1px solid rgba(156,125,194,0.30)"}},
+                h("div",{style:{fontSize:7,color:"#9C7DC2",fontFamily:"monospace",letterSpacing:1,marginBottom:3,fontWeight:700}},"CAP. MAXIMA"),
+                h("div",{style:{fontSize:13,color:"#9C7DC2",fontFamily:"monospace",fontWeight:700}},fB(capMax.mensalMax)),
+                h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",marginTop:2}},"/mes perpetuo")
+              ),
+              h("div",{style:{textAlign:"center",padding:"8px 4px",background:capMaxCobre?"rgba(76,175,130,0.10)":"rgba(232,144,96,0.10)",borderRadius:5,border:"1px solid "+(capMaxCobre?"rgba(76,175,130,0.30)":"rgba(232,144,96,0.30)")}},
+                h("div",{style:{fontSize:7,color:capMaxCobre?"#4CAF82":"#E89060",fontFamily:"monospace",letterSpacing:1,marginBottom:3,fontWeight:700}},"MARGEM"),
+                h("div",{style:{fontSize:13,color:capMaxCobre?"#4CAF82":"#E89060",fontFamily:"monospace",fontWeight:700}},
+                  capMaxCobre?"+"+(((capMax.mensalMax-metaMensalIF)/metaMensalIF)*100).toFixed(0)+"%":"-"+(((metaMensalIF-capMax.mensalMax)/metaMensalIF)*100).toFixed(0)+"%"
+                ),
+                h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",marginTop:2}},capMaxCobre?"sobra":"falta")
+              )
+            ),
+            h("div",{style:{fontSize:9,color:"#9A9080",lineHeight:1.5,marginTop:10,fontStyle:"italic"}},
+              capMaxCobre?
+                "\u2713 Sua meta de R$"+(metaMensalIF/1000).toFixed(0)+"k/mes esta DENTRO da capacidade maxima sustentavel. Voce pode se aposentar hoje e gastar essa quantia indefinidamente, preservando o motor de renda.":
+                "\u26A0 Sua meta de R$"+(metaMensalIF/1000).toFixed(0)+"k/mes esta ACIMA da capacidade maxima sustentavel. Para sustentar essa meta indefinidamente, voce precisaria reduzir o gasto ou aumentar o patrimonio."
+            )
+          ),
+
+          // ===== DECOMPOSICAO DA CAPACIDADE MAXIMA =====
+          h("div",{style:{marginBottom:8}},
+            h("div",{style:{fontSize:8,letterSpacing:1.5,color:"#9A9080",fontFamily:"monospace",fontWeight:700,marginBottom:6}},"\u{1F4CA} DE ONDE VEM A CAPACIDADE MAXIMA"),
+            // Motores (preservados)
+            h("div",{style:{background:"rgba(247,147,26,0.06)",border:"1px solid rgba(247,147,26,0.30)",borderRadius:5,padding:"9px 11px",marginBottom:8}},
+              h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:5}},
+                h("div",{style:{fontSize:8,color:"#F7931A",fontFamily:"monospace",fontWeight:700,letterSpacing:1.2}},"\u{1F525} MOTORES DE RENDA (PRESERVADOS)"),
+                h("div",{style:{fontSize:11,color:"#F7931A",fontFamily:"monospace",fontWeight:700}},fB(capMax.rendaMotores/12)+"/mes")
+              ),
+              h("div",{style:{fontSize:8,color:"#7A7060",fontStyle:"italic",marginBottom:6}},"Renda passiva pura - SEM consumir principal. Capital de ",fB(capMax.patrimMotores)," nunca e tocado."),
+              ...capMax.detalhes.motores.map(m=>h("div",{key:m.id,style:{display:"flex",justifyContent:"space-between",padding:"3px 4px",fontSize:9,color:"#9A9080",fontFamily:"monospace",borderTop:"1px dashed rgba(255,255,255,0.04)"}},
+                h("span",{style:{color:m.color}},m.name),
+                h("span",{},fB(m.valor)," x ",(m.dy*100).toFixed(1),"% \u2192 ",h("strong",{style:{color:"#F7931A"}},fB(m.renda/12)+"/m"))
+              ))
+            ),
+            // Consumiveis (com SWR 4%)
+            h("div",{style:{background:"rgba(91,143,212,0.06)",border:"1px solid rgba(91,143,212,0.30)",borderRadius:5,padding:"9px 11px"}},
+              h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:5}},
+                h("div",{style:{fontSize:8,color:"#5B8FD4",fontFamily:"monospace",fontWeight:700,letterSpacing:1.2}},"\u{1F4B0} CLASSES CONSUMIVEIS (SWR 4%)"),
+                h("div",{style:{fontSize:11,color:"#5B8FD4",fontFamily:"monospace",fontWeight:700}},fB((capMax.rendaConsumiveis+capMax.swrSobreConsumiveis)/12)+"/mes")
+              ),
+              h("div",{style:{fontSize:8,color:"#7A7060",fontStyle:"italic",marginBottom:6}},"Renda passiva + SWR 4% sobre patrim. de ",fB(capMax.patrimConsumiveis),". Regra de Bengen (Trinity Study) - sustentavel por 30+ anos."),
+              ...capMax.detalhes.consumiveis.map(m=>h("div",{key:m.id,style:{display:"flex",justifyContent:"space-between",padding:"3px 4px",fontSize:9,color:"#9A9080",fontFamily:"monospace",borderTop:"1px dashed rgba(255,255,255,0.04)"}},
+                h("span",{style:{color:m.color}},m.name),
+                h("span",{},fB(m.valor)," \u2192 ",h("strong",{style:{color:"#5B8FD4"}},fB(m.total/12)+"/m"))
+              ))
+            )
+          ),
+
+          // ===== METODOLOGIA =====
+          h("div",{style:{background:"rgba(0,0,0,0.15)",borderRadius:5,padding:"8px 10px",fontSize:8.5,color:"#9A9080",lineHeight:1.55,marginTop:8}},
+            h("div",{style:{fontSize:8,letterSpacing:1.5,color:"#9C7DC2",fontFamily:"monospace",fontWeight:700,marginBottom:5}},"\u{1F4D6} METODOLOGIA"),
+            h("div",{style:{marginBottom:3}},"\u2022 ",h("strong",{style:{color:"#F7931A"}},"FIIs + Infra + Agro")," sao motores de renda permanente - geram dividendos cresc. com IPCA mas seu principal nunca e tocado."),
+            h("div",{style:{marginBottom:3}},"\u2022 ",h("strong",{style:{color:"#5B8FD4"}},"SWR 4%")," (Bengen 1994 / Trinity Study): regra academicamente validada para saque sustentavel por 30+ anos com 95% de probabilidade de sucesso."),
+            h("div",{style:{marginBottom:3}},"\u2022 ",h("strong",{},"Imoveis fisicos")," sao excluidos (iliquidos, nao consumiveis no plano FIRE)."),
+            h("div",{},"\u26A0 Premissa: rentabilidade real positiva nas classes consumiveis. Em cenarios de crash prolongado (sequence of returns risk), a capacidade pode ser menor que o calculado.")
+          )
+        ),
+
+        // ===== CARDS PRINCIPAIS: ATUAL (3 cenarios) =====
+        h("div",{style:{marginBottom:14}},
+          h("div",{style:{fontSize:8,letterSpacing:1.5,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,marginBottom:8}},"\u{1F3AF} CAPACIDADE ATUAL DE RENDA (HOJE, LIQUIDO DE IR)"),
+          h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:10}},
+            // Pessimista
+            h("div",{style:{background:"rgba(232,144,96,0.06)",border:"1px solid rgba(232,144,96,0.30)",borderRadius:6,padding:"10px 12px"}},
+              h("div",{style:{fontSize:7,letterSpacing:1.5,color:"#E89060",fontFamily:"monospace",fontWeight:700,marginBottom:3}},"PESSIMISTA"),
+              h("div",{style:{fontSize:13,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700}},fB(rPes.totalLiqAnual/12)),
+              h("div",{style:{fontSize:7,color:"#9A9080",fontFamily:"monospace",marginTop:2}},"por mes liquido"),
+              h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",marginTop:4}},(rPes.totalLiqAnual/totalPortfolio*100).toFixed(2)+"% a.a. yield")
+            ),
+            // Base
+            h("div",{style:{background:"rgba(76,175,130,0.08)",border:"1px solid rgba(76,175,130,0.40)",borderRadius:6,padding:"10px 12px",boxShadow:"0 0 0 1px rgba(76,175,130,0.10)"}},
+              h("div",{style:{fontSize:7,letterSpacing:1.5,color:"#4CAF82",fontFamily:"monospace",fontWeight:700,marginBottom:3}},"BASE"),
+              h("div",{style:{fontSize:14,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700}},fB(rBase.totalLiqAnual/12)),
+              h("div",{style:{fontSize:7,color:"#9A9080",fontFamily:"monospace",marginTop:2}},"por mes liquido"),
+              h("div",{style:{fontSize:7,color:"#4CAF82",fontFamily:"monospace",marginTop:4,fontWeight:700}},(rBase.totalLiqAnual/totalPortfolio*100).toFixed(2)+"% a.a. yield")
+            ),
+            // Otimista
+            h("div",{style:{background:"rgba(91,143,212,0.06)",border:"1px solid rgba(91,143,212,0.30)",borderRadius:6,padding:"10px 12px"}},
+              h("div",{style:{fontSize:7,letterSpacing:1.5,color:"#5B8FD4",fontFamily:"monospace",fontWeight:700,marginBottom:3}},"OTIMISTA"),
+              h("div",{style:{fontSize:13,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700}},fB(rOti.totalLiqAnual/12)),
+              h("div",{style:{fontSize:7,color:"#9A9080",fontFamily:"monospace",marginTop:2}},"por mes liquido"),
+              h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",marginTop:4}},(rOti.totalLiqAnual/totalPortfolio*100).toFixed(2)+"% a.a. yield")
+            )
+          ),
+          // Breakdown: renda passiva vs SWR
+          h("div",{style:{background:"rgba(0,0,0,0.20)",borderRadius:6,padding:"10px 12px"}},
+            h("div",{style:{fontSize:7,letterSpacing:1.2,color:"#7A7060",fontFamily:"monospace",fontWeight:700,marginBottom:6}},"DECOMPOSICAO (CENARIO BASE)"),
+            h("div",{style:{display:"flex",justifyContent:"space-between",padding:"4px 0",fontSize:10,color:"#E8E2D5",fontFamily:"monospace"}},
+              h("span",{},"Renda passiva pura (sem vender):"),
+              h("span",{style:{color:"#4CAF82",fontWeight:700}},fB(rBase.rendaLiqAnual/12)+"/mes")
+            ),
+            h("div",{style:{display:"flex",justifyContent:"space-between",padding:"4px 0",fontSize:10,color:"#E8E2D5",fontFamily:"monospace"}},
+              h("span",{},"SWR 4% em BTC/Ouro:"),
+              h("span",{style:{color:"#C8A96E",fontWeight:700}},fB(rBase.swrLiqAnual/12)+"/mes")
+            ),
+            h("div",{style:{display:"flex",justifyContent:"space-between",padding:"6px 0 0",fontSize:11,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700,borderTop:"1px solid rgba(255,255,255,0.10)",marginTop:4}},
+              h("span",{},"TOTAL liquido:"),
+              h("span",{style:{color:"#4CAF82"}},fB(rBase.totalLiqAnual/12)+"/mes")
+            )
+          )
+        ),
+
+        // ===== INDEPENDENCIA FINANCEIRA =====
+        h("div",{style:{background:"linear-gradient(135deg,rgba(200,169,110,0.10),rgba(200,169,110,0.02))",border:"1px solid rgba(200,169,110,0.40)",borderRadius:9,padding:"14px 16px",marginBottom:14}},
+          h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,marginBottom:10,flexWrap:"wrap"}},
+            h("div",{},
+              h("div",{style:{fontSize:9,letterSpacing:2,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,textTransform:"uppercase"}},"\u{1F3DC}\u{FE0F} INDEPENDENCIA FINANCEIRA"),
+              h("div",{style:{fontSize:8,color:"#7A7060",marginTop:3,fontStyle:"italic"}},"Quanto do seu estilo de vida o portfolio ja cobre (meta corrigida pela inflacao)")
+            ),
+            // Editor de meta
+            h("div",{style:{display:"flex",alignItems:"center",gap:6}},
+              h("span",{style:{fontSize:9,color:"#9A9080",fontFamily:"monospace"}},"Meta hoje: R$"),
+              h("input",{type:"number",value:metaMensalIF,onChange:e=>{const v=parseFloat(e.target.value);if(!isNaN(v)&&v>0)setMetaMensalIF(v);},style:{width:80,padding:"5px 8px",background:"rgba(0,0,0,0.30)",border:"1px solid rgba(200,169,110,0.40)",borderRadius:4,color:"#E8E2D5",fontSize:10,fontFamily:"monospace",textAlign:"center",fontWeight:700}}),
+              h("span",{style:{fontSize:9,color:"#9A9080",fontFamily:"monospace"}},"/mes")
+            )
+          ),
+          // SELETOR DE CENARIO IPCA
+          h("div",{style:{background:"rgba(0,0,0,0.25)",borderRadius:6,padding:"9px 10px",marginBottom:10}},
+            h("div",{style:{fontSize:7,letterSpacing:1.5,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,marginBottom:6}},"\u{1F4C8} CENARIO DE INFLACAO (para corrigir a meta ao longo dos anos)"),
+            h("div",{style:{display:"flex",gap:5,flexWrap:"wrap"}},
+              ...[
+                {id:"oti",label:"OTIMISTA",rate:IPCA_CENARIOS.oti,desc:"banda baixa BC (3%)"},
+                {id:"base",label:"BASE",rate:IPCA_CENARIOS.base,desc:"media 20 anos (5.5%)"},
+                {id:"pes",label:"PESSIMISTA",rate:IPCA_CENARIOS.pes,desc:"crise 2015-16 (8.5%)"}
+              ].map(cen=>{
+                const sel=cenarioIPCA===cen.id;
+                const cor=cen.id==="oti"?"#4CAF82":cen.id==="base"?"#E8C44A":"#E89060";
+                return h("button",{key:cen.id,onClick:()=>setCenarioIPCA(cen.id),type:"button",style:{flex:"1 1 100px",padding:"7px 8px",background:sel?cor+"30":"rgba(0,0,0,0.20)",border:"1px solid "+(sel?cor:"rgba(255,255,255,0.10)"),borderRadius:4,color:sel?cor:"#9A9080",fontSize:9,fontFamily:"monospace",cursor:"pointer",letterSpacing:1,fontWeight:sel?700:500,textAlign:"left",touchAction:"manipulation"}},
+                  h("div",{style:{fontSize:9,fontWeight:700}},sel?"\u25CF "+cen.label:cen.label),
+                  h("div",{style:{fontSize:7,marginTop:2,opacity:0.85}},cen.desc),
+                  h("div",{style:{fontSize:9,marginTop:3,fontWeight:700,color:sel?cor:"#7A7060"}},"IPCA "+(cen.rate*100).toFixed(1)+"% a.a.")
+                );
+              })
+            )
+          ),
+          // Barra de progresso atual
+          h("div",{style:{marginBottom:10}},
+            h("div",{style:{display:"flex",justifyContent:"space-between",fontSize:9,color:"#9A9080",marginBottom:5,fontFamily:"monospace"}},
+              h("span",{},"HOJE (meta R$"+(metaMensalIF/1000).toFixed(1)+"k/mes)"),
+              h("span",{style:{color:ifPctAtual>=100?"#4CAF82":ifPctAtual>=70?"#E8C44A":ifPctAtual>=40?"#E89060":"#E05252",fontWeight:700}},ifPctAtual.toFixed(1)+"% da meta")
+            ),
+            h("div",{style:{position:"relative",height:14,background:"rgba(0,0,0,0.30)",borderRadius:4,overflow:"hidden",border:"1px solid rgba(255,255,255,0.08)"}},
+              h("div",{style:{position:"absolute",left:0,top:0,bottom:0,width:Math.min(100,ifPctAtual)+"%",background:"linear-gradient(90deg,#C8A96E,#A8893E)",transition:"width 0.4s"}})
+            )
+          ),
+          // Projecoes em 5/10/20 anos
+          h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}},
+            ...[5,10,20].map(anoT=>{
+              const p=proj[anoT-1];
+              const rendaNominal=p.rendaTotalNominal.base/12;
+              const metaCorrigida=p.metaNominalCorrigida;
+              const pctNominal=(rendaNominal/metaCorrigida)*100;
+              return h("div",{key:anoT,style:{background:"rgba(0,0,0,0.20)",borderRadius:5,padding:"8px 9px",textAlign:"center"}},
+                h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",letterSpacing:1,marginBottom:2}},"EM "+anoT+" ANOS"),
+                h("div",{style:{fontSize:13,color:pctNominal>=100?"#4CAF82":pctNominal>=70?"#E8C44A":"#E8E2D5",fontFamily:"monospace",fontWeight:700}},pctNominal.toFixed(0)+"%"),
+                h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",marginTop:3}},"renda: "+fB(rendaNominal)+"/m"),
+                h("div",{style:{fontSize:7,color:"#C8A96E",fontFamily:"monospace",marginTop:1}},"meta: "+fB(metaCorrigida)+"/m")
+              );
+            })
+          ),
+          h("div",{style:{fontSize:8,color:"#7A7060",marginTop:8,fontStyle:"italic",lineHeight:1.5}},"\u{1F4A1} ",h("strong",{},"Tudo em valores NOMINAIS do ano correspondente"),": renda projetada vs meta corrigida pela inflacao do cenario ",cenarioIPCA==="oti"?"OTIMISTA":cenarioIPCA==="base"?"BASE":"PESSIMISTA",". A comparacao e \"como sera la na frente\", nao em poder de compra de hoje.")
+        ),
+
+        // ===== TABELA DE PROJECAO POR ANO CHAVE =====
+        h("div",{style:{marginBottom:14}},
+          h("div",{style:{fontSize:8,letterSpacing:1.5,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,marginBottom:8}},"\u{1F4CA} PROJECAO POR HORIZONTE (CENARIO BASE)"),
+          h("div",{style:{background:"rgba(0,0,0,0.20)",borderRadius:6,padding:"10px 12px",overflowX:"auto"}},
+            h("table",{style:{width:"100%",fontSize:9,color:"#E8E2D5",fontFamily:"monospace",borderCollapse:"collapse",minWidth:480}},
+              h("thead",{},
+                h("tr",{style:{borderBottom:"1px solid rgba(255,255,255,0.10)"}},
+                  h("th",{style:{textAlign:"left",padding:"5px 6px",fontSize:8,color:"#7A7060",fontWeight:700}},"HORIZONTE"),
+                  h("th",{style:{textAlign:"right",padding:"5px 6px",fontSize:8,color:"#7A7060",fontWeight:700}},"PATRIM. NOMINAL"),
+                  h("th",{style:{textAlign:"right",padding:"5px 6px",fontSize:8,color:"#7A7060",fontWeight:700}},"PATRIM. REAL"),
+                  h("th",{style:{textAlign:"right",padding:"5px 6px",fontSize:8,color:"#7A7060",fontWeight:700}},"RENDA NOMINAL"),
+                  h("th",{style:{textAlign:"right",padding:"5px 6px",fontSize:8,color:"#4CAF82",fontWeight:700}},"RENDA REAL")
+                )
+              ),
+              h("tbody",{},
+                // Linha HOJE
+                h("tr",{style:{borderBottom:"1px solid rgba(255,255,255,0.05)"}},
+                  h("td",{style:{padding:"5px 6px",color:"#C8A96E",fontWeight:700}},"HOJE"),
+                  h("td",{style:{textAlign:"right",padding:"5px 6px"}},fB(totalPortfolio)),
+                  h("td",{style:{textAlign:"right",padding:"5px 6px"}},fB(totalPortfolio)),
+                  h("td",{style:{textAlign:"right",padding:"5px 6px"}},fB(rBase.totalLiqAnual/12)+"/m"),
+                  h("td",{style:{textAlign:"right",padding:"5px 6px",color:"#4CAF82",fontWeight:700}},fB(rBase.totalLiqAnual/12)+"/m")
+                ),
+                ...anosChave.map((anoT,i)=>{
+                  const p=proj[anoT-1];
+                  return h("tr",{key:anoT,style:{borderBottom:i<anosChave.length-1?"1px solid rgba(255,255,255,0.05)":"none"}},
+                    h("td",{style:{padding:"5px 6px",color:"#C8A96E",fontWeight:700}},anoT+" anos"),
+                    h("td",{style:{textAlign:"right",padding:"5px 6px"}},fB(p.patrimNominal.base)),
+                    h("td",{style:{textAlign:"right",padding:"5px 6px",color:"#9A9080"}},fB(p.patrimReal.base)),
+                    h("td",{style:{textAlign:"right",padding:"5px 6px"}},fB(p.rendaTotalNominal.base/12)+"/m"),
+                    h("td",{style:{textAlign:"right",padding:"5px 6px",color:"#4CAF82",fontWeight:700}},fB(p.rendaTotalReal.base/12)+"/m")
+                  );
+                })
+              )
+            ),
+            h("div",{style:{fontSize:8,color:"#7A7060",marginTop:8,lineHeight:1.5,fontStyle:"italic"}},
+              "\u{1F4A1} ",h("strong",{},"Nominal")," = valor monetario corrente no futuro. ",h("strong",{},"Real")," = poder de compra equivalente a hoje (deflacionado por IPCA do cenario ",cenarioIPCA==="oti"?"OTIMISTA":cenarioIPCA==="base"?"BASE":"PESSIMISTA"," = ",(ipcaSel*100).toFixed(1),"% a.a.)."
+            )
+          )
+        ),
+
+        // ===== GRAFICO DE PROJECAO =====
+        h("div",{style:{marginBottom:14}},
+          h("div",{style:{fontSize:8,letterSpacing:1.5,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,marginBottom:8}},"\u{1F4C8} EVOLUCAO DA RENDA MENSAL vs META CORRIGIDA POR INFLACAO (valores nominais)"),
+          h("div",{style:{background:"rgba(0,0,0,0.20)",borderRadius:6,padding:"12px",overflowX:"auto"}},
+            (()=>{
+              const W=320,H=160,padL=44,padR=8,padT=8,padB=24;
+              const iw=W-padL-padR,ih=H-padT-padB;
+              // Maior valor de renda real (pessimista..otimista) entre todos os anos
+              // E também a META corrigida no ano 20 (para o eixo Y caber tudo)
+              let maxR=Math.max(rBase.totalLiqAnual/12,metaMensalIF);
+              proj.forEach(p=>{
+                maxR=Math.max(maxR,p.rendaTotalNominal.oti/12);
+                maxR=Math.max(maxR,p.metaNominalCorrigida);
+              });
+              maxR=maxR*1.10;
+              // Pontos de cada cenario (renda real mensal)
+              const xAno=(ano)=>padL+(ano/20)*iw;
+              const yVal=(v)=>padT+ih-(v/maxR)*ih;
+              const buildLine=(getter)=>{
+                let d="M "+padL+" "+yVal(rBase.totalLiqAnual/12);// comeca em "hoje" (ano 0)
+                proj.forEach(p=>{
+                  d+=" L "+xAno(p.ano)+" "+yVal(getter(p));
+                });
+                return d;
+              };
+              // Curva da META corrigida pela inflacao (cresce ao longo do tempo)
+              const buildMetaLine=()=>{
+                let d="M "+padL+" "+yVal(metaMensalIF);
+                proj.forEach(p=>{
+                  d+=" L "+xAno(p.ano)+" "+yVal(p.metaNominalCorrigida);
+                });
+                return d;
+              };
+              return h("svg",{viewBox:"0 0 "+W+" "+H,style:{width:"100%",height:"auto",display:"block"}},
+                // Grid horizontal
+                ...[0,0.25,0.5,0.75,1].map((p,i)=>{
+                  const y=padT+ih*(1-p);
+                  return [
+                    h("line",{key:"gr"+i,x1:padL,y1:y,x2:W-padR,y2:y,stroke:"rgba(255,255,255,0.06)",strokeWidth:0.5}),
+                    h("text",{key:"grl"+i,x:padL-4,y:y+3,fontSize:7,fill:"#6A6050",textAnchor:"end",fontFamily:"monospace"},"R$"+((maxR*p)/1000).toFixed(0)+"k")
+                  ];
+                }).flat(),
+                // Linha META (curva crescente pela inflacao)
+                h("path",{d:buildMetaLine(),fill:"none",stroke:"#C8A96E",strokeWidth:1.2,strokeDasharray:"4,3",opacity:0.7}),
+                h("text",{x:W-padR-4,y:yVal(proj[19].metaNominalCorrigida)-3,fontSize:7,fill:"#C8A96E",textAnchor:"end",fontFamily:"monospace",fontWeight:700},"META "+fB(proj[19].metaNominalCorrigida)),
+                // Linha PESSIMISTA (renda nominal)
+                h("path",{d:buildLine(p=>p.rendaTotalNominal.pes/12),fill:"none",stroke:"#E89060",strokeWidth:1.2,opacity:0.6,strokeDasharray:"3,2"}),
+                // Linha BASE (renda nominal)
+                h("path",{d:buildLine(p=>p.rendaTotalNominal.base/12),fill:"none",stroke:"#4CAF82",strokeWidth:2.2}),
+                // Linha OTIMISTA (renda nominal)
+                h("path",{d:buildLine(p=>p.rendaTotalNominal.oti/12),fill:"none",stroke:"#5B8FD4",strokeWidth:1.2,opacity:0.6,strokeDasharray:"3,2"}),
+                // Marcadores anos-chave
+                ...anosChave.map(ano=>{
+                  const p=proj[ano-1];
+                  const x=xAno(ano);
+                  const y=yVal(p.rendaTotalNominal.base/12);
+                  return [
+                    h("circle",{key:"m"+ano,cx:x,cy:y,r:3,fill:"#4CAF82",stroke:"#0D0F14",strokeWidth:1.5}),
+                    h("text",{key:"ml"+ano,x:x,y:H-padB+13,fontSize:7,fill:"#9A9080",textAnchor:"middle",fontFamily:"monospace"},ano+"a")
+                  ];
+                }).flat(),
+                // Labels eixo X
+                h("text",{x:padL,y:H-padB+13,fontSize:7,fill:"#9A9080",textAnchor:"start",fontFamily:"monospace"},"hoje"),
+                h("text",{x:W-padR,y:H-padB+13,fontSize:7,fill:"#9A9080",textAnchor:"end",fontFamily:"monospace"},"20a")
+              );
+            })(),
+            // Legenda
+            h("div",{style:{display:"flex",justifyContent:"center",gap:12,marginTop:8,fontSize:8,color:"#9A9080",fontFamily:"monospace",flexWrap:"wrap"}},
+              h("div",{style:{display:"flex",alignItems:"center",gap:4}},h("div",{style:{width:14,height:2,background:"#E89060",opacity:0.6}}),h("span",{},"Pessimista")),
+              h("div",{style:{display:"flex",alignItems:"center",gap:4}},h("div",{style:{width:14,height:2,background:"#4CAF82"}}),h("span",{},"Base")),
+              h("div",{style:{display:"flex",alignItems:"center",gap:4}},h("div",{style:{width:14,height:2,background:"#5B8FD4",opacity:0.6}}),h("span",{},"Otimista")),
+              h("div",{style:{display:"flex",alignItems:"center",gap:4}},h("div",{style:{width:14,height:2,background:"#C8A96E",opacity:0.7}}),h("span",{},"Meta IF"))
+            )
+          )
+        ),
+
+        // ===== DECOMPOSICAO POR CLASSE (ATUAL) =====
+        h("div",{style:{marginBottom:14}},
+          h("div",{style:{fontSize:8,letterSpacing:1.5,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,marginBottom:8}},"\u{1F50D} DECOMPOSICAO POR CLASSE (HOJE, CENARIO BASE)"),
+          h("div",{style:{background:"rgba(0,0,0,0.20)",borderRadius:6,padding:"10px 12px",overflowX:"auto"}},
+            h("table",{style:{width:"100%",fontSize:9,color:"#E8E2D5",fontFamily:"monospace",borderCollapse:"collapse",minWidth:480}},
+              h("thead",{},
+                h("tr",{style:{borderBottom:"1px solid rgba(255,255,255,0.10)"}},
+                  h("th",{style:{textAlign:"left",padding:"5px 6px",fontSize:8,color:"#7A7060",fontWeight:700}},"CLASSE"),
+                  h("th",{style:{textAlign:"right",padding:"5px 6px",fontSize:8,color:"#7A7060",fontWeight:700}},"PATRIM."),
+                  h("th",{style:{textAlign:"right",padding:"5px 6px",fontSize:8,color:"#7A7060",fontWeight:700}},"DY"),
+                  h("th",{style:{textAlign:"right",padding:"5px 6px",fontSize:8,color:"#7A7060",fontWeight:700}},"IR"),
+                  h("th",{style:{textAlign:"right",padding:"5px 6px",fontSize:8,color:"#4CAF82",fontWeight:700}},"RENDA/MES")
+                )
+              ),
+              h("tbody",{},
+                ...rBase.decomp.filter(d=>d.valor>0).sort((a,b)=>b.liq-a.liq).map((d,i)=>h("tr",{key:d.id,style:{borderBottom:"1px solid rgba(255,255,255,0.04)"}},
+                  h("td",{style:{padding:"5px 6px",color:d.color,fontWeight:600}},d.name),
+                  h("td",{style:{textAlign:"right",padding:"5px 6px"}},fB(d.valor)),
+                  h("td",{style:{textAlign:"right",padding:"5px 6px"}},(d.dy*100).toFixed(1)+"%"),
+                  h("td",{style:{textAlign:"right",padding:"5px 6px",color:d.ir>0?"#E89060":"#7A7060"}},d.ir>0?(d.ir*100).toFixed(0)+"%":"-"),
+                  h("td",{style:{textAlign:"right",padding:"5px 6px",color:"#4CAF82",fontWeight:700}},d.liq>0?fB(d.liq/12):"-")
+                )),
+                // Total row
+                h("tr",{style:{borderTop:"2px solid rgba(255,255,255,0.20)",background:"rgba(76,175,130,0.05)"}},
+                  h("td",{style:{padding:"7px 6px",color:"#E8E2D5",fontWeight:700}},"TOTAL"),
+                  h("td",{style:{textAlign:"right",padding:"7px 6px",color:"#E8E2D5",fontWeight:700}},fB(totalPortfolio)),
+                  h("td",{style:{textAlign:"right",padding:"7px 6px",color:"#E8E2D5",fontWeight:700}},(rBase.rendaBrutaAnual/totalPortfolio*100).toFixed(2)+"%"),
+                  h("td",{style:{textAlign:"right",padding:"7px 6px",color:"#9A9080"}},((rBase.rendaBrutaAnual-rBase.rendaLiqAnual)/rBase.rendaBrutaAnual*100).toFixed(0)+"%"),
+                  h("td",{style:{textAlign:"right",padding:"7px 6px",color:"#4CAF82",fontWeight:700}},fB(rBase.rendaLiqAnual/12))
+                )
+              )
+            )
+          )
+        ),
+
+        // ===== PREMISSAS / TRANSPARENCIA =====
+        h("details",{style:{background:"rgba(0,0,0,0.18)",borderRadius:6,padding:"10px 12px",borderLeft:"3px solid #8A8070"}},
+          h("summary",{style:{fontSize:9,letterSpacing:1.5,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,cursor:"pointer"}},"\u{1F4D6} PREMISSAS DA MODELAGEM (transparencia)"),
+          h("div",{style:{fontSize:9,color:"#9A9080",lineHeight:1.65,marginTop:10}},
+            h("p",{style:{margin:"0 0 6px"}},h("strong",{style:{color:"#C8A96E"}},"Yield Capacity por classe (cenario base)"),": FII 10%, Acoes BR 5.5%, Acoes EXT 2%, REITs 5.5%, Selic 8.5% real, Treasuries 4%, Infra 10%, Imoveis 6%, Agro 10.5%. Ouro/BTC nao pagam."),
+            h("p",{style:{margin:"0 0 6px"}},h("strong",{style:{color:"#C8A96E"}},"Crescimento real da renda"),": FII 2.5% a.a., Acoes BR 6%, Acoes EXT 5%, REITs 3%, Infra 4%, Imoveis 2%, Agro 3.5% (alem da inflacao)."),
+            h("p",{style:{margin:"0 0 6px"}},h("strong",{style:{color:"#C8A96E"}},"Valorizacao real do capital"),": Acoes BR 4.5%, Acoes EXT 5.5%, BTC 10%, Ouro 2%, FII 1.5%, REITs 2.5% (alem da inflacao)."),
+            h("p",{style:{margin:"0 0 6px"}},h("strong",{style:{color:"#C8A96E"}},"IR sobre dividendos"),": FII/FI-Infra/FIAGRO isentos PF, Acoes BR 0%, Acoes EXT 30% (retencao EUA), REITs 30%, Selic 15%, Treasuries 30%, Imoveis 27.5% (carne-leao medio)."),
+            h("p",{style:{margin:"0 0 6px"}},h("strong",{style:{color:"#C8A96E"}},"SWR (Safe Withdrawal Rate)"),": 4% anual sobre BTC/Ouro (regra de Bengen/Trinity Study). Esses ativos nao pagam renda mas podem ser sacados sustentavelmente."),
+            h("p",{style:{margin:"0 0 6px"}},h("strong",{style:{color:"#C8A96E"}},"IPCA projetado (3 cenarios disponiveis)"),": OTIMISTA 3.0% (banda baixa meta BC), BASE 5.5% (media historica 2005-2025), PESSIMISTA 8.5% (cenario crise tipo 2015-16). Usado para deflacionar valores e corrigir a meta IF ao longo dos anos."),
+            h("p",{style:{margin:0,fontStyle:"italic",color:"#7A7060"}},"\u26A0 Estas sao premissas teoricas baseadas em medias historicas e literatura academica (Trinity Study, Bengen, Damodaran). Resultados reais variam. As projecoes NAO consideram aportes futuros, apenas o crescimento organico do patrimonio atual.")
+          )
+        )
+      );
+    }catch(e){
+      console.error("Erro renderizando Renda:",e);
+      content=h("div",{style:{padding:"24px 16px",background:"rgba(224,82,82,0.06)",border:"1px solid rgba(224,82,82,0.25)",borderRadius:8,marginTop:12}},
+        h("div",{style:{fontSize:11,color:"#E05252",fontFamily:"monospace",fontWeight:700,marginBottom:8}},"\u26A0 Erro ao renderizar Renda"),
         h("div",{style:{fontSize:10,color:"#9A9080",lineHeight:1.6,fontFamily:"monospace",whiteSpace:"pre-wrap"}},e&&e.message?e.message:String(e))
       );
     }
