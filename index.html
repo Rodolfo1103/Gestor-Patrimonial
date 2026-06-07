@@ -7984,6 +7984,10 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             h("div",{style:{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}},
               h("span",{style:{fontSize:9,color:"#9A9080",fontFamily:"monospace"}},"Ticker:"),
               h("input",{type:"text",value:diagTicker,onChange:e=>setDiagTicker(e.target.value.toUpperCase().trim()),placeholder:"PH",style:{padding:"7px 10px",width:90,background:"rgba(0,0,0,0.30)",border:"1px solid rgba(91,143,212,0.45)",borderRadius:5,color:"#E8E2D5",fontSize:12,fontFamily:"monospace",textAlign:"center",letterSpacing:2,fontWeight:700}}),
+              // BOTAO DE TESTE MINIMAL - so para verificar se o clique chega
+              h("button",{type:"button",onClick:()=>{
+                setDiagYahoo({ticker:"TESTE",sym:"TESTE",status:"ok",msg:"\u2713 BOTAO DE TESTE FUNCIONOU! Se voce esta lendo isso, o clique foi capturado em "+new Date().toLocaleTimeString("pt-BR")+". Isso significa que o problema NAO e o evento de clique. Provavelmente e o fetch para o Yahoo que esta sendo bloqueado.",divs:[],moeda:"--"});
+              },style:{padding:"10px 14px",background:"#4CAF82",border:"2px solid #4CAF82",borderRadius:5,color:"#FFF",fontSize:11,fontFamily:"monospace",cursor:"pointer",letterSpacing:1,fontWeight:700,touchAction:"manipulation"}},"\u2713 TESTE"),
               h("button",{type:"button",onClick:()=>{
               // Versao simplificada para garantir clicabilidade no tablet Samsung
               const tUp=(diagTicker||"PH").toUpperCase().trim();
@@ -7999,22 +8003,29 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                 "https://api.allorigins.win/raw?url="+encodeURIComponent(urlBase),
                 "https://api.codetabs.com/v1/proxy/?quest="+encodeURIComponent(urlBase)
               ];
-              // Funcao para tentar uma URL e retornar Promise
+              const nomes=["direto","corsproxy.io","allorigins","codetabs"];
+              const erros=[];// acumula erros para mostrar
+              // Funcao para tentar uma URL com TIMEOUT obrigatorio
               const tentar=(idx)=>{
                 if(idx>=proxiesL.length){
-                  setDiagYahoo({ticker:tUp,sym,status:"erro",msg:"Todas as "+proxiesL.length+" tentativas falharam. Pode ser bloqueio de rede/CORS no seu navegador. Tente: (1) outro navegador, (2) WiFi diferente, (3) desligar VPN se estiver usando."});
+                  const detalhes=erros.map((e,i)=>"  ["+nomes[i]+"] "+e).join("\n");
+                  setDiagYahoo({ticker:tUp,sym,status:"erro",msg:"Todas as "+proxiesL.length+" tentativas falharam:\n\n"+detalhes+"\n\nIsso geralmente indica bloqueio de CORS no navegador. Tente: (1) recarregar a pagina; (2) verificar se o ticker e valido no Yahoo; (3) testar em outro navegador."});
                   setDiagLoading(false);
                   return;
                 }
-                const nomes=["direto","corsproxy.io","allorigins","codetabs"];
                 setDiagYahoo({ticker:tUp,sym,status:"buscando",msg:"\u23F3 Tentando "+nomes[idx]+" ("+(idx+1)+"/"+proxiesL.length+")..."});
-                fetch(proxiesL[idx]).then(resp=>{
+                // TIMEOUT manual de 10 segundos - evita pendencia infinita
+                const ctrl=new AbortController();
+                const tid=setTimeout(()=>ctrl.abort(),10000);
+                fetch(proxiesL[idx],{signal:ctrl.signal}).then(resp=>{
+                  clearTimeout(tid);
                   if(!resp.ok)throw new Error("HTTP "+resp.status);
                   return resp.text();
                 }).then(txt=>{
-                  if(!txt||txt.length<30)throw new Error("Resposta vazia");
-                  const j=JSON.parse(txt);
-                  if(!j.chart||!j.chart.result||!j.chart.result[0])throw new Error("Estrutura invalida");
+                  if(!txt||txt.length<30)throw new Error("Resposta vazia (len="+(txt?txt.length:0)+")");
+                  let j;
+                  try{j=JSON.parse(txt);}catch(pe){throw new Error("JSON invalido: "+pe.message+" - inicio do texto: "+txt.substring(0,100));}
+                  if(!j.chart||!j.chart.result||!j.chart.result[0])throw new Error("Estrutura JSON sem chart.result");
                   const evs=j.chart.result[0].events;
                   const divs=evs&&evs.dividends;
                   const moeda=(j.chart.result[0].meta&&j.chart.result[0].meta.currency)||"?";
@@ -8030,8 +8041,11 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                   setDiagYahoo({ticker:tUp,sym,status:"ok",msg:"Yahoo OK via "+nomes[idx]+" - "+lista.length+" dividendo(s) encontrado(s)",divs:lista,moeda});
                   setDiagLoading(false);
                 }).catch(e=>{
+                  clearTimeout(tid);
+                  const erroMsg=e&&e.name==="AbortError"?"timeout 10s":(e&&e.message?e.message:String(e));
+                  erros.push(erroMsg);
                   // Tenta proximo proxy
-                  setTimeout(()=>tentar(idx+1),200);
+                  setTimeout(()=>tentar(idx+1),300);
                 });
               };
               tentar(0);
@@ -8049,7 +8063,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
               ),
               h("button",{onClick:()=>setDiagYahoo(null),style:{padding:"3px 8px",background:"transparent",border:"1px solid rgba(255,255,255,0.20)",borderRadius:4,color:"#7A7060",fontSize:9,cursor:"pointer"}},"\u2715")
             ),
-            h("div",{style:{fontSize:9,color:"#9A9080",lineHeight:1.55,marginBottom:8,fontStyle:"italic"}},diagYahoo.msg),
+            h("div",{style:{fontSize:9,color:"#9A9080",lineHeight:1.55,marginBottom:8,fontStyle:"italic",whiteSpace:"pre-wrap",fontFamily:"monospace"}},diagYahoo.msg),
             diagYahoo.divs&&diagYahoo.divs.length>0&&h("div",{style:{background:"rgba(0,0,0,0.20)",borderRadius:5,padding:"8px 10px"}},
               h("div",{style:{fontSize:7,letterSpacing:1.2,color:"#7A7060",fontFamily:"monospace",fontWeight:700,marginBottom:6}},"DIVIDENDOS RETORNADOS PELO YAHOO"),
               ...diagYahoo.divs.slice(0,10).map((d,i)=>h("div",{key:i,style:{display:"flex",justifyContent:"space-between",padding:"3px 0",fontSize:10,fontFamily:"monospace",borderBottom:i<Math.min(9,diagYahoo.divs.length-1)?"1px dashed rgba(255,255,255,0.05)":"none"}},
