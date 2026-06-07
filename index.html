@@ -5714,40 +5714,74 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
 
       // ========== NOTA DE EFICIENCIA ==========
       (()=>{
-        // ===== NOTA DE EFICIENCIA HIBRIDA =====
+        // ===== NOTA DE EFICIENCIA HIBRIDA (REFATORADA) =====
         // Combina 2 dimensoes para evitar inflar nota de portfolios com risco extremo:
-        // (1) Eficiencia de FRONTEIRA: quanto retorno voce captura do maximo possivel na sua vol
-        // (2) Eficiencia de SHARPE: quanto seu Sharpe captura do melhor Sharpe possivel no MC
-        // Formula: 70% fronteira + 30% Sharpe (penaliza portfolios com Sharpe ruim)
+        // (1) Eficiencia de FRONTEIRA REAL: distancia ao envelope superior do MC
+        // (2) Eficiencia de SHARPE: posicao no espectro [pior, melhor] Sharpe
+        // Formula: 40% fronteira + 60% Sharpe (Sharpe e a metrica robusta)
 
-        // (1) Eficiencia de fronteira na faixa de volatilidade
-        let maxRetSimVol=statsAtual.ret;
-        for(const p of mcResult){
-          if(Math.abs(p.vol-statsAtual.vol)<0.015&&p.ret>maxRetSimVol)maxRetSimVol=p.ret;
+        // (A) Constroi a FRONTEIRA EFICIENTE REAL como envelope superior do MC
+        // Para cada bucket de vol, encontra o portfolio com maior retorno
+        const N_BUCKETS=40;
+        const todasVols=mcResult.map(p=>p.vol);
+        const volMin=Math.min(...todasVols);
+        const volMax=Math.max(...todasVols);
+        const bucketSize=(volMax-volMin)/N_BUCKETS;
+        const fronteiraBuckets=[];// [{vol, maxRet}]
+        for(let b=0;b<N_BUCKETS;b++){
+          const volLow=volMin+b*bucketSize;
+          const volHigh=volLow+bucketSize;
+          let maxR=-Infinity,volMed=volLow+bucketSize/2;
+          for(const p of mcResult){
+            if(p.vol>=volLow&&p.vol<volHigh&&p.ret>maxR)maxR=p.ret;
+          }
+          if(maxR>-Infinity)fronteiraBuckets.push({vol:volMed,maxRet:maxR});
         }
-        const efFront=Math.max(0,Math.min(100,(statsAtual.ret/Math.max(0.001,maxRetSimVol))*100));
-        // (2) Eficiencia de Sharpe (vs melhor Sharpe absoluto do Monte Carlo)
+        // Garante MONOTONIA: fronteira eficiente nao pode "descer" - so portfolios estritamente
+        // dominantes contam. Caminha do menor para o maior vol e mantem so portfolios cujo
+        // maxRet seja >= ao maior maxRet ate aquele vol (fronteira eficiente classica)
+        let runMax=-Infinity;
+        const fronteiraMonotona=[];
+        for(const f of fronteiraBuckets){
+          if(f.maxRet>=runMax){
+            runMax=f.maxRet;
+            fronteiraMonotona.push(f);
+          }
+        }
+        // Funcao: para um (ret, vol) calcula quanto % do retorno maximo possivel ate sua vol
+        // (essa e a definicao classica de eficiencia de fronteira)
+        const retMaxAteVol=(volAlvo)=>{
+          let max=-Infinity;
+          for(const f of fronteiraMonotona){
+            if(f.vol<=volAlvo&&f.maxRet>max)max=f.maxRet;
+          }
+          return max>-Infinity?max:0.01;
+        };
+        // (B) Calcula Sharpe min/max do MC inteiro
         let bestSharpeAbs=mcResult[0]?mcResult[0].sharpe:0;
         let worstSharpeAbs=mcResult[0]?mcResult[0].sharpe:0;
         for(const p of mcResult){
           if(p.sharpe>bestSharpeAbs)bestSharpeAbs=p.sharpe;
           if(p.sharpe<worstSharpeAbs)worstSharpeAbs=p.sharpe;
         }
-        // Normaliza Sharpe entre [worst, best] para escala 0-100
         const sharpeRange=bestSharpeAbs-worstSharpeAbs;
-        const efSharpe=sharpeRange>0?Math.max(0,Math.min(100,((sharpeAtual-worstSharpeAbs)/sharpeRange)*100)):50;
-        // Nota hibrida: 70% fronteira + 30% Sharpe
-        const notaFinal=efFront*0.70+efSharpe*0.30;
-        // Funcao reutilizavel para calcular a nota de qualquer portfolio do MC
-        const calcNotaHibrida=(p)=>{
-          let maxRet=p.ret;
-          for(const q of mcResult){
-            if(q.vol<=p.vol+0.01&&Math.abs(q.vol-p.vol)<0.025&&q.ret>maxRet)maxRet=q.ret;
-          }
-          const ef=Math.max(0,Math.min(100,(p.ret/Math.max(0.001,maxRet))*100));
-          const efS=sharpeRange>0?Math.max(0,Math.min(100,((p.sharpe-worstSharpeAbs)/sharpeRange)*100)):50;
-          return ef*0.70+efS*0.30;
+        // ===== FUNCAO UNICA E ROBUSTA DE NOTA =====
+        // Usada em TODOS os lugares (nota A-F, histograma, melhor/pior, insight global)
+        const calcNotaHibrida=(ret,vol,sharpe)=>{
+          // (1) Eficiencia de fronteira: % do retorno teorico maximo para sua vol (ou menor)
+          const maxR=retMaxAteVol(vol);
+          const ef=Math.max(0,Math.min(100,(ret/maxR)*100));
+          // (2) Eficiencia de Sharpe: posicao entre pior e melhor
+          const efS=sharpeRange>0?Math.max(0,Math.min(100,((sharpe-worstSharpeAbs)/sharpeRange)*100)):50;
+          // 40% fronteira + 60% Sharpe (Sharpe penaliza mais portfolios concentrados)
+          return ef*0.40+efS*0.60;
         };
+        // Calcula a NOTA do portfolio ATUAL
+        const efFront=Math.max(0,Math.min(100,(statsAtual.ret/retMaxAteVol(statsAtual.vol))*100));
+        const efSharpe=sharpeRange>0?Math.max(0,Math.min(100,((sharpeAtual-worstSharpeAbs)/sharpeRange)*100)):50;
+        const notaFinal=calcNotaHibrida(statsAtual.ret,statsAtual.vol,sharpeAtual);
+        // Funcao wrapper para portfolio do MC (recebe objeto com .ret .vol .sharpe)
+        const calcNotaPortMC=(p)=>calcNotaHibrida(p.ret,p.vol,p.sharpe);
         // Conceito A-F estilo escolar (faixas calibradas: 5 pontos para A, depois 10pp ate D, 15pp E, <40 F)
         let conceito,corConceito,descConceito,detalheConceito;
         if(notaFinal>=85){
@@ -5770,7 +5804,8 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           detalheConceito="Alocacao distante da fronteira eficiente. Risco assumido nao esta sendo compensado adequadamente em retorno esperado. Revisao profunda da estrutura recomendada - provavelmente excesso de concentracao em classes correlacionadas ou alocacao incoerente com o perfil.";
         }
         // Distancia da fronteira (em retorno % - gap p/ capturar)
-        const gapRet=(maxRetSimVol-statsAtual.ret)*100;
+        const maxRetFronteira=retMaxAteVol(statsAtual.vol);
+        const gapRet=(maxRetFronteira-statsAtual.ret)*100;
         return h("div",{style:{background:"linear-gradient(135deg,rgba(200,169,110,0.10),"+corConceito+"15)",border:"1px solid "+corConceito+"55",borderRadius:10,padding:"14px 16px",marginBottom:13}},
           h("div",{style:{display:"flex",alignItems:"center",gap:14}},
             // Nota grande
@@ -5797,7 +5832,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                   h("span",{style:{textAlign:"right",color:"#E8E2D5",fontWeight:700,fontSize:10}},efFront.toFixed(0)+"%")
                 ),
                 h("div",{style:{fontSize:8,color:"#6A6050",fontStyle:"italic",paddingLeft:2,lineHeight:1.4}},
-                  "Para a sua volatilidade (",(statsAtual.vol*100).toFixed(1),"%), seu retorno esperado (",(statsAtual.ret*100).toFixed(2),"%) representa ",efFront.toFixed(0),"% do maximo teorico alcancavel (",(maxRetSimVol*100).toFixed(2),"%)."
+                  "Para a sua volatilidade (",(statsAtual.vol*100).toFixed(1),"%), seu retorno esperado (",(statsAtual.ret*100).toFixed(2),"%) representa ",efFront.toFixed(0),"% do maximo teorico alcancavel (",(maxRetFronteira*100).toFixed(2),"%)."
                 )
               )
             )
@@ -5843,7 +5878,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             // Reutiliza a funcao calcNotaHibrida (definida acima) que combina:
             // 70% eficiencia de fronteira + 30% eficiencia de Sharpe
             // Isso garante que portfolios com Sharpe ruim sejam penalizados corretamente.
-            const calcNotaPortfolio=calcNotaHibrida;
+            const calcNotaPortfolio=calcNotaPortMC;
             // Amostra 1500 portfolios para distribuicao (rapidez)
             const amostra=[];
             const stepAm=Math.max(1,Math.floor(mcResult.length/1500));
@@ -5933,7 +5968,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                 h("div",{style:{color:"#C8A96E",fontWeight:700,fontSize:8,letterSpacing:1.2,marginBottom:5,fontFamily:"monospace"}},"\u{1F4D6} COMO ESTA SIMULACAO E CONSTRUIDA"),
                 h("div",{style:{marginBottom:3}},h("strong",{},"Universo:")," ",mcResult.length.toLocaleString("pt-BR")," portfolios sao gerados sorteando aleatoriamente pesos para as ",MPT_CLS.length," classes do seu portfolio (FII, Acoes BR, Acoes EXT, REITs, Selic, Ouro, BTC, Infra, Imoveis, Agro)."),
                 h("div",{style:{marginBottom:3}},h("strong",{},"3 estrategias de geracao:")," 60% sao bem ",h("em",{},"diversificados"),", 25% sao ",h("em",{},"moderadamente concentrados"),", 15% sao ",h("em",{},"muito concentrados")," em poucas classes - para explorar todo o espaco de possibilidades, do super-balanceado ao super-concentrado."),
-                h("div",{style:{marginBottom:3}},h("strong",{},"Calculo da nota (formula hibrida):")," ",h("strong",{style:{color:"#4CAF82"}},"70% eficiencia de fronteira")," (qual % do melhor retorno possivel voce captura para sua volatilidade) + ",h("strong",{style:{color:"#5B8FD4"}},"30% eficiencia de Sharpe")," (sua posicao no espectro entre o pior e o melhor Sharpe simulado). Isso penaliza portfolios com risco extremo mesmo que tecnicamente \"capturem retorno\" na sua faixa de vol."),
+                h("div",{style:{marginBottom:3}},h("strong",{},"Calculo da nota (formula hibrida):")," ",h("strong",{style:{color:"#4CAF82"}},"40% eficiencia de fronteira real")," (envelope superior do MC: % do melhor retorno teorico ATE sua volatilidade) + ",h("strong",{style:{color:"#5B8FD4"}},"60% eficiencia de Sharpe")," (posicao no espectro entre pior e melhor Sharpe). O Sharpe pesa mais para que portfolios concentrados em ativos voláteis sejam adequadamente penalizados."),
                 h("div",{},h("strong",{},"Premissas (R/E):")," cada classe tem um retorno esperado e volatilidade calibrados (ver bloco \"Premissas R/E\" mais abaixo), e a matriz de correlacao entre classes e empirica. Tudo recalibrado dinamicamente conforme a Selic atual e ajustes da IA.")
               ),
               h("div",{style:{fontSize:8.5,color:"#6A6050",fontStyle:"italic",marginBottom:8,lineHeight:1.4}},"Distribuicao das notas dos ",total," portfolios simulados, com ",h("strong",{style:{color:"#9A9080"}},"DNA")," (top 3 classes mais predominantes por nota):"),
@@ -6060,7 +6095,30 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
 
       // ========== INSIGHT GLOBAL ==========
       (()=>{
-        // Recalcula bestSharpe e worstSharpe absolutos do MC (mesmos do bloco nota A-F)
+        // ===== Constroi a fronteira eficiente real (envelope superior do MC) =====
+        // (replica logica do bloco "NOTA DE EFICIENCIA" para coerencia total)
+        const todasVolsG=mcResult.map(p=>p.vol);
+        const volMinG=Math.min(...todasVolsG);
+        const volMaxG=Math.max(...todasVolsG);
+        const bucketG=(volMaxG-volMinG)/40;
+        const fbG=[];
+        for(let b=0;b<40;b++){
+          const vL=volMinG+b*bucketG,vH=vL+bucketG;
+          let maxR=-Infinity;
+          for(const p of mcResult)if(p.vol>=vL&&p.vol<vH&&p.ret>maxR)maxR=p.ret;
+          if(maxR>-Infinity)fbG.push({vol:vL+bucketG/2,maxRet:maxR});
+        }
+        let runMaxG=-Infinity;
+        const fmG=[];
+        for(const f of fbG){
+          if(f.maxRet>=runMaxG){runMaxG=f.maxRet;fmG.push(f);}
+        }
+        const retMaxAteVolG=(va)=>{
+          let max=-Infinity;
+          for(const f of fmG)if(f.vol<=va&&f.maxRet>max)max=f.maxRet;
+          return max>-Infinity?max:0.01;
+        };
+        // Sharpe range absoluto
         let bestSharpeAbsG=mcResult[0]?mcResult[0].sharpe:0;
         let worstSharpeAbsG=mcResult[0]?mcResult[0].sharpe:0;
         for(const p of mcResult){
@@ -6069,18 +6127,13 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         }
         const sharpeRangeG=bestSharpeAbsG-worstSharpeAbsG;
         // ===== FORMULA UNIFICADA (mesma do bloco "NOTA DE EFICIENCIA") =====
-        // 70% eficiencia de fronteira + 30% eficiencia de Sharpe
-        // Garante COERENCIA TOTAL entre os blocos do card MPT
+        // 40% eficiencia de fronteira REAL + 60% eficiencia de Sharpe
+        // Garante coerencia TOTAL entre todos os blocos do card MPT
         const calcEfHibrida=(ret,vol,sharpe)=>{
-          // (1) Eficiencia de fronteira na faixa de vol (margem 1.5%)
-          let maxRet=ret;
-          for(const p of mcResult){
-            if(Math.abs(p.vol-vol)<0.015&&p.ret>maxRet)maxRet=p.ret;
-          }
-          const ef=Math.max(0,Math.min(100,(ret/Math.max(0.001,maxRet))*100));
-          // (2) Eficiencia de Sharpe (0-100 entre pior e melhor do MC)
+          const maxR=retMaxAteVolG(vol);
+          const ef=Math.max(0,Math.min(100,(ret/maxR)*100));
           const efS=sharpeRangeG>0?Math.max(0,Math.min(100,((sharpe-worstSharpeAbsG)/sharpeRangeG)*100)):50;
-          return ef*0.70+efS*0.30;
+          return ef*0.40+efS*0.60;
         };
         const portfs=[
           {nome:"ATUAL",cor:"#E05252",ret:statsAtual.ret,vol:statsAtual.vol,sharpe:sharpeAtual,beta:betaAtual},
