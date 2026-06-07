@@ -114,7 +114,7 @@ const RR_BASE={fii:{r:3.5,e:7.5},acoes_br:{r:6.5,e:8.5},acoes_ext:{r:5.5,e:8.0},
 // ===== MPT (Modern Portfolio Theory) =====
 // Retornos esperados anualizados em BRL (hibrido: historico + forward-looking)
 // e volatilidades anualizadas. Fontes citadas no comentario.
-const MPT_RET={fii:0.125,acoes_br:0.140,acoes_ext:0.130,reits:0.110,selic:0.100,treasuries:0.045,ouro:0.080,bitcoin:0.250,infra:0.130,imoveis:0.070,agro:0.130};
+const MPT_RET={fii:0.125,acoes_br:0.140,acoes_ext:0.130,reits:0.110,selic:0.100,treasuries:0.045,ouro:0.080,bitcoin:0.180,infra:0.130,imoveis:0.070,agro:0.130};
 const MPT_VOL={fii:0.120,acoes_br:0.250,acoes_ext:0.220,reits:0.180,selic:0.010,treasuries:0.130,ouro:0.150,bitcoin:0.550,infra:0.100,imoveis:0.080,agro:0.130};
 // Matriz de correlacao 10x10 (simetrica) - ordem das classes em MPT_CLS
 const MPT_CLS=["fii","acoes_br","acoes_ext","reits","selic","treasuries","ouro","bitcoin","infra","imoveis","agro"];
@@ -448,16 +448,36 @@ function mptCovar(){
   return cov;
 }
 // Calcula retorno esperado e volatilidade de um vetor de pesos w (mesma ordem que MPT_CLS)
-// selicDinamica (opcional): substitui MPT_RET.selic pelo valor real da Selic atual
-// Isso evita o bug de Selic = 10% fixo enquanto rf = 14.5% real (geraria Sharpe negativo absurdo)
+// selicDinamica (opcional): Selic decimal atual (ex: 0.145)
+// IMPORTANTE: os retornos esperados sao calibrados com Selic-ancora 10%.
+// Quando a Selic atual diverge dessa ancora, ajustamos PROPORCIONALMENTE os retornos
+// das classes para manter o premio sobre rf coerente com o regime monetario atual.
+// Isso e coerente com CAPM: ativos reprecificam quando a taxa livre de risco muda.
 function mptStats(w,selicDinamica){
   const n=MPT_CLS.length;
+  const ANCORA=0.10;// Selic em que MPT_RET foi calibrada
+  const sel=(typeof selicDinamica==="number"&&selicDinamica>0)?selicDinamica:ANCORA;
+  const delta=sel-ANCORA;// quanto a Selic mudou vs ancora
+  // Sensibilidade do retorno esperado a mudancas na Selic, por classe:
+  // - Renda fixa (selic, treasuries): acompanha integralmente o movimento
+  // - Renda variavel com dividendos (FII, infra, agro, imoveis): acompanha ~70%
+  // - Acoes (BR, ext): acompanha ~50% (custo de capital sobe, premio cai parcialmente)
+  // - REITs: ~60% (entre renda fixa e acoes)
+  // - Ouro, Bitcoin: pouco sensiveis (ativos alternativos)
+  const sensibilidade={
+    selic:1.00,treasuries:0.90,
+    fii:0.70,infra:0.70,agro:0.70,imoveis:0.65,
+    reits:0.60,acoes_br:0.50,acoes_ext:0.40,
+    ouro:0.10,bitcoin:0.10
+  };
   let ret=0;
   for(let i=0;i<n;i++){
     const cId=MPT_CLS[i];
-    // Para Selic, usa valor dinamico se fornecido (premio sobre rf)
-    // O modelo: Selic gera EXATAMENTE rf (sem premio, sem desconto)
-    const retClasse=(cId==="selic"&&typeof selicDinamica==="number")?selicDinamica:MPT_RET[cId];
+    let retClasse=MPT_RET[cId]+delta*(sensibilidade[cId]||0);
+    // Para Selic, garante exatamente rf (sem premio sobre si mesma)
+    if(cId==="selic")retClasse=sel;
+    // Clamp para evitar retornos negativos absurdos ou maiores que 50%
+    retClasse=Math.max(0,Math.min(0.50,retClasse));
     ret+=w[i]*retClasse;
   }
   const cov=mptCovar();
@@ -5777,22 +5797,42 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         }
         const sharpeRange=bestSharpeAbs-worstSharpeAbs;
         // ===== FUNCAO UNICA E ROBUSTA DE NOTA =====
-        // Usada em TODOS os lugares (nota A-F, histograma, melhor/pior, insight global)
-        const calcNotaHibrida=(ret,vol,sharpe)=>{
+        // 3 componentes: 35% fronteira + 45% Sharpe + 20% diversificacao (anti-HHI)
+        // HHI = soma dos pesos ao quadrado. HHI=1/n e perfeitamente diversificado, HHI=1 e 100% concentrado.
+        // Para n=11 classes: HHI minimo = 1/11 ≈ 0.091 (perfeitamente diversificado)
+        // Penaliza concentracoes que ferem o principio de diversificacao mesmo com Sharpe alto.
+        const calcNotaHibrida=(ret,vol,sharpe,pesos)=>{
           // (1) Eficiencia de fronteira: % do retorno teorico maximo para sua vol (ou menor)
           const maxR=retMaxAteVol(vol);
           const ef=Math.max(0,Math.min(100,(ret/maxR)*100));
           // (2) Eficiencia de Sharpe: posicao entre pior e melhor
           const efS=sharpeRange>0?Math.max(0,Math.min(100,((sharpe-worstSharpeAbs)/sharpeRange)*100)):50;
-          // 40% fronteira + 60% Sharpe (Sharpe penaliza mais portfolios concentrados)
-          return ef*0.40+efS*0.60;
+          // (3) Diversificacao (anti-HHI): 100 = perfeitamente diversificado, 0 = 100% concentrado
+          let hhi=0;
+          if(pesos&&pesos.length>0){
+            for(const w of pesos)hhi+=w*w;
+          }else{
+            hhi=1;// se nao tem pesos, assume pior caso
+          }
+          const n=MPT_CLS.length;
+          const hhiMin=1/n;// melhor possivel
+          // Normaliza: hhi=hhiMin -> 100, hhi=1 -> 0
+          const efD=Math.max(0,Math.min(100,((1-hhi)/(1-hhiMin))*100));
+          // 35% fronteira + 45% Sharpe + 20% diversificacao
+          return ef*0.35+efS*0.45+efD*0.20;
         };
         // Calcula a NOTA do portfolio ATUAL
+        const wAtual_arr=MPT_CLS.map(cid=>(cw[cid]||0)/100);
+        const somaWA_norm=wAtual_arr.reduce((a,b)=>a+b,0);
+        if(somaWA_norm>0)for(let i=0;i<wAtual_arr.length;i++)wAtual_arr[i]/=somaWA_norm;
         const efFront=Math.max(0,Math.min(100,(statsAtual.ret/retMaxAteVol(statsAtual.vol))*100));
         const efSharpe=sharpeRange>0?Math.max(0,Math.min(100,((sharpeAtual-worstSharpeAbs)/sharpeRange)*100)):50;
-        const notaFinal=calcNotaHibrida(statsAtual.ret,statsAtual.vol,sharpeAtual);
-        // Funcao wrapper para portfolio do MC (recebe objeto com .ret .vol .sharpe)
-        const calcNotaPortMC=(p)=>calcNotaHibrida(p.ret,p.vol,p.sharpe);
+        let hhiAtual=0;
+        for(const w of wAtual_arr)hhiAtual+=w*w;
+        const efDiv=Math.max(0,Math.min(100,((1-hhiAtual)/(1-1/MPT_CLS.length))*100));
+        const notaFinal=calcNotaHibrida(statsAtual.ret,statsAtual.vol,sharpeAtual,wAtual_arr);
+        // Funcao wrapper para portfolio do MC (recebe objeto com .ret .vol .sharpe .w)
+        const calcNotaPortMC=(p)=>calcNotaHibrida(p.ret,p.vol,p.sharpe,p.w);
         // Conceito A-F estilo escolar (faixas calibradas: 5 pontos para A, depois 10pp ate D, 15pp E, <40 F)
         let conceito,corConceito,descConceito,detalheConceito;
         if(notaFinal>=85){
@@ -5822,7 +5862,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             // Nota grande
             h("div",{style:{flexShrink:0,width:90,height:90,borderRadius:"50%",background:"radial-gradient(circle,"+corConceito+"30,"+corConceito+"10)",border:"3px solid "+corConceito,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}},
               h("div",{style:{fontSize:36,color:corConceito,fontFamily:"Georgia,serif",fontWeight:700,lineHeight:1}},conceito),
-              h("div",{style:{fontSize:9,color:corConceito,fontFamily:"monospace",fontWeight:700,marginTop:2,letterSpacing:1}},notaFinal.toFixed(0)+"%")
+              h("div",{style:{fontSize:9,color:corConceito,fontFamily:"monospace",fontWeight:700,marginTop:2,letterSpacing:1}},notaFinal.toFixed(0)+"/100")
             ),
             // Detalhes
             h("div",{style:{flex:1,minWidth:0}},
@@ -5831,19 +5871,48 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                 h("span",{style:{fontSize:8,color:corConceito,fontFamily:"monospace",fontWeight:700,padding:"1px 5px",borderRadius:3,background:corConceito+"22",border:"1px solid "+corConceito+"66"}},descConceito)
               ),
               h("p",{style:{fontSize:9,color:"#9A9080",margin:"0 0 8px",lineHeight:1.55,fontStyle:"italic"}},
-                "Eficiencia da sua alocacao: quanto retorno voce captura do maximo possivel para a volatilidade que assumiu. Metrica de fronteira eficiente, justa para qualquer perfil."
+                "Sua nota e media ponderada de 3 componentes: 35% fronteira + 45% Sharpe + 20% diversificacao (HHI)."
               ),
-              // Barra de eficiencia (fronteira = nota)
-              h("div",{},
-                h("div",{style:{display:"grid",gridTemplateColumns:"110px 1fr 42px",gap:6,alignItems:"center",fontSize:8,fontFamily:"monospace",marginBottom:4}},
-                  h("span",{style:{color:"#8A8070",fontWeight:700,letterSpacing:1.2}},"RETORNO CAPTURADO"),
-                  h("div",{style:{position:"relative",height:6,background:"rgba(255,255,255,0.04)",borderRadius:3}},
-                    h("div",{style:{position:"absolute",top:0,left:0,height:"100%",width:efFront+"%",background:efFront>=85?"#4CAF82":efFront>=75?"#7DD17D":efFront>=65?"#E8C44A":efFront>=50?"#E89060":"#E05252",borderRadius:3}})
+              // BARRA PRINCIPAL: a NOTA FINAL (mesmo valor do circulo)
+              h("div",{style:{marginBottom:8}},
+                h("div",{style:{display:"grid",gridTemplateColumns:"110px 1fr 42px",gap:6,alignItems:"center",fontSize:8,fontFamily:"monospace",marginBottom:3}},
+                  h("span",{style:{color:corConceito,fontWeight:700,letterSpacing:1.2}},"NOTA FINAL"),
+                  h("div",{style:{position:"relative",height:8,background:"rgba(255,255,255,0.04)",borderRadius:3,border:"1px solid rgba(255,255,255,0.08)"}},
+                    h("div",{style:{position:"absolute",top:0,left:0,height:"100%",width:notaFinal+"%",background:corConceito,borderRadius:3}})
                   ),
-                  h("span",{style:{textAlign:"right",color:"#E8E2D5",fontWeight:700,fontSize:10}},efFront.toFixed(0)+"%")
+                  h("span",{style:{textAlign:"right",color:corConceito,fontWeight:700,fontSize:11}},notaFinal.toFixed(0))
+                )
+              ),
+              // BARRAS DE DECOMPOSICAO (3 componentes)
+              h("div",{style:{padding:"7px 9px",background:"rgba(0,0,0,0.20)",borderRadius:4}},
+                h("div",{style:{fontSize:7,letterSpacing:1.3,color:"#7A7060",fontFamily:"monospace",fontWeight:700,marginBottom:5}},"DECOMPOSICAO"),
+                // Componente 1: Eficiencia de Fronteira (peso 35%)
+                h("div",{style:{display:"grid",gridTemplateColumns:"120px 1fr 42px",gap:5,alignItems:"center",fontSize:7.5,fontFamily:"monospace",marginBottom:3}},
+                  h("span",{style:{color:"#4CAF82"}},"Fronteira ",h("span",{style:{color:"#7A7060"}},"(35%)")),
+                  h("div",{style:{position:"relative",height:5,background:"rgba(255,255,255,0.04)",borderRadius:2}},
+                    h("div",{style:{position:"absolute",top:0,left:0,height:"100%",width:efFront+"%",background:"#4CAF82",opacity:0.75,borderRadius:2}})
+                  ),
+                  h("span",{style:{textAlign:"right",color:"#9A9080",fontWeight:700,fontSize:8}},efFront.toFixed(0))
                 ),
-                h("div",{style:{fontSize:8,color:"#6A6050",fontStyle:"italic",paddingLeft:2,lineHeight:1.4}},
-                  "Para a sua volatilidade (",(statsAtual.vol*100).toFixed(1),"%), seu retorno esperado (",(statsAtual.ret*100).toFixed(2),"%) representa ",efFront.toFixed(0),"% do maximo teorico alcancavel (",(maxRetFronteira*100).toFixed(2),"%)."
+                // Componente 2: Eficiencia de Sharpe (peso 45%)
+                h("div",{style:{display:"grid",gridTemplateColumns:"120px 1fr 42px",gap:5,alignItems:"center",fontSize:7.5,fontFamily:"monospace",marginBottom:3}},
+                  h("span",{style:{color:"#5B8FD4"}},"Sharpe ",h("span",{style:{color:"#7A7060"}},"(45%)")),
+                  h("div",{style:{position:"relative",height:5,background:"rgba(255,255,255,0.04)",borderRadius:2}},
+                    h("div",{style:{position:"absolute",top:0,left:0,height:"100%",width:efSharpe+"%",background:"#5B8FD4",opacity:0.75,borderRadius:2}})
+                  ),
+                  h("span",{style:{textAlign:"right",color:"#9A9080",fontWeight:700,fontSize:8}},efSharpe.toFixed(0))
+                ),
+                // Componente 3: Diversificacao anti-HHI (peso 20%)
+                h("div",{style:{display:"grid",gridTemplateColumns:"120px 1fr 42px",gap:5,alignItems:"center",fontSize:7.5,fontFamily:"monospace"}},
+                  h("span",{style:{color:"#C8A96E"}},"Diversificacao ",h("span",{style:{color:"#7A7060"}},"(20%)")),
+                  h("div",{style:{position:"relative",height:5,background:"rgba(255,255,255,0.04)",borderRadius:2}},
+                    h("div",{style:{position:"absolute",top:0,left:0,height:"100%",width:efDiv+"%",background:"#C8A96E",opacity:0.75,borderRadius:2}})
+                  ),
+                  h("span",{style:{textAlign:"right",color:"#9A9080",fontWeight:700,fontSize:8}},efDiv.toFixed(0))
+                ),
+                // Conta da media ponderada
+                h("div",{style:{fontSize:7,color:"#6A6050",fontStyle:"italic",marginTop:5,paddingTop:5,borderTop:"1px solid rgba(255,255,255,0.04)",lineHeight:1.4}},
+                  efFront.toFixed(0),"\u00D70.35 + ",efSharpe.toFixed(0),"\u00D70.45 + ",efDiv.toFixed(0),"\u00D70.20 = ",h("strong",{style:{color:corConceito}},notaFinal.toFixed(0))," (",conceito,")"
                 )
               )
             )
@@ -5855,13 +5924,14 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             ),
             h("p",{style:{fontSize:9,color:"#9A9080",lineHeight:1.6,margin:0,fontStyle:"italic"}},detalheConceito)
           ),
-          // Interpretacao curta
+          // Interpretacao curta (agora usa NOTAFINAL para consistencia)
           h("div",{style:{fontSize:9,color:"#9A9080",marginTop:8,lineHeight:1.6}},
-            efFront>=85?h("span",{},"\u2728 Excelente: voce captura ",h("strong",{style:{color:"#4CAF82"}},efFront.toFixed(0)+"%")," do retorno teorico maximo possivel. Esta praticamente na fronteira eficiente."):
-            efFront>=75?h("span",{},"\u2728 Muito bom: voce captura ",h("strong",{style:{color:"#7DD17D"}},efFront.toFixed(0)+"%")," do retorno teorico. Ajustes finos podem trazer ganhos marginais."):
-            efFront>=65?h("span",{},"\u26A1 Bom: voce captura ",h("strong",{style:{color:"#E8C44A"}},efFront.toFixed(0)+"%")," do retorno teorico. Otimizacao moderada recomendada (",gapRet.toFixed(1),"pp deixados na mesa)."):
-            efFront>=50?h("span",{},"\u26A0 Regular: voce captura ",h("strong",{style:{color:"#E89060"}},efFront.toFixed(0)+"%")," do retorno teorico. Rebalanceamento estruturado pode trazer ",h("strong",{},"+"+gapRet.toFixed(1)+"pp")," de retorno."):
-            h("span",{},"\u26A0 Insatisfatorio: voce captura apenas ",h("strong",{style:{color:"#E05252"}},efFront.toFixed(0)+"%")," do retorno teorico. ",h("strong",{style:{color:"#E05252"}},"+"+gapRet.toFixed(1)+"pp")," de retorno possivel com a mesma volatilidade.")
+            notaFinal>=85?h("span",{},"\u2728 Excelente: nota ",h("strong",{style:{color:"#4CAF82"}},notaFinal.toFixed(0)),". Praticamente otimo. Eficiencia de fronteira ",efFront.toFixed(0),"% e Sharpe relativo ",efSharpe.toFixed(0),"%."):
+            notaFinal>=75?h("span",{},"\u2728 Muito bom: nota ",h("strong",{style:{color:"#7DD17D"}},notaFinal.toFixed(0)),". Estrutura solida. Ajustes finos podem trazer ganhos marginais (fronteira ",efFront.toFixed(0),"% / Sharpe ",efSharpe.toFixed(0),"%)."):
+            notaFinal>=65?h("span",{},"\u26A1 Bom: nota ",h("strong",{style:{color:"#E8C44A"}},notaFinal.toFixed(0)),". Espaco para otimizacao (",gapRet.toFixed(1),"pp deixados na mesa). Componentes: fronteira ",efFront.toFixed(0),"% / Sharpe ",efSharpe.toFixed(0),"%."):
+            notaFinal>=55?h("span",{},"\u26A0 Regular: nota ",h("strong",{style:{color:"#E89060"}},notaFinal.toFixed(0)),". Rebalanceamento traz ganhos (",h("strong",{},"+"+gapRet.toFixed(1)+"pp")," de retorno possivel). Fronteira ",efFront.toFixed(0),"% / Sharpe ",efSharpe.toFixed(0),"%."):
+            notaFinal>=40?h("span",{},"\u26A0 Fragil: nota ",h("strong",{style:{color:"#D67050"}},notaFinal.toFixed(0)),". Concentracao penalizando relacao risco-retorno. Fronteira ",efFront.toFixed(0),"% / Sharpe ",efSharpe.toFixed(0),"%."):
+            h("span",{},"\u26A0 Insatisfatorio: nota ",h("strong",{style:{color:"#E05252"}},notaFinal.toFixed(0)),". Revisao profunda recomendada. Fronteira ",efFront.toFixed(0),"% / Sharpe ",efSharpe.toFixed(0),"%.")
           ),
           // ========== TABELA EXPLICATIVA DAS NOTAS ==========
           h("div",{style:{marginTop:14,paddingTop:12,borderTop:"1px solid rgba(255,255,255,0.05)"}},
@@ -5979,7 +6049,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                 h("div",{style:{color:"#C8A96E",fontWeight:700,fontSize:8,letterSpacing:1.2,marginBottom:5,fontFamily:"monospace"}},"\u{1F4D6} COMO ESTA SIMULACAO E CONSTRUIDA"),
                 h("div",{style:{marginBottom:3}},h("strong",{},"Universo:")," ",mcResult.length.toLocaleString("pt-BR")," portfolios sao gerados sorteando aleatoriamente pesos para as ",MPT_CLS.length," classes do seu portfolio (FII, Acoes BR, Acoes EXT, REITs, Selic, Ouro, BTC, Infra, Imoveis, Agro)."),
                 h("div",{style:{marginBottom:3}},h("strong",{},"3 estrategias de geracao:")," 60% sao bem ",h("em",{},"diversificados"),", 25% sao ",h("em",{},"moderadamente concentrados"),", 15% sao ",h("em",{},"muito concentrados")," em poucas classes - para explorar todo o espaco de possibilidades, do super-balanceado ao super-concentrado."),
-                h("div",{style:{marginBottom:3}},h("strong",{},"Calculo da nota (formula hibrida):")," ",h("strong",{style:{color:"#4CAF82"}},"40% eficiencia de fronteira real")," (envelope superior do MC: % do melhor retorno teorico ATE sua volatilidade) + ",h("strong",{style:{color:"#5B8FD4"}},"60% eficiencia de Sharpe")," (posicao no espectro entre pior e melhor Sharpe). O Sharpe pesa mais para que portfolios concentrados em ativos voláteis sejam adequadamente penalizados."),
+                h("div",{style:{marginBottom:3}},h("strong",{},"Calculo da nota (formula hibrida):"),"  ",h("strong",{style:{color:"#4CAF82"}},"35% fronteira real")," (envelope superior do MC) + ",h("strong",{style:{color:"#5B8FD4"}},"45% Sharpe")," (posicao entre pior e melhor) + ",h("strong",{style:{color:"#C8A96E"}},"20% diversificacao")," (penalidade anti-HHI: portfolios concentrados em poucas classes sao penalizados mesmo com Sharpe alto). Isso garante que diversificacao genuina seja valorizada como Markowitz pretendia."),
                 h("div",{},h("strong",{},"Premissas (R/E):")," cada classe tem um retorno esperado e volatilidade calibrados (ver bloco \"Premissas R/E\" mais abaixo), e a matriz de correlacao entre classes e empirica. Tudo recalibrado dinamicamente conforme a Selic atual e ajustes da IA.")
               ),
               h("div",{style:{fontSize:8.5,color:"#6A6050",fontStyle:"italic",marginBottom:8,lineHeight:1.4}},"Distribuicao das notas dos ",total," portfolios simulados, com ",h("strong",{style:{color:"#9A9080"}},"DNA")," (top 3 classes mais predominantes por nota):"),
@@ -6138,13 +6208,16 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         }
         const sharpeRangeG=bestSharpeAbsG-worstSharpeAbsG;
         // ===== FORMULA UNIFICADA (mesma do bloco "NOTA DE EFICIENCIA") =====
-        // 40% eficiencia de fronteira REAL + 60% eficiencia de Sharpe
-        // Garante coerencia TOTAL entre todos os blocos do card MPT
-        const calcEfHibrida=(ret,vol,sharpe)=>{
+        // 35% fronteira + 45% Sharpe + 20% diversificacao (anti-HHI)
+        const calcEfHibrida=(ret,vol,sharpe,pesos)=>{
           const maxR=retMaxAteVolG(vol);
           const ef=Math.max(0,Math.min(100,(ret/maxR)*100));
           const efS=sharpeRangeG>0?Math.max(0,Math.min(100,((sharpe-worstSharpeAbsG)/sharpeRangeG)*100)):50;
-          return ef*0.40+efS*0.60;
+          let hhi=0;
+          if(pesos&&pesos.length>0)for(const w of pesos)hhi+=w*w;
+          else hhi=1;
+          const efD=Math.max(0,Math.min(100,((1-hhi)/(1-1/MPT_CLS.length))*100));
+          return ef*0.35+efS*0.45+efD*0.20;
         };
         const portfs=[
           {nome:"ATUAL",cor:"#E05252",ret:statsAtual.ret,vol:statsAtual.vol,sharpe:sharpeAtual,beta:betaAtual},
@@ -6156,10 +6229,10 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         const melhorSharpe=compar.reduce((a,b)=>a.sharpe>b.sharpe?a:b);
         const menorVol=compar.reduce((a,b)=>a.vol<b.vol?a:b);
         const maiorRet=compar.reduce((a,b)=>a.ret>b.ret?a:b);
-        // Eficiencia HIBRIDA (70% fronteira + 30% Sharpe) - mesma metrica da nota A-F
-        const efAtual=calcEfHibrida(statsAtual.ret,statsAtual.vol,sharpeAtual);
-        const efAlvo=calcEfHibrida(statsAlvo.ret,statsAlvo.vol,sharpeAlvo);
-        const efAW=calcEfHibrida(statsAW.ret,statsAW.vol,sharpeAW);
+        // Eficiencia HIBRIDA (3 componentes: fronteira + Sharpe + diversificacao)
+        const efAtual=calcEfHibrida(statsAtual.ret,statsAtual.vol,sharpeAtual,wAtual);
+        const efAlvo=calcEfHibrida(statsAlvo.ret,statsAlvo.vol,sharpeAlvo,wAlvo);
+        const efAW=calcEfHibrida(statsAW.ret,statsAW.vol,sharpeAW,wAW);
         // Identifica o MAIS eficiente pela MESMA metrica usada no ranking
         const ranking=[
           {n:"ATUAL",v:efAtual},
