@@ -8059,8 +8059,9 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
       // (2) Horizonte de cobertura: por quantos anos a renda passiva cobre 100% da meta corrigida
       // (3) Horizonte de sustentabilidade total: quantos anos o patrimonio sustenta (considerando consumo do principal apos quebra da renda)
       const calcICR=(ipcaRate)=>{
-        // Cobertura HOJE
-        const cobAtual=rBase.totalLiqAnual/(metaMensalIF*12);
+        // Cobertura HOJE: APENAS renda passiva (dividendos liquidos), SEM SWR
+        // ICR classico = visao mais conservadora: voce vive APENAS de dividendos, nao vende nada
+        const cobAtual=rBase.rendaLiqAnual/(metaMensalIF*12);
         // SIMULACAO ANO A ANO ate 50 anos
         let horizonteCobertura=null;// ano em que a renda nao cobre mais
         let horizonteTotal=null;// ano em que o patrimonio acaba
@@ -8068,10 +8069,9 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         let patrimSim=totalPortfolio;
         let anosSustentando=0;
         for(let n=1;n<=50;n++){
-          // Recalcula renda e patrimonio nesse ano para esse IPCA
+          // ICR CLASSICO: usa APENAS dividendos liquidos (sem SWR)
           let rendaAnoLiq=0;
           let valorAnoTotal=0;
-          let swrAno=0;
           CL.forEach(c=>{
             const v0=valorClasse[c.id]||0;
             if(v0<=0)return;
@@ -8083,11 +8083,10 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             const ir=IR_DIV[c.id]||0;
             if(dy>0){
               rendaAnoLiq+=val*dy*Math.pow(1+cresRenda,n)*(1-ir);
-            }else{
-              swrAno+=val*SWR;
             }
+            // SEM SWR no ICR classico
           });
-          const rendaTotalAno=rendaAnoLiq+swrAno;
+          const rendaTotalAno=rendaAnoLiq;// SO dividendos
           const metaAno=metaMensalIF*12*Math.pow(1+ipcaRate,n);
           // Verifica cobertura
           if(horizonteCobertura===null&&rendaTotalAno<metaAno){
@@ -8155,8 +8154,8 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           }
           if(horizonteTotal===null)horizonteTotal="indefinido";
         }
-        // Cobertura em 20 anos (para mostrar tendencia)
-        let rendaAno20=0,swrAno20=0;
+        // Cobertura em 20 anos (ICR classico: apenas dividendos liq)
+        let rendaAno20=0;
         CL.forEach(c=>{
           const v0=valorClasse[c.id]||0;
           if(v0<=0)return;
@@ -8167,12 +8166,11 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           const ir=IR_DIV[c.id]||0;
           if(dy>0){
             rendaAno20+=val*dy*Math.pow(1+cresRenda,20)*(1-ir);
-          }else{
-            swrAno20+=val*SWR;
           }
+          // SEM SWR no ICR classico
         });
         const metaAno20=metaMensalIF*12*Math.pow(1+ipcaRate,20);
-        const cob20=(rendaAno20+swrAno20)/metaAno20;
+        const cob20=rendaAno20/metaAno20;
         return{cobAtual,cob20,horizonteCobertura,horizonteTotal,ipcaRate};
       };
       const icrOti=calcICR(IPCA_CENARIOS.oti);
@@ -8184,10 +8182,22 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
       // Imoveis fisicos sao excluidos (iliquidos)
       const ordemConsumo=["selic","treasuries","ouro","bitcoin","reits","acoes_ext","acoes_br","agro","infra","fii"];
       const calcICR_RTE=(ipcaRate)=>{
-        // Cobertura HOJE: renda passiva dividendos liq + SWR 4% sobre BTC+Ouro
-        const rendaPassivaHoje=rBase.rendaLiqAnual;
-        const swrInicialHoje=rBase.swrLiqAnual;
-        const rendaPrimariaHoje=rendaPassivaHoje+swrInicialHoje;
+        // ICR-RTE: renda passiva (dividendos liquidos de TODAS as classes) 
+        //          + SWR 4% sobre TODAS as classes EXCETO motores (FII+Infra+Agro)
+        // Motores: preservados (so dividendos, sem saque do principal)
+        // Demais: voce saca 4%/ano alem dos dividendos que ela ja paga
+        const isMotor=(cid)=>FUNDOS_RENDA_MOTORES.includes(cid);
+        let swrSobreNaoMotoresHoje=0;
+        CL.forEach(c=>{
+          const v=valorClasse[c.id]||0;
+          if(v<=0)return;
+          if(c.id==="imoveis")return;// imoveis fisicos excluidos
+          if(!isMotor(c.id)){
+            swrSobreNaoMotoresHoje+=v*SWR;// 4% sobre patrim de classes nao-motoras
+          }
+        });
+        const rendaPassivaHoje=rBase.rendaLiqAnual;// todos os dividendos liquidos
+        const rendaPrimariaHoje=rendaPassivaHoje+swrSobreNaoMotoresHoje;
         const cobAtual=rendaPrimariaHoje/(metaMensalIF*12);
 
         // Simulacao ano a ano ate 100 anos
@@ -8207,27 +8217,35 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             const cresValor=VALORIZA_REAL[c.id]||0;
             valClasse[c.id]*=(1+cresValor)*(1+ipcaRate);
           });
-          // 2. Renda passiva (dividendos liq) + SWR sobre BTC+Ouro
-          let rendaDivLiq=0,swrNaoPag=0;
+          // 2. Renda passiva (dividendos liq de TODAS) + SWR sobre nao-motoras
+          let rendaDivLiq=0,swrNaoMotor=0;
           CL.forEach(c=>{
             const v=valClasse[c.id]||0;
             if(v<=0)return;
             const dy=YIELD_CLASSE[c.id]?YIELD_CLASSE[c.id].base:0;
             const cresRenda=CRESC_REAL_RENDA[c.id]||0;
             const ir=IR_DIV[c.id]||0;
+            // Dividendos de TODAS as classes que pagam
             if(dy>0){
               rendaDivLiq+=v*dy*Math.pow(1+cresRenda,n)*(1-ir);
-            }else{
-              swrNaoPag+=v*SWR;
+            }
+            // SWR sobre TODAS as classes EXCETO motores (FII/Infra/Agro) e imoveis
+            if(!isMotor(c.id)&&c.id!=="imoveis"){
+              swrNaoMotor+=v*SWR;
             }
           });
-          const rendaPrimaria=rendaDivLiq+swrNaoPag;
+          const rendaPrimaria=rendaDivLiq+swrNaoMotor;
           if(anoQuebraDividendos===null&&rendaPrimaria<metaAno){
             anoQuebraDividendos=n;
           }
-          // 3. SWR sobre BTC e Ouro CONSOME o principal
-          if(valClasse.bitcoin>0)valClasse.bitcoin=Math.max(0,valClasse.bitcoin-valClasse.bitcoin*SWR);
-          if(valClasse.ouro>0)valClasse.ouro=Math.max(0,valClasse.ouro-valClasse.ouro*SWR);
+          // 3. SWR consome o principal das classes nao-motoras (cada classe perde 4% do seu valor)
+          CL.forEach(c=>{
+            if(isMotor(c.id))return;// motores preservados
+            if(c.id==="imoveis")return;
+            if(valClasse[c.id]>0){
+              valClasse[c.id]=Math.max(0,valClasse[c.id]-valClasse[c.id]*SWR);
+            }
+          });
           // 4. Calcula deficit e consome classes em ordem
           let deficit=Math.max(0,metaAno-rendaPrimaria);
           for(const cid of ordemConsumo){
@@ -8297,11 +8315,18 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
       // Para cada cenario: a partir da idade atual (40), por quantos anos a meta R$X/mes corrigida pela inflacao
       // sera coberta. Usa a mesma logica do calcICR_RTE (consumo ordenado preservando FIIs como ultimo).
       const calcBandaTranquilidade=(rteResult)=>{
-        // O horizonte total ja calculado no ICR-RTE diz quantos anos o portfolio dura
-        // Converte em idade alcancada
+        // O horizonte total diz quantos anos o portfolio dura (consumindo TUDO no fim)
+        // O horizonte ate consumir FIIs diz quantos anos a estrategia RTE mantem motores preservados
         const horTotal=rteResult.horizonteTotal;
+        const horMotores=rteResult.horizonteAteFII;// no codigo se chama horizonteAteFII mas vale para os 3 motores
+        // Idade ate vender motores (estrategia RTE sustentavel)
+        const idadeAteMotores=horMotores==="indefinido"?"100+":(idadeAtual+horMotores);
+        // Idade total (com falencia depois)
         if(horTotal==="indefinido"){
-          return{anosCobertura:"indefinido",idadeAlcancada:"100+",classificacao:"plena"};
+          return{
+            anosCobertura:"indefinido",idadeAlcancada:"100+",classificacao:"plena",
+            idadeAteMotores,horMotores
+          };
         }
         const idadeFinal=idadeAtual+horTotal;
         let classif="atencao";
@@ -8309,7 +8334,10 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         else if(idadeFinal>=90)classif="confortavel";
         else if(idadeFinal>=75)classif="razoavel";
         else classif="atencao";
-        return{anosCobertura:horTotal,idadeAlcancada:idadeFinal,classificacao:classif};
+        return{
+          anosCobertura:horTotal,idadeAlcancada:idadeFinal,classificacao:classif,
+          idadeAteMotores,horMotores
+        };
       };
       const bandaOti=calcBandaTranquilidade(rteOti);
       const bandaBase=calcBandaTranquilidade(rteBase);
@@ -8384,10 +8412,91 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           ),
           h("p",{style:{fontSize:11,color:"#9A9080",lineHeight:1.6,margin:"0 0 8px"}},"Mensuracao da geracao de renda do portfolio atual baseada em premissas teoricas (yield medio por classe + crescimento real + IR). ",h("strong",{style:{color:"#4CAF82"}},"Atualiza dinamicamente")," conforme posicoes, precos, cambio e composicao mudam. Considera APENAS o patrimonio atual evoluindo organicamente - sem aportes adicionais."),
           // Linha de edicao da data de nascimento
-          h("div",{style:{display:"flex",alignItems:"center",gap:8,padding:"6px 10px",background:"rgba(91,143,212,0.05)",border:"1px solid rgba(91,143,212,0.20)",borderRadius:5,fontSize:9,color:"#9A9080",fontFamily:"monospace",flexWrap:"wrap"}},
+          h("div",{style:{display:"flex",alignItems:"center",gap:8,padding:"6px 10px",background:"rgba(91,143,212,0.05)",border:"1px solid rgba(91,143,212,0.20)",borderRadius:5,fontSize:9,color:"#9A9080",fontFamily:"monospace",flexWrap:"wrap",marginBottom:6}},
             h("span",{},"\u{1F382} Data de nascimento:"),
             h("input",{type:"date",value:dataNascimento,onChange:e=>{const v=e.target.value;if(/^\d{4}-\d{2}-\d{2}$/.test(v))setDataNascimento(v);},style:{padding:"4px 7px",background:"rgba(0,0,0,0.30)",border:"1px solid rgba(91,143,212,0.40)",borderRadius:4,color:"#E8E2D5",fontSize:10,fontFamily:"monospace"}}),
             h("span",{style:{color:"#5B8FD4",fontWeight:700,fontSize:10}},"\u2192 Idade atual: ",idadeAtual," anos")
+          ),
+          // Linha de cambio dinamico (informa que ativos USD foram convertidos)
+          (()=>{
+            // Calcula patrim USD total no portfolio (para mostrar quanto esta exposto a cambio)
+            let patrimUSD_emUSD=0;
+            let tickersUSD=0;
+            CL.forEach(c=>{
+              allT(c.id).forEach(t=>{
+                const p=port[t];
+                if(!p||!p.qty||!p.price)return;
+                if((ccy[t]||"BRL")==="USD"){
+                  patrimUSD_emUSD+=(p.qty||0)*(p.price||0);
+                  tickersUSD++;
+                }
+              });
+            });
+            const patrimUSD_emBRL=patrimUSD_emUSD*(FX.USD||5);
+            const pctUSD=totalPortfolio>0?(patrimUSD_emBRL/totalPortfolio)*100:0;
+            if(patrimUSD_emUSD<=0)return null;// nao tem ativos USD - omite
+            return h("div",{style:{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",background:"rgba(76,175,130,0.05)",border:"1px solid rgba(76,175,130,0.25)",borderRadius:5,fontSize:9,color:"#9A9080",fontFamily:"monospace",flexWrap:"wrap"}},
+              h("span",{style:{color:"#4CAF82",fontWeight:700}},"\u{1F4B1} CAMBIO DINAMICO:"),
+              h("span",{},"USD/BRL "),
+              h("strong",{style:{color:"#E8E2D5"}},"R$ "+(FX.USD||0).toFixed(4)),
+              h("span",{style:{color:"#7A7060"}},"\u2022"),
+              h("span",{},h("strong",{style:{color:"#4CAF82"}},tickersUSD)," tickers em USD = "),
+              h("strong",{style:{color:"#E8E2D5"}},"US$ "+patrimUSD_emUSD.toLocaleString("pt-BR",{maximumFractionDigits:0})),
+              h("span",{},"\u2192 "),
+              h("strong",{style:{color:"#4CAF82"}},fB(patrimUSD_emBRL)," BRL"),
+              h("span",{style:{color:"#7A7060"}}," (",pctUSD.toFixed(1),"% do portfolio)")
+            );
+          })()
+        ),
+
+        // ===== GLOSSARIO: RENDA LIQUIDA vs RENDA TOTAL =====
+        h("details",{style:{background:"rgba(0,0,0,0.18)",border:"1px solid rgba(200,169,110,0.20)",borderRadius:7,marginBottom:14,padding:"10px 12px"}},
+          h("summary",{style:{fontSize:9,letterSpacing:1.5,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,cursor:"pointer",listStyle:"none",userSelect:"none"}},
+            "\u{1F4D6} GLOSSARIO: ENTENDA AS METRICAS DESTA ABA (toque para expandir)"
+          ),
+          h("div",{style:{marginTop:10,fontSize:9.5,color:"#9A9080",lineHeight:1.7}},
+            // Definicoes principais
+            h("div",{style:{background:"rgba(76,175,130,0.05)",borderLeft:"3px solid #4CAF82",borderRadius:"0 5px 5px 0",padding:"8px 11px",marginBottom:8}},
+              h("div",{style:{fontSize:9,color:"#4CAF82",fontFamily:"monospace",fontWeight:700,letterSpacing:1,marginBottom:4}},"\u{1F33F} RENDA PASSIVA LIQUIDA"),
+              h("div",{},"Soma dos ",h("strong",{},"dividendos pagos")," por todas as classes que distribuem renda (FIIs, Infra, Agro, Acoes BR, Acoes EXT, REITs, Selic, Treasuries, Imoveis), ja descontado o ",h("strong",{},"IR retido na fonte"),"."),
+              h("div",{style:{marginTop:4,fontStyle:"italic",fontSize:8.5}},"\u{1F4A1} \u00C9 o que ",h("strong",{},"cai liquido na sua conta")," sem precisar vender nada. Voce vive de dividendos.")
+            ),
+            h("div",{style:{background:"rgba(247,147,26,0.05)",borderLeft:"3px solid #F7931A",borderRadius:"0 5px 5px 0",padding:"8px 11px",marginBottom:8}},
+              h("div",{style:{fontSize:9,color:"#F7931A",fontFamily:"monospace",fontWeight:700,letterSpacing:1,marginBottom:4}},"\u{1F525} RENDA TOTAL (ESTRATEGIA FIRE)"),
+              h("div",{},h("strong",{},"Renda passiva liquida")," + ",h("strong",{},"SWR 4% ao ano")," (saque sustentavel) sobre ",h("strong",{},"todas as classes EXCETO os motores")," (FIIs + Infra + Agro). Selic, Treasuries, BTC, Ouro, REITs, Acoes BR e EXT contribuem com SWR alem dos seus dividendos."),
+              h("div",{style:{marginTop:4,fontStyle:"italic",fontSize:8.5}},"\u{1F4A1} \u00C9 o que voce pode ",h("strong",{},"realmente sacar")," combinando dividendos + saques mensais sustentaveis. Motores preservados para sempre.")
+            ),
+            h("div",{style:{background:"rgba(91,143,212,0.05)",borderLeft:"3px solid #5B8FD4",borderRadius:"0 5px 5px 0",padding:"8px 11px",marginBottom:8}},
+              h("div",{style:{fontSize:9,color:"#5B8FD4",fontFamily:"monospace",fontWeight:700,letterSpacing:1,marginBottom:4}},"\u{1F3DB}\u{FE0F} MOTORES DE RENDA"),
+              h("div",{},"As classes ",h("strong",{},"FIIs + Infraestrutura + Agro")," sao tratadas como ",h("em",{},"motores de renda permanente"),". Geram dividendos altos (DY 8-10%) com isencao de IR para PF e crescimento real (IPCA + premio operacional). Em todas as projecoes desta aba, esses motores ",h("strong",{},"sao preservados ate o ultimo recurso"),"."),
+              h("div",{style:{marginTop:4,fontStyle:"italic",fontSize:8.5}},"\u{1F4A1} A filosofia: voce nunca destroi o motor que gera o oxigenio do portfolio.")
+            ),
+            // Quadro comparativo das siglas
+            h("div",{style:{background:"rgba(0,0,0,0.20)",borderRadius:5,padding:"9px 11px",marginBottom:8}},
+              h("div",{style:{fontSize:8,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,letterSpacing:1.5,marginBottom:6}},"\u{1F50D} SIGLAS USADAS"),
+              h("div",{style:{display:"grid",gridTemplateColumns:"auto 1fr",gap:"6px 10px",fontSize:9,alignItems:"baseline"}},
+                h("strong",{style:{color:"#4CAF82",fontFamily:"monospace",whiteSpace:"nowrap"}},"ICR"),h("span",{},"Indice de Cobertura da Renda - usa apenas renda passiva liquida (sem vendas)"),
+                h("strong",{style:{color:"#F7931A",fontFamily:"monospace",whiteSpace:"nowrap"}},"ICR-RTE"),h("span",{},"ICR Renda Total Estrategica - inclui SWR 4% nas classes nao-motoras"),
+                h("strong",{style:{color:"#9C7DC2",fontFamily:"monospace",whiteSpace:"nowrap"}},"SWR"),h("span",{},"Safe Withdrawal Rate - regra de saque sustentavel de 4% ao ano (Bengen, Trinity Study)"),
+                h("strong",{style:{color:"#E8C44A",fontFamily:"monospace",whiteSpace:"nowrap"}},"IPCA"),h("span",{},"Indice Nacional de Precos ao Consumidor Amplo - inflacao oficial brasileira"),
+                h("strong",{style:{color:"#7A7060",fontFamily:"monospace",whiteSpace:"nowrap"}},"DY"),h("span",{},"Dividend Yield - rentabilidade anual em dividendos sobre o valor do ativo"),
+                h("strong",{style:{color:"#7A7060",fontFamily:"monospace",whiteSpace:"nowrap"}},"IR"),h("span",{},"Imposto de Renda retido na fonte sobre cada classe (FIIs e FI-Infra: isentos PF)")
+              )
+            ),
+            // Quem usa qual metrica
+            h("div",{style:{background:"rgba(200,169,110,0.06)",borderLeft:"3px solid #C8A96E",borderRadius:"0 5px 5px 0",padding:"8px 11px",marginBottom:8}},
+              h("div",{style:{fontSize:9,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,letterSpacing:1.2,marginBottom:5}},"\u{1F4A1} QUANDO USAR CADA METRICA"),
+              h("div",{style:{marginBottom:3}},"\u2022 ",h("strong",{style:{color:"#4CAF82"}},"ICR")," (Renda Liquida) - perfil ",h("em",{},"super conservador"),": voce so quer viver dos dividendos, sem vender nada nunca. Resposta: \"E sustentavel para sempre?\""),
+              h("div",{style:{marginBottom:3}},"\u2022 ",h("strong",{style:{color:"#F7931A"}},"ICR-RTE")," (Renda Total) - perfil ",h("em",{},"FIRE moderado"),": voce aceita saques de 4%/ano nas classes nao-motoras, mantendo FIIs/Infra/Agro intactos."),
+              h("div",{},"\u2022 ",h("strong",{style:{color:"#5B8FD4"}},"Banda Tranquilidade"),": ate que idade o portfolio sustenta a meta - visao temporal de aposentadoria.")
+            ),
+            // Nota sobre conversao cambial
+            h("div",{style:{background:"rgba(76,175,130,0.06)",borderLeft:"3px solid #4CAF82",borderRadius:"0 5px 5px 0",padding:"8px 11px"}},
+              h("div",{style:{fontSize:9,color:"#4CAF82",fontFamily:"monospace",fontWeight:700,letterSpacing:1.2,marginBottom:5}},"\u{1F4B1} CONVERSAO CAMBIAL DINAMICA"),
+              h("div",{style:{marginBottom:3}},"Ativos do exterior (Acoes EXT, REITs, Treasuries em USD) sao automaticamente convertidos para BRL usando o ",h("strong",{},"cambio do dia"),", buscado em tempo real via APIs publicas (AwesomeAPI PTAX). Cambio atual: ",h("strong",{},"USD/BRL R$",(FX.USD||0).toFixed(4)),"."),
+              h("div",{style:{marginBottom:3}},"Cada vez que voce abre o app, o cambio e atualizado em background e todas as metricas (ICR, ICR-RTE, capacidade maxima, banda de tranquilidade, projecoes) recalculam automaticamente com o novo valor."),
+              h("div",{},h("em",{},"Implicacao pratica"),": se o real ",h("strong",{},"desvaloriza")," (USD sobe), o patrimonio em BRL ",h("strong",{style:{color:"#4CAF82"}},"sobe instantaneamente"),", aumentando renda e cobertura. Se o real ",h("strong",{},"valoriza")," (USD cai), o oposto. ",h("strong",{style:{color:"#E89060"}},"Sua exposicao USD funciona como hedge cambial automatico"),".")
+            )
           )
         ),
 
@@ -8396,8 +8505,15 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:10,flexWrap:"wrap"}},
             h("div",{},
               h("div",{style:{fontSize:10,letterSpacing:2,color:"#4CAF82",fontFamily:"monospace",fontWeight:700,textTransform:"uppercase"}},"\u{1F6E1}\u{FE0F} INDICE DE COBERTURA DA RENDA (ICR)"),
-              h("div",{style:{fontSize:8,color:"#7A7060",marginTop:3,fontStyle:"italic"}},"Quantas vezes a renda do portfolio cobre a meta de R$"+(metaMensalIF/1000).toFixed(0)+"k/mes + horizonte de sustentabilidade")
+              h("div",{style:{fontSize:8,color:"#7A7060",marginTop:3,fontStyle:"italic"}},"Quantas vezes a renda passiva LIQUIDA do portfolio cobre a meta de R$"+(metaMensalIF/1000).toFixed(0)+"k/mes")
             )
+          ),
+          // BLOCO COMO LER
+          h("div",{style:{background:"rgba(0,0,0,0.20)",borderRadius:5,padding:"8px 10px",marginBottom:10,fontSize:8.5,color:"#9A9080",lineHeight:1.55,borderLeft:"3px solid #4CAF82"}},
+            h("div",{style:{fontSize:8,color:"#4CAF82",fontFamily:"monospace",fontWeight:700,letterSpacing:1.2,marginBottom:4}},"\u{1F4D6} COMO LER ESTE INDICADOR"),
+            h("div",{style:{marginBottom:3}},h("strong",{},"Fonte"),": ",h("em",{},"apenas")," dividendos liquidos das classes pagadoras (FIIs, Infra, Agro, Acoes BR/EXT, REITs, Selic, Treasuries, Imoveis) - ",h("strong",{style:{color:"#E89060"}},"SEM vender nada"),"."),
+            h("div",{style:{marginBottom:3}},h("strong",{},"Valor 1.0x")," = renda cobre exatamente a meta. ",h("strong",{},">1.0x")," = sobra. ",h("strong",{},"<1.0x")," = falta complementar."),
+            h("div",{},h("strong",{},"Diferenca para os cenarios"),": OTIMISTA (IPCA 3%) deixa a renda crescer mais que a inflacao - cobertura sobe. PESSIMISTA (IPCA 8.5%) corroi a renda real - cobertura cai.")
           ),
 
           // ===== LINHA 1: COBERTURA ATUAL (HOJE) =====
@@ -8467,16 +8583,24 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:10,flexWrap:"wrap"}},
             h("div",{},
               h("div",{style:{fontSize:10,letterSpacing:2,color:"#F7931A",fontFamily:"monospace",fontWeight:700,textTransform:"uppercase"}},"\u{1F525} ICR-RTE: RENDA TOTAL ESTRATEGICA (FIRE)"),
-              h("div",{style:{fontSize:8,color:"#7A7060",marginTop:3,fontStyle:"italic"}},"Renda passiva + saque ordenado consumindo classes 1 a 1, preservando FIIs como motor de renda ate o fim")
+              h("div",{style:{fontSize:8,color:"#7A7060",marginTop:3,fontStyle:"italic"}},"Renda passiva + SWR 4% sobre classes nao-motoras + saque ordenado preservando os motores ate o fim")
             )
+          ),
+
+          // ===== BLOCO COMO LER =====
+          h("div",{style:{background:"rgba(0,0,0,0.20)",borderRadius:5,padding:"8px 10px",marginBottom:10,fontSize:8.5,color:"#9A9080",lineHeight:1.55,borderLeft:"3px solid #F7931A"}},
+            h("div",{style:{fontSize:8,color:"#F7931A",fontFamily:"monospace",fontWeight:700,letterSpacing:1.2,marginBottom:4}},"\u{1F4D6} COMO LER ESTE INDICADOR"),
+            h("div",{style:{marginBottom:3}},h("strong",{},"Fonte"),": dividendos liquidos de TODAS as classes ",h("strong",{},"+ saque sustentavel de 4%/ano")," sobre classes nao-motoras (Selic, Treasuries, BTC, Ouro, REITs, Acoes BR e EXT)."),
+            h("div",{style:{marginBottom:3}},h("strong",{},"Motores preservados"),": FIIs, Infra e Agro entram ",h("em",{},"apenas")," com seus dividendos - voce nunca os toca. Sao a maquina de renda permanente."),
+            h("div",{},h("strong",{},"Diferenca para ICR"),": ICR-RTE incorpora a estrategia FIRE moderada - voce ",h("strong",{style:{color:"#F7931A"}},"saca")," das classes nao-motoras alem dos dividendos delas. Sempre tera ICR-RTE > ICR.")
           ),
 
           // ===== EXPLICACAO RAPIDA DA ESTRATEGIA =====
           h("div",{style:{background:"rgba(0,0,0,0.20)",borderRadius:5,padding:"8px 10px",marginBottom:10,fontSize:8.5,color:"#9A9080",lineHeight:1.55}},
             h("div",{style:{fontSize:8,letterSpacing:1.5,color:"#F7931A",fontFamily:"monospace",fontWeight:700,marginBottom:5}},"\u{1F4D6} REGRAS DA SIMULACAO"),
-            h("div",{style:{marginBottom:3}},"\u2022 Renda primaria = dividendos liquidos + 4% sobre BTC+Ouro (sem dividendos)"),
-            h("div",{style:{marginBottom:3}},"\u2022 Deficit (meta - renda primaria) e coberto consumindo classes nesta ordem:"),
-            h("div",{style:{marginBottom:3,paddingLeft:14,fontFamily:"monospace",fontSize:8}},"Selic \u2192 Treasuries \u2192 Ouro \u2192 BTC \u2192 REITs \u2192 Acoes EXT \u2192 Acoes BR \u2192 Agro \u2192 Infra \u2192 ",h("strong",{style:{color:"#F7931A"}},"FIIs (ultimo)")),
+            h("div",{style:{marginBottom:3}},"\u2022 Renda primaria = dividendos liquidos de TODAS + SWR 4% sobre nao-motoras"),
+            h("div",{style:{marginBottom:3}},"\u2022 Se a renda primaria nao cobrir a meta, deficit e coberto consumindo o principal nesta ordem:"),
+            h("div",{style:{marginBottom:3,paddingLeft:14,fontFamily:"monospace",fontSize:8}},"Selic \u2192 Treasuries \u2192 Ouro \u2192 BTC \u2192 REITs \u2192 Acoes EXT \u2192 Acoes BR \u2192 ",h("strong",{style:{color:"#F7931A"}},"Agro \u2192 Infra \u2192 FIIs (motores - so no fim)")),
             h("div",{style:{marginBottom:3}},"\u2022 Imoveis fisicos: excluidos (iliquidos, nao consumiveis)"),
             h("div",{},"\u2022 Ativos USD: assumidos convertiveis a BRL ao cambio do momento")
           ),
@@ -8573,6 +8697,14 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             h("div",{style:{fontSize:8,color:"#7A7060",marginTop:3,fontStyle:"italic"}},"Idade atual ",idadeAtual," anos. Mostra ate que idade o portfolio sustenta R$",(metaMensalIF/1000).toFixed(0),"k/mes corrigidos pela inflacao em cada cenario.")
           ),
 
+          // ===== BLOCO COMO LER =====
+          h("div",{style:{background:"rgba(0,0,0,0.20)",borderRadius:5,padding:"8px 10px",marginBottom:12,fontSize:8.5,color:"#9A9080",lineHeight:1.55,borderLeft:"3px solid #5B8FD4"}},
+            h("div",{style:{fontSize:8,color:"#5B8FD4",fontFamily:"monospace",fontWeight:700,letterSpacing:1.2,marginBottom:4}},"\u{1F4D6} COMO LER ESTE INDICADOR"),
+            h("div",{style:{marginBottom:3}},h("strong",{},"Barra colorida"),": ate qual idade o portfolio sustenta a meta na estrategia ICR-RTE (consumindo classes nao-motoras quando necessario)."),
+            h("div",{style:{marginBottom:3}},h("strong",{style:{color:"#F7931A"}},"\u25BC SETA LARANJA"),": idade ate a qual a renda alvo e mantida ",h("strong",{},"SEM PRECISAR VENDER os motores")," (FIIs + Infra + Agro). Depois dela, comeca o consumo dos motores."),
+            h("div",{},h("strong",{},"Quanto maior a seta"),", melhor: significa motores preservados por mais tempo. ",h("strong",{style:{color:"#F7931A"}},"\u221E motores")," = motores nunca tocados (perpetuidade ideal).")
+          ),
+
           // Para cada cenario, mostra a banda visual
           ...[
             {data:bandaOti,label:"OTIMISTA",cor:"#4CAF82",ipca:"IPCA 3.0%"},
@@ -8617,15 +8749,37 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                 }).flat(),
                 // Barra de cobertura
                 h("div",{style:{position:"absolute",left:0,top:0,bottom:14,width:pctRegua+"%",background:"linear-gradient(90deg,"+cen.cor+"50,"+cen.cor+"90)",borderRight:"2px solid "+cen.cor}}),
+                // SETA: idade ate quando o ICR-RTE mantem renda sem vender motores (FII+Infra+Agro)
+                (()=>{
+                  const horM=cen.data.horMotores;
+                  if(horM==="indefinido"){
+                    // Motores nunca consumidos - mostrar marca de "indefinido" no extremo direito
+                    return h("div",{key:"mot",style:{position:"absolute",right:3,top:0,bottom:14,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}},
+                      h("div",{style:{fontSize:9,color:"#F7931A",fontWeight:700,lineHeight:1}},"\u25BC"),
+                      h("div",{style:{fontSize:6,color:"#F7931A",fontFamily:"monospace",fontWeight:700,letterSpacing:0.5,whiteSpace:"nowrap",textShadow:"0 1px 2px rgba(0,0,0,0.7)"}},"motores \u221E")
+                    );
+                  }
+                  const idadeMot=idadeAtual+horM;
+                  const pctMot=Math.min(100,Math.max(0,((idadeMot-MIN_IDADE)/(MAX_IDADE-MIN_IDADE))*100));
+                  return h("div",{key:"mot",style:{position:"absolute",left:"calc("+pctMot+"% - 8px)",top:0,bottom:14,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-start",pointerEvents:"none",zIndex:5}},
+                    h("div",{style:{fontSize:11,color:"#F7931A",fontWeight:700,lineHeight:1,textShadow:"0 1px 2px rgba(0,0,0,0.8)"}},"\u25BC"),
+                    h("div",{style:{fontSize:6,color:"#F7931A",fontFamily:"monospace",fontWeight:700,letterSpacing:0.5,whiteSpace:"nowrap",textShadow:"0 1px 2px rgba(0,0,0,0.7)",marginTop:-1}},idadeMot+"a")
+                  );
+                })(),
                 // Label da idade final no marcador
                 pctRegua<100&&h("div",{style:{position:"absolute",left:"calc("+pctRegua+"% - 18px)",top:3,fontSize:8,color:"#FFF",fontFamily:"monospace",fontWeight:700,textShadow:"0 1px 2px rgba(0,0,0,0.8)",background:"rgba(0,0,0,0.5)",padding:"1px 3px",borderRadius:2,minWidth:32,textAlign:"center"}},idadeF+"a"),
                 pctRegua>=100&&h("div",{style:{position:"absolute",right:3,top:3,fontSize:8,color:"#FFF",fontFamily:"monospace",fontWeight:700,textShadow:"0 1px 2px rgba(0,0,0,0.8)",background:"rgba(91,143,212,0.7)",padding:"1px 4px",borderRadius:2}},"\u221E 100+")
               ),
               // Texto explicativo
-              h("div",{style:{fontSize:8,color:"#9A9080",marginTop:5,fontStyle:"italic"}},
+              h("div",{style:{fontSize:8,color:"#9A9080",marginTop:5,fontStyle:"italic",lineHeight:1.5}},
                 cen.data.anosCobertura==="indefinido"?
                   "Renda sustentavel ate ALEM dos "+IDADE_TRANQUILIDADE_PLENA+" anos. Perpetuidade pratica em poder de compra real.":
-                  "Portfolio sustenta a meta por "+cen.data.anosCobertura+" anos - chegaria ate seus "+idadeF+" anos."
+                  "Portfolio sustenta a meta por "+cen.data.anosCobertura+" anos - chegaria ate seus "+idadeF+" anos.",
+                h("br"),
+                h("span",{style:{color:"#F7931A"}},"\u25BC ICR-RTE")," sustenta renda sem vender motores (FII+Infra+Agro) ate ",
+                cen.data.horMotores==="indefinido"?
+                  h("strong",{style:{color:"#F7931A"}},"INDEFINIDAMENTE (>100 anos)"):
+                  h("strong",{},"seus "+(idadeAtual+cen.data.horMotores)+" anos")
               )
             );
           }),
@@ -8633,11 +8787,14 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           // Legenda das faixas
           h("div",{style:{background:"rgba(0,0,0,0.18)",borderRadius:5,padding:"8px 10px",fontSize:8.5,color:"#9A9080",lineHeight:1.6,marginTop:4}},
             h("div",{style:{fontSize:8,letterSpacing:1.5,color:"#5B8FD4",fontFamily:"monospace",fontWeight:700,marginBottom:5}},"\u{1F4D6} FAIXAS DE TRANQUILIDADE"),
-            h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:4}},
+            h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:4,marginBottom:7}},
               h("div",{},h("span",{style:{color:"#E89060"}},"\u25A0 ATENCAO")," (",idadeAtual,"-60a): cobertura curta"),
               h("div",{},h("span",{style:{color:"#E8C44A"}},"\u25A0 RAZOAVEL")," (60-75a): media de expectativa"),
               h("div",{},h("span",{style:{color:"#4CAF82"}},"\u25A0 CONFORTAVEL")," (75-90a): idade avancada"),
               h("div",{},h("span",{style:{color:"#5B8FD4"}},"\u25A0 PLENA")," (90+a): centenarismo")
+            ),
+            h("div",{style:{paddingTop:6,borderTop:"1px dashed rgba(255,255,255,0.06)",fontSize:8.5,color:"#9A9080"}},
+              h("strong",{style:{color:"#F7931A"}},"\u25BC SETA LARANJA"),": idade ate quando a estrategia ICR-RTE sustenta a renda alvo ",h("strong",{},"sem precisar vender")," os Fundos de Renda (FIIs + Infra + Agro). Depois desta idade, ou voce reduz a meta, ou comeca a consumir os motores de renda."
             )
           )
         ),
@@ -8649,6 +8806,14 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           h("div",{style:{marginBottom:10}},
             h("div",{style:{fontSize:10,letterSpacing:2,color:"#9C7DC2",fontFamily:"monospace",fontWeight:700,textTransform:"uppercase"}},"\u{1F3DB}\u{FE0F} CAPACIDADE MAXIMA SUSTENTAVEL"),
             h("div",{style:{fontSize:8,color:"#7A7060",marginTop:3,fontStyle:"italic"}},"Renda passiva dos motores (FIIs+Infra+Agro) + SWR 4% nas demais classes. Bengen-conservadora.")
+          ),
+
+          // ===== BLOCO COMO LER =====
+          h("div",{style:{background:"rgba(0,0,0,0.20)",borderRadius:5,padding:"8px 10px",marginBottom:12,fontSize:8.5,color:"#9A9080",lineHeight:1.55,borderLeft:"3px solid #9C7DC2"}},
+            h("div",{style:{fontSize:8,color:"#9C7DC2",fontFamily:"monospace",fontWeight:700,letterSpacing:1.2,marginBottom:4}},"\u{1F4D6} COMO LER ESTE INDICADOR"),
+            h("div",{style:{marginBottom:3}},h("strong",{},"Pergunta respondida"),": qual o ",h("strong",{},"MAIOR valor mensal")," que voce pode gastar para SEMPRE, preservando os motores de renda intactos?"),
+            h("div",{style:{marginBottom:3}},h("strong",{},"Fonte"),": dividendos liquidos dos motores (FIIs/Infra/Agro) + dividendos das demais + SWR 4% sobre as nao-motoras."),
+            h("div",{},h("strong",{},"Se sua meta atual estiver dentro deste limite"),", voce ja pode se aposentar com perpetuidade. Se passar, precisa reduzir o gasto ou crescer mais o patrimonio.")
           ),
 
           // ===== INSIGHT PRINCIPAL =====
@@ -8738,7 +8903,12 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
 
         // ===== CARDS PRINCIPAIS: ATUAL (3 cenarios) =====
         h("div",{style:{marginBottom:14}},
-          h("div",{style:{fontSize:8,letterSpacing:1.5,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,marginBottom:8}},"\u{1F3AF} CAPACIDADE ATUAL DE RENDA (HOJE, LIQUIDO DE IR)"),
+          h("div",{style:{fontSize:8,letterSpacing:1.5,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,marginBottom:6}},"\u{1F3AF} CAPACIDADE ATUAL DE RENDA (HOJE, LIQUIDO DE IR)"),
+          // BLOCO COMO LER
+          h("div",{style:{background:"rgba(0,0,0,0.20)",borderRadius:5,padding:"7px 10px",marginBottom:8,fontSize:8.5,color:"#9A9080",lineHeight:1.55,borderLeft:"3px solid #C8A96E"}},
+            h("div",{style:{marginBottom:2}},h("strong",{style:{color:"#C8A96E"}},"\u{1F4D6} COMO LER"),": valor mensal liquido que o portfolio gera ",h("strong",{},"hoje")," em cada cenario de DY (",h("strong",{style:{color:"#E89060"}},"pessimista")," / ",h("strong",{style:{color:"#4CAF82"}},"base")," / ",h("strong",{style:{color:"#5B8FD4"}},"otimista"),")."),
+            h("div",{},"Os 3 cenarios variam o ",h("strong",{},"DY medio esperado")," por classe (ex: FIIs no pessimista 8.5%, base 10%, otimista 11.5%). Sem aportes nem vendas - somente o portfolio existente.")
+          ),
           h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:10}},
             // Pessimista
             h("div",{style:{background:"rgba(232,144,96,0.06)",border:"1px solid rgba(232,144,96,0.30)",borderRadius:6,padding:"10px 12px"}},
@@ -8843,7 +9013,11 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
 
         // ===== TABELA DE PROJECAO POR ANO CHAVE =====
         h("div",{style:{marginBottom:14}},
-          h("div",{style:{fontSize:8,letterSpacing:1.5,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,marginBottom:8}},"\u{1F4CA} PROJECAO POR HORIZONTE (CENARIO BASE)"),
+          h("div",{style:{fontSize:8,letterSpacing:1.5,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,marginBottom:6}},"\u{1F4CA} PROJECAO POR HORIZONTE (CENARIO BASE)"),
+          // BLOCO COMO LER
+          h("div",{style:{background:"rgba(0,0,0,0.20)",borderRadius:5,padding:"7px 10px",marginBottom:8,fontSize:8.5,color:"#9A9080",lineHeight:1.55,borderLeft:"3px solid #C8A96E"}},
+            h("div",{},h("strong",{style:{color:"#C8A96E"}},"\u{1F4D6} COMO LER"),": valores em 5/10/15/20 anos. ",h("strong",{},"NOMINAL"),"= valor monetario corrente no futuro (numero maior). ",h("strong",{},"REAL"),"= deflacionado pelo IPCA do cenario (poder de compra de hoje - numero menor). Compare a renda real com sua meta atual para ver IF no tempo.")
+          ),
           h("div",{style:{background:"rgba(0,0,0,0.20)",borderRadius:6,padding:"10px 12px",overflowX:"auto"}},
             h("table",{style:{width:"100%",fontSize:9,color:"#E8E2D5",fontFamily:"monospace",borderCollapse:"collapse",minWidth:480}},
               h("thead",{},
@@ -8884,7 +9058,18 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
 
         // ===== GRAFICO DE PROJECAO =====
         h("div",{style:{marginBottom:14}},
-          h("div",{style:{fontSize:8,letterSpacing:1.5,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,marginBottom:8}},"\u{1F4C8} EVOLUCAO DA RENDA MENSAL vs META CORRIGIDA POR INFLACAO (valores nominais)"),
+          h("div",{style:{fontSize:8,letterSpacing:1.5,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,marginBottom:6}},"\u{1F4C8} EVOLUCAO DA RENDA MENSAL vs META CORRIGIDA POR INFLACAO (valores nominais)"),
+          // BLOCO COMO LER
+          h("div",{style:{background:"rgba(0,0,0,0.20)",borderRadius:5,padding:"7px 10px",marginBottom:8,fontSize:8.5,color:"#9A9080",lineHeight:1.55,borderLeft:"3px solid #C8A96E"}},
+            h("div",{style:{marginBottom:2}},h("strong",{style:{color:"#C8A96E"}},"\u{1F4D6} COMO LER")," - 4 linhas:"),
+            h("div",{},
+              h("span",{style:{color:"#E89060"}},"\u2500 \u2500 Pessimista"),", ",
+              h("span",{style:{color:"#4CAF82",fontWeight:700}},"\u2500 Base"),", ",
+              h("span",{style:{color:"#5B8FD4"}},"\u2500 \u2500 Otimista"),": renda total mensal projetada (cresce com DY + cresc real). ",
+              h("span",{style:{color:"#C8A96E"}},"\u2500 \u2500 Meta IF"),": valor da meta corrigida pela inflacao do cenario selecionado. ",
+              h("strong",{},"Cruzamento")," das linhas com a meta = momento em que voce alcanca/perde IF."
+            )
+          ),
           h("div",{style:{background:"rgba(0,0,0,0.20)",borderRadius:6,padding:"12px",overflowX:"auto"}},
             (()=>{
               const W=320,H=160,padL=44,padR=8,padT=8,padB=24;
@@ -8960,35 +9145,58 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
 
         // ===== DECOMPOSICAO POR CLASSE (ATUAL) =====
         h("div",{style:{marginBottom:14}},
-          h("div",{style:{fontSize:8,letterSpacing:1.5,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,marginBottom:8}},"\u{1F50D} DECOMPOSICAO POR CLASSE (HOJE, CENARIO BASE)"),
+          h("div",{style:{fontSize:8,letterSpacing:1.5,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,marginBottom:6}},"\u{1F50D} DECOMPOSICAO POR CLASSE (HOJE, CENARIO BASE)"),
+          // BLOCO COMO LER
+          h("div",{style:{background:"rgba(0,0,0,0.20)",borderRadius:5,padding:"7px 10px",marginBottom:8,fontSize:8.5,color:"#9A9080",lineHeight:1.55,borderLeft:"3px solid #C8A96E"}},
+            h("div",{},h("strong",{style:{color:"#C8A96E"}},"\u{1F4D6} COMO LER"),": cada classe mostra seu patrimonio, DY medio cenario base, IR aplicado e renda mensal liquida gerada. ",h("strong",{},"Classes em destaque verde no Total")," sao os motores (FII+Infra+Agro) - sem IR. Linhas ordenadas por contribuicao decrescente.")
+          ),
           h("div",{style:{background:"rgba(0,0,0,0.20)",borderRadius:6,padding:"10px 12px",overflowX:"auto"}},
-            h("table",{style:{width:"100%",fontSize:9,color:"#E8E2D5",fontFamily:"monospace",borderCollapse:"collapse",minWidth:480}},
+            h("table",{style:{width:"100%",fontSize:9,color:"#E8E2D5",fontFamily:"monospace",borderCollapse:"collapse",minWidth:520}},
               h("thead",{},
                 h("tr",{style:{borderBottom:"1px solid rgba(255,255,255,0.10)"}},
                   h("th",{style:{textAlign:"left",padding:"5px 6px",fontSize:8,color:"#7A7060",fontWeight:700}},"CLASSE"),
-                  h("th",{style:{textAlign:"right",padding:"5px 6px",fontSize:8,color:"#7A7060",fontWeight:700}},"PATRIM."),
+                  h("th",{style:{textAlign:"center",padding:"5px 6px",fontSize:8,color:"#7A7060",fontWeight:700}},"MOEDA"),
+                  h("th",{style:{textAlign:"right",padding:"5px 6px",fontSize:8,color:"#7A7060",fontWeight:700}},"PATRIM. BRL"),
                   h("th",{style:{textAlign:"right",padding:"5px 6px",fontSize:8,color:"#7A7060",fontWeight:700}},"DY"),
                   h("th",{style:{textAlign:"right",padding:"5px 6px",fontSize:8,color:"#7A7060",fontWeight:700}},"IR"),
                   h("th",{style:{textAlign:"right",padding:"5px 6px",fontSize:8,color:"#4CAF82",fontWeight:700}},"RENDA/MES")
                 )
               ),
               h("tbody",{},
-                ...rBase.decomp.filter(d=>d.valor>0).sort((a,b)=>b.liq-a.liq).map((d,i)=>h("tr",{key:d.id,style:{borderBottom:"1px solid rgba(255,255,255,0.04)"}},
-                  h("td",{style:{padding:"5px 6px",color:d.color,fontWeight:600}},d.name),
-                  h("td",{style:{textAlign:"right",padding:"5px 6px"}},fB(d.valor)),
-                  h("td",{style:{textAlign:"right",padding:"5px 6px"}},(d.dy*100).toFixed(1)+"%"),
-                  h("td",{style:{textAlign:"right",padding:"5px 6px",color:d.ir>0?"#E89060":"#7A7060"}},d.ir>0?(d.ir*100).toFixed(0)+"%":"-"),
-                  h("td",{style:{textAlign:"right",padding:"5px 6px",color:"#4CAF82",fontWeight:700}},d.liq>0?fB(d.liq/12):"-")
-                )),
+                ...rBase.decomp.filter(d=>d.valor>0).sort((a,b)=>b.liq-a.liq).map((d,i)=>{
+                  // Detecta moeda predominante na classe (tickers em USD vs BRL)
+                  let temUSD=false,temBRL=false;
+                  allT(d.id).forEach(t=>{
+                    const p=port[t];
+                    if(!p||!p.qty||!p.price)return;
+                    const cc=ccy[t]||"BRL";
+                    if(cc==="USD")temUSD=true;
+                    else if(cc==="BRL")temBRL=true;
+                  });
+                  const moedaTxt=temUSD&&temBRL?"USD+BRL":temUSD?"USD":"BRL";
+                  const moedaCor=temUSD?"#4CAF82":"#7A7060";
+                  return h("tr",{key:d.id,style:{borderBottom:"1px solid rgba(255,255,255,0.04)"}},
+                    h("td",{style:{padding:"5px 6px",color:d.color,fontWeight:600}},d.name),
+                    h("td",{style:{textAlign:"center",padding:"5px 6px",color:moedaCor,fontSize:8,fontWeight:temUSD?700:400}},moedaTxt),
+                    h("td",{style:{textAlign:"right",padding:"5px 6px"}},fB(d.valor)),
+                    h("td",{style:{textAlign:"right",padding:"5px 6px"}},(d.dy*100).toFixed(1)+"%"),
+                    h("td",{style:{textAlign:"right",padding:"5px 6px",color:d.ir>0?"#E89060":"#7A7060"}},d.ir>0?(d.ir*100).toFixed(0)+"%":"-"),
+                    h("td",{style:{textAlign:"right",padding:"5px 6px",color:"#4CAF82",fontWeight:700}},d.liq>0?fB(d.liq/12):"-")
+                  );
+                }),
                 // Total row
                 h("tr",{style:{borderTop:"2px solid rgba(255,255,255,0.20)",background:"rgba(76,175,130,0.05)"}},
                   h("td",{style:{padding:"7px 6px",color:"#E8E2D5",fontWeight:700}},"TOTAL"),
+                  h("td",{style:{textAlign:"center",padding:"7px 6px",color:"#7A7060",fontSize:8}},"\u2014"),
                   h("td",{style:{textAlign:"right",padding:"7px 6px",color:"#E8E2D5",fontWeight:700}},fB(totalPortfolio)),
                   h("td",{style:{textAlign:"right",padding:"7px 6px",color:"#E8E2D5",fontWeight:700}},(rBase.rendaBrutaAnual/totalPortfolio*100).toFixed(2)+"%"),
                   h("td",{style:{textAlign:"right",padding:"7px 6px",color:"#9A9080"}},((rBase.rendaBrutaAnual-rBase.rendaLiqAnual)/rBase.rendaBrutaAnual*100).toFixed(0)+"%"),
                   h("td",{style:{textAlign:"right",padding:"7px 6px",color:"#4CAF82",fontWeight:700}},fB(rBase.rendaLiqAnual/12))
                 )
               )
+            ),
+            h("div",{style:{fontSize:8,color:"#7A7060",marginTop:8,fontStyle:"italic",lineHeight:1.5}},
+              "\u{1F4B1} ",h("strong",{style:{color:"#4CAF82"}},"Classes USD")," (Acoes EXT, REITs, Treasuries, BTC parcial) ja estao convertidas para BRL ao cambio dinamico USD/BRL = R$",(FX.USD||0).toFixed(4),". Patrimonios, dividendos e SWR mostrados em BRL refletem a conversao no momento atual."
             )
           )
         ),
