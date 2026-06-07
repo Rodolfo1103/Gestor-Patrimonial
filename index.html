@@ -7971,7 +7971,26 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                 proventosTs?"Ultima atualizacao: "+new Date(proventosTs).toLocaleDateString("pt-BR",{day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"}):"Nunca atualizado - clique para buscar"
               )
             ),
-            h("button",{onClick:buscarProventos,disabled:proventosLoading,style:{padding:"8px 14px",background:proventosLoading?"rgba(76,175,130,0.2)":"linear-gradient(135deg,#4CAF82,#2E8B5C)",border:"none",borderRadius:6,color:proventosLoading?"#7A7060":"#FFF",fontSize:11,fontFamily:"monospace",fontWeight:700,cursor:proventosLoading?"wait":"pointer",letterSpacing:1}},proventosLoading?"BUSCANDO...":"\u21BB ATUALIZAR PROVENTOS")
+            h("button",{onClick:buscarProventos,disabled:proventosLoading,style:{padding:"8px 14px",background:proventosLoading?"rgba(76,175,130,0.2)":"linear-gradient(135deg,#4CAF82,#2E8B5C)",border:"none",borderRadius:6,color:proventosLoading?"#7A7060":"#FFF",fontSize:11,fontFamily:"monospace",fontWeight:700,cursor:proventosLoading?"wait":"pointer",letterSpacing:1}},proventosLoading?"BUSCANDO...":"\u21BB ATUALIZAR PROVENTOS"),
+            h("button",{onClick:async()=>{
+              const t=window.prompt("Diagnostico: qual ticker quer verificar no Yahoo?","PH");
+              if(!t)return;
+              const tUp=t.toUpperCase().trim();
+              const sym=YH_MAP[tUp]||tUp;
+              try{
+                const url="https://query1.finance.yahoo.com/v8/finance/chart/"+encodeURIComponent(sym)+"?interval=1d&range=6mo&events=div";
+                const resp=await fetch(url);
+                if(!resp.ok){alert("Yahoo retornou erro HTTP "+resp.status+" para "+sym);return;}
+                const j=await resp.json();
+                const evs=j.chart&&j.chart.result&&j.chart.result[0]&&j.chart.result[0].events;
+                const divs=evs&&evs.dividends;
+                if(!divs){alert("Yahoo nao retornou eventos de dividendos para "+sym+".\\n\\nIsso pode significar:\\n1) Empresa nao paga dividendos\\n2) Periodo (6 meses) sem eventos\\n3) Erro no feed do Yahoo\\n\\nSimbolo usado: "+sym);return;}
+                const lista=Object.values(divs).map(d=>({date:new Date((d.date||0)*1000).toISOString().slice(0,10),valor:d.amount}));
+                lista.sort((a,b)=>b.date.localeCompare(a.date));
+                const txt=lista.slice(0,8).map(d=>"  "+d.date+" - US$ "+d.valor.toFixed(4)).join("\\n");
+                alert("Dividendos retornados pelo Yahoo para "+sym+" (ultimos 6 meses):\\n\\n"+txt+"\\n\\nSe o pagamento de hoje/ontem nao aparece aqui, o Yahoo ainda nao atualizou. Tente novamente em 1-3 dias.");
+              }catch(e){alert("Erro ao consultar Yahoo: "+(e&&e.message?e.message:String(e)));}
+            },style:{padding:"8px 14px",marginLeft:6,background:"rgba(91,143,212,0.20)",border:"1px solid rgba(91,143,212,0.45)",borderRadius:6,color:"#5B8FD4",fontSize:10,fontFamily:"monospace",cursor:"pointer",letterSpacing:1}},"\u{1F50D} DIAGNOSTICAR TICKER")
           ),
           !brapiKey&&h("div",{style:{fontSize:9,color:"#E89060",marginTop:8,padding:"8px 10px",background:"rgba(232,144,96,0.08)",borderRadius:5,lineHeight:1.55}},
             h("div",{style:{marginBottom:6}},"\u26A0 ",h("strong",{},"BRAPI token nao detectado no estado atual.")),
