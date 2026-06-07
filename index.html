@@ -473,11 +473,60 @@ function mptBeta(w){
 function mptMonteCarlo(N,rf){
   const out=[];
   const n=MPT_CLS.length;
-  for(let k=0;k<N;k++){
-    // Pesos aleatorios normalizados via Dirichlet aproximado (random + normalize)
-    const w=[];let s=0;
-    for(let i=0;i<n;i++){w[i]=Math.random();s+=w[i];}
-    for(let i=0;i<n;i++)w[i]/=s;
+  // Distribuicao em 3 tipos para gerar um espaco realista de portfolios:
+  // 60% diversificados (Dirichlet uniforme - bem balanceados)
+  // 25% moderadamente concentrados (alpha baixo - alguns pesos dominam)
+  // 15% muito concentrados (alocacao em 1-3 classes)
+  const N_DIV=Math.floor(N*0.60);
+  const N_MED=Math.floor(N*0.25);
+  const N_CONC=N-N_DIV-N_MED;
+  // Helper: amostra de distribuicao Gamma via Marsaglia-Tsang (aproximado por -log)
+  // Para Dirichlet(alpha): gerar X_i = -log(U_i)^alpha e normalizar
+  const dirichletSample=(alphaArr)=>{
+    const x=[];let s=0;
+    for(let i=0;i<n;i++){
+      // Gamma(alpha,1) approximation via somatorio se alpha < 1
+      // Para nosso uso, alpha=1 (uniforme) usa -log direto
+      const u=Math.max(1e-10,Math.random());
+      x[i]=Math.pow(-Math.log(u),alphaArr[i]);
+      s+=x[i];
+    }
+    for(let i=0;i<n;i++)x[i]/=s;
+    return x;
+  };
+  // Tipo 1: Diversificados (Dirichlet uniforme alpha=1)
+  for(let k=0;k<N_DIV;k++){
+    const w=dirichletSample(new Array(n).fill(1.0));
+    const st=mptStats(w);
+    out.push({ret:st.ret,vol:st.vol,sharpe:mptSharpe(st.ret,st.vol,rf),w});
+  }
+  // Tipo 2: Moderadamente concentrados (alpha=0.3 - cria desigualdade entre pesos)
+  for(let k=0;k<N_MED;k++){
+    const w=dirichletSample(new Array(n).fill(0.3));
+    const st=mptStats(w);
+    out.push({ret:st.ret,vol:st.vol,sharpe:mptSharpe(st.ret,st.vol,rf),w});
+  }
+  // Tipo 3: Muito concentrados (escolhe 1-3 classes aleatorias e poe 60-95% nelas)
+  for(let k=0;k<N_CONC;k++){
+    const w=new Array(n).fill(0);
+    const nConcentradas=1+Math.floor(Math.random()*3);// 1, 2 ou 3
+    const indices=[];
+    while(indices.length<nConcentradas){
+      const idx=Math.floor(Math.random()*n);
+      if(!indices.includes(idx))indices.push(idx);
+    }
+    // 60-95% concentrado nas escolhidas, resto distribuido nas demais
+    const pesoConcentrado=0.60+Math.random()*0.35;
+    let sConc=0;
+    indices.forEach(i=>{w[i]=Math.random();sConc+=w[i];});
+    indices.forEach(i=>{w[i]=(w[i]/sConc)*pesoConcentrado;});
+    // Distribui o resto (5-40%) nas demais classes
+    const restoTotal=1-pesoConcentrado;
+    const demais=[];
+    for(let i=0;i<n;i++)if(!indices.includes(i))demais.push(i);
+    let sDem=0;
+    demais.forEach(i=>{w[i]=Math.random();sDem+=w[i];});
+    demais.forEach(i=>{w[i]=(w[i]/sDem)*restoTotal;});
     const st=mptStats(w);
     out.push({ret:st.ret,vol:st.vol,sharpe:mptSharpe(st.ret,st.vol,rf),w});
   }
@@ -5763,17 +5812,20 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           ),
           // ========== HISTOGRAMA: DISTRIBUICAO DOS PORTFOLIOS ==========
           (()=>{
-            // Calcula a nota de cada portfolio do Monte Carlo (= sua eficiencia de fronteira)
+            // Calcula a nota de cada portfolio do Monte Carlo
+            // Comparacao com fronteira: maior retorno disponivel em qualquer vol <= sua vol
+            // (ou seja: para o nivel de risco, qual o melhor retorno possivel?)
             const calcNotaPortfolio=p=>{
               let maxRet=p.ret;
               for(const q of mcResult){
-                if(Math.abs(q.vol-p.vol)<0.015&&q.ret>maxRet)maxRet=q.ret;
+                // Considera portfolios com vol SIMILAR ou MENOR (faixa ampla 2%)
+                if(q.vol<=p.vol+0.01&&Math.abs(q.vol-p.vol)<0.025&&q.ret>maxRet)maxRet=q.ret;
               }
               return Math.max(0,Math.min(100,(p.ret/Math.max(0.001,maxRet))*100));
             };
-            // Amostra 800 portfolios para distribuicao (rapidez)
+            // Amostra 1500 portfolios para distribuicao (rapidez)
             const amostra=[];
-            const stepAm=Math.max(1,Math.floor(mcResult.length/800));
+            const stepAm=Math.max(1,Math.floor(mcResult.length/1500));
             for(let i=0;i<mcResult.length;i+=stepAm)amostra.push(mcResult[i]);
             const notas=amostra.map(calcNotaPortfolio);
             const distrib={A:0,B:0,C:0,D:0,F:0};
@@ -5788,10 +5840,27 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             const pcts={A:distrib.A/total*100,B:distrib.B/total*100,C:distrib.C/total*100,D:distrib.D/total*100,F:distrib.F/total*100};
             const maxPct=Math.max(pcts.A,pcts.B,pcts.C,pcts.D,pcts.F);
             const cores={A:"#4CAF82",B:"#7DD17D",C:"#E8C44A",D:"#E89060",F:"#E05252"};
+            // Notas de referencia: media, melhor (Sharpe max), pior (Sharpe min)
+            const notaMedia=notas.reduce((a,b)=>a+b,0)/notas.length;
+            let bestS=mcResult[0],worstS=mcResult[0];
+            for(const p of mcResult){
+              if(p.sharpe>bestS.sharpe)bestS=p;
+              if(p.sharpe<worstS.sharpe)worstS=p;
+            }
+            const notaMelhor=calcNotaPortfolio(bestS);
+            const notaPior=calcNotaPortfolio(worstS);
             return h("div",{style:{marginTop:14,paddingTop:12,borderTop:"1px solid rgba(255,255,255,0.05)"}},
               h("div",{style:{fontSize:8,letterSpacing:1.8,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,marginBottom:4}},"\u{1F4CA} DISTRIBUICAO DE PORTFOLIOS POSSIVEIS"),
-              h("div",{style:{fontSize:8,color:"#6A6050",fontStyle:"italic",marginBottom:8,lineHeight:1.4}},"Dos ",total," portfolios aleatorios simulados, quantos % caem em cada faixa de nota:"),
-              h("div",{style:{display:"flex",alignItems:"flex-end",gap:6,height:80,padding:"0 4px"}},
+              // EXPLICACAO DETALHADA DA METODOLOGIA
+              h("div",{style:{fontSize:8.5,color:"#9A9080",lineHeight:1.6,marginBottom:10,padding:"9px 11px",background:"rgba(0,0,0,0.22)",borderLeft:"3px solid #C8A96E",borderRadius:"0 5px 5px 0"}},
+                h("div",{style:{color:"#C8A96E",fontWeight:700,fontSize:8,letterSpacing:1.2,marginBottom:5,fontFamily:"monospace"}},"\u{1F4D6} COMO ESTA SIMULACAO E CONSTRUIDA"),
+                h("div",{style:{marginBottom:3}},h("strong",{},"Universo:")," ",mcResult.length.toLocaleString("pt-BR")," portfolios sao gerados sorteando aleatoriamente pesos para as ",MPT_CLS.length," classes do seu portfolio (FII, Acoes BR, Acoes EXT, REITs, Selic, Ouro, BTC, Infra, Imoveis, Agro)."),
+                h("div",{style:{marginBottom:3}},h("strong",{},"3 estrategias de geracao:")," 60% sao bem ",h("em",{},"diversificados"),", 25% sao ",h("em",{},"moderadamente concentrados"),", 15% sao ",h("em",{},"muito concentrados")," em poucas classes - para explorar todo o espaco de possibilidades, do super-balanceado ao super-concentrado."),
+                h("div",{style:{marginBottom:3}},h("strong",{},"Calculo da nota:")," para cada portfolio simulado, calculamos retorno esperado, volatilidade e qual % do MELHOR retorno alcancavel para aquela faixa de risco ele captura. Quanto mais perto de 100%, mais proximo da fronteira eficiente de Markowitz."),
+                h("div",{},h("strong",{},"Premissas (R/E):")," cada classe tem um retorno esperado e volatilidade calibrados (ver bloco \"Premissas R/E\" mais abaixo), e a matriz de correlacao entre classes e empirica. Tudo recalibrado dinamicamente conforme a Selic atual e ajustes da IA.")
+              ),
+              h("div",{style:{fontSize:8.5,color:"#6A6050",fontStyle:"italic",marginBottom:8,lineHeight:1.4}},"Distribuicao das notas dos ",total," portfolios simulados (",mcResult.length.toLocaleString("pt-BR")," ao todo):"),
+              h("div",{style:{display:"flex",alignItems:"flex-end",gap:6,height:90,padding:"0 4px"}},
                 ...["A","B","C","D","F"].map(g=>{
                   const alturaPct=maxPct>0?(pcts[g]/maxPct)*100:0;
                   const isSeu=g===conceito;
@@ -5803,12 +5872,41 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                   );
                 })
               ),
+              // BLOCO COMPARATIVO: VOCE vs MELHOR vs MEDIA vs PIOR
+              h("div",{style:{marginTop:12,padding:"9px 11px",background:"rgba(0,0,0,0.20)",borderRadius:5}},
+                h("div",{style:{fontSize:8,letterSpacing:1.5,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,marginBottom:7}},"\u{1F3AF} ONDE VOCE ESTA NESTA REGUA"),
+                h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:6}},
+                  // MELHOR (max Sharpe)
+                  h("div",{style:{textAlign:"center",padding:"6px 4px",background:"rgba(76,175,130,0.06)",borderRadius:4,border:"1px solid rgba(76,175,130,0.20)"}},
+                    h("div",{style:{fontSize:7,color:"#4CAF82",fontFamily:"monospace",fontWeight:700,letterSpacing:0.5}},"OTIMO"),
+                    h("div",{style:{fontSize:14,color:"#4CAF82",fontFamily:"Georgia,serif",fontWeight:700,marginTop:2}},notaMelhor.toFixed(0)),
+                    h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",marginTop:1}},"Sharpe ",bestS.sharpe.toFixed(2))
+                  ),
+                  // VOCE
+                  h("div",{style:{textAlign:"center",padding:"6px 4px",background:corConceito+"15",borderRadius:4,border:"2px solid "+corConceito+"77"}},
+                    h("div",{style:{fontSize:7,color:corConceito,fontFamily:"monospace",fontWeight:700,letterSpacing:0.5}},"VOCE"),
+                    h("div",{style:{fontSize:14,color:corConceito,fontFamily:"Georgia,serif",fontWeight:700,marginTop:2}},notaFinal.toFixed(0)),
+                    h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",marginTop:1}},"Sharpe ",sharpeAtual.toFixed(2))
+                  ),
+                  // MEDIA
+                  h("div",{style:{textAlign:"center",padding:"6px 4px",background:"rgba(91,143,212,0.06)",borderRadius:4,border:"1px solid rgba(91,143,212,0.20)"}},
+                    h("div",{style:{fontSize:7,color:"#5B8FD4",fontFamily:"monospace",fontWeight:700,letterSpacing:0.5}},"MEDIA MC"),
+                    h("div",{style:{fontSize:14,color:"#5B8FD4",fontFamily:"Georgia,serif",fontWeight:700,marginTop:2}},notaMedia.toFixed(0)),
+                    h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",marginTop:1}},"dos ",total," sims")
+                  ),
+                  // PIOR
+                  h("div",{style:{textAlign:"center",padding:"6px 4px",background:"rgba(224,82,82,0.06)",borderRadius:4,border:"1px solid rgba(224,82,82,0.20)"}},
+                    h("div",{style:{fontSize:7,color:"#E05252",fontFamily:"monospace",fontWeight:700,letterSpacing:0.5}},"PIOR"),
+                    h("div",{style:{fontSize:14,color:"#E05252",fontFamily:"Georgia,serif",fontWeight:700,marginTop:2}},notaPior.toFixed(0)),
+                    h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",marginTop:1}},"Sharpe ",worstS.sharpe.toFixed(2))
+                  )
+                )
+              ),
               h("div",{style:{fontSize:8.5,color:"#9A9080",lineHeight:1.55,marginTop:10,padding:"8px 10px",background:"rgba(0,0,0,0.18)",borderLeft:"3px solid "+corConceito,borderRadius:"0 4px 4px 0"}},
-                "Sua nota ",h("strong",{style:{color:corConceito}},conceito)," ",
-                pcts[conceito]>=40?h("span",{},"e a faixa mais comum (",pcts[conceito].toFixed(0),"% dos portfolios simulados). Eficiencia tipica."):
-                pcts[conceito]>=20?h("span",{},"corresponde a ",pcts[conceito].toFixed(0),"% dos portfolios simulados. Posicao moderada."):
-                pcts[conceito]>=5?h("span",{},"e relativamente incomum (",pcts[conceito].toFixed(0),"% dos portfolios). ",notaFinal>=75?"Voce esta acima da media.":"Maioria dos portfolios performam melhor."):
-                h("span",{},"e ",notaFinal>=85?"raramente alcancada (apenas "+pcts[conceito].toFixed(0)+"% dos portfolios). Excelente posicao.":"rara (so "+pcts[conceito].toFixed(0)+"% dos portfolios). Posicao desfavoravel - rebalanceamento traz ganhos rapidos.")
+                "Sua nota ",h("strong",{style:{color:corConceito}},conceito)," (",notaFinal.toFixed(0),") ",
+                notaFinal>=notaMedia+15?h("span",{},"esta ",h("strong",{style:{color:"#4CAF82"}},"+"+(notaFinal-notaMedia).toFixed(0)+" pontos acima da media")," dos portfolios simulados. ",notaFinal>=notaMelhor-5?"Posicao muito proxima do otimo possivel.":"Bem acima do tipico."):
+                notaFinal>=notaMedia-5?h("span",{},"esta ",h("strong",{style:{color:"#E8C44A"}},"proxima da media")," (",notaMedia.toFixed(0),") dos portfolios simulados. Ha espaco para otimizacao em direcao ao otimo (",notaMelhor.toFixed(0),")."):
+                h("span",{},"esta ",h("strong",{style:{color:"#E89060"}},(notaMedia-notaFinal).toFixed(0)+" pontos abaixo da media"),". Mesmo um portfolio aleatorio tende a performar melhor - revisao da composicao recomendada.")
               )
             );
           })()
