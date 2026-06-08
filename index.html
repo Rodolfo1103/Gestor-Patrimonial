@@ -39,6 +39,7 @@ const CL=[
   {id:"reits",    name:"REITs",         tag:"REIT",min:2, max:4, color:"#D4796A"},
   {id:"selic",    name:"Tesouro Selic", tag:"SEL", min:5, max:8, color:"#9B9B9B",flex:true},
   {id:"treasuries",name:"Treasuries",   tag:"TRE", min:5, max:10,color:"#5BB5D4"},
+  {id:"rfipca",   name:"NTN-B (IPCA+)", tag:"NTNB",min:3, max:8, color:"#A88B5E",flex:true},
   {id:"ouro",     name:"Ouro",          tag:"XAU", min:3, max:5, color:"#E8C44A"},
   {id:"bitcoin",  name:"Bitcoin",       tag:"BTC", min:3, max:5, color:"#F7931A"},
   {id:"infra",    name:"Fundos Infra",  tag:"INF", min:5, max:7, color:"#A56FD4"},
@@ -52,6 +53,9 @@ const BASE={
   reits:["O","FPI"],
   selic:["SELIC2031"],
   treasuries:["TLT","IEF","VTIP"],
+  // rfipca: lista dinamica - sempre reflete os vencimentos atualmente conhecidos em NTNB_VENCIMENTOS
+  // (que e expandida automaticamente quando a API retorna novos vencimentos do Tesouro)
+  get rfipca(){return Object.keys(NTNB_VENCIMENTOS);},
   ouro:["OURO_FISICO","AAAU"],bitcoin:["BTC"],infra:["BRZP11","AZIN11","KDIF11"],imoveis:[],agro:[],
 };
 const NAMES={
@@ -78,6 +82,12 @@ const NAMES={
   AAAU:"Perth Mint Gold ETF",BTC:"Bitcoin",
   OURO_FISICO:"Ouro Fisico (Ourominas)",SELIC2031:"Tesouro Selic 2031",
   TLT:"iShares 20+ Year Treasury",IEF:"iShares 7-10 Year Treasury",VTIP:"Vanguard Short-Term TIPS",
+  "NTNB-2029":"Tesouro IPCA+ 2029 (NTN-B Principal)",
+  "NTNB-2035":"Tesouro IPCA+ 2035 (NTN-B Principal)",
+  "NTNB-2040":"Tesouro IPCA+ 2040 (NTN-B Principal)",
+  "NTNB-2045":"Tesouro IPCA+ 2045 (NTN-B Principal)",
+  "NTNB-2050":"Tesouro IPCA+ 2050 (NTN-B Principal)",
+  "NTNB-2060":"Tesouro IPCA+ 2060 (NTN-B Principal)",
 };
 const BCCY={
   HGRU11:"BRL",RBVA11:"BRL",ALZR11:"BRL",TRXF11:"BRL",FIIB11:"BRL",BTLG11:"BRL",HGLG11:"BRL",
@@ -92,6 +102,7 @@ const BCCY={
   REA:"AUD",WES:"AUD",HKG0700:"HKD",HKG1299:"HKD",HKG0001:"HKD",HKG0087:"HKD",J36:"SGD",
   SELIC2031:"BRL",OURO_FISICO:"BRL",AAAU:"USD",BTC:"USD",BRZP11:"BRL",AZIN11:"BRL",KDIF11:"BRL",
   TLT:"USD",IEF:"USD",VTIP:"USD",
+  "NTNB-2029":"BRL","NTNB-2035":"BRL","NTNB-2040":"BRL","NTNB-2045":"BRL","NTNB-2050":"BRL","NTNB-2060":"BRL",
 };
 const VB=["SELIC2031"];
 // Pesos-alvo internos da classe Treasuries (estrategia escolhida: 40% TLT + 20% IEF + 40% VTIP)
@@ -99,6 +110,66 @@ const VB=["SELIC2031"];
 // IEF: amortecedor de volatilidade com descorrelacao preservada (duration 7.5y)
 // VTIP: protecao inflacionaria pura sem risco de duration (duration 2.5y)
 const TRE_TARGET={TLT:0.40,IEF:0.20,VTIP:0.40};
+
+// ============= CONSTANTES NTN-B (Tesouro IPCA+) =============
+// Vencimentos conhecidos da NTN-B Principal (sem cupom semestral).
+// Esta lista e MUTAVEL: a funcao fetchNTNBTaxas() pode adicionar novos vencimentos
+// descobertos via API (ex: quando o Tesouro emite uma NTN-B 2065, 2070, etc).
+// O objeto e mesclado em runtime e persistido no save criptografado.
+const NTNB_VENCIMENTOS_INICIAL={
+  "NTNB-2029":"2029-05-15",
+  "NTNB-2035":"2035-05-15",
+  "NTNB-2040":"2040-08-15",
+  "NTNB-2045":"2045-05-15",
+  "NTNB-2050":"2050-08-15",
+  "NTNB-2060":"2060-08-15",
+};
+// Versao mutavel - comeca igual ao inicial e e expandida quando novos vencimentos sao descobertos
+const NTNB_VENCIMENTOS={...NTNB_VENCIMENTOS_INICIAL};
+// Helper para mesclar vencimentos descobertos via API
+// Tambem registra automaticamente NAMES e BCCY para o novo ticker
+function mesclarVencimentosNTNB(novos){
+  if(!novos||typeof novos!=="object")return;
+  Object.entries(novos).forEach(([tk,data])=>{
+    if(/^NTNB-20\d{2}$/.test(tk)&&/^\d{4}-\d{2}-\d{2}$/.test(data)){
+      NTNB_VENCIMENTOS[tk]=data;
+      // Adiciona em NAMES se ainda nao houver (para novos vencimentos descobertos via API)
+      if(typeof NAMES!=="undefined"&&!NAMES[tk]){
+        NAMES[tk]="Tesouro IPCA+ "+tk.split("-")[1]+" (NTN-B Principal)";
+      }
+      // Adiciona em BCCY se ainda nao houver
+      if(typeof BCCY!=="undefined"&&!BCCY[tk]){
+        BCCY[tk]="BRL";
+      }
+    }
+  });
+}
+// VNA (Valor Nominal Atualizado) base = R$ 1.000 em 15/07/2000, corrigido pelo IPCA
+// Atualizado mensalmente. Valor referencia (jun/2026): aproximado, usuario pode ajustar via API
+const NTNB_VNA_BASE=4520;// VNA aproximado jun/2026 - sera substituido por valor real via API
+// Aliquota efetiva de IR para Buy & Hold > 720 dias (15%)
+const IR_LONGO_PRAZO=0.15;
+// Helper: converte taxa bruta em taxa liquida de IR (long-term holder)
+const taxaLiquidaIR=(bruta)=>bruta*(1-IR_LONGO_PRAZO);
+// Helper: converte taxa liquida em taxa bruta equivalente
+const taxaBrutaEquiv=(liquida)=>liquida/(1-IR_LONGO_PRAZO);
+// Anos ate o vencimento
+const anosAteVenc=(vencISO,refDate)=>{
+  const v=new Date(vencISO),r=refDate||new Date();
+  return Math.max(0,(v-r)/(365.25*86400000));
+};
+// PU teorico de uma NTN-B Principal com base na taxa de mercado e vencimento
+// PU = VNA_atual / (1 + taxa_real)^anos_restantes
+const calcPUTeorico=(vna,taxa,anos)=>{
+  if(!vna||!isFinite(vna)||!isFinite(taxa)||anos<0)return 0;
+  return vna/Math.pow(1+taxa,anos);
+};
+// Valor de carrego: PU de compra crescido pela taxa de aquisicao + IPCA acumulado
+// Aproximacao: para fins de exibicao, mostramos o PU teorico atual com a taxa original
+const calcPUCarrego=(puCompra,taxaCompra,anosDecorridos)=>{
+  if(!puCompra||!isFinite(puCompra))return 0;
+  return puCompra*Math.pow(1+taxaCompra,anosDecorridos);
+};
 const TRE_ROLE={
   TLT:"hedge anti-crash equity (duration 17y)",
   IEF:"amortecedor de volatilidade (duration 7.5y)",
@@ -109,19 +180,19 @@ const IMB=true; // flag indicando que IMV usa ativos custom (cadastrados pelo us
 const FX={BRL:1,USD:5.01,EUR:5.7,GBP:6.8,CHF:6.1,JPY:0.034,AUD:3.25,HKD:0.64,SGD:3.85,DKK:0.76,NOK:0.49,MXN:0.26};
 // Premissas BASE de risco e retorno por classe (escala 0-10)
 // Valores ancorados em cenario Selic = 10% a.a. (normalizada)
-const RR_BASE={fii:{r:3.5,e:7.5},acoes_br:{r:6.5,e:8.5},acoes_ext:{r:5.5,e:8.0},reits:{r:4.5,e:7.2},selic:{r:1.0,e:4.5},ouro:{r:4.0,e:5.5},bitcoin:{r:9.5,e:9.0},infra:{r:2.5,e:7.0},imoveis:{r:2.0,e:6.0},agro:{r:3.0,e:8.0}};
+const RR_BASE={fii:{r:3.5,e:7.5},acoes_br:{r:6.5,e:8.5},acoes_ext:{r:5.5,e:8.0},reits:{r:4.5,e:7.2},selic:{r:1.0,e:4.5},rfipca:{r:3.0,e:7.0},ouro:{r:4.0,e:5.5},bitcoin:{r:9.5,e:9.0},infra:{r:2.5,e:7.0},imoveis:{r:2.0,e:6.0},agro:{r:3.0,e:8.0}};
 
 // ===== MPT (Modern Portfolio Theory) =====
 // Retornos esperados anualizados em BRL (hibrido: historico + forward-looking)
 // e volatilidades anualizadas. Fontes citadas no comentario.
-const MPT_RET={fii:0.125,acoes_br:0.140,acoes_ext:0.130,reits:0.110,selic:0.100,treasuries:0.045,ouro:0.080,bitcoin:0.180,infra:0.130,imoveis:0.070,agro:0.130};
-const MPT_VOL={fii:0.120,acoes_br:0.250,acoes_ext:0.220,reits:0.180,selic:0.010,treasuries:0.130,ouro:0.150,bitcoin:0.550,infra:0.100,imoveis:0.080,agro:0.130};
-// Matriz de correlacao 10x10 (simetrica) - ordem das classes em MPT_CLS
-const MPT_CLS=["fii","acoes_br","acoes_ext","reits","selic","treasuries","ouro","bitcoin","infra","imoveis","agro"];
+const MPT_RET={fii:0.125,acoes_br:0.140,acoes_ext:0.130,reits:0.110,selic:0.100,treasuries:0.045,rfipca:0.105,ouro:0.080,bitcoin:0.180,infra:0.130,imoveis:0.070,agro:0.130};
+const MPT_VOL={fii:0.120,acoes_br:0.250,acoes_ext:0.220,reits:0.180,selic:0.010,treasuries:0.130,rfipca:0.100,ouro:0.150,bitcoin:0.550,infra:0.100,imoveis:0.080,agro:0.130};
+// Matriz de correlacao 12x12 (simetrica) - ordem das classes em MPT_CLS
+const MPT_CLS=["fii","acoes_br","acoes_ext","reits","selic","treasuries","rfipca","ouro","bitcoin","infra","imoveis","agro"];
 
 // ===== All Weather Portfolio (Ray Dalio) adaptado ao Brasil =====
 // Filosofia: equilibrio entre 4 cenarios macro (crescimento alto/baixo x inflacao alta/baixa)
-const AW_W={fii:0.18,acoes_br:0.12,acoes_ext:0.14,reits:0.05,selic:0.20,treasuries:0.07,ouro:0.07,bitcoin:0.02,infra:0.10,imoveis:0.03,agro:0.02};
+const AW_W={fii:0.18,acoes_br:0.12,acoes_ext:0.14,reits:0.05,selic:0.15,treasuries:0.07,rfipca:0.05,ouro:0.07,bitcoin:0.02,infra:0.10,imoveis:0.03,agro:0.02};
 // Mapeamento por cenario macro (peso de cada classe naquele cenario, 0-1)
 // Os 4 cenarios Dalio:
 // 1: crescimento ALTA + inflacao ALTA (acoes domesticas, ouro, real assets, commodities)
@@ -135,6 +206,9 @@ const AW_CEN={
   reits:  {c1:0.5,c2:0.7,c3:0.4,c4:0.3},
   selic:  {c1:0.3,c2:0.4,c3:0.5,c4:0.95},
   treasuries:{c1:0.2,c2:0.5,c3:0.6,c4:0.95},
+  // NTN-B IPCA+: protege fortemente no c3 (estagflacao - principal funcao), bem no c1 (cresc+infl alta),
+  // medio no c4 (cresc baixo, infl baixa - cupom real preservado), fraco no c2 (cresc alto, infl baixa - oportunidade de custo)
+  rfipca: {c1:0.85,c2:0.30,c3:0.95,c4:0.55},
   ouro:   {c1:0.85,c2:0.3,c3:0.95,c4:0.3},
   bitcoin:{c1:0.7,c2:0.5,c3:0.6,c4:0.2},
   infra:  {c1:0.5,c2:0.4,c3:0.85,c4:0.6},
@@ -147,14 +221,15 @@ const AW_CEN={
 // Principios: (1) equity bias robusto, (2) real assets para hedge inflacionario,
 // (3) renda fixa nominal minima, (4) ausencia de PE/VC/hedge funds (inacessiveis)
 const YPB_W={
-  fii:0.18,acoes_br:0.10,acoes_ext:0.30,reits:0.05,selic:0.06,treasuries:0.06,
-  ouro:0.05,bitcoin:0.03,infra:0.08,imoveis:0.03,agro:0.06
+  fii:0.18,acoes_br:0.10,acoes_ext:0.27,reits:0.05,selic:0.06,treasuries:0.06,
+  rfipca:0.05,// NTN-B IPCA+: 5% piso filosofico Yale (inflation hedge)
+  ouro:0.03,bitcoin:0.03,infra:0.08,imoveis:0.03,agro:0.06
 };
 // Buckets filosoficos Swensen para painel de bias
 const YPB_BUCKETS={
   equity:["acoes_br","acoes_ext"],// pure equity
   realAssets:["fii","reits","infra","imoveis","agro"],// real estate + recursos
-  inflationHedge:["ouro"],// hedge inflacionario classico
+  inflationHedge:["ouro","rfipca"],// hedge inflacionario classico (ouro + NTN-B IPCA+)
   altLiquid:["bitcoin"],// alternativos liquidos (substituto de PE/VC)
   fixedNominal:["selic","treasuries"]// renda fixa nominal
 };
@@ -173,6 +248,9 @@ const YIELD_CLASSE={
   reits:     {pes:0.040,base:0.055,oti:0.070},
   selic:     {pes:0.060,base:0.085,oti:0.110},// yield real da Selic (varia com Selic nominal - inflacao)
   treasuries:{pes:0.025,base:0.040,oti:0.055},// blend TLT/IEF/VTIP
+  // NTN-B Principal NAO paga cupom semestral. Todo o retorno e acumulado no PU ate o vencimento.
+  // Por isso YIELD = 0 (nao gera renda corrente). O retorno aparece em VALORIZA_REAL abaixo.
+  rfipca:    {pes:0,base:0,oti:0},// NTN-B Principal nao paga cupom periodico
   ouro:      {pes:0,base:0,oti:0},// nao paga dividendo
   bitcoin:   {pes:0,base:0,oti:0},// nao paga dividendo
   infra:     {pes:0.085,base:0.100,oti:0.115},
@@ -185,14 +263,18 @@ const YIELD_CLASSE={
 // Selic: yield real aproximado, sem crescimento autonomo
 const CRESC_REAL_RENDA={
   fii:0.025,acoes_br:0.060,acoes_ext:0.050,reits:0.030,
-  selic:0,treasuries:0,ouro:0,bitcoin:0,
+  selic:0,treasuries:0,rfipca:0,// NTN-B Principal: sem renda corrente, sem crescimento de cupom
+  ouro:0,bitcoin:0,
   infra:0.040,imoveis:0.020,agro:0.035
 };
-// Valorizacao real anual (para ativos sem renda - Bitcoin, Ouro)
-// Esses ativos nao pagam mas podem ser sacados via SWR
+// Valorizacao real anual (para ativos sem renda - Bitcoin, Ouro, NTN-B Principal)
+// Esses ativos nao pagam mas podem ser sacados via SWR (venda parcial periodica)
+// NTN-B Principal: TODO o cupom real esta embutido aqui (~IPCA+5,5% liquido base medio)
 const VALORIZA_REAL={
   fii:0.015,acoes_br:0.045,acoes_ext:0.055,reits:0.025,
-  selic:0,treasuries:0.005,ouro:0.020,bitcoin:0.100,
+  selic:0,treasuries:0.005,
+  rfipca:0.055,// NTN-B Principal: cupom real liquido de IR (~IPCA+6,5% bruto = ~IPCA+5,5% liq)
+  ouro:0.020,bitcoin:0.100,
   infra:0.020,imoveis:0.015,agro:0.030
 };
 // IR sobre dividendos (em decimal)
@@ -203,6 +285,7 @@ const IR_DIV={
   reits:0.30,// REITs nao tem tratado com BR
   selic:0.15,// IR retido na fonte (faixa minima apos 720 dias)
   treasuries:0.30,// cupons sao "interest income" - 30% retencao EUA
+  rfipca:0,// NTN-B Principal: nao paga cupom corrente, entao nao ha IR sobre dividendos. IR ja embutido em VALORIZA_REAL
   ouro:0,bitcoin:0,// nao geram renda
   infra:0,// FII de infra (FI-Infra) isento
   imoveis:0.275,// aluguel via Carne-Leao (faixa media)
@@ -235,31 +318,31 @@ const STRESS_CEN=[
     id:"2008",icone:"\u{1F3E6}",titulo:"2008 - Crise Financeira Global",
     desc:"Quebra do Lehman Brothers, contagio sistemico global, fuga para qualidade. Bear market severo em acoes globais.",
     rec:36,
-    dd:{fii:-0.30,acoes_br:-0.50,acoes_ext:-0.50,reits:-0.67,selic:0.08,treasuries:0.22,ouro:0.25,bitcoin:0,infra:-0.25,imoveis:-0.15,agro:-0.35}
+    dd:{fii:-0.30,acoes_br:-0.50,acoes_ext:-0.50,reits:-0.67,selic:0.08,treasuries:0.22,rfipca:0.15,ouro:0.25,bitcoin:0,infra:-0.25,imoveis:-0.15,agro:-0.35}
   },
   {
     id:"2020",icone:"\u{1F9A0}",titulo:"2020 - Pandemia COVID-19",
     desc:"Crash em V, BTC e ouro brilharam apos recuperacao, FIIs sofreram. Recuperacao mais rapida da historia.",
     rec:12,
-    dd:{fii:-0.30,acoes_br:-0.45,acoes_ext:-0.34,reits:-0.42,selic:0.05,treasuries:0.20,ouro:0.25,bitcoin:-0.50,infra:-0.22,imoveis:-0.05,agro:-0.15}
+    dd:{fii:-0.30,acoes_br:-0.45,acoes_ext:-0.34,reits:-0.42,selic:0.05,treasuries:0.20,rfipca:0.08,ouro:0.25,bitcoin:-0.50,infra:-0.22,imoveis:-0.05,agro:-0.15}
   },
   {
     id:"2015",icone:"\u{1F1E7}\u{1F1F7}",titulo:"2015-2016 - Recessao BR + Impeachment",
     desc:"Crise politica e fiscal local, EXT sustentado pelo cambio (USD subiu 50%+), Selic em 14.25%.",
     rec:24,
-    dd:{fii:-0.25,acoes_br:-0.35,acoes_ext:0.15,reits:0.05,selic:0.18,treasuries:0.05,ouro:0.30,bitcoin:1.25,infra:-0.30,imoveis:-0.15,agro:-0.20}
+    dd:{fii:-0.25,acoes_br:-0.35,acoes_ext:0.15,reits:0.05,selic:0.18,treasuries:0.05,rfipca:-0.12,ouro:0.30,bitcoin:1.25,infra:-0.30,imoveis:-0.15,agro:-0.20}
   },
   {
     id:"2022",icone:"\u{1F4C8}",titulo:"2022 - Stagflacao Global",
     desc:"Inflacao alta + Fed agressivo, crypto winter, ouro lateral, BR foi excecao positiva, commodities subiram.",
     rec:18,
-    dd:{fii:-0.03,acoes_br:-0.05,acoes_ext:-0.25,reits:-0.28,selic:0.12,treasuries:-0.30,ouro:0,bitcoin:-0.77,infra:-0.08,imoveis:-0.03,agro:0.25}
+    dd:{fii:-0.03,acoes_br:-0.05,acoes_ext:-0.25,reits:-0.28,selic:0.12,treasuries:-0.30,rfipca:-0.08,ouro:0,bitcoin:-0.77,infra:-0.08,imoveis:-0.03,agro:0.25}
   },
   {
     id:"2026br",icone:"\u{1F525}",titulo:"HIPOTETICO: Crise Fiscal BR 2026+",
     desc:"Cambio dispara, juros longos sobem violentamente, BR cai, EXT e ouro protegem via cambio. Cenario forward-looking.",
     rec:30,
-    dd:{fii:-0.25,acoes_br:-0.40,acoes_ext:0.25,reits:0.15,selic:0.15,treasuries:0.10,ouro:0.40,bitcoin:0.30,infra:-0.20,imoveis:-0.10,agro:-0.10}
+    dd:{fii:-0.25,acoes_br:-0.40,acoes_ext:0.25,reits:0.15,selic:0.15,treasuries:0.10,rfipca:-0.20,ouro:0.40,bitcoin:0.30,infra:-0.20,imoveis:-0.10,agro:-0.10}
   }
 ];
 
@@ -275,6 +358,7 @@ const PROJ_RET={
   reits:   {pes:0.04,base:0.07,oti:0.09,vol:0.20},
   selic:   {pes:0.02,base:0.04,oti:0.06,vol:0.03},
   treasuries:{pes:0.005,base:0.015,oti:0.03,vol:0.13},
+  rfipca:  {pes:0.04,base:0.055,oti:0.07,vol:0.10},// NTN-B real liquido IR: IPCA+5%liq base ~ 0.055 real anual
   ouro:    {pes:-0.01,base:0.02,oti:0.05,vol:0.18},
   bitcoin: {pes:-0.05,base:0.08,oti:0.25,vol:0.65},
   infra:   {pes:0.04,base:0.07,oti:0.09,vol:0.17},
@@ -426,18 +510,21 @@ function statusBolsa(bolsa,now){
   return{status,cor,detalhe,horaLocal,wd};
 }
 const MPT_COR=[
-  // fii   br    ext   reit  sel   tre   xau   btc   inf   imv   agr
-  [ 1.00, 0.38, 0.20, 0.50,-0.15,-0.05,-0.10, 0.15, 0.40, 0.30, 0.45], // fii
-  [ 0.38, 1.00, 0.55, 0.30,-0.10,-0.20, 0.05, 0.20, 0.20, 0.15, 0.40], // br
-  [ 0.20, 0.55, 1.00, 0.65,-0.20,-0.30, 0.10, 0.35, 0.10, 0.05, 0.10], // ext
-  [ 0.50, 0.30, 0.65, 1.00,-0.15, 0.15, 0.05, 0.25, 0.30, 0.40, 0.20], // reit
-  [-0.15,-0.10,-0.20,-0.15, 1.00, 0.20, 0.00,-0.05, 0.15, 0.05, 0.10], // sel
-  [-0.05,-0.20,-0.30, 0.15, 0.20, 1.00, 0.25,-0.15, 0.30, 0.10,-0.05], // tre
-  [-0.10, 0.05, 0.10, 0.05, 0.00, 0.25, 1.00, 0.05, 0.05, 0.10, 0.05], // xau
-  [ 0.15, 0.20, 0.35, 0.25,-0.05,-0.15, 0.05, 1.00, 0.05, 0.05, 0.05], // btc
-  [ 0.40, 0.20, 0.10, 0.30, 0.15, 0.30, 0.05, 0.05, 1.00, 0.20, 0.30], // inf
-  [ 0.30, 0.15, 0.05, 0.40, 0.05, 0.10, 0.10, 0.05, 0.20, 1.00, 0.25], // imv
-  [ 0.45, 0.40, 0.10, 0.20, 0.10,-0.05, 0.05, 0.05, 0.30, 0.25, 1.00]  // agr
+  // fii   br    ext   reit  sel   tre   rfip  xau   btc   inf   imv   agr
+  [ 1.00, 0.38, 0.20, 0.50,-0.15,-0.05, 0.20,-0.10, 0.15, 0.40, 0.30, 0.45], // fii
+  [ 0.38, 1.00, 0.55, 0.30,-0.10,-0.20,-0.10, 0.05, 0.20, 0.20, 0.15, 0.40], // br
+  [ 0.20, 0.55, 1.00, 0.65,-0.20,-0.30,-0.20, 0.10, 0.35, 0.10, 0.05, 0.10], // ext
+  [ 0.50, 0.30, 0.65, 1.00,-0.15, 0.15, 0.10, 0.05, 0.25, 0.30, 0.40, 0.20], // reit
+  [-0.15,-0.10,-0.20,-0.15, 1.00, 0.20, 0.15, 0.00,-0.05, 0.15, 0.05, 0.10], // sel
+  [-0.05,-0.20,-0.30, 0.15, 0.20, 1.00, 0.30, 0.25,-0.15, 0.30, 0.10,-0.05], // tre
+  // rfipca: alta correlacao com renda fixa (sel, tre); moderada negativa com equity em ciclos de juros;
+  // positiva com ouro e infra (hedge inflacao); negativa com BTC (juros sobem -> risk-off)
+  [ 0.20,-0.10,-0.20, 0.10, 0.15, 0.30, 1.00, 0.25,-0.05, 0.30, 0.15, 0.10], // rfipca (NTN-B IPCA+)
+  [-0.10, 0.05, 0.10, 0.05, 0.00, 0.25, 0.25, 1.00, 0.05, 0.05, 0.10, 0.05], // xau
+  [ 0.15, 0.20, 0.35, 0.25,-0.05,-0.15,-0.05, 0.05, 1.00, 0.05, 0.05, 0.05], // btc
+  [ 0.40, 0.20, 0.10, 0.30, 0.15, 0.30, 0.30, 0.05, 0.05, 1.00, 0.20, 0.30], // inf
+  [ 0.30, 0.15, 0.05, 0.40, 0.05, 0.10, 0.15, 0.10, 0.05, 0.20, 1.00, 0.25], // imv
+  [ 0.45, 0.40, 0.10, 0.20, 0.10,-0.05, 0.10, 0.05, 0.05, 0.30, 0.25, 1.00]  // agr
 ];
 // Constroi matriz de covariancia: cov[i][j] = cor[i][j] * vol[i] * vol[j]
 function mptCovar(){
@@ -749,13 +836,58 @@ function mkL(cu){
   return {ccy,cls,lbl};
 }
 const isImv=t=>typeof t==="string"&&t.startsWith("IMV_");
-function pv(t,p,ccy){
+// Helper para identificar NTN-B Principal
+function isNTNB(t){return typeof t==="string"&&t.startsWith("NTNB-");}
+// Calcula valor a mercado de uma posicao NTN-B
+// Estrategia: MtM = quantidade * PU_atual_mercado(taxa_atual,vencimento)
+// Fallback: valor de carrego se nao tiver taxa de mercado
+// p deve conter: qty, puCompra, taxaCompra, dataCompra
+// ntnbTaxas[t] = {taxaBrutaVenda, taxaBrutaCompra, puVenda, puCompra, ts}
+function pvNTNB(t,p,ntnbTaxas,vnaAtual){
+  if(!p||!p.qty)return 0;
+  const vna=vnaAtual||NTNB_VNA_BASE;
+  const vencISO=NTNB_VENCIMENTOS[t];
+  if(!vencISO)return (p.qty||0)*(p.puCompra||0);
+  const anosRest=anosAteVenc(vencISO);
+  // 1. Tenta usar PU de mercado direto da API
+  if(ntnbTaxas&&ntnbTaxas[t]&&ntnbTaxas[t].puVenda>0){
+    return (p.qty||0)*ntnbTaxas[t].puVenda;
+  }
+  // 2. Calcula PU teorico via taxa de venda atual
+  if(ntnbTaxas&&ntnbTaxas[t]&&ntnbTaxas[t].taxaBrutaVenda>0){
+    const pu=calcPUTeorico(vna,ntnbTaxas[t].taxaBrutaVenda,anosRest);
+    return (p.qty||0)*pu;
+  }
+  // 3. Fallback: valor de carrego (PU compra crescido pela taxa de aquisicao)
+  const dataC=p.dataCompra?new Date(p.dataCompra):new Date();
+  const anosDecorridos=Math.max(0,(new Date()-dataC)/(365.25*86400000));
+  if(p.puCompra>0&&p.taxaCompra>0){
+    return (p.qty||0)*calcPUCarrego(p.puCompra,p.taxaCompra,anosDecorridos);
+  }
+  // 4. Ultimo recurso: PU de compra original
+  return (p.qty||0)*(p.puCompra||0);
+}
+// Valor de carrego ate o vencimento (cenario: levar ate o fim)
+function pvNTNBCarrego(t,p,vnaAtual){
+  if(!p||!p.qty)return 0;
+  const vna=vnaAtual||NTNB_VNA_BASE;
+  const vencISO=NTNB_VENCIMENTOS[t];
+  const dataC=p.dataCompra?new Date(p.dataCompra):new Date();
+  const anosDecorridos=Math.max(0,(new Date()-dataC)/(365.25*86400000));
+  if(p.puCompra>0&&p.taxaCompra>0){
+    return (p.qty||0)*calcPUCarrego(p.puCompra,p.taxaCompra,anosDecorridos);
+  }
+  return (p.qty||0)*(p.puCompra||0);
+}
+
+function pv(t,p,ccy,ntnbTaxas,vnaAtual){
   if(!p)return 0;
+  if(isNTNB(t))return pvNTNB(t,p,ntnbTaxas,vnaAtual);
   if(VB.includes(t)||isImv(t))return p.totalBRL||0;
   if(GB.includes(t))return(p.qty||0)*(p.price||0);
   return(p.qty||0)*(p.price||0)*(FX[ccy[t]||"BRL"]||1);
 }
-function hq(t,p){if(!p)return false;if(VB.includes(t)||isImv(t))return(p.totalBRL||0)>0;return(p.qty||0)>0;}
+function hq(t,p){if(!p)return false;if(isNTNB(t))return(p.qty||0)>0;if(VB.includes(t)||isImv(t))return(p.totalBRL||0)>0;return(p.qty||0)>0;}
 const fB=v=>new Intl.NumberFormat("pt-BR",{style:"currency",currency:"BRL"}).format(v||0);
 const fN=(v,d=2)=>(v||0).toLocaleString("pt-BR",{minimumFractionDigits:d,maximumFractionDigits:d});
 const pc=v=>(v||0).toFixed(1)+"%";
@@ -2204,6 +2336,172 @@ function KeyScreen({onSave}){
   );
 }
 
+// ============= FETCH DE TAXAS NTN-B =============
+// Tenta multiplas fontes publicas e retorna mapa de taxas por ticker.
+// DESCOBERTA DINAMICA: aprende automaticamente novos vencimentos NTN-B Principal
+// (sem cupom semestral) ofertados pelo Tesouro, sem precisar editar lista fixa no codigo.
+// Resultado: {taxas:{...}, vencimentos:{ticker:dataISO}, vna, ts, fonte}
+async function fetchNTNBTaxas(){
+  const proxies=[
+    u=>"https://corsproxy.io/?url="+encodeURIComponent(u),
+    u=>"https://api.allorigins.win/raw?url="+encodeURIComponent(u),
+    u=>"https://api.codetabs.com/v1/proxy/?quest="+encodeURIComponent(u)
+  ];
+  // Fonte 1: radaropcoes.com (mirror do JSON antigo da B3/TD)
+  // Estrutura: {response:{TrsrBdTradgList:[{TrsrBd:{nm,featrs,untrInvstmtVal,untrRedVal,anulInvstmtRate,anulRedRate,mtrtyDt,...}}]}}
+  const urlRadar="https://api.radaropcoes.com/bonds.json";
+  for(const proxyFn of proxies){
+    try{
+      const ctrl=new AbortController();
+      const tid=setTimeout(()=>ctrl.abort(),8000);
+      const r=await fetch(proxyFn(urlRadar),{signal:ctrl.signal});
+      clearTimeout(tid);
+      if(!r.ok)continue;
+      const text=await r.text();
+      if(!text||text.toLowerCase().includes("host not in allowlist"))continue;
+      const parsed=JSON.parse(text);
+      const lista=parsed&&parsed.response&&parsed.response.TrsrBdTradgList;
+      if(!Array.isArray(lista)||lista.length===0)continue;
+      // Mapeia "Tesouro IPCA+ 2029" -> "NTNB-2029" - DESCOBRE TODOS automaticamente
+      const taxas={};
+      const vencimentos={};
+      const now=Date.now();
+      lista.forEach(item=>{
+        const tb=item.TrsrBd;
+        if(!tb||!tb.nm)return;
+        const nm=tb.nm.toLowerCase();
+        // FILTRO CRITICO: APENAS NTN-B Principal (sem cupom semestral)
+        // Exclui: "Tesouro IPCA+ com Juros Semestrais", "Tesouro Prefixado", "Tesouro Selic", "Renda+", "Educa+"
+        if(!nm.includes("ipca"))return;
+        if(nm.includes("juros semestrais")||nm.includes("juros semestral")||nm.includes("com juros"))return;
+        if(nm.includes("renda+")||nm.includes("educa+"))return;
+        // Extrai ano do vencimento do NOME
+        const matchYear=tb.nm.match(/(20\d{2})/);
+        if(!matchYear)return;
+        const ano=matchYear[1];
+        const tk="NTNB-"+ano;
+        // anulRedRate / anulInvstmtRate em formato decimal (0.0625 = 6.25%)
+        // Cuidado: as vezes vem como percentual (6.25 ao inves de 0.0625)
+        const norm=(v)=>{const n=parseFloat(v);if(!isFinite(n))return 0;return n>1?n/100:n;};
+        // Data de vencimento real (formato ISO 8601 ou dd/MM/yyyy)
+        let dataVencISO=null;
+        if(tb.mtrtyDt){
+          // Pode vir como "2035-05-15T00:00:00" ou "15/05/2035"
+          if(/^\d{4}-\d{2}-\d{2}/.test(tb.mtrtyDt)){
+            dataVencISO=tb.mtrtyDt.substring(0,10);
+          }else if(/^\d{2}\/\d{2}\/\d{4}/.test(tb.mtrtyDt)){
+            const [d,m,y]=tb.mtrtyDt.split("/");
+            dataVencISO=y+"-"+m+"-"+d;
+          }
+        }
+        // Fallback: usa o ano + datas tradicionais (NTN-B vence em 15/05 ou 15/08)
+        if(!dataVencISO){
+          // Heuristica: NTN-B 2029, 2035, 2045 = 15/05; NTN-B 2040, 2050, 2060 = 15/08
+          // Para novos vencimentos sem mtrtyDt, usa 15/05 como default (mais comum)
+          dataVencISO=ano+"-05-15";
+        }
+        vencimentos[tk]=dataVencISO;
+        taxas[tk]={
+          taxaBrutaCompra:norm(tb.anulInvstmtRate),
+          taxaBrutaVenda:norm(tb.anulRedRate),
+          puCompra:parseFloat(tb.untrInvstmtVal)||0,
+          puVenda:parseFloat(tb.untrRedVal)||0,
+          nome:tb.nm,
+          ts:now
+        };
+      });
+      if(Object.keys(taxas).length>0){
+        return {taxas,vencimentos,vna:null,ts:now,fonte:"radaropcoes"};
+      }
+    }catch(e){continue;}
+  }
+  return null;
+}
+
+// ============= COMPONENTE: Card Tesouro Direto / NTN-B =============
+// Mostra todos os titulos NTN-B Principal ofertados com taxa bruta/liquida atual e sinalizacao
+function TesouroNTNBCard({ntnbTaxas,ntnbVNA,ntnbUpdTs,ntnbStatus,onRefresh,port,onTaxaManual}){
+  const tickers=Object.keys(NTNB_VENCIMENTOS);
+  const taxaLiq=(b)=>b?taxaLiquidaIR(b):0;
+  // Sinalizacao por taxa LIQUIDA
+  const sinal=(liq)=>{
+    if(!liq||liq<=0)return {cor:"#5A5550",icon:"-",texto:"sem dados",bg:"rgba(255,255,255,0.03)"};
+    if(liq>=0.06)return {cor:"#5DBF82",icon:"\u25CF",texto:"SINAL FORTE",bg:"rgba(93,191,130,0.15)"};
+    if(liq>=0.05)return {cor:"#E8C97A",icon:"\u25CB",texto:"ALOCAR",bg:"rgba(232,201,122,0.12)"};
+    return {cor:"#9A9080",icon:"\u25C7",texto:"piso 3%",bg:"rgba(255,255,255,0.02)"};
+  };
+  const tsStr=ntnbUpdTs?new Date(ntnbUpdTs).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):"nunca";
+
+  return h("div",{style:{marginBottom:20,paddingTop:14,borderTop:"1px solid rgba(255,255,255,0.05)"}},
+    h("div",{style:{display:"flex",alignItems:"baseline",justifyContent:"space-between",marginBottom:4,flexWrap:"wrap",gap:6}},
+      h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase"}},"Tesouro IPCA+ - taxas atuais"),
+      h("button",{onClick:onRefresh,style:{padding:"3px 10px",background:"transparent",border:"1px solid rgba(200,169,110,0.40)",borderRadius:4,color:"#C8A96E",fontSize:9,fontFamily:"monospace",cursor:"pointer",letterSpacing:1}},"\u21BB atualizar")
+    ),
+    h("div",{style:{fontSize:9,color:"#5A5550",marginBottom:10,fontStyle:"italic"}},
+      "Taxas LIQUIDAS de IR (15% para holders > 720 dias) - referencia para alocacao. ",
+      h("span",{style:{color:"#7A7060"}},"Atualizado: "+tsStr)
+    ),
+    // Cabecalho
+    h("div",{style:{display:"grid",gridTemplateColumns:"1fr 0.9fr 0.9fr 1fr 0.8fr",gap:8,padding:"6px 8px",background:"rgba(0,0,0,0.20)",borderRadius:4,fontSize:7,color:"#7A7060",fontFamily:"monospace",letterSpacing:1,fontWeight:700,marginBottom:4}},
+      h("div",{},"VENCIMENTO"),
+      h("div",{style:{textAlign:"right"}},"TAXA BRUTA"),
+      h("div",{style:{textAlign:"right"}},"LIQ. IR (15%)"),
+      h("div",{style:{textAlign:"right"}},"PU VENDA"),
+      h("div",{style:{textAlign:"center"}},"SINAL")
+    ),
+    // Linhas dos titulos
+    ...tickers.map(t=>{
+      const taxas=ntnbTaxas&&ntnbTaxas[t]?ntnbTaxas[t]:null;
+      const brutaVenda=taxas?taxas.taxaBrutaVenda:0;
+      const liqVenda=taxaLiq(brutaVenda);
+      const s=sinal(liqVenda);
+      const possui=port[t]&&port[t].qty>0;
+      const venc=NTNB_VENCIMENTOS[t];
+      const anos=anosAteVenc(venc).toFixed(1);
+      return h("div",{key:t,style:{display:"grid",gridTemplateColumns:"1fr 0.9fr 0.9fr 1fr 0.8fr",gap:8,alignItems:"center",padding:"7px 8px",background:s.bg,borderLeft:possui?"2px solid #C8A96E":"2px solid transparent",borderRadius:3,marginBottom:3,fontSize:10}},
+        h("div",{style:{color:"#E8DCC0",fontFamily:"Georgia,serif",fontWeight:possui?700:400}},
+          h("div",{},"IPCA+ "+t.split("-")[1]),
+          h("div",{style:{fontSize:7,color:"#6B6055",fontStyle:"italic",fontFamily:"monospace"}},anos+" anos")
+        ),
+        h("div",{style:{textAlign:"right",color:brutaVenda?"#C8A96E":"#5A5550",fontFamily:"monospace"}},
+          brutaVenda?"IPCA+"+(brutaVenda*100).toFixed(2)+"%":"-"
+        ),
+        h("div",{style:{textAlign:"right",color:liqVenda?s.cor:"#5A5550",fontFamily:"monospace",fontWeight:700}},
+          liqVenda?"IPCA+"+(liqVenda*100).toFixed(2)+"%":"-"
+        ),
+        h("div",{style:{textAlign:"right",color:"#9A9080",fontFamily:"monospace",fontSize:9}},
+          taxas&&taxas.puVenda?"R$ "+taxas.puVenda.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2}):"-"
+        ),
+        h("div",{style:{textAlign:"center",color:s.cor,fontFamily:"monospace",fontSize:7,fontWeight:700,letterSpacing:0.5}},
+          h("span",{style:{fontSize:11}},s.icon),
+          h("div",{},s.texto)
+        )
+      );
+    }),
+    // Legenda
+    h("div",{style:{marginTop:8,padding:"6px 8px",background:"rgba(0,0,0,0.15)",borderRadius:4,fontSize:8,color:"#7A7060",fontFamily:"monospace",lineHeight:1.6}},
+      h("div",{},h("span",{style:{color:"#5DBF82",fontWeight:700}},"\u25CF SINAL FORTE")," : taxa LIQ \u2265 IPCA+6% \u2192 reforco de alocacao acima do piso"),
+      h("div",{},h("span",{style:{color:"#E8C97A",fontWeight:700}},"\u25CB ALOCAR")," : taxa LIQ \u2265 IPCA+5% \u2192 alocar acima do piso de 3%"),
+      h("div",{},h("span",{style:{color:"#9A9080",fontWeight:700}},"\u25C7 piso 3%")," : taxa LIQ < IPCA+5% \u2192 manter apenas o piso estrategico")
+    ),
+    ntnbStatus&&h("div",{style:{marginTop:6,fontSize:8,color:"#7A7060",fontFamily:"monospace",fontStyle:"italic"}},ntnbStatus),
+    // Botao de entrada manual
+    h("details",{style:{marginTop:8,padding:"6px 10px",background:"rgba(0,0,0,0.15)",border:"1px solid rgba(200,169,110,0.15)",borderRadius:4}},
+      h("summary",{style:{fontSize:9,color:"#C8A96E",fontFamily:"monospace",cursor:"pointer",letterSpacing:1}},"\u270E inserir taxa manualmente (fallback)"),
+      h("div",{style:{marginTop:8,fontSize:9,color:"#9A9080",fontFamily:"monospace",lineHeight:1.6}},
+        "Use a taxa BRUTA (% a.a. acima de IPCA) divulgada no Tesouro Direto. Ex: 6.50 para IPCA+6,50%."
+      ),
+      ...tickers.map(t=>h("div",{key:t,style:{display:"flex",alignItems:"center",gap:8,marginTop:5}},
+        h("span",{style:{fontSize:9,color:"#9A9080",fontFamily:"monospace",minWidth:90}},"IPCA+ "+t.split("-")[1]+":"),
+        h("input",{type:"number",step:"0.01",placeholder:"6.50",defaultValue:ntnbTaxas&&ntnbTaxas[t]&&ntnbTaxas[t].taxaBrutaVenda?(ntnbTaxas[t].taxaBrutaVenda*100).toFixed(2):"",onBlur:e=>{
+          const v=parseFloat(e.target.value);
+          if(isFinite(v)&&v>0&&v<25)onTaxaManual(t,v/100);
+        },style:{flex:1,padding:"4px 8px",background:"rgba(0,0,0,0.30)",border:"1px solid rgba(200,169,110,0.25)",borderRadius:3,color:"#C8A96E",fontFamily:"monospace",fontSize:10}})
+      ))
+    )
+  );
+}
+
 function App(){
   const [apiKey,setApiKeyS]=useState("");
   const [brapiKey,setBrapiKeyS]=useState("");
@@ -2231,6 +2529,9 @@ function App(){
   const [editA,setEditA]=useState(null);
   const [eQty,setEQty]=useState("");
   const [ePrice,setEPrice]=useState("");
+  // Estados extras para edicao de NTN-B
+  const [eTaxaCompra,setETaxaCompra]=useState("");// taxa de aquisicao (ex: 6.30 para IPCA+6.30%)
+  const [eDataCompra,setEDataCompra]=useState("");// ISO date string
   const [showHid,setShowHid]=useState(false);
   const [addTo,setAddTo]=useState(null);
   const [nTick,setNTick]=useState("");
@@ -2243,6 +2544,16 @@ function App(){
   const [step,setStep]=useState("r");
   const [hist,setHist]=useState([]);
   const [histMensal,setHistMensal]=useState([]);// snapshots consolidados por mes (1 por mes, sem limite)
+  // ====== NTN-B / Tesouro IPCA+ ======
+  // ntnbTaxas: {ticker: {taxaBrutaCompra, taxaBrutaVenda, puCompra, puVenda, ts}}
+  // ts = timestamp da ultima atualizacao (epoch ms)
+  const [ntnbTaxas,setNtnbTaxas]=useState({});
+  // VNA atual da NTN-B - atualizado via API ou manual (R$ que comecou em 1000 em 15/07/2000)
+  const [ntnbVNA,setNtnbVNA]=useState(NTNB_VNA_BASE);
+  // Timestamp ultima atualizacao taxas NTN-B
+  const [ntnbUpdTs,setNtnbUpdTs]=useState(0);
+  // Status do fetch das taxas
+  const [ntnbStatus,setNtnbStatus]=useState("");
   // Series mensais dos indices comparativos: {"YYYY-MM": {ibov, ifix, cdi, imab, sp500, nasdaq, poupanca}}
   const [idxMensal,setIdxMensal]=useState({});
   // Insight mensal IA: {mes:"YYYY-MM", texto:"...", ts:123456}
@@ -2544,6 +2855,14 @@ function App(){
         if(dd.infIGPM&&typeof dd.infIGPM==="object")setInfIGPM(dd.infIGPM);
         if(dd.infINCC&&typeof dd.infINCC==="object")setInfINCC(dd.infINCC);
         if(dd.infCPI&&typeof dd.infCPI==="object")setInfCPI(dd.infCPI);
+        // NTN-B taxas e VNA
+        if(dd.ntnbTaxas&&typeof dd.ntnbTaxas==="object")setNtnbTaxas(dd.ntnbTaxas);
+        if(typeof dd.ntnbVNA==="number"&&dd.ntnbVNA>0)setNtnbVNA(dd.ntnbVNA);
+        if(typeof dd.ntnbUpdTs==="number")setNtnbUpdTs(dd.ntnbUpdTs);
+        // Vencimentos NTN-B previamente descobertos via API (alem da lista inicial hardcoded)
+        if(dd.ntnbVencimentos&&typeof dd.ntnbVencimentos==="object"){
+          mesclarVencimentosNTNB(dd.ntnbVencimentos);
+        }
       }
       // Carrega API key criptografada
       const k=await loadApiKey(aesKey);
@@ -2562,12 +2881,12 @@ function App(){
     if(!inited||!aesKey)return;
     (async()=>{
       try{
-        const obj={port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,selicAtual,metaMensalIF,cenarioIPCA,dataNascimento,insightRenda,insightRendaTs,insightRendaSnap,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,piCycle,nupl,goldSilver,goldSP500,realGoldZ,fx:{...FX},btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,insightSnap,infIPCA,infIGPM,infINCC,infCPI};
+        const obj={port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,selicAtual,metaMensalIF,cenarioIPCA,dataNascimento,insightRenda,insightRendaTs,insightRendaSnap,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,piCycle,nupl,goldSilver,goldSP500,realGoldZ,fx:{...FX},btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,insightSnap,infIPCA,infIGPM,infINCC,infCPI,ntnbTaxas,ntnbVNA,ntnbUpdTs,ntnbVencimentos:{...NTNB_VENCIMENTOS}};
         const enc=await aesEncrypt(aesKey,obj);
         localStorage.setItem(SK_ENC,enc);
       }catch(e){}
     })();
-  },[port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,selicAtual,metaMensalIF,cenarioIPCA,dataNascimento,insightRenda,insightRendaTs,insightRendaSnap,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,piCycle,nupl,goldSilver,goldSP500,realGoldZ,btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,insightSnap,infIPCA,infIGPM,infINCC,infCPI,inited,aesKey]);
+  },[port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,selicAtual,metaMensalIF,cenarioIPCA,dataNascimento,insightRenda,insightRendaTs,insightRendaSnap,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,piCycle,nupl,goldSilver,goldSP500,realGoldZ,btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,insightSnap,infIPCA,infIGPM,infINCC,infCPI,ntnbTaxas,ntnbVNA,ntnbUpdTs,inited,aesKey]);
 
   // Auto-lock por inatividade (15 min)
   useEffect(()=>{
@@ -3239,6 +3558,34 @@ function App(){
         setIdxMensal(prev=>({...prev,...novoIdx}));
       }
     })();
+    // ====== FETCH TAXAS NTN-B ======
+    // Tenta atualizar a cada montagem (24h) e a cada 6h se inited
+    (async()=>{
+      if(cancelado)return;
+      // So busca se faz > 6 horas da ultima atualizacao OU se nunca buscou
+      const seisHoras=6*3600*1000;
+      if(ntnbUpdTs&&(Date.now()-ntnbUpdTs)<seisHoras)return;
+      await new Promise(r=>setTimeout(r,4000));// aguarda 4s para nao competir com outras requisicoes
+      if(cancelado)return;
+      setNtnbStatus("buscando...");
+      try{
+        const res=await fetchNTNBTaxas();
+        if(cancelado)return;
+        if(res&&res.taxas&&Object.keys(res.taxas).length>0){
+          // Descoberta dinamica: mescla qualquer vencimento novo retornado pela API
+          if(res.vencimentos)mesclarVencimentosNTNB(res.vencimentos);
+          setNtnbTaxas(res.taxas);
+          setNtnbUpdTs(res.ts);
+          if(res.vna&&res.vna>0)setNtnbVNA(res.vna);
+          const qtVenc=Object.keys(NTNB_VENCIMENTOS).length;
+          setNtnbStatus("atualizado: "+new Date(res.ts).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})+" - "+qtVenc+" vencimentos disponiveis via "+res.fonte);
+        }else{
+          setNtnbStatus("nao foi possivel buscar - tente manualmente");
+        }
+      }catch(e){
+        setNtnbStatus("erro: "+(e.message||"desconhecido"));
+      }
+    })();
     return()=>{cancelado=true;};
   },[inited,bgKey]);
 
@@ -3255,10 +3602,10 @@ function App(){
 
   const stats=useCallback(()=>{
     let total=0;const ct={};CL.forEach(c=>{ct[c.id]=0;});
-    Object.entries(port).forEach(([t,p])=>{const v=pv(t,p,ccy);if(!v)return;total+=v;const cid=p.classId||cls[t];if(cid)ct[cid]=(ct[cid]||0)+v;});
+    Object.entries(port).forEach(([t,p])=>{const v=pv(t,p,ccy,ntnbTaxas,ntnbVNA);if(!v)return;total+=v;const cid=p.classId||cls[t];if(cid)ct[cid]=(ct[cid]||0)+v;});
     const cw={};CL.forEach(c=>{cw[c.id]=total>0?(ct[c.id]/total)*100:0;});
     return {total,ct,cw};
-  },[port,ccy,cls]);
+  },[port,ccy,cls,ntnbTaxas,ntnbVNA]);
   const {total,ct,cw}=stats();
   const hasPos=Object.entries(port).some(([t,p])=>hq(t,p));
 
@@ -3653,12 +4000,23 @@ function App(){
 
   const openEdit=(ticker,classId)=>{
     const p=port[ticker]||{};setEditA({ticker,classId});
-    if(VB.includes(ticker)){setEQty(p.totalBRL!=null?String(p.totalBRL):"");setEPrice("");}
+    if(isNTNB(ticker)){
+      setEQty(p.qty!=null?String(p.qty):"");
+      setEPrice(p.puCompra!=null?String(p.puCompra):"");// reaproveita ePrice para puCompra
+      setETaxaCompra(p.taxaCompra!=null?String((p.taxaCompra*100).toFixed(4)).replace(/\.?0+$/,""):"");
+      setEDataCompra(p.dataCompra?p.dataCompra.substring(0,10):new Date().toISOString().substring(0,10));
+    }
+    else if(VB.includes(ticker)){setEQty(p.totalBRL!=null?String(p.totalBRL):"");setEPrice("");}
     else{setEQty(p.qty!=null?String(p.qty):"");setEPrice(p.price!=null?String(p.price):"");}
   };
   const saveEdit=()=>{
     if(!editA)return;const{ticker,classId}=editA;
-    if(VB.includes(ticker)){const v=pN(eQty);setPort(prev=>({...prev,[ticker]:{...prev[ticker],classId,totalBRL:v,qty:1,price:v}}));}
+    if(isNTNB(ticker)){
+      const qty=pN(eQty),puCompra=pN(ePrice),taxaCompra=pN(eTaxaCompra)/100;
+      const dataCompra=eDataCompra?new Date(eDataCompra+"T12:00:00").toISOString():new Date().toISOString();
+      setPort(prev=>({...prev,[ticker]:{...prev[ticker],classId,qty,puCompra,taxaCompra,dataCompra,price:puCompra}}));
+    }
+    else if(VB.includes(ticker)){const v=pN(eQty);setPort(prev=>({...prev,[ticker]:{...prev[ticker],classId,totalBRL:v,qty:1,price:v}}));}
     else{const qty=pN(eQty),price=pN(ePrice);setPort(prev=>({...prev,[ticker]:{...prev[ticker],classId,qty,price}}));}
     setEditA(null);
   };
@@ -3946,6 +4304,21 @@ function App(){
       const classesAporte=CL.filter(c=>c.id!=="imoveis");
       const ci=classesAporte.map(c=>({id:c.id,name:c.name,min:c.min,max:c.max,peso:cw[c.id]||0,
         ativos:allT(c.id).map(t=>{const p=port[t],cc=ccy[t]||"BRL";
+          if(isNTNB(t)){
+            const tx=ntnbTaxas&&ntnbTaxas[t]?ntnbTaxas[t]:null;
+            const vRest=NTNB_VENCIMENTOS[t]?anosAteVenc(NTNB_VENCIMENTOS[t]).toFixed(1):"-";
+            return{
+              ticker:t,
+              moeda:"BRL",
+              qtd:p?p.qty||0:0,
+              puCompra:p?p.puCompra||0:0,
+              taxaCompra:p?(p.taxaCompra*100||0):0,
+              taxaBrutaMercado:tx?(tx.taxaBrutaVenda*100||0):0,
+              taxaLiqMercado:tx?(taxaLiquidaIR(tx.taxaBrutaVenda)*100||0):0,
+              anosAteVenc:vRest,
+              valorBRL:p?pv(t,p,ccy,ntnbTaxas,ntnbVNA):0
+            };
+          }
           if(VB.includes(t))return{ticker:t,moeda:"BRL",valorBRL:p?p.totalBRL||0:0};
           if(GB.includes(t))return{ticker:t,moeda:"BRL/g",valorBRL:p?(p.qty||0)*(p.price||0):0};
           return p?{ticker:t,moeda:cc,qtd:p.qty,preco:p.price||0,valorBRL:(p.qty||0)*(p.price||0)*(FX[cc]||1)}:{ticker:t,moeda:cc};
@@ -4069,7 +4442,7 @@ function App(){
         "4) Se a Eficiencia de Sharpe Esperado estiver baixa (<50/100), o portfolio carrega risco sem retorno proporcional - reduzir exposicao em classes com Sharpe individual ruim no atual regime de Selic.\\n"+
         "5) Voce DECIDE como balancear MPT (retorno otimo) vs AW (resiliencia macro) vs HHI (diversificacao) conforme o cenario atual - explique brevemente no campo 'estrategia_macro' do veredito.\\n";
 
-      const msg="Analista Buy&Hold aposentadoria rigoroso, filosofia 'quality at a reasonable price' (Charlie Munger, Terry Smith). PORTFOLIO:"+JSON.stringify(ci)+"\\nAPORTE:R$"+v+"\\nPATRIMONIO_TOTAL:R$"+Math.round(total)+"\\nINDICADORES_TECNICOS_MACRO: {mvrvZ:"+(typeof mvrvZ==="number"?mvrvZ.toFixed(2):"null")+", piCycleRatio:"+(piCycle&&typeof piCycle.ratio==="number"?piCycle.ratio.toFixed(3):"null")+", piCycleTopSignal:"+(piCycle&&piCycle.isTopSignal?"true":"false")+", nupl:"+(typeof nupl==="number"?nupl.toFixed(3):"null")+", goldSilverRatio:"+(typeof goldSilver==="number"?goldSilver.toFixed(1):"null")+", goldSP500Ratio:"+(typeof goldSP500==="number"?goldSP500.toFixed(3):"null")+", realGoldZScore:"+(typeof realGoldZ==="number"?realGoldZ.toFixed(2):"null")+", xauVar90d:"+(typeof xauVar==="number"?(xauVar*100).toFixed(1)+"%":"null")+", btcVar90d:"+(typeof btcVar==="number"?(btcVar*100).toFixed(1)+"%":"null")+", selicAtual:"+(typeof selicAtual==="number"?selicAtual.toFixed(2)+"%":"null")+"}\\n\\nFILOSOFIA DE INVESTIMENTO DO INVESTIDOR (RESPEITAR INTEGRALMENTE):\\n1) Foco PRIMARIO em QUALIDADE do ativo: vantagem competitiva durável, capacidade de geração de caixa consistente, ROE/ROIC elevados e estáveis, gestão competente e alinhada, baixo risco de descontinuidade do negócio. Para FIIs: gestão experiente, ativos premium, vacância controlada, inquilinos AAA. Para infra/Fiagros: ativos estratégicos, contratos longos, baixo risco regulatório/operacional.\\n2) Aceitar pagar preço JUSTO por excelência: nao buscar pechincha cega. Preferir um ativo de qualidade no preço justo a um medíocre descontado. Value trap (negocio em decadencia barato) é o pior erro: evitar tickers cujo desconto reflete deterioração estrutural.\\n3) Preferencia natural: qualidade + desconto razoavel quando ambos estão disponíveis. Mas se nao houver desconto, qualidade no preço justo é aceitável.\\n4) Aportes contínuos: o tempo dilui pontos de entrada (dollar cost averaging). Não esperar minima absoluta de preço (que pode nunca chegar).\\n5) Disciplina anti-bolha: NUNCA pagar preço claramente acima de fundamentos que nao se justifique.\\n\\nDISCIPLINA SWENSEN/YALE (REBALANCEAMENTO CONTRACICLICO) - PRINCIPIO COMPLEMENTAR:\\nO investidor adota a filosofia Swensen/Yale Endowment de rebalanceamento disciplinado contraciclo. Como B&H rigoroso (zero vendas), o rebalanceamento e feito EXCLUSIVAMENTE via direcao dos aportes mensais. Aplique este principio na alocacao:\\n1) Identifique classes ABAIXO do alvo (campo 'peso' < ponto medio de min/max): essas classes estao 'compradas com desconto relativo' (caso queda) ou 'sub-representadas' (caso novo capital). Receberao aporte MAIOR proporcionalmente.\\n2) Identifique classes ACIMA do alvo (campo 'peso' > max): aporte deve ser REDUZIDO ou apenas o piso, permitindo que o portfolio retorne ao alvo gradualmente sem vendas.\\n3) Em ambientes de stress (acoes caindo > 10% no mes), a logica contraciclica de Swensen INTENSIFICA: aporte agressivo nas classes que caíram mais, ate o limite do drift natural.\\n4) Em ambientes de euforia (acoes em maximas historicas, multiplos esticados), a disciplina Swensen RESTRINGE: ate classes abaixo do alvo recebem aporte cauteloso se os fundamentos nao justificarem.\\nEsta disciplina e complementar aos criterios de qualidade e preco - nao os substitui. Mencione no 'estrategia_macro' quando ela for relevante para a decisao.\\n\\nREGRAS OPERACIONAIS RIGIDAS (devem sempre ser respeitadas): zero vendas; todas 9 classes que recebem aporte (FII,BR,EXT,REIT,SEL,TRE,XAU,BTC,INF,AGRO) recebem PISO MINIMO de 3% do macroaporte; priorizar classes abaixo do alvo; IMOVEIS nao recebem aporte; NENHUM ticker individual pode passar de 5% do patrimonio apos aporte (limite duro inviolavel).\\n\\nREGRA ESPECIAL TREASURIES (TRE):\\nA classe Treasuries e composta por APENAS 3 ETFs com PESOS-ALVO INTERNOS pre-definidos pelo investidor:\\n- TLT (40% da classe): hedge anti-crash de equity, duration ~17 anos. Funcao: amortecimento em crises deflacionarias/recessivas (sobe quando equity cai forte). Sofre em ciclos de alta de juros (ex: 2022).\\n- IEF (20% da classe): amortecedor de volatilidade, duration ~7.5 anos. Funcao: descorrelacao moderada com equity, menor vol que TLT.\\n- VTIP (40% da classe): protecao inflacionaria pura, duration ~2.5 anos. Funcao: hedge contra inflacao americana SEM o onus de duration alta (em 2022 caiu so -3% enquanto TIP/TLT cairam 12-31%).\\n\\nA composicao 40/20/40 traduz objetivos do investidor: hedge anti-crash (TLT) + amortecimento (IEF) + protecao inflacionaria (VTIP). NAO sugerir outros ETFs (TIP, VGLT, GOVT, SCHQ, SCHP, STIP) - foram explicitamente excluidos pelo investidor.\\n\\nCRITERIO DE PRECO PARA TREASURIES: NAO sao avaliados por fundamentos tradicionais (P/L, DY, P/VPA). O criterio de 'preco favoravel' e o YIELD ATUAL:\\n- Para TLT/IEF (nominais): Treasury 10Y yield > 4.5% e EXCELENTE, 3.5-4.5% ATRATIVO, 2-3.5% NEUTRO, <2% CARO (piso 3%)\\n- Para VTIP (TIPS): yield real >2% e EXCELENTE, 1-2% ATRATIVO, <1% NEUTRO, <0 CARO\\n\\nESTRATEGIA DE ALOCACAO DENTRO DA CLASSE:\\nQuando alocar para a classe Treasuries, distribuir o valor seguindo PRINCIPALMENTE os pesos-alvo (40% TLT + 20% IEF + 40% VTIP), com pequenos ajustes para rebalanceamento se algum ETF estiver muito acima ou abaixo do seu peso-alvo interno.\\n\\nEx: Se a classe receber R$ 5.000 e os pesos atuais dos 3 ETFs estao em 35/22/43 (vs alvo 40/20/40), distribuir o aporte priorizando TLT (que esta abaixo do alvo) e reduzindo VTIP (que esta acima): TLT R$ 2.500 (50%), IEF R$ 1.000 (20%), VTIP R$ 1.500 (30%).\\n\\nNo ranking dos 3 ETFs, sempre incluir os 3 - mesmo que com valores diferentes para rebalanceamento. Limite de 5% por ativo continua valendo individualmente para cada ETF.\\n\\nREGRA ESPECIAL BITCOIN E OURO (CRITERIOS TECNICOS PRE-ESTABELECIDOS COM MULTIPLAS METRICAS):\\nBitcoin e Ouro NAO sao avaliados por fundamentos tradicionais. Use as seguintes metricas para julgar se merecem aporte cheio ou apenas piso 3%. LOGICA DE PRECAUCAO: se QUALQUER UMA das metricas indicar zona de risco extremo, aplicar piso 3% automaticamente.\\n\\n=> BITCOIN (3 metricas):\\n\\n(1) MVRV-Z Score (campo 'mvrvZ' nos indicadores):\\n  * < 0: fundo de ciclo - APORTE CHEIO\\n  * 0 a 2: neutro - APORTE NORMAL\\n  * 2 a 4: expansao - APORTE PARCIAL\\n  * >= 4: SOBREVALORIZACAO/TOPO -> ZONA DE RISCO EXTREMO\\n\\n(2) Pi Cycle Top (campo 'piCycleRatio' e 'piCycleTopSignal'):\\n  * Ratio < 0.7: longe do topo - OK\\n  * Ratio 0.7 a 0.95: aproximando - atencao\\n  * Ratio >= 1.0 OU piCycleTopSignal=true: SINAL HISTORICO DE TOPO -> ZONA DE RISCO EXTREMO\\n  (Pi Cycle acertou TODOS os topos historicos do BTC: 2013, 2017, 2021)\\n\\n(3) NUPL - Net Unrealized Profit/Loss (campo 'nupl'):\\n  * < 0: Capitulacao - APORTE FORTE\\n  * 0 a 0.25: Esperanca/Medo - APORTE NORMAL\\n  * 0.25 a 0.50: Otimismo - neutro\\n  * 0.50 a 0.75: Crenca - atencao\\n  * >= 0.75: EUFORIA -> ZONA DE RISCO EXTREMO\\n\\nDECISAO BITCOIN (PRECAUCAO): Se QUALQUER UMA das 3 metricas estiver em ZONA DE RISCO EXTREMO (MVRV-Z>=4 OU piCycleTopSignal=true OU NUPL>=0.75), aplicar PISO 3% + excedente Selic 2031. Justificar EXPLICITAMENTE no resumo, porque_essa_posicao e estrategia_macro QUAL(IS) metrica(s) acionou a regra. Se metricas estiverem em null/desconhecidas, IGNORE-AS (nao tratar como risco).\\n\\n=> OURO XAU (3 metricas):\\n\\n(1) Gold-Silver Ratio (campo 'goldSilverRatio'):\\n  * < 40: prata muito cara vs ouro - OK\\n  * 40 a 70: equilibrio historico - OK\\n  * 70 a 85: ouro caro vs prata - atencao\\n  * >= 85: OURO SUPERVALORIZADO VS METAIS -> ZONA DE RISCO EXTREMO\\n\\n(2) Gold/S&P500 Ratio (campo 'goldSP500Ratio' - via ETFs GLD/SPY):\\n  * < 0.25: ouro relativamente barato vs equity - OK\\n  * 0.25 a 0.45: equilibrio - OK\\n  * 0.45 a 0.65: ouro caro vs equity - atencao\\n  * >= 0.65: OURO CARISSIMO VS EQUITY (apenas atingido em 2011 e 2024-25) -> ZONA DE RISCO EXTREMO\\n\\n(3) Real Gold Z-Score (campo 'realGoldZScore' - preco do ouro USD deflacionado vs media historica):\\n  * < -1: ouro real abaixo da media historica - APORTE CHEIO\\n  * -1 a 0: levemente abaixo - APORTE NORMAL\\n  * 0 a +1: levemente acima da media - neutro\\n  * +1 a +2: acima da media - atencao\\n  * >= +2: OURO EXTRAORDINARIAMENTE CARO EM TERMOS REAIS -> ZONA DE RISCO EXTREMO\\n\\nDECISAO OURO (PRECAUCAO): Se QUALQUER UMA das 3 metricas estiver em ZONA DE RISCO EXTREMO (Gold-Silver>=85 OU Gold-SP500>=0.65 OU realGoldZScore>=2.0), aplicar PISO 3% + excedente Selic 2031. Justificar EXPLICITAMENTE qual(is) metrica(s) acionou a regra. Se metricas estiverem em null, IGNORE-AS.\\n\\nOBRIGACAO DE TRANSPARENCIA - Para Bitcoin e Ouro, quando aplicar piso 3%:\\n1) No campo 'resumo': mencionar QUAL metrica acionou a regra (ex: 'MVRV-Z em 4.8 acionou piso 3% para BTC' ou 'Gold-Silver Ratio em 87 acionou piso 3% para OURO')\\n2) No 'porque_essa_posicao' do ativo: justificar tecnicamente com os numeros\\n3) No 'estrategia_macro': listar todos os desvios e valores das metricas que motivaram\\n4) Se MULTIPLAS metricas estiverem em risco extremo simultaneamente, mencionar todas (sinal mais forte)\\n5) NUNCA aplicar piso 3% em BTC/Ouro sem justificar com numeros das metricas\\n\\nREGRA DO LIMITE 5% POR ATIVO - FILTRO OBRIGATORIO DE CANDIDATOS (CRITICA E INVIOLAVEL):\\n- ANTES de montar o ranking de 3 ativos em qualquer classe, voce DEVE FILTRAR os candidatos eliminando todos os ativos que ja estao em ou acima de 5% do patrimonio total.\\n- Esta regra e INDEPENDENTE de fundamentos: mesmo que o ativo esteja com preco extremamente favoravel, qualidade excepcional, TIR alta, margem de seguranca enorme - SE JA ESTA EM 5% OU MAIS DO PATRIMONIO, NAO PODE RECEBER NENHUM CENTAVO. Esta concentracao representa risco idiossincratico inaceitavel, independente da convicao na tese.\\n- Para ativos PROXIMOS do limite (ex: 4.5%, 4.7%, 4.9%), voce pode incluir no ranking PORÉM o valor sugerido deve manter o ativo ESTRITAMENTE ABAIXO DE 5% apos aporte. Calcule: valor_maximo = (0.05 * patrimonio_total) - posicao_atual_em_R$ - margem_seguranca.\\n- Se apos o filtro a classe nao tiver 3 ativos elegiveis, sugira quantos houver (2 ou 1).\\n- IMPORTANTE: voce TRABALHA EXCLUSIVAMENTE COM OS ATIVOS QUE JA EXISTEM NO PORTFOLIO DO INVESTIDOR. NUNCA, EM HIPOTESE NENHUMA, sugerir tickers que nao estejam atualmente no portfolio. A selecao do universo investivel e prerrogativa exclusiva do investidor.\\n- Se apos o filtro a classe NAO TIVER NENHUM ativo elegivel (todos seus tickers nessa classe ja estao em 5%+), aplicar a REGRA DE OPORTUNIDADE: a classe NAO recebe nenhum aporte naquele ciclo (nem mesmo o piso de 3%) e TODO o valor que seria alocado vai integralmente para TESOURO SELIC 2031.\\n- No campo 'limite5pct' do veredito, listar nominalmente quais tickers foram excluidos do ranking por estarem em 5%+, mesmo que tivessem preco favoravel.\\n\\nREGRA DE OPORTUNIDADE (CRITICA): A IA deve avaliar se HA OU NAO ATIVOS COM PRECO FAVORAVEL em cada classe usando os criterios ja definidos (fair value, spread, TIR minima exigida, margem de seguranca, qualidade). Quando uma classe NAO TIVER oportunidades atrativas no momento (precos altos, ativos com TIR abaixo do minimo exigido, sem margem de seguranca):\\n- Alocar APENAS o piso minimo de 3% do macroaporte naquela classe\\n- O EXCEDENTE que seria alocado naquela classe deve ser REDIRECIONADO INTEGRALMENTE para TESOURO SELIC 2031\\n- JUSTIFICAR EXPLICITAMENTE no campo 'resumo' e no campo 'estrategia_macro' o motivo do desvio: ex: 'Sem oportunidades atrativas em [classe], R$X redirecionados para Selic 2031 como caixa estrategico produtivo'\\n\\nOBRIGATORIEDADE DE ATIVO NO PISO 3% (CRITICA E INVIOLAVEL): Quando uma classe receber apenas o piso de 3% do macroaporte (por precos altos ou ausencia de oportunidades ideais), a IA DEVE OBRIGATORIAMENTE apontar 1 ATIVO ELEGIVEL DO PORTFOLIO ATUAL para receber esse valor minimo. NUNCA deixar a classe com lista de ativos vazia quando houver pelo menos 1 ticker elegivel (abaixo de 5%). Regras especificas:\\n- O ativo escolhido para o piso 3% deve ser o MELHOR DISPONIVEL entre os elegiveis pelo filtro de 5%, mesmo que nao seja a oportunidade ideal de preco\\n- SOMENTE entre os tickers que ja existem no portfolio do investidor - NUNCA sugerir nomes novos\\n- O JSON deve conter pelo menos 1 ativo no array 'ativos' da classe quando houver candidato elegivel\\n- No campo 'porque_essa_posicao' deve constar explicitamente: 'Aporte minimo de piso 3% - melhor opcao elegivel diante das condicoes atuais' ou similar, deixando claro que e exposicao minima estrategica e nao recomendacao de COMPRA FORTE\\n- O 'score' nesses casos deve ser realisticamente 'JUSTO' ou 'NEUTRO', nao 'COMPRA FORTE' (esse seria contraditorio com a alocacao minima)\\n- UNICA EXCECAO: se TODOS os tickers da classe estiverem em 5%+, a classe pula o piso e tudo vai pra Selic 2031 (conforme regra do limite 5% acima)\\n\\nO TESOURO SELIC 2031 e a UNICA CLASSE QUE PODE RECEBER ALOCACAO ACIMA DO ALVO sem alarmes, dada sua natureza de reserva de liquidez produtiva. Todas as demais classes devem respeitar suas bandas. NAO E NECESSARIO se preocupar se Selic ficar muito acima do alvo - faz parte da estrategia.\\n\\nLembre-se: a filosofia de Buy & Hold quality privilegia DISCIPLINA sobre PRESSA. Se nao ha bons precos, NAO FORCAR a compra apenas para cumprir a alocacao da classe. Estacionar em liquidez produtiva (Selic 2031) e sempre superior a pagar caro em ativo medíocre ou em ativo bom porem caro. E ainda mais importante: NUNCA violar o limite de 5% por ativo, sob nenhuma justificativa - este e o pilar da gestao de risco idiossincratico do portfolio. Tambem NUNCA sugerir nomes de ativos que nao estejam no portfolio - a selecao do universo investivel cabe exclusivamente ao investidor.\\n\\nMULTIPLOS COMO PREFERENCIA, NAO REGRA PROIBITIVA: FII P/VPA<=0.97 e DY>=9%; Ciclicas P/L<=10; Compounders P/L<=18; Exterior value P/L<=18; Infra DY>=9.5%; Fiagros DY>=10%. Estes valores sao apenas REFERENCIAS preferenciais - um ativo de qualidade pode ser recomendado mesmo fora desses parametros se houver justificativa em fundamentos solidos, mencionando explicitamente o porque na metrica.\\n\\nRANKING UNICO POR CLASSE (1, 2, 3): Para CADA classe que receba aporte, sugira EXATAMENTE 3 ativos em ORDEM DE PREFERENCIA - apenas UMA lista ordenada por classe (NAO dois rankings separados, NAO uma lista por qualidade e outra por preco).\\n\\nA POSICAO de cada ativo (1, 2 ou 3) reflete o RESULTADO COMBINADO da equacao QUALIDADE x PRECO no momento atual:\\n- Ativo #1 (TOP PICK): melhor combinacao geral entre qualidade do ativo e preco atual\\n- Ativo #2: boa combinacao, mas com algum trade-off em relacao ao #1\\n- Ativo #3: alternativa valida com trade-off maior\\n\\nNo campo 'porque_essa_posicao' de cada ativo, EXPLIQUE em uma frase POR QUE ele esta naquela posicao - mencionando como qualidade e preco se equilibraram.\\n\\nANALISE DE PRECO DETALHADA - para CADA ativo do ranking, preencher:\\n- 'tir_implicita': TIR estimada do ativo dado o preco ATUAL (string com % e breve composicao). Ex FII: '11.8% (DY 9.2% + crescimento real 2.6%)'; Acao: '14% (EY 8% + crescimento 6%)'; Tesouro IPCA+: '7.3% real garantida'.\\n- 'tir_minima_exigida': TIR minima que VOCE julga adequada para o RISCO especifico daquele ativo (proponha caso a caso). Ex: 'FII logistico de qualidade: 11% (CDI longo + 2 a 3pp pelo risco imobiliario)'; 'Ciclica sem moat: 18 a 20%'; 'Compounder com moat: 13 a 15%'.\\n- 'adequacao_risco_retorno': SIM ou NAO - a tir_implicita atende ou supera a tir_minima_exigida? Texto curto explicando: 'SIM - TIR 12% supera 11% exigida, com folga modesta' ou 'NAO - TIR 13% abaixo dos 18% exigidos para ciclica'.\\n- 'margem_seguranca': % de desconto vs preco-teto (= preco em que TIR ficaria igual ao minimo). Ex: 'aprox 8% de margem (preco-teto R$ 135, atual R$ 124)'. Para aportes regulares aceitar margens de ~10%; reforços em momentos de pânico exigem 20-30%.\\n- 'red_flag': APENAS QUANDO houver deterioracao estrutural identificada (vacancia subindo, ROE caindo, divida crescendo, perda de market share, mudanca de gestao, perda de inquilino-ancora, etc). Se nao houver red flag, OMITIR este campo (nao incluir no JSON). Quando incluir, ser direto: 'Vacancia subiu de 4% para 12% em 6 meses - monitorar' ou 'ROE caiu de 18% para 11% em 3 anos - perda de eficiencia operacional'.\\n\\nO valor monetario do aporte na classe e distribuido com #1 recebendo o maior valor, #2 valor intermediario, #3 menor valor (mas todos os 3 com valor>0 caso o investidor queira diversificar). Use o campo 'rank' (1, 2 ou 3).\\n\\nApos sugerir, AVALIE CRITICAMENTE em 3 dimensoes: (1) eficiencia_rebalanceamento, (2) qualidade_dos_ativos_escolhidos (compounders solidos? FIIs com inquilinos AAA? sem value traps? algum ativo com premio excessivo sem justificativa fundamentalista?), (3) limite_5pct. Caso tenha aplicado a REGRA DE OPORTUNIDADE redirecionando excedentes para Selic 2031, MENCIONE EXPLICITAMENTE em 'estrategia_macro' quais classes ficaram apenas com o piso de 3% e quanto foi para Selic como caixa estrategico."+blocoMPT_AW+"\\n\\nJSON sem markdown: {resumo:...,alertas:[],classes:[{id:fii,pct:25,valor:2500,ativos:[{rank:1,ticker:HGLG11,valor:1200,score:COMPRA FORTE|COMPRA|JUSTO,metricas:'P/VPA 0.91 DY 9.2%',porque_essa_posicao:'gestao premium + desconto modesto',tir_implicita:'11.8% (DY 9.2% + crescimento real 2.6%)',tir_minima_exigida:'10.5% para FII logistico de qualidade',adequacao_risco_retorno:'SIM - retorno supera exigencia com folga',margem_seguranca:'aprox 12% vs preco-teto'},{rank:2,ticker:KNCR11,valor:800,score:COMPRA,metricas:'...',porque_essa_posicao:'...',tir_implicita:'...',tir_minima_exigida:'...',adequacao_risco_retorno:'SIM/NAO ...',margem_seguranca:'...'},{rank:3,ticker:XPLG11,valor:500,score:JUSTO,metricas:'...',porque_essa_posicao:'...',tir_implicita:'...',tir_minima_exigida:'...',adequacao_risco_retorno:'...',margem_seguranca:'...',red_flag:'(SO SE HOUVER) vacancia em alta'}]}],veredito:{eficiencia:{nota:OTIMO|BOM|REGULAR|RUIM,texto:explicacao curta},qualidade:{nota:OTIMO|BOM|REGULAR|RUIM,texto:explicacao - alguma duvida de value trap? algum compounder pagando alem do justo? algum ativo com red flag merece atencao?},limite5pct:{ok:true|false,texto:explicacao},estrategia_macro:'breve explicacao de como voce balanceou MPT (fronteira eficiente) e AW (resiliencia macro) na sugestao - em 1-2 frases'}}";
+      const msg="Analista Buy&Hold aposentadoria rigoroso, filosofia 'quality at a reasonable price' (Charlie Munger, Terry Smith). PORTFOLIO:"+JSON.stringify(ci)+"\\nAPORTE:R$"+v+"\\nPATRIMONIO_TOTAL:R$"+Math.round(total)+"\\nINDICADORES_TECNICOS_MACRO: {mvrvZ:"+(typeof mvrvZ==="number"?mvrvZ.toFixed(2):"null")+", piCycleRatio:"+(piCycle&&typeof piCycle.ratio==="number"?piCycle.ratio.toFixed(3):"null")+", piCycleTopSignal:"+(piCycle&&piCycle.isTopSignal?"true":"false")+", nupl:"+(typeof nupl==="number"?nupl.toFixed(3):"null")+", goldSilverRatio:"+(typeof goldSilver==="number"?goldSilver.toFixed(1):"null")+", goldSP500Ratio:"+(typeof goldSP500==="number"?goldSP500.toFixed(3):"null")+", realGoldZScore:"+(typeof realGoldZ==="number"?realGoldZ.toFixed(2):"null")+", xauVar90d:"+(typeof xauVar==="number"?(xauVar*100).toFixed(1)+"%":"null")+", btcVar90d:"+(typeof btcVar==="number"?(btcVar*100).toFixed(1)+"%":"null")+", selicAtual:"+(typeof selicAtual==="number"?selicAtual.toFixed(2)+"%":"null")+"}\\n\\nFILOSOFIA DE INVESTIMENTO DO INVESTIDOR (RESPEITAR INTEGRALMENTE):\\n1) Foco PRIMARIO em QUALIDADE do ativo: vantagem competitiva durável, capacidade de geração de caixa consistente, ROE/ROIC elevados e estáveis, gestão competente e alinhada, baixo risco de descontinuidade do negócio. Para FIIs: gestão experiente, ativos premium, vacância controlada, inquilinos AAA. Para infra/Fiagros: ativos estratégicos, contratos longos, baixo risco regulatório/operacional.\\n2) Aceitar pagar preço JUSTO por excelência: nao buscar pechincha cega. Preferir um ativo de qualidade no preço justo a um medíocre descontado. Value trap (negocio em decadencia barato) é o pior erro: evitar tickers cujo desconto reflete deterioração estrutural.\\n3) Preferencia natural: qualidade + desconto razoavel quando ambos estão disponíveis. Mas se nao houver desconto, qualidade no preço justo é aceitável.\\n4) Aportes contínuos: o tempo dilui pontos de entrada (dollar cost averaging). Não esperar minima absoluta de preço (que pode nunca chegar).\\n5) Disciplina anti-bolha: NUNCA pagar preço claramente acima de fundamentos que nao se justifique.\\n\\nDISCIPLINA SWENSEN/YALE (REBALANCEAMENTO CONTRACICLICO) - PRINCIPIO COMPLEMENTAR:\\nO investidor adota a filosofia Swensen/Yale Endowment de rebalanceamento disciplinado contraciclo. Como B&H rigoroso (zero vendas), o rebalanceamento e feito EXCLUSIVAMENTE via direcao dos aportes mensais. Aplique este principio na alocacao:\\n1) Identifique classes ABAIXO do alvo (campo 'peso' < ponto medio de min/max): essas classes estao 'compradas com desconto relativo' (caso queda) ou 'sub-representadas' (caso novo capital). Receberao aporte MAIOR proporcionalmente.\\n2) Identifique classes ACIMA do alvo (campo 'peso' > max): aporte deve ser REDUZIDO ou apenas o piso, permitindo que o portfolio retorne ao alvo gradualmente sem vendas.\\n3) Em ambientes de stress (acoes caindo > 10% no mes), a logica contraciclica de Swensen INTENSIFICA: aporte agressivo nas classes que caíram mais, ate o limite do drift natural.\\n4) Em ambientes de euforia (acoes em maximas historicas, multiplos esticados), a disciplina Swensen RESTRINGE: ate classes abaixo do alvo recebem aporte cauteloso se os fundamentos nao justificarem.\\nEsta disciplina e complementar aos criterios de qualidade e preco - nao os substitui. Mencione no 'estrategia_macro' quando ela for relevante para a decisao.\\n\\nREGRAS OPERACIONAIS RIGIDAS (devem sempre ser respeitadas): zero vendas; todas 11 classes que recebem aporte (FII,BR,EXT,REIT,SEL,TRE,NTNB,XAU,BTC,INF,AGRO) recebem PISO MINIMO de 3% do macroaporte; priorizar classes abaixo do alvo; IMOVEIS nao recebem aporte; NENHUM ticker individual pode passar de 5% do patrimonio apos aporte (limite duro inviolavel).\\n\\nREGRA ESPECIAL TREASURIES (TRE):\\nA classe Treasuries e composta por APENAS 3 ETFs com PESOS-ALVO INTERNOS pre-definidos pelo investidor:\\n- TLT (40% da classe): hedge anti-crash de equity, duration ~17 anos. Funcao: amortecimento em crises deflacionarias/recessivas (sobe quando equity cai forte). Sofre em ciclos de alta de juros (ex: 2022).\\n- IEF (20% da classe): amortecedor de volatilidade, duration ~7.5 anos. Funcao: descorrelacao moderada com equity, menor vol que TLT.\\n- VTIP (40% da classe): protecao inflacionaria pura, duration ~2.5 anos. Funcao: hedge contra inflacao americana SEM o onus de duration alta (em 2022 caiu so -3% enquanto TIP/TLT cairam 12-31%).\\n\\nA composicao 40/20/40 traduz objetivos do investidor: hedge anti-crash (TLT) + amortecimento (IEF) + protecao inflacionaria (VTIP). NAO sugerir outros ETFs (TIP, VGLT, GOVT, SCHQ, SCHP, STIP) - foram explicitamente excluidos pelo investidor.\\n\\nCRITERIO DE PRECO PARA TREASURIES: NAO sao avaliados por fundamentos tradicionais (P/L, DY, P/VPA). O criterio de 'preco favoravel' e o YIELD ATUAL:\\n- Para TLT/IEF (nominais): Treasury 10Y yield > 4.5% e EXCELENTE, 3.5-4.5% ATRATIVO, 2-3.5% NEUTRO, <2% CARO (piso 3%)\\n- Para VTIP (TIPS): yield real >2% e EXCELENTE, 1-2% ATRATIVO, <1% NEUTRO, <0 CARO\\n\\nESTRATEGIA DE ALOCACAO DENTRO DA CLASSE:\\nQuando alocar para a classe Treasuries, distribuir o valor seguindo PRINCIPALMENTE os pesos-alvo (40% TLT + 20% IEF + 40% VTIP), com pequenos ajustes para rebalanceamento se algum ETF estiver muito acima ou abaixo do seu peso-alvo interno.\\n\\nEx: Se a classe receber R$ 5.000 e os pesos atuais dos 3 ETFs estao em 35/22/43 (vs alvo 40/20/40), distribuir o aporte priorizando TLT (que esta abaixo do alvo) e reduzindo VTIP (que esta acima): TLT R$ 2.500 (50%), IEF R$ 1.000 (20%), VTIP R$ 1.500 (30%).\\n\\nNo ranking dos 3 ETFs, sempre incluir os 3 - mesmo que com valores diferentes para rebalanceamento. Limite de 5% por ativo continua valendo individualmente para cada ETF.\\n\\nREGRA ESPECIAL NTN-B (TESOURO IPCA+) - RFIPCA:\\nA classe NTN-B abrange 6 titulos do Tesouro Direto IPCA+ Principal (sem cupom semestral, carrego ate o vencimento): NTNB-2029, NTNB-2035, NTNB-2040, NTNB-2045, NTNB-2050, NTNB-2060. Cada ticker representa um vencimento DIFERENTE.\\n\\nCRITERIO DE PRECO (taxa LIQUIDA de IR 15% para holders > 720 dias):\\n- Taxa LIQ < IPCA+5%: ALOCAR APENAS PISO 3% - taxa fraca para o risco de duracao\\n- IPCA+5% <= Taxa LIQ < IPCA+6%: ALOCAR ACIMA DO PISO - boa taxa, vale reforco moderado\\n- Taxa LIQ >= IPCA+6%: SINAL FORTE - reforco AGRESSIVO acima do piso (oportunidade rara e excelente para travar juro real de longo prazo)\\n\\nEQUIVALENCIA bruta x liquida (IR 15% no carrego de longo prazo):\\n- IPCA+5% liq = IPCA+5,88% bruto\\n- IPCA+6% liq = IPCA+7,06% bruto\\n- IPCA+7% liq = IPCA+8,24% bruto\\n\\nUSO DA CLASSE: hedge inflacionario primario + cupom real garantido + ancora de longo prazo. Composicao MPT/Yale: classe inflationHedge.\\n\\nESTRATEGIA DE ALOCACAO DENTRO DA CLASSE: Priorizar o vencimento que oferece a maior taxa liquida ABSOLUTA no momento, com leve preferencia para duration intermediaria (2040/2045) que equilibra carrego com volatilidade marcacao a mercado. Quando 2 ou mais vencimentos tem taxas similares, distribuir proporcionalmente. NAO concentrar todo aporte em vencimento muito curto (<5 anos) - perde-se o benefício de travar juro real longo. Use o campo ntnbTaxasLiquidas do contexto para fundamentar.\\n\\nFORMATO NO JSON: tickers neste formato exato: NTNB-2029, NTNB-2035, NTNB-2040, NTNB-2045, NTNB-2050, NTNB-2060. No campo metricas, mencionar a taxa LIQUIDA de IR (ex: 'Taxa liquida IPCA+5,42%') e equivalencia bruta. No tir_implicita, usar o numero LIQUIDO de IR pois e o que importa para o investidor (ex: 'IPCA+5,42% real garantida liquida de IR'). Limite 5% por ativo continua valendo INDIVIDUALMENTE para cada vencimento.\\n\\nREGRA ESPECIAL BITCOIN E OURO (CRITERIOS TECNICOS PRE-ESTABELECIDOS COM MULTIPLAS METRICAS):\\nBitcoin e Ouro NAO sao avaliados por fundamentos tradicionais. Use as seguintes metricas para julgar se merecem aporte cheio ou apenas piso 3%. LOGICA DE PRECAUCAO: se QUALQUER UMA das metricas indicar zona de risco extremo, aplicar piso 3% automaticamente.\\n\\n=> BITCOIN (3 metricas):\\n\\n(1) MVRV-Z Score (campo 'mvrvZ' nos indicadores):\\n  * < 0: fundo de ciclo - APORTE CHEIO\\n  * 0 a 2: neutro - APORTE NORMAL\\n  * 2 a 4: expansao - APORTE PARCIAL\\n  * >= 4: SOBREVALORIZACAO/TOPO -> ZONA DE RISCO EXTREMO\\n\\n(2) Pi Cycle Top (campo 'piCycleRatio' e 'piCycleTopSignal'):\\n  * Ratio < 0.7: longe do topo - OK\\n  * Ratio 0.7 a 0.95: aproximando - atencao\\n  * Ratio >= 1.0 OU piCycleTopSignal=true: SINAL HISTORICO DE TOPO -> ZONA DE RISCO EXTREMO\\n  (Pi Cycle acertou TODOS os topos historicos do BTC: 2013, 2017, 2021)\\n\\n(3) NUPL - Net Unrealized Profit/Loss (campo 'nupl'):\\n  * < 0: Capitulacao - APORTE FORTE\\n  * 0 a 0.25: Esperanca/Medo - APORTE NORMAL\\n  * 0.25 a 0.50: Otimismo - neutro\\n  * 0.50 a 0.75: Crenca - atencao\\n  * >= 0.75: EUFORIA -> ZONA DE RISCO EXTREMO\\n\\nDECISAO BITCOIN (PRECAUCAO): Se QUALQUER UMA das 3 metricas estiver em ZONA DE RISCO EXTREMO (MVRV-Z>=4 OU piCycleTopSignal=true OU NUPL>=0.75), aplicar PISO 3% + excedente Selic 2031. Justificar EXPLICITAMENTE no resumo, porque_essa_posicao e estrategia_macro QUAL(IS) metrica(s) acionou a regra. Se metricas estiverem em null/desconhecidas, IGNORE-AS (nao tratar como risco).\\n\\n=> OURO XAU (3 metricas):\\n\\n(1) Gold-Silver Ratio (campo 'goldSilverRatio'):\\n  * < 40: prata muito cara vs ouro - OK\\n  * 40 a 70: equilibrio historico - OK\\n  * 70 a 85: ouro caro vs prata - atencao\\n  * >= 85: OURO SUPERVALORIZADO VS METAIS -> ZONA DE RISCO EXTREMO\\n\\n(2) Gold/S&P500 Ratio (campo 'goldSP500Ratio' - via ETFs GLD/SPY):\\n  * < 0.25: ouro relativamente barato vs equity - OK\\n  * 0.25 a 0.45: equilibrio - OK\\n  * 0.45 a 0.65: ouro caro vs equity - atencao\\n  * >= 0.65: OURO CARISSIMO VS EQUITY (apenas atingido em 2011 e 2024-25) -> ZONA DE RISCO EXTREMO\\n\\n(3) Real Gold Z-Score (campo 'realGoldZScore' - preco do ouro USD deflacionado vs media historica):\\n  * < -1: ouro real abaixo da media historica - APORTE CHEIO\\n  * -1 a 0: levemente abaixo - APORTE NORMAL\\n  * 0 a +1: levemente acima da media - neutro\\n  * +1 a +2: acima da media - atencao\\n  * >= +2: OURO EXTRAORDINARIAMENTE CARO EM TERMOS REAIS -> ZONA DE RISCO EXTREMO\\n\\nDECISAO OURO (PRECAUCAO): Se QUALQUER UMA das 3 metricas estiver em ZONA DE RISCO EXTREMO (Gold-Silver>=85 OU Gold-SP500>=0.65 OU realGoldZScore>=2.0), aplicar PISO 3% + excedente Selic 2031. Justificar EXPLICITAMENTE qual(is) metrica(s) acionou a regra. Se metricas estiverem em null, IGNORE-AS.\\n\\nOBRIGACAO DE TRANSPARENCIA - Para Bitcoin e Ouro, quando aplicar piso 3%:\\n1) No campo 'resumo': mencionar QUAL metrica acionou a regra (ex: 'MVRV-Z em 4.8 acionou piso 3% para BTC' ou 'Gold-Silver Ratio em 87 acionou piso 3% para OURO')\\n2) No 'porque_essa_posicao' do ativo: justificar tecnicamente com os numeros\\n3) No 'estrategia_macro': listar todos os desvios e valores das metricas que motivaram\\n4) Se MULTIPLAS metricas estiverem em risco extremo simultaneamente, mencionar todas (sinal mais forte)\\n5) NUNCA aplicar piso 3% em BTC/Ouro sem justificar com numeros das metricas\\n\\nREGRA DO LIMITE 5% POR ATIVO - FILTRO OBRIGATORIO DE CANDIDATOS (CRITICA E INVIOLAVEL):\\n- ANTES de montar o ranking de 3 ativos em qualquer classe, voce DEVE FILTRAR os candidatos eliminando todos os ativos que ja estao em ou acima de 5% do patrimonio total.\\n- Esta regra e INDEPENDENTE de fundamentos: mesmo que o ativo esteja com preco extremamente favoravel, qualidade excepcional, TIR alta, margem de seguranca enorme - SE JA ESTA EM 5% OU MAIS DO PATRIMONIO, NAO PODE RECEBER NENHUM CENTAVO. Esta concentracao representa risco idiossincratico inaceitavel, independente da convicao na tese.\\n- Para ativos PROXIMOS do limite (ex: 4.5%, 4.7%, 4.9%), voce pode incluir no ranking PORÉM o valor sugerido deve manter o ativo ESTRITAMENTE ABAIXO DE 5% apos aporte. Calcule: valor_maximo = (0.05 * patrimonio_total) - posicao_atual_em_R$ - margem_seguranca.\\n- Se apos o filtro a classe nao tiver 3 ativos elegiveis, sugira quantos houver (2 ou 1).\\n- IMPORTANTE: voce TRABALHA EXCLUSIVAMENTE COM OS ATIVOS QUE JA EXISTEM NO PORTFOLIO DO INVESTIDOR. NUNCA, EM HIPOTESE NENHUMA, sugerir tickers que nao estejam atualmente no portfolio. A selecao do universo investivel e prerrogativa exclusiva do investidor.\\n- Se apos o filtro a classe NAO TIVER NENHUM ativo elegivel (todos seus tickers nessa classe ja estao em 5%+), aplicar a REGRA DE OPORTUNIDADE: a classe NAO recebe nenhum aporte naquele ciclo (nem mesmo o piso de 3%) e TODO o valor que seria alocado vai integralmente para TESOURO SELIC 2031.\\n- No campo 'limite5pct' do veredito, listar nominalmente quais tickers foram excluidos do ranking por estarem em 5%+, mesmo que tivessem preco favoravel.\\n\\nREGRA DE OPORTUNIDADE (CRITICA): A IA deve avaliar se HA OU NAO ATIVOS COM PRECO FAVORAVEL em cada classe usando os criterios ja definidos (fair value, spread, TIR minima exigida, margem de seguranca, qualidade). Quando uma classe NAO TIVER oportunidades atrativas no momento (precos altos, ativos com TIR abaixo do minimo exigido, sem margem de seguranca):\\n- Alocar APENAS o piso minimo de 3% do macroaporte naquela classe\\n- O EXCEDENTE que seria alocado naquela classe deve ser REDIRECIONADO INTEGRALMENTE para TESOURO SELIC 2031\\n- JUSTIFICAR EXPLICITAMENTE no campo 'resumo' e no campo 'estrategia_macro' o motivo do desvio: ex: 'Sem oportunidades atrativas em [classe], R$X redirecionados para Selic 2031 como caixa estrategico produtivo'\\n\\nOBRIGATORIEDADE DE ATIVO NO PISO 3% (CRITICA E INVIOLAVEL): Quando uma classe receber apenas o piso de 3% do macroaporte (por precos altos ou ausencia de oportunidades ideais), a IA DEVE OBRIGATORIAMENTE apontar 1 ATIVO ELEGIVEL DO PORTFOLIO ATUAL para receber esse valor minimo. NUNCA deixar a classe com lista de ativos vazia quando houver pelo menos 1 ticker elegivel (abaixo de 5%). Regras especificas:\\n- O ativo escolhido para o piso 3% deve ser o MELHOR DISPONIVEL entre os elegiveis pelo filtro de 5%, mesmo que nao seja a oportunidade ideal de preco\\n- SOMENTE entre os tickers que ja existem no portfolio do investidor - NUNCA sugerir nomes novos\\n- O JSON deve conter pelo menos 1 ativo no array 'ativos' da classe quando houver candidato elegivel\\n- No campo 'porque_essa_posicao' deve constar explicitamente: 'Aporte minimo de piso 3% - melhor opcao elegivel diante das condicoes atuais' ou similar, deixando claro que e exposicao minima estrategica e nao recomendacao de COMPRA FORTE\\n- O 'score' nesses casos deve ser realisticamente 'JUSTO' ou 'NEUTRO', nao 'COMPRA FORTE' (esse seria contraditorio com a alocacao minima)\\n- UNICA EXCECAO: se TODOS os tickers da classe estiverem em 5%+, a classe pula o piso e tudo vai pra Selic 2031 (conforme regra do limite 5% acima)\\n\\nO TESOURO SELIC 2031 e a UNICA CLASSE QUE PODE RECEBER ALOCACAO ACIMA DO ALVO sem alarmes, dada sua natureza de reserva de liquidez produtiva. Todas as demais classes devem respeitar suas bandas. NAO E NECESSARIO se preocupar se Selic ficar muito acima do alvo - faz parte da estrategia.\\n\\nLembre-se: a filosofia de Buy & Hold quality privilegia DISCIPLINA sobre PRESSA. Se nao ha bons precos, NAO FORCAR a compra apenas para cumprir a alocacao da classe. Estacionar em liquidez produtiva (Selic 2031) e sempre superior a pagar caro em ativo medíocre ou em ativo bom porem caro. E ainda mais importante: NUNCA violar o limite de 5% por ativo, sob nenhuma justificativa - este e o pilar da gestao de risco idiossincratico do portfolio. Tambem NUNCA sugerir nomes de ativos que nao estejam no portfolio - a selecao do universo investivel cabe exclusivamente ao investidor.\\n\\nMULTIPLOS COMO PREFERENCIA, NAO REGRA PROIBITIVA: FII P/VPA<=0.97 e DY>=9%; Ciclicas P/L<=10; Compounders P/L<=18; Exterior value P/L<=18; Infra DY>=9.5%; Fiagros DY>=10%. Estes valores sao apenas REFERENCIAS preferenciais - um ativo de qualidade pode ser recomendado mesmo fora desses parametros se houver justificativa em fundamentos solidos, mencionando explicitamente o porque na metrica.\\n\\nRANKING UNICO POR CLASSE (1, 2, 3): Para CADA classe que receba aporte, sugira EXATAMENTE 3 ativos em ORDEM DE PREFERENCIA - apenas UMA lista ordenada por classe (NAO dois rankings separados, NAO uma lista por qualidade e outra por preco).\\n\\nA POSICAO de cada ativo (1, 2 ou 3) reflete o RESULTADO COMBINADO da equacao QUALIDADE x PRECO no momento atual:\\n- Ativo #1 (TOP PICK): melhor combinacao geral entre qualidade do ativo e preco atual\\n- Ativo #2: boa combinacao, mas com algum trade-off em relacao ao #1\\n- Ativo #3: alternativa valida com trade-off maior\\n\\nNo campo 'porque_essa_posicao' de cada ativo, EXPLIQUE em uma frase POR QUE ele esta naquela posicao - mencionando como qualidade e preco se equilibraram.\\n\\nANALISE DE PRECO DETALHADA - para CADA ativo do ranking, preencher:\\n- 'tir_implicita': TIR estimada do ativo dado o preco ATUAL (string com % e breve composicao). Ex FII: '11.8% (DY 9.2% + crescimento real 2.6%)'; Acao: '14% (EY 8% + crescimento 6%)'; Tesouro IPCA+: '7.3% real garantida'.\\n- 'tir_minima_exigida': TIR minima que VOCE julga adequada para o RISCO especifico daquele ativo (proponha caso a caso). Ex: 'FII logistico de qualidade: 11% (CDI longo + 2 a 3pp pelo risco imobiliario)'; 'Ciclica sem moat: 18 a 20%'; 'Compounder com moat: 13 a 15%'.\\n- 'adequacao_risco_retorno': SIM ou NAO - a tir_implicita atende ou supera a tir_minima_exigida? Texto curto explicando: 'SIM - TIR 12% supera 11% exigida, com folga modesta' ou 'NAO - TIR 13% abaixo dos 18% exigidos para ciclica'.\\n- 'margem_seguranca': % de desconto vs preco-teto (= preco em que TIR ficaria igual ao minimo). Ex: 'aprox 8% de margem (preco-teto R$ 135, atual R$ 124)'. Para aportes regulares aceitar margens de ~10%; reforços em momentos de pânico exigem 20-30%.\\n- 'red_flag': APENAS QUANDO houver deterioracao estrutural identificada (vacancia subindo, ROE caindo, divida crescendo, perda de market share, mudanca de gestao, perda de inquilino-ancora, etc). Se nao houver red flag, OMITIR este campo (nao incluir no JSON). Quando incluir, ser direto: 'Vacancia subiu de 4% para 12% em 6 meses - monitorar' ou 'ROE caiu de 18% para 11% em 3 anos - perda de eficiencia operacional'.\\n\\nO valor monetario do aporte na classe e distribuido com #1 recebendo o maior valor, #2 valor intermediario, #3 menor valor (mas todos os 3 com valor>0 caso o investidor queira diversificar). Use o campo 'rank' (1, 2 ou 3).\\n\\nApos sugerir, AVALIE CRITICAMENTE em 3 dimensoes: (1) eficiencia_rebalanceamento, (2) qualidade_dos_ativos_escolhidos (compounders solidos? FIIs com inquilinos AAA? sem value traps? algum ativo com premio excessivo sem justificativa fundamentalista?), (3) limite_5pct. Caso tenha aplicado a REGRA DE OPORTUNIDADE redirecionando excedentes para Selic 2031, MENCIONE EXPLICITAMENTE em 'estrategia_macro' quais classes ficaram apenas com o piso de 3% e quanto foi para Selic como caixa estrategico."+blocoMPT_AW+"\\n\\nJSON sem markdown: {resumo:...,alertas:[],classes:[{id:fii,pct:25,valor:2500,ativos:[{rank:1,ticker:HGLG11,valor:1200,score:COMPRA FORTE|COMPRA|JUSTO,metricas:'P/VPA 0.91 DY 9.2%',porque_essa_posicao:'gestao premium + desconto modesto',tir_implicita:'11.8% (DY 9.2% + crescimento real 2.6%)',tir_minima_exigida:'10.5% para FII logistico de qualidade',adequacao_risco_retorno:'SIM - retorno supera exigencia com folga',margem_seguranca:'aprox 12% vs preco-teto'},{rank:2,ticker:KNCR11,valor:800,score:COMPRA,metricas:'...',porque_essa_posicao:'...',tir_implicita:'...',tir_minima_exigida:'...',adequacao_risco_retorno:'SIM/NAO ...',margem_seguranca:'...'},{rank:3,ticker:XPLG11,valor:500,score:JUSTO,metricas:'...',porque_essa_posicao:'...',tir_implicita:'...',tir_minima_exigida:'...',adequacao_risco_retorno:'...',margem_seguranca:'...',red_flag:'(SO SE HOUVER) vacancia em alta'}]}],veredito:{eficiencia:{nota:OTIMO|BOM|REGULAR|RUIM,texto:explicacao curta},qualidade:{nota:OTIMO|BOM|REGULAR|RUIM,texto:explicacao - alguma duvida de value trap? algum compounder pagando alem do justo? algum ativo com red flag merece atencao?},limite5pct:{ok:true|false,texto:explicacao},estrategia_macro:'breve explicacao de como voce balanceou MPT (fronteira eficiente) e AW (resiliencia macro) na sugestao - em 1-2 frases'}}";
       const txt=await callAPI([{role:"user",content:msg}],apiKey);
       const res=JSON.parse(txt);
       // Salva tambem snapshot MPT/AW para mostrar impacto antes/depois
@@ -4221,10 +4594,10 @@ function App(){
       equity:YPB_BUCKETS.equity.reduce((s,id)=>s+((cw[id]||0)/100),0),
       realAssets:YPB_BUCKETS.realAssets.reduce((s,id)=>s+((cw[id]||0)/100),0),
       altLiquid:(cw.bitcoin||0)/100,
-      inflationHedge:(cw.ouro||0)/100,
+      inflationHedge:YPB_BUCKETS.inflationHedge.reduce((s,id)=>s+((cw[id]||0)/100),0),// ouro + NTN-B IPCA+
       fixedNominal:((cw.selic||0)+(cw.treasuries||0))/100
     };
-    const ypbBuckets={equity:0.40,realAssets:0.40,altLiquid:0.03,inflationHedge:0.05,fixedNominal:0.12};
+    const ypbBuckets={equity:0.37,realAssets:0.40,altLiquid:0.03,inflationHedge:0.08,fixedNominal:0.12};
     let gapYPB=0;
     Object.keys(ypbBuckets).forEach(k=>gapYPB+=Math.abs(bucketsYPB[k]-ypbBuckets[k]));
     const alinhYPB=gapYPB<0.20?"ALTO":gapYPB<0.40?"MODERADO":"BAIXO";
@@ -4693,7 +5066,7 @@ Responda APENAS com o texto do insight, sem prefacio ou comentarios meta.`;
 
   // TABS
   const tabs=h("div",{style:{display:"flex",borderBottom:"1px solid rgba(255,255,255,0.06)",marginBottom:18,marginTop:10,overflowX:"auto"}},
-    ...[{id:"dashboard",label:"Dashboard"},{id:"positions",label:"Posicoes"},{id:"aporte",label:"Aporte"},{id:"chat",label:"Analise"},{id:"mpt",label:"MPT"},{id:"aw",label:"All Weather"},{id:"yale",label:"Yale"},{id:"stress",label:"Stress Test"},{id:"projecao",label:"Projecoes"},{id:"renda",label:"Renda"},{id:"btcouro",label:"BTC/Ouro"},{id:"treasuries",label:"Treasuries"},{id:"history",label:"Historico"}].map(t=>
+    ...[{id:"dashboard",label:"Dashboard"},{id:"positions",label:"Posicoes"},{id:"aporte",label:"Aporte"},{id:"chat",label:"Analise"},{id:"mpt",label:"MPT"},{id:"aw",label:"All Weather"},{id:"yale",label:"Yale"},{id:"stress",label:"Stress Test"},{id:"projecao",label:"Projecoes"},{id:"renda",label:"Renda"},{id:"btcouro",label:"BTC/Ouro"},{id:"treasuries",label:"Treasuries"},{id:"tesouro",label:"Tesouro Direto"},{id:"history",label:"Historico"}].map(t=>
       h("button",{key:t.id,onClick:()=>{setTab(t.id);if(t.id!=="aporte"){setApR(null);setStep("r");}},style:{background:"none",border:"none",borderBottom:tab===t.id?"2px solid #C8A96E":"2px solid transparent",color:tab===t.id?"#C8A96E":"#8A8070",padding:"6px 10px",cursor:"pointer",fontSize:12,marginBottom:-1,flexShrink:0,whiteSpace:"nowrap"}},t.label)
     ),
     h("button",{onClick:()=>{
@@ -4974,7 +5347,31 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
       const dataHoje=diasSem[hojeData.getDay()]+", "+hojeData.getDate()+" de "+meses[hojeData.getMonth()]+" de "+hojeData.getFullYear();
       const dateHeader=h("div",{style:{fontSize:10,color:"#7A7060",fontFamily:"Georgia,serif",fontStyle:"italic",letterSpacing:0.5,marginBottom:14,paddingBottom:9,borderBottom:"1px solid rgba(200,169,110,0.12)",textAlign:"right"}},dataHoje);
 
-      content=h("div",{},dateHeader,h(BolsasCard,{port,cls}),aporteCard,insightCard,h(AllocChart,{cw,ct,fB,MV,hideVal}),h(RiskChart,{cw,selicAtual,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,recalibrarRR_viaIA,calibracaoLoad,calibracaoErr,hasAjustesIA:!!ajustesRR_IA,apiKey}),h(EvolChart,{histMensal,hist,showUSD,setShowUSD,hideVal}),h(ComparativoChart,{histMensal,idxMensal,hideVal}),insightMensalCard,h(HeatmapChart,{hist,histMensal}),h(CurrencyChart,{port,cls,hideVal}),topPos);
+      // Helpers NTN-B
+      const refreshNTNBTaxas=async()=>{
+        setNtnbStatus("buscando...");
+        try{
+          const res=await fetchNTNBTaxas();
+          if(res&&res.taxas&&Object.keys(res.taxas).length>0){
+            if(res.vencimentos)mesclarVencimentosNTNB(res.vencimentos);
+            setNtnbTaxas(res.taxas);
+            setNtnbUpdTs(res.ts);
+            if(res.vna&&res.vna>0)setNtnbVNA(res.vna);
+            const qtVenc=Object.keys(NTNB_VENCIMENTOS).length;
+            setNtnbStatus("atualizado: "+new Date(res.ts).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})+" - "+qtVenc+" vencimentos via "+res.fonte);
+          }else{
+            setNtnbStatus("nao foi possivel buscar - use entrada manual");
+          }
+        }catch(e){setNtnbStatus("erro: "+(e.message||"desconhecido"));}
+      };
+      const setNTNBTaxaManual=(ticker,taxaBruta)=>{
+        setNtnbTaxas(prev=>({...prev,[ticker]:{...(prev[ticker]||{}),taxaBrutaVenda:taxaBruta,taxaBrutaCompra:taxaBruta,ts:Date.now(),manual:true}}));
+        setNtnbUpdTs(Date.now());
+        setNtnbStatus("taxa manual atualizada: "+ticker);
+      };
+      const tesouroCard=h(TesouroNTNBCard,{ntnbTaxas,ntnbVNA,ntnbUpdTs,ntnbStatus,onRefresh:refreshNTNBTaxas,port,onTaxaManual:setNTNBTaxaManual});
+
+      content=h("div",{},dateHeader,h(BolsasCard,{port,cls}),aporteCard,insightCard,h(AllocChart,{cw,ct,fB,MV,hideVal}),h(RiskChart,{cw,selicAtual,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,recalibrarRR_viaIA,calibracaoLoad,calibracaoErr,hasAjustesIA:!!ajustesRR_IA,apiKey}),h(EvolChart,{histMensal,hist,showUSD,setShowUSD,hideVal}),h(ComparativoChart,{histMensal,idxMensal,hideVal}),insightMensalCard,h(HeatmapChart,{hist,histMensal}),tesouroCard,h(CurrencyChart,{port,cls,hideVal}),topPos);
     }
   }  // POSITIONS
   if(tab==="positions"){
@@ -4982,8 +5379,9 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
       const {ticker,classId}=editA;
       const cl=CL.find(c=>c.id===classId),cc=ccy[ticker]||"BRL";
       const isVB=VB.includes(ticker),isGB=GB.includes(ticker);
+      const isNT=isNTNB(ticker);
       const isHid=hidden.includes(ticker),isCustom=!!(custom[classId]||[]).find(a=>a.ticker===ticker);
-      const totBRL=isVB?pN(eQty):isGB?pN(eQty)*pN(ePrice):pN(eQty)*pN(ePrice)*(FX[cc]||1);
+      const totBRL=isNT?((pN(eQty)||0)*(pN(ePrice)||0)):isVB?pN(eQty):isGB?pN(eQty)*pN(ePrice):pN(eQty)*pN(ePrice)*(FX[cc]||1);
       const inp=(val,setter,ph)=>h("input",{type:"text",value:val,onChange:e=>setter(e.target.value.replace(/[^0-9.,]/g,"")),placeholder:ph,style:{width:"100%",background:"rgba(0,0,0,0.3)",border:"1px solid "+(cl?cl.color:"#C8A96E")+"44",borderRadius:5,padding:"8px 10px",color:"#F0EAD8",fontSize:14,fontFamily:"monospace",outline:"none",boxSizing:"border-box"}});
       const row=(label,field,hint)=>h("div",{style:{marginBottom:11}},h("div",{style:{fontSize:8,letterSpacing:2,color:"#8A8070",fontFamily:"monospace",textTransform:"uppercase",marginBottom:4}},label),field,hint&&h("div",{style:{fontSize:8,color:"#3A3830",marginTop:2,fontStyle:"italic"}},hint));
       content=h("div",{},
@@ -5000,6 +5398,17 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         isCustom&&refreshMsg&&h("div",{style:{padding:"6px 9px",marginBottom:10,background:refreshMsg.startsWith("OK")||refreshMsg.startsWith("Nome")?"rgba(76,175,130,0.08)":"rgba(232,196,74,0.08)",border:"1px solid "+(refreshMsg.startsWith("OK")||refreshMsg.startsWith("Nome")?"rgba(76,175,130,0.3)":"rgba(232,196,74,0.3)"),borderRadius:5,fontSize:9,color:refreshMsg.startsWith("OK")||refreshMsg.startsWith("Nome")?"#4CAF82":"#E8C44A",fontFamily:"monospace",lineHeight:1.5}},refreshMsg),
         isVB?row("Valor total aplicado (R$)",inp(eQty,setEQty,"0,00"),"Saldo atual em reais. Atualize a cada aporte."):
         isGB?h("div",{},row("Quantidade em gramas",inp(eQty,setEQty,"0,000")),row("Preco de venda por grama (R$/g)",inp(ePrice,setEPrice,"0,00"))):
+        isNT?h("div",{},
+          // Header informativo
+          h("div",{style:{marginBottom:12,padding:"9px 11px",background:"rgba(168,139,94,0.08)",border:"1px solid rgba(168,139,94,0.30)",borderRadius:6}},
+            h("div",{style:{fontSize:9,color:"#C8A96E",fontFamily:"monospace",letterSpacing:1.5,fontWeight:700,marginBottom:4}},"NTN-B Principal - "+ticker),
+            h("div",{style:{fontSize:10,color:"#9A9080",fontFamily:"Georgia,serif",fontStyle:"italic",lineHeight:1.5}},"Vencimento: "+(NTNB_VENCIMENTOS[ticker]||"-")+" ("+anosAteVenc(NTNB_VENCIMENTOS[ticker]).toFixed(1)+" anos). Insira os dados da SUA aquisicao para acompanhamento do carrego.")
+          ),
+          row("Quantidade (frações OK, ex: 0.05)",inp(eQty,setEQty,"0,0500")),
+          row("PU de compra (R$)",inp(ePrice,setEPrice,"3.500,00"),"Preco unitario que voce pagou no Tesouro Direto"),
+          row("Taxa de aquisicao (% acima de IPCA)",inp(eTaxaCompra,setETaxaCompra,"6.30"),"Ex: 6.30 para IPCA+6,30% bruto. Em LIQUIDO de IR (15%) seria IPCA+5,36%."),
+          row("Data da compra",h("input",{type:"date",value:eDataCompra,onChange:e=>setEDataCompra(e.target.value),style:{width:"100%",background:"rgba(0,0,0,0.3)",border:"1px solid "+(cl?cl.color:"#C8A96E")+"44",borderRadius:5,padding:"8px 10px",color:"#F0EAD8",fontSize:13,fontFamily:"monospace",outline:"none",boxSizing:"border-box"}}),"Usado para calcular o valor de carrego acumulado")
+        ):
         h("div",{},
           h("div",{style:{marginBottom:10,padding:"6px 9px",background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:5,display:"flex",justifyContent:"space-between",alignItems:"center"}},h("span",{style:{fontSize:8,color:"#8A8070",fontFamily:"monospace",textTransform:"uppercase",letterSpacing:2}},"Moeda"),h("span",{style:{fontFamily:"monospace",fontSize:12,color:cl?cl.color:"#C8A96E",fontWeight:700}},cc)),
           row("Quantidade",inp(eQty,setEQty,"0")),
@@ -5035,7 +5444,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                   isCustom&&h("span",{style:{fontSize:6,color:c.color,border:"1px solid "+c.color+"55",borderRadius:2,padding:"1px 3px",fontFamily:"monospace"}},"+"),
                   isHid&&h("span",{style:{fontSize:6,color:"#8A8070",border:"1px solid #8A807044",borderRadius:2,padding:"1px 3px",fontFamily:"monospace"}},"oculto")
                 ),
-                has&&pos&&h("div",{style:{fontSize:8,color:"#8A8070",marginTop:2}},VB.includes(ticker)?MV(fB(pos.totalBRL||0)):GB.includes(ticker)?(fN(pos.qty,3)+" g x R$ "+fN(pos.price||0,2)):(fN(pos.qty,pos.qty<100?4:0)+" x "+(cc!="BRL"?cc+" ":"R$ ")+fN(pos.price||0,2)))
+                has&&pos&&h("div",{style:{fontSize:8,color:"#8A8070",marginTop:2}},isNTNB(ticker)?(fN(pos.qty||0,4)+" un \u00B7 "+(pos.taxaCompra?"IPCA+"+(pos.taxaCompra*100).toFixed(2)+"%":"-")+" \u00B7 "+anosAteVenc(NTNB_VENCIMENTOS[ticker]).toFixed(1)+"a"):VB.includes(ticker)?MV(fB(pos.totalBRL||0)):GB.includes(ticker)?(fN(pos.qty,3)+" g x R$ "+fN(pos.price||0,2)):(fN(pos.qty,pos.qty<100?4:0)+" x "+(cc!="BRL"?cc+" ":"R$ ")+fN(pos.price||0,2)))
               ),
               val>0&&h("div",{style:{textAlign:"right",flexShrink:0}},
                 h("div",{style:{fontSize:10,color:"#F0EAD8",fontFamily:"monospace"}},MV(fB(val))),
@@ -5755,7 +6164,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             equity:{label:"Equity (Acoes BR+EXT)",ids:YPB_BUCKETS.equity,color:"#4CAF82",yaleMin:0.40,yaleMax:0.55,explicacao:"Acoes puras - captam premio de risco de longo prazo. Yale considera equity o motor de retorno secular."},
             realAssets:{label:"Real Assets (FII+REITs+Infra+Imoveis+Agro)",ids:YPB_BUCKETS.realAssets,color:"#C8A96E",yaleMin:0.35,yaleMax:0.55,explicacao:"Ativos reais com fluxo de caixa indexados a inflacao. Yale enfatiza heavy allocation aqui (real estate + recursos naturais) por gerar renda + hedge inflacionario."},
             altLiquid:{label:"Alternativos Liquidos (Bitcoin)",ids:YPB_BUCKETS.altLiquid,color:"#F7931A",yaleMin:0.01,yaleMax:0.06,explicacao:"Substituto B&H para a alocacao de Yale em PE/VC (inacessivel ao retail). BTC oferece descorrelacao com sistema financeiro classico, mas com volatilidade alta - exposicao prudente."},
-            inflationHedge:{label:"Hedge Inflacionario (Ouro)",ids:YPB_BUCKETS.inflationHedge,color:"#E8C44A",yaleMin:0.03,yaleMax:0.07,explicacao:"Hedge classico contra inflacao estrutural e desordem monetaria. Yale tem pouca exposicao explicita, mas YPB inclui 5% pelo cenario brasileiro de juros voláteis."},
+            inflationHedge:{label:"Hedge Inflacionario (Ouro + NTN-B IPCA+)",ids:YPB_BUCKETS.inflationHedge,color:"#E8C44A",yaleMin:0.05,yaleMax:0.10,explicacao:"Hedge contra inflacao estrutural e desordem monetaria. Ouro como hedge classico + NTN-B IPCA+ como protecao real garantida com cupom acima de IPCA. YPB pondera ~8% pelo cenario brasileiro de juros volateis e fiscal incerto."},
             fixedNominal:{label:"Renda Fixa Nominal (Selic+Treasuries)",ids:YPB_BUCKETS.fixedNominal,color:"#5B8FD4",yaleMin:0.10,yaleMax:0.15,explicacao:"Liquidez produtiva. Yale evita renda fixa pesada porque erode retorno real. YPB mantem ~12% como reserva estrategica e oportunismo contraciclico."}
           };
           // Calcula real% e YPB% para cada bucket
@@ -9813,9 +10222,12 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
       const icrPes=calcICR(IPCA_CENARIOS.pes);
 
       // ===== ICR-RTE (Renda Total Estrategica - FIRE com FIIs preservados) =====
-      // Ordem de consumo: Selic > Treasuries > Ouro > Bitcoin > REITs > Acoes EXT > Acoes BR > Agro > Infra > FIIs
+      // Ordem de consumo: Selic > Treasuries > Ouro > BTC > NTN-B > REITs > Acoes EXT > Acoes BR > Agro > Infra > FIIs
+      // NTN-B Principal: consumida via venda parcial periodica (liquidez diaria no TD).
+      //   Posicionada antes de equities porque tem menor retorno real esperado (~5,5% liq vs 7-8% acoes),
+      //   mas depois dos ativos sem renda corrente (sel/tre/xau/btc) que sao mais "estacionados".
       // Imoveis fisicos sao excluidos (iliquidos)
-      const ordemConsumo=["selic","treasuries","ouro","bitcoin","reits","acoes_ext","acoes_br","agro","infra","fii"];
+      const ordemConsumo=["selic","treasuries","ouro","bitcoin","rfipca","reits","acoes_ext","acoes_br","agro","infra","fii"];
       const calcICR_RTE=(ipcaRate)=>{
         // ICR-RTE: renda passiva (dividendos liquidos de TODAS as classes) 
         //          + SWR 4% sobre TODAS as classes EXCETO motores (FII+Infra+Agro)
@@ -11749,6 +12161,234 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         h("div",{style:{fontSize:10,color:"#9A9080",lineHeight:1.6,fontFamily:"monospace",whiteSpace:"pre-wrap"}},e&&e.message?e.message:String(e))
       );
     }
+  }
+
+  if(tab==="tesouro"){
+    // Helpers para atualizar taxa manual e refresh
+    const refreshTaxas=async()=>{
+      setNtnbStatus("buscando taxas...");
+      try{
+        const res=await fetchNTNBTaxas();
+        if(res&&res.taxas&&Object.keys(res.taxas).length>0){
+          if(res.vencimentos)mesclarVencimentosNTNB(res.vencimentos);
+          setNtnbTaxas(res.taxas);setNtnbUpdTs(res.ts);
+          if(res.vna&&res.vna>0)setNtnbVNA(res.vna);
+          const qtVenc=Object.keys(NTNB_VENCIMENTOS).length;
+          setNtnbStatus("atualizado: "+new Date(res.ts).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})+" - "+qtVenc+" vencimentos via "+res.fonte);
+        }else setNtnbStatus("API indisponivel - use entrada manual");
+      }catch(e){setNtnbStatus("erro: "+(e.message||"desconhecido"));}
+    };
+    const setTaxaManual=(t,vBruta)=>{
+      setNtnbTaxas(prev=>({...prev,[t]:{...(prev[t]||{}),taxaBrutaVenda:vBruta,taxaBrutaCompra:vBruta,ts:Date.now(),manual:true}}));
+      setNtnbUpdTs(Date.now());
+      setNtnbStatus("taxa manual atualizada: "+t);
+    };
+
+    // Tabela das posicoes NTN-B atuais (resumo)
+    const ntnbPos=Object.entries(port).filter(([t,p])=>isNTNB(t)&&p&&p.qty>0);
+    const totalNTNB=ntnbPos.reduce((s,[t,p])=>s+pv(t,p,ccy,ntnbTaxas,ntnbVNA),0);
+    const totalCarrego=ntnbPos.reduce((s,[t,p])=>s+pvNTNBCarrego(t,p,ntnbVNA),0);
+
+    // Calcula GAP relativo (mercado vs carrego)
+    const gapPctTotal=totalCarrego>0?((totalNTNB-totalCarrego)/totalCarrego)*100:0;
+
+    content=h("div",{},
+      // Header da aba
+      h("div",{style:{marginBottom:18}},
+        h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:5}},"Tesouro Direto"),
+        h("div",{style:{fontSize:13,color:"#F0EAD8",fontFamily:"Georgia,serif",fontWeight:700,marginBottom:4}},"Titulos Indexados ao IPCA (NTN-B Principal)"),
+        h("div",{style:{fontSize:10,color:"#8A8070",fontFamily:"Georgia,serif",fontStyle:"italic"}},"Renda fixa pos-fixada para carrego ate o vencimento - protecao contra inflacao com cupom real garantido")
+      ),
+
+      // Card grande de taxas atuais (reutiliza TesouroNTNBCard)
+      h(TesouroNTNBCard,{ntnbTaxas,ntnbVNA,ntnbUpdTs,ntnbStatus,onRefresh:refreshTaxas,port,onTaxaManual:setTaxaManual}),
+
+      // Posicoes do portfolio
+      ntnbPos.length>0&&h("div",{style:{marginTop:24,padding:"14px 16px",background:"linear-gradient(135deg,rgba(200,169,110,0.05),rgba(0,0,0,0.20))",border:"1px solid rgba(200,169,110,0.20)",borderRadius:10}},
+        h("div",{style:{display:"flex",alignItems:"baseline",justifyContent:"space-between",marginBottom:10,flexWrap:"wrap",gap:6}},
+          h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase"}},"Minhas Posicoes NTN-B"),
+          h("div",{style:{fontSize:9,color:"#7A7060",fontFamily:"monospace"}},ntnbPos.length+" titulo(s)")
+        ),
+        // Resumo
+        h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:12}},
+          h("div",{style:{padding:"8px 10px",background:"rgba(0,0,0,0.20)",borderRadius:6}},
+            h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",letterSpacing:1.5,marginBottom:3,fontWeight:700}},"VALOR MERCADO"),
+            h("div",{style:{fontSize:14,color:"#C8A96E",fontFamily:"Georgia,serif",fontWeight:700}},hideVal?"R$ ****":fB(totalNTNB))
+          ),
+          h("div",{style:{padding:"8px 10px",background:"rgba(0,0,0,0.20)",borderRadius:6}},
+            h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",letterSpacing:1.5,marginBottom:3,fontWeight:700}},"VALOR CARREGO"),
+            h("div",{style:{fontSize:14,color:"#9A9080",fontFamily:"Georgia,serif",fontWeight:700}},hideVal?"R$ ****":fB(totalCarrego))
+          ),
+          h("div",{style:{padding:"8px 10px",background:gapPctTotal>=0?"rgba(93,191,130,0.10)":"rgba(196,96,69,0.10)",borderRadius:6}},
+            h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",letterSpacing:1.5,marginBottom:3,fontWeight:700}},"GAP (MTM vs CARREGO)"),
+            h("div",{style:{fontSize:14,color:gapPctTotal>=0?"#5DBF82":"#C46045",fontFamily:"Georgia,serif",fontWeight:700,fontStyle:"italic"}},(gapPctTotal>=0?"+":"")+gapPctTotal.toFixed(2)+"%")
+          )
+        ),
+
+        // ============= GRAFICOS DE COMPOSICAO POR VENCIMENTO =============
+        // Calcula dados agregados por vencimento (ordem cronologica do mais curto ao mais longo)
+        (()=>{
+          // Paleta de cores dinamica baseada em anos ate o vencimento
+          // Degrade dourado claro (curto) -> bronze escuro (longo)
+          // Suporta qualquer vencimento descoberto via API, nao apenas a lista hardcoded
+          const corPorAnos=(anos)=>{
+            // Clamp 0-40 anos para mapear no degrade
+            const t=Math.max(0,Math.min(1,anos/40));
+            // Interpolacao manual entre 2 cores HSL
+            // Inicial: #F0DCB0 (h=38, s=64, l=82) - dourado claro
+            // Final:   #5E4A2E (h=33, s=35, l=27) - bronze escuro
+            const h=38-(38-33)*t;
+            const s=64-(64-35)*t;
+            const l=82-(82-27)*t;
+            return `hsl(${h},${s}%,${l}%)`;
+          };
+          // Composicao: ordena por vencimento cronologico
+          const composicao=ntnbPos.map(([t,p])=>{
+            const valor=pv(t,p,ccy,ntnbTaxas,ntnbVNA);
+            const anos=anosAteVenc(NTNB_VENCIMENTOS[t]);
+            return {ticker:t,ano:t.split("-")[1],valor,anos,pct:totalNTNB>0?(valor/totalNTNB)*100:0,cor:corPorAnos(anos)};
+          }).sort((a,b)=>a.anos-b.anos);
+
+          if(composicao.length===0)return null;
+
+          // Duracao media ponderada por valor (em anos) - indicador chave de risco de taxa
+          const duracaoMediaPonderada=composicao.reduce((s,c)=>s+(c.anos*c.valor),0)/(totalNTNB||1);
+
+          // ===== DONUT CHART (SVG) =====
+          // Donut radius interno/externo
+          const donutSize=200,donutCx=donutSize/2,donutCy=donutSize/2,donutR=82,donutRi=52;
+          // Calcular arcos
+          let anguloAcum=-Math.PI/2;// comeca no topo
+          const arcos=composicao.map(c=>{
+            const anguloFim=anguloAcum+(c.pct/100)*Math.PI*2;
+            const arc={ticker:c.ticker,ano:c.ano,pct:c.pct,valor:c.valor,cor:c.cor,inicio:anguloAcum,fim:anguloFim};
+            anguloAcum=anguloFim;
+            return arc;
+          });
+          // Funcao para descrever arco SVG (donut com hole)
+          const descreverArco=(a)=>{
+            const x1=donutCx+donutR*Math.cos(a.inicio),y1=donutCy+donutR*Math.sin(a.inicio);
+            const x2=donutCx+donutR*Math.cos(a.fim),y2=donutCy+donutR*Math.sin(a.fim);
+            const x3=donutCx+donutRi*Math.cos(a.fim),y3=donutCy+donutRi*Math.sin(a.fim);
+            const x4=donutCx+donutRi*Math.cos(a.inicio),y4=donutCy+donutRi*Math.sin(a.inicio);
+            const largeArc=(a.fim-a.inicio)>Math.PI?1:0;
+            return `M ${x1} ${y1} A ${donutR} ${donutR} 0 ${largeArc} 1 ${x2} ${y2} L ${x3} ${y3} A ${donutRi} ${donutRi} 0 ${largeArc} 0 ${x4} ${y4} Z`;
+          };
+
+          // ===== BAR CHART (SVG) =====
+          // Barras horizontais ordenadas pelo vencimento, largura proporcional ao valor de mercado
+          const barW=Math.max(...composicao.map(c=>c.valor));// max valor
+          const barChartH=composicao.length*36+20;// altura dinamica
+          const barChartW=300;// largura total
+          const barLabelW=70;// area para o label (IPCA+ ANO + anos)
+          const barValueW=70;// area para valor R$ direita
+          const barPlotW=barChartW-barLabelW-barValueW;
+
+          return h("div",{style:{marginBottom:14}},
+            h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:4}},"Composicao por vencimento"),
+            h("div",{style:{fontSize:9,color:"#5A5550",marginBottom:12,fontStyle:"italic"}},"Distribuicao das posicoes NTN-B por data de vencimento - peso a valor de mercado"),
+
+            // ===== DONUT =====
+            h("div",{style:{display:"flex",alignItems:"center",gap:12,padding:"12px",background:"rgba(0,0,0,0.18)",borderRadius:8,border:"1px solid rgba(200,169,110,0.12)",marginBottom:10,flexWrap:"wrap",justifyContent:"center"}},
+              // SVG donut
+              h("div",{style:{flexShrink:0}},
+                h("svg",{width:donutSize,height:donutSize,viewBox:"0 0 "+donutSize+" "+donutSize,style:{display:"block"}},
+                  ...arcos.map(a=>h("path",{key:a.ticker,d:descreverArco(a),fill:a.cor,stroke:"rgba(0,0,0,0.30)",strokeWidth:1})),
+                  // Texto central: duracao media
+                  h("text",{x:donutCx,y:donutCy-8,textAnchor:"middle",style:{fontSize:8,fill:"#7A7060",fontFamily:"monospace",letterSpacing:1}},"DURACAO MEDIA"),
+                  h("text",{x:donutCx,y:donutCy+12,textAnchor:"middle",style:{fontSize:18,fill:"#C8A96E",fontFamily:"Georgia,serif",fontWeight:700}},duracaoMediaPonderada.toFixed(1)),
+                  h("text",{x:donutCx,y:donutCy+26,textAnchor:"middle",style:{fontSize:9,fill:"#9A9080",fontFamily:"Georgia,serif",fontStyle:"italic"}},"anos")
+                )
+              ),
+              // Legenda do donut (ao lado em desktop, abaixo no mobile)
+              h("div",{style:{flex:1,minWidth:160,display:"flex",flexDirection:"column",gap:4}},
+                ...composicao.map(c=>h("div",{key:c.ticker,style:{display:"flex",alignItems:"center",gap:6,padding:"4px 6px",background:"rgba(255,255,255,0.02)",borderRadius:4}},
+                  h("div",{style:{width:10,height:10,borderRadius:2,background:c.cor,flexShrink:0,border:"1px solid rgba(0,0,0,0.25)"}}),
+                  h("div",{style:{flex:1,fontSize:10,color:"#E8DCC0",fontFamily:"Georgia,serif"}},
+                    h("strong",{},"IPCA+ "+c.ano),
+                    h("span",{style:{color:"#7A7060",marginLeft:5,fontSize:9,fontFamily:"monospace"}},c.anos.toFixed(1)+"a")
+                  ),
+                  h("div",{style:{fontFamily:"monospace",fontSize:10,color:c.cor,fontWeight:700,minWidth:42,textAlign:"right"}},c.pct.toFixed(1)+"%")
+                ))
+              )
+            ),
+
+            // ===== BARRAS HORIZONTAIS =====
+            h("div",{style:{padding:"12px",background:"rgba(0,0,0,0.18)",borderRadius:8,border:"1px solid rgba(200,169,110,0.12)"}},
+              h("div",{style:{fontSize:8,letterSpacing:2,color:"#7A7060",fontFamily:"monospace",marginBottom:8,textTransform:"uppercase"}},"Valor de mercado por vencimento"),
+              h("svg",{width:"100%",height:barChartH,viewBox:"0 0 "+barChartW+" "+barChartH,preserveAspectRatio:"xMidYMid meet",style:{display:"block"}},
+                ...composicao.map((c,i)=>{
+                  const y=15+i*36;
+                  const larg=barW>0?(c.valor/barW)*barPlotW:0;
+                  return h("g",{key:c.ticker},
+                    // Label esquerdo (titulo + anos)
+                    h("text",{x:4,y:y+11,style:{fontSize:10,fill:"#E8DCC0",fontFamily:"Georgia,serif",fontWeight:700}},"IPCA+ "+c.ano),
+                    h("text",{x:4,y:y+23,style:{fontSize:8,fill:"#7A7060",fontFamily:"monospace",fontStyle:"italic"}},c.anos.toFixed(1)+" anos"),
+                    // Trilho de fundo
+                    h("rect",{x:barLabelW,y:y+6,width:barPlotW,height:18,fill:"rgba(255,255,255,0.03)",rx:3}),
+                    // Barra colorida
+                    h("rect",{x:barLabelW,y:y+6,width:larg,height:18,fill:c.cor,rx:3,style:{filter:"drop-shadow(0 1px 2px rgba(0,0,0,0.4))"}}),
+                    // % dentro da barra (se larga o suficiente)
+                    larg>40&&h("text",{x:barLabelW+8,y:y+19,style:{fontSize:9,fill:"#0D0F14",fontFamily:"monospace",fontWeight:700}},c.pct.toFixed(1)+"%"),
+                    // Valor R$ a direita
+                    h("text",{x:barChartW-4,y:y+15,textAnchor:"end",style:{fontSize:10,fill:c.cor,fontFamily:"monospace",fontWeight:700}},hideVal?"R$ ****":(c.valor>=1e6?"R$ "+(c.valor/1e6).toFixed(2).replace(".",",")+"M":c.valor>=1e3?"R$ "+(c.valor/1e3).toFixed(1).replace(".",",")+"K":"R$ "+c.valor.toFixed(0)))
+                  );
+                })
+              ),
+              // Nota interpretativa
+              h("div",{style:{marginTop:8,paddingTop:8,borderTop:"1px solid rgba(200,169,110,0.10)",fontSize:9,color:"#7A7060",fontFamily:"Georgia,serif",fontStyle:"italic",lineHeight:1.5}},
+                "A duracao media ponderada de ",h("strong",{style:{color:"#C8A96E",fontStyle:"normal"}},duracaoMediaPonderada.toFixed(1)+" anos"),
+                " indica o tempo medio efetivo de carrego. Quanto maior, mais sensivel a marcacao a mercado oscila com a curva de juros reais - mas tambem mais juro real travado para o longo prazo."
+              )
+            )
+          );
+        })(),
+
+        // Lista de posicoes
+        ...ntnbPos.map(([t,p])=>{
+          const valorMercado=pv(t,p,ccy,ntnbTaxas,ntnbVNA);
+          const valorCarrego=pvNTNBCarrego(t,p,ntnbVNA);
+          const gap=valorCarrego>0?((valorMercado-valorCarrego)/valorCarrego)*100:0;
+          const tx=ntnbTaxas&&ntnbTaxas[t]?ntnbTaxas[t]:null;
+          const venc=NTNB_VENCIMENTOS[t];
+          const anos=anosAteVenc(venc).toFixed(1);
+          return h("div",{key:t,style:{padding:"10px 12px",background:"rgba(0,0,0,0.15)",border:"1px solid rgba(200,169,110,0.15)",borderRadius:6,marginBottom:5}},
+            h("div",{style:{display:"flex",alignItems:"baseline",justifyContent:"space-between",marginBottom:6,flexWrap:"wrap",gap:4}},
+              h("div",{style:{fontSize:13,color:"#E8DCC0",fontFamily:"Georgia,serif",fontWeight:700}},"IPCA+ "+t.split("-")[1]),
+              h("div",{style:{fontSize:11,color:"#C8A96E",fontFamily:"monospace",fontWeight:700}},hideVal?"R$ ****":fB(valorMercado))
+            ),
+            h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:6,fontSize:9,fontFamily:"monospace"}},
+              h("div",{},h("div",{style:{color:"#7A7060",fontSize:7,letterSpacing:1}},"QTDE"),h("div",{style:{color:"#C8C0B0",fontSize:10}},fN(p.qty||0,4))),
+              h("div",{},h("div",{style:{color:"#7A7060",fontSize:7,letterSpacing:1}},"TX. COMPRA"),h("div",{style:{color:"#C8C0B0",fontSize:10}},p.taxaCompra?"IPCA+"+(p.taxaCompra*100).toFixed(2)+"%":"-")),
+              h("div",{},h("div",{style:{color:"#7A7060",fontSize:7,letterSpacing:1}},"PU COMPRA"),h("div",{style:{color:"#C8C0B0",fontSize:10}},p.puCompra?"R$ "+(p.puCompra).toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2}):"-")),
+              h("div",{},h("div",{style:{color:"#7A7060",fontSize:7,letterSpacing:1}},"VENCE EM"),h("div",{style:{color:"#C8C0B0",fontSize:10}},anos+" anos"))
+            ),
+            tx&&tx.taxaBrutaVenda>0&&h("div",{style:{marginTop:6,paddingTop:6,borderTop:"1px solid rgba(200,169,110,0.10)",display:"flex",justifyContent:"space-between",fontSize:9,fontFamily:"monospace"}},
+              h("span",{style:{color:"#7A7060"}},"Taxa de venda hoje:"),
+              h("span",{style:{color:"#C8A96E",fontWeight:700}},"IPCA+"+(tx.taxaBrutaVenda*100).toFixed(2)+"% bruto / IPCA+"+(taxaLiquidaIR(tx.taxaBrutaVenda)*100).toFixed(2)+"% liq")
+            )
+          );
+        })
+      ),
+
+      // Bloco explicativo
+      h("div",{style:{marginTop:24,padding:"14px 16px",background:"rgba(0,0,0,0.15)",border:"1px solid rgba(200,169,110,0.15)",borderRadius:8}},
+        h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:8}},"Estrategia desta classe"),
+        h("div",{style:{fontSize:11,color:"#C8C0B0",fontFamily:"Georgia,serif",lineHeight:1.7}},
+          "A classe NTN-B (IPCA+) constitui ",h("strong",{style:{color:"#E8C97A"}},"renda fixa pos-fixada"),", oferecendo cupom real garantido somado a correcao integral do IPCA. ",
+          "Para o investidor Buy & Hold de longo prazo, e tratada como ",h("strong",{style:{color:"#E8C97A"}},"hedge inflacionario primario")," e instrumento de carrego ate o vencimento.",
+          h("br"),h("br"),
+          "Regras operacionais desta classe:",
+          h("ul",{style:{margin:"8px 0 0 14px",padding:0}},
+            h("li",{style:{marginBottom:5}},h("strong",{style:{color:"#C8A96E"}},"Piso estrategico: 3%")," do patrimonio (banda 3-8%)"),
+            h("li",{style:{marginBottom:5}},h("strong",{style:{color:"#E8C97A"}},"Alocar acima do piso")," quando a taxa de venda ATUAL pagar pelo menos ",h("strong",{},"IPCA+5% liquido de IR (= IPCA+5,88% bruto)")),
+            h("li",{style:{marginBottom:5}},h("strong",{style:{color:"#5DBF82"}},"Sinal forte de compra")," quando pagar ",h("strong",{},"IPCA+6% liquido de IR (= IPCA+7,06% bruto)"),": reforco maior do que o piso"),
+            h("li",{style:{marginBottom:5}},"Carrego ate o vencimento. ",h("strong",{},"Zero vendas antecipadas")," (princípio Buy & Hold)"),
+            h("li",{},"Compor todas as analises (MPT, ENB, Yale, vetores macro) junto com as demais classes")
+          )
+        )
+      )
+    );
   }
 
   if(tab==="history"){
