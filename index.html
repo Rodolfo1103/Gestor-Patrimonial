@@ -1969,7 +1969,7 @@ function ComparativoChart({histMensal,idxMensal,hideVal}){
   );
 }
 
-function HeatmapChart({hist}){
+function HeatmapChart({hist,histMensal}){
   // Fallback amigável - mostra mensagem em vez de retornar null silenciosamente
   const semDados=(motivo)=>h("div",{style:{marginBottom:20,paddingTop:14,borderTop:"1px solid rgba(255,255,255,0.05)"}},
     h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:4}},"Heatmap Mensal"),
@@ -1979,17 +1979,32 @@ function HeatmapChart({hist}){
       h("div",{style:{fontSize:9,color:"#7A7060",fontFamily:"monospace",letterSpacing:0.5}},motivo)
     )
   );
-  if(!hist||!Array.isArray(hist))return semDados("hist invalido");
-  const data=hist.filter(r=>r.totalPatrimBRL>0).slice().reverse();
-  if(data.length<2)return semDados("registros validos: "+data.length+" / minimo: 2");
+
+  // PRIORIDADE: usa histMensal (1 snap por mês, sem limite) em vez de hist (max 24 snaps)
+  // Isso permite mostrar oscilação do mês corrente em tempo real e preserva meses antigos
+  let fonte=null,fonteTipo="";
+  if(Array.isArray(histMensal)&&histMensal.length>0){
+    fonte=histMensal.filter(r=>r.totalPatrimBRL>0);
+    fonteTipo="histMensal";
+  }
+  // Fallback para hist caso histMensal nao exista (versoes antigas)
+  if((!fonte||fonte.length<2)&&Array.isArray(hist)&&hist.length>0){
+    fonte=hist.filter(r=>r.totalPatrimBRL>0).slice().reverse();
+    fonteTipo="hist (fallback)";
+  }
+  if(!fonte||!Array.isArray(fonte))return semDados("nenhum historico disponivel");
+  const data=fonte;
+  if(data.length<2)return semDados("registros validos: "+data.length+" / minimo: 2 ("+fonteTipo+")");
+
   // Agrupa por mes (YYYY-MM), pega ultimo valor de cada mes
   const byMonth={};
   data.forEach(r=>{
     const d=new Date(r.date),k=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");
+    // Para histMensal cada chave já é única; para hist (fallback) pega ultimo valor do mes
     byMonth[k]={v:r.totalPatrimBRL,ap:r.totalExecuted||r.apValue||0,date:d};
   });
   const keys=Object.keys(byMonth).sort();
-  if(keys.length<2)return semDados("meses distintos: "+keys.length+" / minimo: 2");
+  if(keys.length<2)return semDados("meses distintos: "+keys.length+" / minimo: 2 ("+fonteTipo+")");
   // Calcular variacao mes a mes descontando aportes (rentabilidade mensal aproximada)
   const variacoes=[];
   for(let i=1;i<keys.length;i++){
@@ -4959,7 +4974,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
       const dataHoje=diasSem[hojeData.getDay()]+", "+hojeData.getDate()+" de "+meses[hojeData.getMonth()]+" de "+hojeData.getFullYear();
       const dateHeader=h("div",{style:{fontSize:10,color:"#7A7060",fontFamily:"Georgia,serif",fontStyle:"italic",letterSpacing:0.5,marginBottom:14,paddingBottom:9,borderBottom:"1px solid rgba(200,169,110,0.12)",textAlign:"right"}},dataHoje);
 
-      content=h("div",{},dateHeader,h(BolsasCard,{port,cls}),aporteCard,insightCard,h(AllocChart,{cw,ct,fB,MV,hideVal}),h(RiskChart,{cw,selicAtual,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,recalibrarRR_viaIA,calibracaoLoad,calibracaoErr,hasAjustesIA:!!ajustesRR_IA,apiKey}),h(EvolChart,{histMensal,hist,showUSD,setShowUSD,hideVal}),h(ComparativoChart,{histMensal,idxMensal,hideVal}),insightMensalCard,h(HeatmapChart,{hist}),h(CurrencyChart,{port,cls,hideVal}),topPos);
+      content=h("div",{},dateHeader,h(BolsasCard,{port,cls}),aporteCard,insightCard,h(AllocChart,{cw,ct,fB,MV,hideVal}),h(RiskChart,{cw,selicAtual,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,recalibrarRR_viaIA,calibracaoLoad,calibracaoErr,hasAjustesIA:!!ajustesRR_IA,apiKey}),h(EvolChart,{histMensal,hist,showUSD,setShowUSD,hideVal}),h(ComparativoChart,{histMensal,idxMensal,hideVal}),insightMensalCard,h(HeatmapChart,{hist,histMensal}),h(CurrencyChart,{port,cls,hideVal}),topPos);
     }
   }  // POSITIONS
   if(tab==="positions"){
