@@ -1970,8 +1970,18 @@ function ComparativoChart({histMensal,idxMensal,hideVal}){
 }
 
 function HeatmapChart({hist}){
+  // Fallback amigável - mostra mensagem em vez de retornar null silenciosamente
+  const semDados=(motivo)=>h("div",{style:{marginBottom:20,paddingTop:14,borderTop:"1px solid rgba(255,255,255,0.05)"}},
+    h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:4}},"Heatmap Mensal"),
+    h("div",{style:{fontSize:9,color:"#5A5550",marginBottom:10,fontStyle:"italic"}},"Rentabilidade mensal descontando aportes"),
+    h("div",{style:{padding:"18px 14px",background:"rgba(0,0,0,0.18)",border:"1px dashed rgba(200,169,110,0.25)",borderRadius:8,textAlign:"center"}},
+      h("div",{style:{fontSize:11,color:"#9A9080",fontFamily:"Georgia,serif",fontStyle:"italic",marginBottom:4}},"Sem dados suficientes"),
+      h("div",{style:{fontSize:9,color:"#7A7060",fontFamily:"monospace",letterSpacing:0.5}},motivo)
+    )
+  );
+  if(!hist||!Array.isArray(hist))return semDados("hist invalido");
   const data=hist.filter(r=>r.totalPatrimBRL>0).slice().reverse();
-  if(data.length<2)return null;
+  if(data.length<2)return semDados("registros validos: "+data.length+" / minimo: 2");
   // Agrupa por mes (YYYY-MM), pega ultimo valor de cada mes
   const byMonth={};
   data.forEach(r=>{
@@ -1979,7 +1989,7 @@ function HeatmapChart({hist}){
     byMonth[k]={v:r.totalPatrimBRL,ap:r.totalExecuted||r.apValue||0,date:d};
   });
   const keys=Object.keys(byMonth).sort();
-  if(keys.length<2)return null;
+  if(keys.length<2)return semDados("meses distintos: "+keys.length+" / minimo: 2");
   // Calcular variacao mes a mes descontando aportes (rentabilidade mensal aproximada)
   const variacoes=[];
   for(let i=1;i<keys.length;i++){
@@ -1989,7 +1999,7 @@ function HeatmapChart({hist}){
     const varPct=prev.v>0?((cur.v-aporteMes-prev.v)/prev.v)*100:0;
     variacoes.push({mes:keys[i],date:cur.date,pct:varPct});
   }
-  if(!variacoes.length)return null;
+  if(!variacoes.length)return semDados("variacoes calculadas: 0");
   // Agrupa por ano para grade
   const byYear={};
   variacoes.forEach(v=>{
