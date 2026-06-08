@@ -2020,7 +2020,80 @@ function HeatmapChart({hist}){
       h("span",{style:{fontSize:8,color:"#7A7570",fontFamily:"monospace"}},"-3%"),
       ...[-3,-1,0,1,3].map(p=>h("div",{key:p,style:{width:18,height:10,background:colorFor(p),borderRadius:2}})),
       h("span",{style:{fontSize:8,color:"#7A7570",fontFamily:"monospace"}},"+3%")
-    )
+    ),
+    // ===== CARD DE ESTATÍSTICAS MENSAIS =====
+    (()=>{
+      // Calcula as estatísticas a partir do array de variações
+      const validas=variacoes.filter(v=>typeof v.pct==="number"&&!isNaN(v.pct));
+      if(validas.length<1)return null;
+      const positivas=validas.filter(v=>v.pct>0);
+      const negativas=validas.filter(v=>v.pct<0);
+      const neutras=validas.filter(v=>v.pct===0);
+      // Maior alta e maior baixa
+      let maiorAlta=null,maiorBaixa=null;
+      validas.forEach(v=>{
+        if(maiorAlta===null||v.pct>maiorAlta.pct)maiorAlta=v;
+        if(maiorBaixa===null||v.pct<maiorBaixa.pct)maiorBaixa=v;
+      });
+      // Helper para formatar mês como "Mar/2025"
+      const mesesNomes=["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
+      const formatMes=(d)=>mesesNomes[d.getMonth()]+"/"+d.getFullYear();
+      // % de meses positivos
+      const pctPositivos=validas.length>0?(positivas.length/validas.length)*100:0;
+
+      return h("div",{style:{marginTop:14,padding:"12px 14px",background:"linear-gradient(135deg,rgba(200,169,110,0.06),rgba(0,0,0,0.30))",border:"1px solid rgba(200,169,110,0.25)",borderRadius:8}},
+        // Header do card
+        h("div",{style:{display:"flex",alignItems:"baseline",justifyContent:"space-between",marginBottom:11,flexWrap:"wrap",gap:6}},
+          h("div",{style:{fontSize:9,letterSpacing:2,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,textTransform:"uppercase"}},"\u{1F4CA} ESTATISTICAS MENSAIS"),
+          h("div",{style:{fontSize:8,color:"#7A7060",fontFamily:"monospace"}},validas.length+" meses analisados")
+        ),
+        // Grid 2x2 de estatísticas
+        h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:9}},
+          // Maior alta
+          h("div",{style:{background:"rgba(30,122,74,0.12)",border:"1px solid rgba(93,191,130,0.35)",borderRadius:6,padding:"9px 11px"}},
+            h("div",{style:{fontSize:7,color:"#5DBF82",fontFamily:"monospace",letterSpacing:1.2,marginBottom:4,fontWeight:700}},"\u2197 MAIOR ALTA"),
+            h("div",{style:{fontSize:16,color:"#5DBF82",fontFamily:"Georgia,serif",fontWeight:700,fontStyle:"italic",lineHeight:1}},"+"+maiorAlta.pct.toFixed(2)+"%"),
+            h("div",{style:{fontSize:8,color:"#9A9080",fontFamily:"monospace",marginTop:4,letterSpacing:0.5}},formatMes(maiorAlta.date))
+          ),
+          // Maior baixa
+          h("div",{style:{background:"rgba(160,48,48,0.12)",border:"1px solid rgba(196,96,69,0.35)",borderRadius:6,padding:"9px 11px"}},
+            h("div",{style:{fontSize:7,color:"#C46045",fontFamily:"monospace",letterSpacing:1.2,marginBottom:4,fontWeight:700}},"\u2198 MAIOR BAIXA"),
+            h("div",{style:{fontSize:16,color:"#C46045",fontFamily:"Georgia,serif",fontWeight:700,fontStyle:"italic",lineHeight:1}},maiorBaixa.pct.toFixed(2)+"%"),
+            h("div",{style:{fontSize:8,color:"#9A9080",fontFamily:"monospace",marginTop:4,letterSpacing:0.5}},formatMes(maiorBaixa.date))
+          ),
+          // Meses positivos
+          h("div",{style:{background:"rgba(30,122,74,0.06)",border:"1px solid rgba(93,191,130,0.20)",borderRadius:6,padding:"9px 11px"}},
+            h("div",{style:{fontSize:7,color:"#5DBF82",fontFamily:"monospace",letterSpacing:1.2,marginBottom:4,fontWeight:700}},"\u25B2 MESES POSITIVOS"),
+            h("div",{style:{display:"flex",alignItems:"baseline",gap:6}},
+              h("div",{style:{fontSize:16,color:"#5DBF82",fontFamily:"Georgia,serif",fontWeight:700,lineHeight:1}},positivas.length),
+              h("div",{style:{fontSize:9,color:"#7A7060",fontFamily:"monospace"}},"de "+validas.length)
+            ),
+            h("div",{style:{fontSize:8,color:"#9A9080",fontFamily:"monospace",marginTop:4,letterSpacing:0.5}},pctPositivos.toFixed(0)+"% do periodo")
+          ),
+          // Meses negativos
+          h("div",{style:{background:"rgba(160,48,48,0.06)",border:"1px solid rgba(196,96,69,0.20)",borderRadius:6,padding:"9px 11px"}},
+            h("div",{style:{fontSize:7,color:"#C46045",fontFamily:"monospace",letterSpacing:1.2,marginBottom:4,fontWeight:700}},"\u25BC MESES NEGATIVOS"),
+            h("div",{style:{display:"flex",alignItems:"baseline",gap:6}},
+              h("div",{style:{fontSize:16,color:"#C46045",fontFamily:"Georgia,serif",fontWeight:700,lineHeight:1}},negativas.length),
+              h("div",{style:{fontSize:9,color:"#7A7060",fontFamily:"monospace"}},"de "+validas.length)
+            ),
+            h("div",{style:{fontSize:8,color:"#9A9080",fontFamily:"monospace",marginTop:4,letterSpacing:0.5}},(100-pctPositivos).toFixed(0)+"% do periodo")
+          )
+        ),
+        // Barra de proporção visual
+        h("div",{style:{marginTop:4}},
+          h("div",{style:{display:"flex",height:6,borderRadius:3,overflow:"hidden",background:"rgba(255,255,255,0.05)"}},
+            positivas.length>0&&h("div",{style:{width:(pctPositivos)+"%",background:"linear-gradient(90deg,#3D9F6A,#5DBF82)"}}),
+            neutras.length>0&&h("div",{style:{width:((neutras.length/validas.length)*100)+"%",background:"rgba(255,255,255,0.10)"}}),
+            negativas.length>0&&h("div",{style:{width:((negativas.length/validas.length)*100)+"%",background:"linear-gradient(90deg,#D99A55,#C46045)"}})
+          ),
+          h("div",{style:{display:"flex",justifyContent:"space-between",marginTop:5,fontSize:7,color:"#7A7060",fontFamily:"monospace"}},
+            h("span",{},pctPositivos.toFixed(0)+"% positivos"),
+            h("span",{},(100-pctPositivos).toFixed(0)+"% negativos")
+          )
+        )
+      );
+    })()
   );
 }
 
