@@ -5398,6 +5398,242 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                 );
               })(),
 
+              // ===== VETORES MACROECONOMICOS QUE DIRIGEM AS CORRELACOES =====
+              (()=>{
+                // Define os 6 vetores macro principais com classes afetadas e direcao
+                // direcao: +1 = sobe com o fator subindo, -1 = cai, 0 = neutro
+                const vetores=[
+                  {
+                    nome:"Taxa de Juros (Selic)",
+                    icone:"\u{1F4B0}",
+                    cor:"#5B8FD4",
+                    explicacao:"Quando a Selic sobe, ativos descontados por taxa caem (FIIs, acoes, imoveis). Renda fixa pos-fixada beneficia diretamente. E o fator macro de maior peso no mercado brasileiro.",
+                    impactos:[
+                      {classe:"selic",direcao:1,intensidade:"FORTE",detalhe:"beneficia diretamente"},
+                      {classe:"treasuries",direcao:0,intensidade:"BAIXA",detalhe:"depende da Fed, nao da Selic"},
+                      {classe:"fii",direcao:-1,intensidade:"FORTE",detalhe:"desconto cap rate"},
+                      {classe:"acoes_br",direcao:-1,intensidade:"MEDIA",detalhe:"custo de capital sobe"},
+                      {classe:"imoveis",direcao:-1,intensidade:"MEDIA",detalhe:"caro financiar"},
+                      {classe:"infra",direcao:-1,intensidade:"MEDIA",detalhe:"alavancagem cara"},
+                      {classe:"ouro",direcao:-1,intensidade:"BAIXA",detalhe:"juro real maior"},
+                      {classe:"bitcoin",direcao:-1,intensidade:"BAIXA",detalhe:"liquidez global menor"}
+                    ]
+                  },
+                  {
+                    nome:"Inflacao (IPCA)",
+                    icone:"\u{1F4C8}",
+                    cor:"#E89060",
+                    explicacao:"Quando a inflacao sobe, ativos reais e indexados protegem; renda fixa nominal perde poder de compra. Ouro e o hedge classico. FIIs e infra com receitas indexadas tambem protegem.",
+                    impactos:[
+                      {classe:"ouro",direcao:1,intensidade:"FORTE",detalhe:"hedge classico"},
+                      {classe:"fii",direcao:1,intensidade:"MEDIA",detalhe:"alugueis indexados IPCA"},
+                      {classe:"infra",direcao:1,intensidade:"FORTE",detalhe:"contratos IPCA"},
+                      {classe:"imoveis",direcao:1,intensidade:"MEDIA",detalhe:"valor real preservado"},
+                      {classe:"agro",direcao:1,intensidade:"MEDIA",detalhe:"commodities sobem"},
+                      {classe:"treasuries",direcao:-1,intensidade:"MEDIA",detalhe:"renda fixa nominal perde"},
+                      {classe:"selic",direcao:-1,intensidade:"BAIXA",detalhe:"se ficar abaixo do IPCA"}
+                    ]
+                  },
+                  {
+                    nome:"Cambio (USD/BRL)",
+                    icone:"\u{1F30E}",
+                    cor:"#4CAF82",
+                    explicacao:"USD subindo (BRL desvalorizando) beneficia ativos dolarizados: Treasuries, REITs, acoes EXT e BTC. Penaliza importadores e endividados em USD. Risco fiscal interno geralmente eleva o USD.",
+                    impactos:[
+                      {classe:"treasuries",direcao:1,intensidade:"FORTE",detalhe:"100% dolarizado"},
+                      {classe:"acoes_ext",direcao:1,intensidade:"FORTE",detalhe:"100% dolarizado"},
+                      {classe:"reits",direcao:1,intensidade:"FORTE",detalhe:"100% dolarizado"},
+                      {classe:"bitcoin",direcao:1,intensidade:"MEDIA",detalhe:"cotado em USD"},
+                      {classe:"ouro",direcao:1,intensidade:"MEDIA",detalhe:"hedge cambial"},
+                      {classe:"agro",direcao:1,intensidade:"MEDIA",detalhe:"commodities em USD"},
+                      {classe:"acoes_br",direcao:0,intensidade:"VARIAVEL",detalhe:"depende do setor"}
+                    ]
+                  },
+                  {
+                    nome:"Risco Fiscal Brasileiro",
+                    icone:"\u{1F1E7}\u{1F1F7}",
+                    cor:"#E05252",
+                    explicacao:"Crises de credibilidade fiscal (ex: 2015, 2020-2022) afetam TODOS os ativos brasileiros simultaneamente: bolsa cai, FIIs caem, real desvaloriza, juros longos disparam. So ativos dolarizados protegem.",
+                    impactos:[
+                      {classe:"acoes_br",direcao:-1,intensidade:"FORTE",detalhe:"todas as acoes BR sofrem"},
+                      {classe:"fii",direcao:-1,intensidade:"FORTE",detalhe:"cap rate sobe"},
+                      {classe:"infra",direcao:-1,intensidade:"FORTE",detalhe:"juros longos sobem"},
+                      {classe:"imoveis",direcao:-1,intensidade:"MEDIA",detalhe:"economia desacelera"},
+                      {classe:"agro",direcao:-1,intensidade:"MEDIA",detalhe:"misto: USD+ mas vendas BR-"},
+                      {classe:"treasuries",direcao:1,intensidade:"FORTE",detalhe:"hedge perfeito"},
+                      {classe:"acoes_ext",direcao:1,intensidade:"FORTE",detalhe:"hedge perfeito"},
+                      {classe:"reits",direcao:1,intensidade:"FORTE",detalhe:"hedge perfeito"}
+                    ]
+                  },
+                  {
+                    nome:"Liquidez Global",
+                    icone:"\u{1F30A}",
+                    cor:"#9C7DC2",
+                    explicacao:"Fluxo internacional de capital. Quando Fed aperta (juros US altos), capital sai de emergentes. Bitcoin e ativos especulativos sofrem mais. REITs sao sensiveis. Quando Fed solta, o oposto.",
+                    impactos:[
+                      {classe:"bitcoin",direcao:1,intensidade:"FORTE",detalhe:"liquidity-driven"},
+                      {classe:"acoes_ext",direcao:1,intensidade:"FORTE",detalhe:"flow-driven"},
+                      {classe:"reits",direcao:1,intensidade:"FORTE",detalhe:"yield-sensitive"},
+                      {classe:"acoes_br",direcao:1,intensidade:"MEDIA",detalhe:"capital estrangeiro"},
+                      {classe:"ouro",direcao:1,intensidade:"BAIXA",detalhe:"mais defensivo"}
+                    ]
+                  },
+                  {
+                    nome:"Ciclo de Commodities",
+                    icone:"\u{1F33E}",
+                    cor:"#C8A96E",
+                    explicacao:"Brasil e exportador de commodities (soja, minerio, petroleo). Ciclos de alta beneficiam balanca comercial, agro e algumas acoes BR (Vale, Petrobras, etc).",
+                    impactos:[
+                      {classe:"agro",direcao:1,intensidade:"FORTE",detalhe:"diretamente"},
+                      {classe:"acoes_br",direcao:1,intensidade:"MEDIA",detalhe:"Vale, Petrobras"},
+                      {classe:"ouro",direcao:1,intensidade:"MEDIA",detalhe:"commodity tambem"},
+                      {classe:"imoveis",direcao:1,intensidade:"BAIXA",detalhe:"crescimento economico"}
+                    ]
+                  }
+                ];
+
+                // Helper para descobrir nome bonito de classe
+                const nomeClasse=(id)=>{
+                  const cl=CL.find(c=>c.id===id);
+                  return cl?cl.name:id;
+                };
+                const corClasse=(id)=>{
+                  const cl=CL.find(c=>c.id===id);
+                  return cl?cl.color:"#9A9080";
+                };
+
+                return h("div",{style:{marginTop:14,paddingTop:14,borderTop:"2px solid rgba(255,255,255,0.06)"}},
+                  // Header
+                  h("div",{style:{marginBottom:11}},
+                    h("div",{style:{fontSize:10,letterSpacing:2,color:"#9C7DC2",fontFamily:"monospace",fontWeight:700,marginBottom:5}},"\u{1F30D} VETORES MACROECONOMICOS QUE DIRIGEM AS CORRELACOES"),
+                    h("p",{style:{fontSize:9,color:"#9A9080",lineHeight:1.6,margin:0,fontStyle:"italic"}},
+                      "As correlacoes nao surgem do nada: elas refletem ",h("strong",{},"fatores macroeconomicos comuns")," que afetam multiplas classes simultaneamente. Entender esses vetores ajuda voce a construir ",h("strong",{},"diversificacao verdadeira"),": classes que respondem a fatores DIFERENTES tendem a se descorrelacionar genuinamente."
+                    )
+                  ),
+
+                  // Cards de cada vetor
+                  h("div",{style:{display:"flex",flexDirection:"column",gap:9,marginBottom:11}},
+                    ...vetores.map((v,vIdx)=>{
+                      // Separa em quem sobe e quem cai
+                      const subindo=v.impactos.filter(i=>i.direcao>0);
+                      const caindo=v.impactos.filter(i=>i.direcao<0);
+                      const neutro=v.impactos.filter(i=>i.direcao===0);
+                      // Calcula exposicao do portfolio a este vetor (peso total nas classes afetadas)
+                      const pesoAfetado=v.impactos.reduce((s,i)=>s+(cw[i.classe]||0),0);
+                      // intensidade icon
+                      const intensidadeIcon=(it)=>it==="FORTE"?"\u25CF\u25CF\u25CF":it==="MEDIA"?"\u25CF\u25CF":it==="BAIXA"?"\u25CF":"\u25CB";
+
+                      return h("details",{key:"v"+vIdx,style:{background:"linear-gradient(135deg,"+v.cor+"12,"+v.cor+"04)",border:"1px solid "+v.cor+"40",borderRadius:7,padding:"10px 12px"}},
+                        // Summary (header sempre visivel)
+                        h("summary",{style:{cursor:"pointer",userSelect:"none",listStyle:"none",outline:"none"}},
+                          h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,flexWrap:"wrap"}},
+                            h("div",{style:{display:"flex",alignItems:"center",gap:7}},
+                              h("span",{style:{fontSize:14}},v.icone),
+                              h("div",{},
+                                h("div",{style:{fontSize:10,color:v.cor,fontFamily:"Georgia,serif",fontWeight:700,letterSpacing:0.5}},v.nome),
+                                h("div",{style:{fontSize:7.5,color:"#7A7060",fontFamily:"monospace",marginTop:1}},
+                                  subindo.length," classes sobem \u2022 ",caindo.length," caem"+(neutro.length>0?" \u2022 "+neutro.length+" neutro":"")
+                                )
+                              )
+                            ),
+                            // Exposicao do portfolio a este vetor
+                            h("div",{style:{textAlign:"right"}},
+                              h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",letterSpacing:0.5}},"sua expo"),
+                              h("div",{style:{fontSize:11,color:v.cor,fontFamily:"monospace",fontWeight:700}},pesoAfetado.toFixed(0)+"%")
+                            )
+                          )
+                        ),
+
+                        // Conteudo expandido
+                        h("div",{style:{marginTop:8,paddingTop:8,borderTop:"1px solid "+v.cor+"25"}},
+                          // Explicacao
+                          h("p",{style:{fontSize:9,color:"#9A9080",lineHeight:1.6,margin:"0 0 9px",fontStyle:"italic"}},v.explicacao),
+
+                          // Grid 2 cols: sobe / cai
+                          h("div",{style:{display:"grid",gridTemplateColumns:caindo.length>0?"1fr 1fr":"1fr",gap:8}},
+                            // SOBEM
+                            subindo.length>0&&h("div",{style:{padding:"8px 10px",background:"rgba(76,175,130,0.06)",borderLeft:"3px solid #4CAF82",borderRadius:"0 4px 4px 0"}},
+                              h("div",{style:{fontSize:7.5,letterSpacing:1,color:"#4CAF82",fontFamily:"monospace",fontWeight:700,marginBottom:5}},"\u2197 BENEFICIADAS"),
+                              ...subindo.map((i,k)=>{
+                                const pesoMeu=cw[i.classe]||0;
+                                return h("div",{key:"s"+k,style:{padding:"3px 0",borderTop:k>0?"1px solid rgba(255,255,255,0.04)":"none"}},
+                                  h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:5,fontSize:8,fontFamily:"monospace"}},
+                                    h("div",{style:{display:"flex",alignItems:"center",gap:4,flex:"1 1 auto",minWidth:0}},
+                                      h("span",{style:{width:5,height:5,borderRadius:"50%",background:corClasse(i.classe),flexShrink:0}}),
+                                      h("span",{style:{color:"#E8E2D5",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}},nomeClasse(i.classe))
+                                    ),
+                                    h("div",{style:{display:"flex",alignItems:"center",gap:5,flexShrink:0}},
+                                      pesoMeu>0&&h("span",{style:{fontSize:6.5,color:"#7A7060",padding:"1px 3px",background:"rgba(255,255,255,0.05)",borderRadius:2}},pesoMeu.toFixed(0)+"%"),
+                                      h("span",{style:{fontSize:6,color:i.intensidade==="FORTE"?"#4CAF82":i.intensidade==="MEDIA"?"#7DD17D":"#9A9080",letterSpacing:0.5}},intensidadeIcon(i.intensidade))
+                                    )
+                                  ),
+                                  i.detalhe&&h("div",{style:{fontSize:7,color:"#7A7060",fontStyle:"italic",paddingLeft:9,marginTop:1}},i.detalhe)
+                                );
+                              })
+                            ),
+
+                            // CAEM
+                            caindo.length>0&&h("div",{style:{padding:"8px 10px",background:"rgba(224,82,82,0.06)",borderLeft:"3px solid #E05252",borderRadius:"0 4px 4px 0"}},
+                              h("div",{style:{fontSize:7.5,letterSpacing:1,color:"#E05252",fontFamily:"monospace",fontWeight:700,marginBottom:5}},"\u2198 PREJUDICADAS"),
+                              ...caindo.map((i,k)=>{
+                                const pesoMeu=cw[i.classe]||0;
+                                return h("div",{key:"c"+k,style:{padding:"3px 0",borderTop:k>0?"1px solid rgba(255,255,255,0.04)":"none"}},
+                                  h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:5,fontSize:8,fontFamily:"monospace"}},
+                                    h("div",{style:{display:"flex",alignItems:"center",gap:4,flex:"1 1 auto",minWidth:0}},
+                                      h("span",{style:{width:5,height:5,borderRadius:"50%",background:corClasse(i.classe),flexShrink:0}}),
+                                      h("span",{style:{color:"#E8E2D5",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}},nomeClasse(i.classe))
+                                    ),
+                                    h("div",{style:{display:"flex",alignItems:"center",gap:5,flexShrink:0}},
+                                      pesoMeu>0&&h("span",{style:{fontSize:6.5,color:"#7A7060",padding:"1px 3px",background:"rgba(255,255,255,0.05)",borderRadius:2}},pesoMeu.toFixed(0)+"%"),
+                                      h("span",{style:{fontSize:6,color:i.intensidade==="FORTE"?"#E05252":i.intensidade==="MEDIA"?"#E89060":"#9A9080",letterSpacing:0.5}},intensidadeIcon(i.intensidade))
+                                    )
+                                  ),
+                                  i.detalhe&&h("div",{style:{fontSize:7,color:"#7A7060",fontStyle:"italic",paddingLeft:9,marginTop:1}},i.detalhe)
+                                );
+                              })
+                            )
+                          )
+                        )
+                      );
+                    })
+                  ),
+
+                  // ===== INSIGHT SOBRE EXPOSICAO MACRO =====
+                  (()=>{
+                    // Calcula a exposicao ponderada de cada vetor (somatorio de pesos das classes afetadas)
+                    const exposicoes=vetores.map(v=>{
+                      const peso=v.impactos.reduce((s,i)=>s+(cw[i.classe]||0),0);
+                      return {nome:v.nome,cor:v.cor,peso,icone:v.icone};
+                    }).sort((a,b)=>b.peso-a.peso);
+                    const top1=exposicoes[0],top2=exposicoes[1];
+
+                    return h("div",{style:{padding:"10px 12px",background:"linear-gradient(135deg,rgba(200,169,110,0.08),rgba(156,125,194,0.04))",border:"1px solid rgba(200,169,110,0.30)",borderRadius:7}},
+                      h("div",{style:{fontSize:9,letterSpacing:1.5,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,marginBottom:7}},"\u{1F4A1} SUA EXPOSICAO AOS VETORES MACRO"),
+                      h("p",{style:{fontSize:9.5,color:"#E8E2D5",lineHeight:1.7,margin:"0 0 9px",fontFamily:"Georgia,serif",fontStyle:"italic"}},
+                        "Seu portfolio esta principalmente exposto a ",h("strong",{style:{color:top1.cor}},top1.nome)," (",h("strong",{},top1.peso.toFixed(0)+"%")," do capital)",
+                        top2&&top2.peso>=top1.peso*0.7?h("span",{}," e ",h("strong",{style:{color:top2.cor}},top2.nome)," (",h("strong",{},top2.peso.toFixed(0)+"%"),")"):"",
+                        ". Isso significa que esses fatores macro vao ser ",h("strong",{},"determinantes")," nos seus retornos de curto e medio prazo."
+                      ),
+                      // Ranking visual de exposicoes
+                      h("div",{style:{display:"flex",flexDirection:"column",gap:4,marginTop:8}},
+                        ...exposicoes.map((e,k)=>h("div",{key:"e"+k,style:{display:"grid",gridTemplateColumns:"20px 130px 1fr 40px",gap:6,alignItems:"center",fontSize:8,fontFamily:"monospace"}},
+                          h("span",{style:{fontSize:11}},e.icone),
+                          h("span",{style:{color:e.cor,fontWeight:700,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}},e.nome),
+                          h("div",{style:{position:"relative",height:6,background:"rgba(255,255,255,0.04)",borderRadius:2,overflow:"hidden"}},
+                            h("div",{style:{position:"absolute",top:0,left:0,height:"100%",width:Math.min(100,e.peso)+"%",background:e.cor,opacity:0.75,borderRadius:2}})
+                          ),
+                          h("span",{style:{textAlign:"right",color:"#E8E2D5",fontWeight:700}},e.peso.toFixed(0)+"%")
+                        ))
+                      ),
+                      // Conclusao estrategica
+                      h("div",{style:{fontSize:8.5,color:"#9A9080",fontStyle:"italic",lineHeight:1.55,marginTop:10,paddingTop:8,borderTop:"1px solid rgba(255,255,255,0.06)"}},
+                        h("strong",{style:{color:"#C8A96E"}},"Como reduzir correlacoes"),": para diminuir o ENB efetivo, adicione exposicao a vetores em que voce esta sub-representado. Por exemplo, se voce esta forte em ",h("em",{},"Risco Fiscal BR"),", adicionar Treasuries, REITs ou Bitcoin reduz drasticamente sua exposicao a esse vetor, pois esses ativos respondem a vetores DIFERENTES (Cambio, Liquidez Global)."
+                      )
+                    );
+                  })()
+                );
+              })(),
+
               // AVISO sobre limitacao
               h("div",{style:{fontSize:8,color:"#7A7060",fontStyle:"italic",lineHeight:1.5,marginTop:10,padding:"7px 9px",background:"rgba(232,196,74,0.04)",borderLeft:"3px solid #E8C44A",borderRadius:"0 4px 4px 0"}},
                 "\u26A0 Correlacoes mudam em crises. Durante 2008 e 2020, classes tipicamente descorrelacionadas convergiram para +1.0 (",h("em",{},"\"diversification fails when you need it most\""),"). Use esta matriz como referencia de longo prazo, nao como protecao garantida em curto prazo."
