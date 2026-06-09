@@ -6772,28 +6772,74 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
 
                   return h("div",{style:{marginTop:14,padding:"12px 14px",background:"linear-gradient(135deg,rgba(168,139,94,0.10),rgba(156,125,194,0.06))",border:"1px solid rgba(168,139,94,0.35)",borderRadius:8}},
                     // Header
-                    h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:8,flexWrap:"wrap"}},
+                    h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:6,flexWrap:"wrap"}},
                       h("div",{style:{fontSize:10,letterSpacing:1.5,color:"#C8A96E",fontFamily:"monospace",fontWeight:700}},
                         "\u{1F3AF} SUGESTAO DE EQUILIBRIO PARA O PROXIMO APORTE"
                       ),
                       h("div",{style:{fontSize:8.5,padding:"3px 8px",background:corNota+"20",border:"1px solid "+corNota+"60",borderRadius:10,color:corNota,fontFamily:"monospace",fontWeight:700,letterSpacing:1}},nota)
                     ),
-                    // Metricas globais
-                    h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:5,marginBottom:10,padding:"7px 8px",background:"rgba(0,0,0,0.20)",borderRadius:5}},
-                      h("div",{style:{textAlign:"center"}},
-                        h("div",{style:{fontSize:6.5,color:"#7A7060",letterSpacing:1,fontFamily:"monospace"}},"MAGNITUDE TOTAL"),
-                        h("div",{style:{fontSize:11,color:"#E8DCC0",fontFamily:"monospace",fontWeight:700,marginTop:1}},somaAbs.toFixed(0)+"%"),
-                        h("div",{style:{fontSize:6.5,color:"#5A5550",fontStyle:"italic",marginTop:1}},"soma dos |sens|")
+                    // Subtitulo conceitual
+                    h("p",{style:{margin:"0 0 9px",fontSize:8.5,color:"#9A9080",lineHeight:1.5,fontStyle:"italic"}},
+                      "Mede o quanto o portfolio depende de cada vetor macro. Quanto mais perto de zero, mais neutro e resiliente (movimentos do vetor pouco afetam o resultado)."
+                    ),
+                    // Metricas globais com tooltips explicativos
+                    h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:5,marginBottom:8,padding:"8px 8px",background:"rgba(0,0,0,0.20)",borderRadius:5}},
+                      h("div",{title:"Soma das sensibilidades absolutas dos 6 vetores. Indicador agregado da exposicao macro total do portfolio. Quanto menor, mais neutro.",style:{textAlign:"center",cursor:"help"}},
+                        h("div",{style:{fontSize:7,color:"#7A7060",letterSpacing:0.8,fontFamily:"monospace"}},"PRESSAO TOTAL"),
+                        h("div",{style:{fontSize:12,color:"#E8DCC0",fontFamily:"monospace",fontWeight:700,marginTop:2}},somaAbs.toFixed(0)+"%"),
+                        h("div",{style:{fontSize:7,color:"#5A5550",fontStyle:"italic",marginTop:2,lineHeight:1.3}},"todos os vetores somados")
                       ),
-                      h("div",{style:{textAlign:"center",borderLeft:"1px solid rgba(255,255,255,0.06)",borderRight:"1px solid rgba(255,255,255,0.06)"}},
-                        h("div",{style:{fontSize:6.5,color:"#7A7060",letterSpacing:1,fontFamily:"monospace"}},"MEDIA ABS"),
-                        h("div",{style:{fontSize:11,color:corNota,fontFamily:"monospace",fontWeight:700,marginTop:1}},mediaAbs.toFixed(0)+"%"),
-                        h("div",{style:{fontSize:6.5,color:"#5A5550",fontStyle:"italic",marginTop:1}},"por vetor")
+                      h("div",{title:"Pressao media por vetor. Esta e a metrica principal de equilibrio. Abaixo de 10% e otimo, acima de 25% pede correcao via aporte.",style:{textAlign:"center",borderLeft:"1px solid rgba(255,255,255,0.06)",borderRight:"1px solid rgba(255,255,255,0.06)",cursor:"help"}},
+                        h("div",{style:{fontSize:7,color:"#7A7060",letterSpacing:0.8,fontFamily:"monospace"}},"PRESSAO MEDIA"),
+                        h("div",{style:{fontSize:12,color:corNota,fontFamily:"monospace",fontWeight:700,marginTop:2}},mediaAbs.toFixed(0)+"%"),
+                        h("div",{style:{fontSize:7,color:"#5A5550",fontStyle:"italic",marginTop:2,lineHeight:1.3}},"por vetor (metrica chave)")
                       ),
-                      h("div",{style:{textAlign:"center"}},
-                        h("div",{style:{fontSize:6.5,color:"#7A7060",letterSpacing:1,fontFamily:"monospace"}},"DESBALANCEADOS"),
-                        h("div",{style:{fontSize:11,color:desbalanceados.length>0?"#E89060":"#4CAF82",fontFamily:"monospace",fontWeight:700,marginTop:1}},desbalanceados.length+"/"+sens.length),
-                        h("div",{style:{fontSize:6.5,color:"#5A5550",fontStyle:"italic",marginTop:1}},"|sens| > 15%")
+                      h("div",{title:"Vetores com sensibilidade absoluta maior que 15%. Esses sao os que merecem correcao prioritaria via direcao do proximo aporte.",style:{textAlign:"center",cursor:"help"}},
+                        h("div",{style:{fontSize:7,color:"#7A7060",letterSpacing:0.8,fontFamily:"monospace"}},"VETORES CRITICOS"),
+                        h("div",{style:{fontSize:12,color:desbalanceados.length>0?"#E89060":"#4CAF82",fontFamily:"monospace",fontWeight:700,marginTop:2}},desbalanceados.length+"/"+sens.length),
+                        h("div",{style:{fontSize:7,color:"#5A5550",fontStyle:"italic",marginTop:2,lineHeight:1.3}},"|sens| acima de 15%")
+                      )
+                    ),
+                    // Como interpretar (colapsavel)
+                    h("details",{style:{marginBottom:9,padding:"6px 9px",background:"rgba(91,143,212,0.06)",border:"1px solid rgba(91,143,212,0.20)",borderRadius:5}},
+                      h("summary",{style:{cursor:"pointer",userSelect:"none",fontSize:8.5,color:"#5B8FD4",fontFamily:"monospace",letterSpacing:1,fontWeight:700,outline:"none"}},
+                        "\u2139 COMO INTERPRETAR ESTAS METRICAS"
+                      ),
+                      h("div",{style:{marginTop:7,fontSize:9,color:"#C8C0B0",lineHeight:1.65}},
+                        h("p",{style:{margin:"0 0 7px"}},
+                          h("strong",{style:{color:"#E8DCC0"}},"O que e \"sensibilidade liquida\"? "),
+                          "E o quanto o portfolio tende a ",h("strong",{},"ganhar (+)")," ou ",h("strong",{},"perder (-)")," quando um vetor macro sobe. Calculada como ",h("em",{},"(classes beneficiadas - classes prejudicadas)")," ponderadas pelo peso e intensidade."
+                        ),
+                        h("p",{style:{margin:"0 0 7px"}},
+                          h("strong",{style:{color:"#E8DCC0"}},"Sinal e magnitude importam: "),
+                          "+30% no Cambio significa que voce GANHA bastante quando USD sobe (oportunidade); -30% no Risco Fiscal significa que voce PERDE bastante em crise fiscal (exposicao). Proximo de zero = neutro (ideal: o vetor pouco afeta voce)."
+                        ),
+                        h("p",{style:{margin:"0 0 7px"}},
+                          h("strong",{style:{color:"#E8DCC0"}},"Pressao Total ("+somaAbs.toFixed(0)+"%): "),
+                          "soma das sensibilidades absolutas dos 6 vetores. Mede a exposicao macro AGREGADA do portfolio. Quanto menor, mais o portfolio sobrevive a turbulencias diferentes (juros, inflacao, cambio, etc) sem oscilacoes grandes."
+                        ),
+                        h("p",{style:{margin:"0 0 7px"}},
+                          h("strong",{style:{color:"#E8DCC0"}},"Pressao Media ("+mediaAbs.toFixed(0)+"%): "),
+                          "media por vetor - principal indicador de qualidade do equilibrio. Faixas: ",
+                          h("span",{style:{color:"#4CAF82",fontWeight:700}},"<=10%"),
+                          " otimo; ",
+                          h("span",{style:{color:"#5DBF82",fontWeight:700}},"10-18%"),
+                          " bom; ",
+                          h("span",{style:{color:"#E8C44A",fontWeight:700}},"18-25%"),
+                          " moderado; ",
+                          h("span",{style:{color:"#E89060",fontWeight:700}},"25-35%"),
+                          " atencao; ",
+                          h("span",{style:{color:"#E05252",fontWeight:700}},">35%"),
+                          " critico."
+                        ),
+                        h("p",{style:{margin:"0 0 7px"}},
+                          h("strong",{style:{color:"#E8DCC0"}},"Vetores Criticos: "),
+                          "vetores com |sensibilidade| acima de 15% - sao os que mais influenciam seus resultados de curto prazo. Cada vetor critico aparece abaixo com sugestao especifica de onde DIRECIONAR ou CONTER o proximo aporte para reduzir sua sensibilidade."
+                        ),
+                        h("p",{style:{margin:0,color:"#9A9080",fontStyle:"italic"}},
+                          h("strong",{style:{color:"#C8A96E"}},"Intuicao pratica: "),
+                          "imagine cada vetor como uma alavanca. Quanto mais para um lado (positivo ou negativo), mais o seu portfolio se move com aquele fator. O ideal estrategico e ter alavancas distribuidas - nao todas para o mesmo lado. Aportes diversificados sao a ferramenta para nivelar."
+                        )
                       )
                     ),
                     // Diagnostico
