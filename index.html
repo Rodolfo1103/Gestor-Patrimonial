@@ -6380,8 +6380,16 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                       const subindo=v.impactos.filter(i=>i.direcao>0);
                       const caindo=v.impactos.filter(i=>i.direcao<0);
                       const neutro=v.impactos.filter(i=>i.direcao===0);
-                      // Calcula exposicao do portfolio a este vetor (peso total nas classes afetadas)
-                      const pesoAfetado=v.impactos.reduce((s,i)=>s+(cw[i.classe]||0),0);
+                      // ============ CALCULO DE EXPOSICAO LIQUIDA ============
+                      // Peso da intensidade: FORTE=1.0, MEDIA=0.6, BAIXA=0.3, VARIAVEL=0.3
+                      const pesoIntens=(it)=>it==="FORTE"?1.0:it==="MEDIA"?0.6:it==="BAIXA"?0.3:0.3;
+                      // Exposicao NEGATIVA bruta: % do portfolio em classes prejudicadas pelo vetor
+                      // ponderada pela intensidade (uma classe com impacto BAIXA conta menos)
+                      const expoNegativa=caindo.reduce((s,i)=>s+(cw[i.classe]||0)*pesoIntens(i.intensidade),0);
+                      // HEDGE: % do portfolio em classes que se BENEFICIAM do vetor (protegem)
+                      const hedge=subindo.reduce((s,i)=>s+(cw[i.classe]||0)*pesoIntens(i.intensidade),0);
+                      // RISCO LIQUIDO = exposicao negativa - hedge (clamped >=0)
+                      const riscoLiquido=Math.max(0,expoNegativa-hedge);
                       // intensidade icon
                       const intensidadeIcon=(it)=>it==="FORTE"?"\u25CF\u25CF\u25CF":it==="MEDIA"?"\u25CF\u25CF":it==="BAIXA"?"\u25CF":"\u25CB";
 
@@ -6398,10 +6406,10 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                                 )
                               )
                             ),
-                            // Exposicao do portfolio a este vetor
+                            // Risco LIQUIDO do portfolio a este vetor
                             h("div",{style:{textAlign:"right"}},
-                              h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",letterSpacing:0.5}},"sua expo"),
-                              h("div",{style:{fontSize:11,color:v.cor,fontFamily:"monospace",fontWeight:700}},pesoAfetado.toFixed(0)+"%")
+                              h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",letterSpacing:0.5}},"risco liquido"),
+                              h("div",{style:{fontSize:11,color:v.cor,fontFamily:"monospace",fontWeight:700}},riscoLiquido.toFixed(0)+"%")
                             )
                           )
                         ),
@@ -6410,6 +6418,25 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                         h("div",{style:{marginTop:8,paddingTop:8,borderTop:"1px solid "+v.cor+"25"}},
                           // Explicacao
                           h("p",{style:{fontSize:9,color:"#9A9080",lineHeight:1.6,margin:"0 0 9px",fontStyle:"italic"}},v.explicacao),
+
+                          // ===== BREAKDOWN DO RISCO LIQUIDO =====
+                          h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:5,marginBottom:9,padding:"7px 8px",background:"rgba(0,0,0,0.20)",borderRadius:5}},
+                            h("div",{style:{textAlign:"center"}},
+                              h("div",{style:{fontSize:6.5,color:"#7A7060",letterSpacing:1,fontFamily:"monospace"}},"EXPOSICAO -"),
+                              h("div",{style:{fontSize:11,color:"#E05252",fontFamily:"monospace",fontWeight:700,marginTop:1}},expoNegativa.toFixed(0)+"%"),
+                              h("div",{style:{fontSize:6.5,color:"#5A5550",fontStyle:"italic",marginTop:1}},"classes prejudicadas")
+                            ),
+                            h("div",{style:{textAlign:"center",borderLeft:"1px solid rgba(255,255,255,0.06)",borderRight:"1px solid rgba(255,255,255,0.06)"}},
+                              h("div",{style:{fontSize:6.5,color:"#7A7060",letterSpacing:1,fontFamily:"monospace"}},"HEDGE +"),
+                              h("div",{style:{fontSize:11,color:"#4CAF82",fontFamily:"monospace",fontWeight:700,marginTop:1}},hedge.toFixed(0)+"%"),
+                              h("div",{style:{fontSize:6.5,color:"#5A5550",fontStyle:"italic",marginTop:1}},"classes beneficiadas")
+                            ),
+                            h("div",{style:{textAlign:"center"}},
+                              h("div",{style:{fontSize:6.5,color:"#7A7060",letterSpacing:1,fontFamily:"monospace"}},"LIQUIDO"),
+                              h("div",{style:{fontSize:11,color:v.cor,fontFamily:"monospace",fontWeight:700,marginTop:1}},riscoLiquido.toFixed(0)+"%"),
+                              h("div",{style:{fontSize:6.5,color:"#5A5550",fontStyle:"italic",marginTop:1}},"expo - hedge")
+                            )
+                          ),
 
                           // Grid 2 cols: sobe / cai
                           h("div",{style:{display:"grid",gridTemplateColumns:caindo.length>0?"1fr 1fr":"1fr",gap:8}},
@@ -6462,19 +6489,24 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
 
                   // ===== INSIGHT SOBRE EXPOSICAO MACRO =====
                   (()=>{
-                    // Calcula a exposicao ponderada de cada vetor (somatorio de pesos das classes afetadas)
+                    // Calcula RISCO LIQUIDO (exposicao negativa - hedge), ponderado pela intensidade
+                    const pesoIntens=(it)=>it==="FORTE"?1.0:it==="MEDIA"?0.6:it==="BAIXA"?0.3:0.3;
                     const exposicoes=vetores.map(v=>{
-                      const peso=v.impactos.reduce((s,i)=>s+(cw[i.classe]||0),0);
-                      return {nome:v.nome,cor:v.cor,peso,icone:v.icone};
+                      const caindo=v.impactos.filter(i=>i.direcao<0);
+                      const subindo=v.impactos.filter(i=>i.direcao>0);
+                      const expoNeg=caindo.reduce((s,i)=>s+(cw[i.classe]||0)*pesoIntens(i.intensidade),0);
+                      const hedge=subindo.reduce((s,i)=>s+(cw[i.classe]||0)*pesoIntens(i.intensidade),0);
+                      const peso=Math.max(0,expoNeg-hedge);// risco liquido
+                      return {nome:v.nome,cor:v.cor,peso,icone:v.icone,expoNeg,hedge};
                     }).sort((a,b)=>b.peso-a.peso);
                     const top1=exposicoes[0],top2=exposicoes[1];
 
                     return h("div",{style:{padding:"10px 12px",background:"linear-gradient(135deg,rgba(200,169,110,0.08),rgba(156,125,194,0.04))",border:"1px solid rgba(200,169,110,0.30)",borderRadius:7}},
-                      h("div",{style:{fontSize:9,letterSpacing:1.5,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,marginBottom:7}},"\u{1F4A1} SUA EXPOSICAO AOS VETORES MACRO"),
+                      h("div",{style:{fontSize:9,letterSpacing:1.5,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,marginBottom:7}},"\u{1F4A1} SEU RISCO LIQUIDO AOS VETORES MACRO"),
                       h("p",{style:{fontSize:9.5,color:"#E8E2D5",lineHeight:1.7,margin:"0 0 9px",fontFamily:"Georgia,serif",fontStyle:"italic"}},
-                        "Seu portfolio esta principalmente exposto a ",h("strong",{style:{color:top1.cor}},top1.nome)," (",h("strong",{},top1.peso.toFixed(0)+"%")," do capital)",
-                        top2&&top2.peso>=top1.peso*0.7?h("span",{}," e ",h("strong",{style:{color:top2.cor}},top2.nome)," (",h("strong",{},top2.peso.toFixed(0)+"%"),")"):"",
-                        ". Isso significa que esses fatores macro vao ser ",h("strong",{},"determinantes")," nos seus retornos de curto e medio prazo."
+                        "Seu maior risco liquido (apos contabilizar hedges) e ",h("strong",{style:{color:top1.cor}},top1.nome)," (",h("strong",{},top1.peso.toFixed(0)+"% liquido"),", apos hedge de ",top1.hedge.toFixed(0)+"%)",
+                        top2&&top2.peso>=top1.peso*0.7?h("span",{}," e ",h("strong",{style:{color:top2.cor}},top2.nome)," (",h("strong",{},top2.peso.toFixed(0)+"% liquido"),")"):"",
+                        ". Sao os fatores macro que mais afetam seus retornos APOS considerar as classes que protegem o portfolio."
                       ),
                       // Ranking visual de exposicoes
                       h("div",{style:{display:"flex",flexDirection:"column",gap:4,marginTop:8}},
