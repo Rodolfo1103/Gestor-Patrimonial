@@ -6220,24 +6220,43 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
 
               // INSIGHT
               (()=>{
-                // Detecta pares "concentracao alta + alta correlacao" como alerta
+                // Detecta pares "concentracao alta + alta correlacao" como alerta pontual
                 const alertas=maisCorr.filter(p=>p.correlacao>=0.6&&p.pesoMin>=5);
+                // Identifica a banda do portfolio para alinhar a mensagem geral com o score numerico
+                const bandasInsight=[
+                  {min:-1.0,max:-0.2,tipo:"otima",titulo:"Diversificacao otima",texto:"O portfolio apresenta correlacao media negativa entre as classes - movimentos tendem a se compensar. Excelente para resiliencia de longo prazo."},
+                  {min:-0.2,max:0.0,tipo:"boa",titulo:"Diversificacao boa",texto:"O portfolio tem correlacao media proxima de zero ou levemente negativa. As classes nao andam juntas, oferecendo bom equilibrio para Buy & Hold."},
+                  {min:0.0,max:0.2,tipo:"adequada",titulo:"Diversificacao adequada",texto:"Correlacao media discretamente positiva. Diversificacao funciona mas com alguma sobreposicao entre classes - aceitavel para B&H."},
+                  {min:0.2,max:0.4,tipo:"limitada",titulo:"Diversificacao limitada",texto:"Correlacao media ponderada moderada (entre 0.2 e 0.4). Apesar de nao haver pares pontuais criticos, o conjunto das classes tende a andar parcialmente junto. Em crises sistemicas, parte significativa do portfolio reagira na mesma direcao."},
+                  {min:0.4,max:0.7,tipo:"concentrada",titulo:"Risco de concentracao",texto:"Correlacao media ponderada elevada. As classes do portfolio tem sobreposicao relevante de fatores de risco - movimentos coordenados sao provaveis em estresse de mercado."},
+                  {min:0.7,max:1.0,tipo:"falha",titulo:"Diversificacao falha",texto:"Correlacao media ponderada muito alta. O portfolio comporta-se como se fosse uma unica classe - efeito de diversificacao praticamente nulo."}
+                ];
+                const bandaInsight=bandasInsight.find(b=>corrMediaPond>=b.min&&corrMediaPond<=b.max)||bandasInsight[2];
+                const corBanda=bandaInsight.tipo==="otima"||bandaInsight.tipo==="boa"?"#4CAF82":
+                              bandaInsight.tipo==="adequada"?"#C8A96E":
+                              bandaInsight.tipo==="limitada"?"#E8C44A":
+                              bandaInsight.tipo==="concentrada"?"#E89060":"#E05252";
+                // Sugestao construtiva quando diversificacao nao e otima
+                const sugestao=(()=>{
+                  if(bandaInsight.tipo==="otima"||bandaInsight.tipo==="boa")return null;
+                  if(maisDescor.length===0)return null;
+                  const exemplo=maisDescor[0];
+                  return "Para melhorar, considere reforcar pares mais descorrelacionados como "+exemplo.nome1+" / "+exemplo.nome2+" (correlacao "+exemplo.correlacao.toFixed(2)+") em futuros aportes.";
+                })();
                 return h("div",{style:{background:"linear-gradient(135deg,rgba(200,169,110,0.06),rgba(156,125,194,0.04))",border:"1px solid rgba(200,169,110,0.20)",borderRadius:6,padding:"10px 11px"}},
                   h("div",{style:{fontSize:8,letterSpacing:1.5,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,marginBottom:6}},"\u{1F4A1} INSIGHT"),
-                  alertas.length>0?h("div",{style:{fontSize:9,color:"#E8E2D5",lineHeight:1.65}},
-                    h("p",{style:{margin:"0 0 6px"}},
-                      h("strong",{style:{color:"#E89060"}},"Atencao"),": ",alertas.length===1?"o par":"os pares"," ",
-                      alertas.map((p,i)=>h("span",{key:"alr"+i},h("strong",{},p.nome1+" / "+p.nome2),i<alertas.length-1?(i===alertas.length-2?" e ":", "):"")),
-                      " concentra",alertas.length===1?"":"m"," pesos relevantes (",alertas[0].peso1.toFixed(0)+"% e "+alertas[0].peso2.toFixed(0)+"%) com alta correlacao (",alertas[0].correlacao.toFixed(2),"). Em crises, ambas tendem a cair juntas."
-                    ),
-                    h("p",{style:{margin:0,fontStyle:"italic",color:"#9A9080"}},
-                      "Considere classes mais descorrelacionadas para futuros aportes (",
-                      maisDescor.length>0?maisDescor[0].nome1+" / "+maisDescor[0].nome2:"ouro / selic",
-                      " sao bons exemplos do seu portfolio)."
-                    )
-                  ):h("p",{style:{margin:0,fontSize:9,color:"#E8E2D5",lineHeight:1.65}},
-                    "Sua composicao apresenta boa diversificacao entre as principais classes. Os pares de maior peso nao estao excessivamente correlacionados - bom equilibrio para Buy & Hold de longo prazo."
-                  )
+                  // Diagnostico geral baseado na banda
+                  h("p",{style:{margin:"0 0 6px",fontSize:9,color:"#E8E2D5",lineHeight:1.65}},
+                    h("strong",{style:{color:corBanda}},bandaInsight.titulo),": ",bandaInsight.texto
+                  ),
+                  // Alertas pontuais se existirem
+                  alertas.length>0&&h("p",{style:{margin:"0 0 6px",fontSize:9,color:"#E8E2D5",lineHeight:1.65}},
+                    h("strong",{style:{color:"#E89060"}},"Alerta pontual"),": ",alertas.length===1?"o par":"os pares"," ",
+                    alertas.map((p,i)=>h("span",{key:"alr"+i},h("strong",{},p.nome1+" / "+p.nome2),i<alertas.length-1?(i===alertas.length-2?" e ":", "):"")),
+                    " ",alertas.length===1?"concentra":"concentram"," pesos relevantes (",alertas[0].peso1.toFixed(0)+"% e "+alertas[0].peso2.toFixed(0)+"%) com correlacao alta (",alertas[0].correlacao.toFixed(2),"). Em crises, tendem a cair juntas."
+                  ),
+                  // Sugestao construtiva
+                  sugestao&&h("p",{style:{margin:0,fontStyle:"italic",fontSize:9,color:"#9A9080",lineHeight:1.65}},sugestao)
                 );
               })(),
 
