@@ -5433,11 +5433,17 @@ Responda APENAS com o texto do insight, sem prefacio ou comentarios meta.`;
                   h("circle",{cx:"12",cy:"12",r:"3"})
                 )
           ),
-          // Card: apenas variacao HOJE (D-1 removido)
-          !hideVal&&deltaHoje&&h("div",{title:"Variacao desde o primeiro update de hoje as "+deltaHoje.refHora,style:{display:"inline-flex",alignItems:"baseline",gap:4,padding:"4px 9px 5px",borderRadius:5,background:"rgba(255,255,255,0.025)",border:"1px solid rgba(255,255,255,0.06)",color:deltaHoje.pct>=0?"#4CAF82":"#E05252",fontFamily:"monospace",fontWeight:700,lineHeight:1.1}},
-            h("span",{style:{fontSize:11,lineHeight:1}},deltaHoje.pct>=0?"\u25B2":"\u25BC"),
-            h("span",{style:{fontSize:15,lineHeight:1.1}},(deltaHoje.pct>=0?"+":"")+deltaHoje.pct.toFixed(2)+"%"),
-            h("span",{style:{fontSize:8,opacity:0.7,fontWeight:400,marginLeft:2}},"hoje desde "+deltaHoje.refHora)
+          // Card: apenas variacao HOJE (D-1 removido) - agora com valor nominal em R$
+          !hideVal&&deltaHoje&&h("div",{title:"Variacao desde o primeiro update de hoje as "+deltaHoje.refHora,style:{display:"inline-flex",flexDirection:"column",alignItems:"flex-start",gap:1,padding:"4px 9px 5px",borderRadius:5,background:"rgba(255,255,255,0.025)",border:"1px solid rgba(255,255,255,0.06)",color:deltaHoje.pct>=0?"#4CAF82":"#E05252",fontFamily:"monospace",fontWeight:700,lineHeight:1.1}},
+            h("div",{style:{display:"inline-flex",alignItems:"baseline",gap:4}},
+              h("span",{style:{fontSize:11,lineHeight:1}},deltaHoje.pct>=0?"\u25B2":"\u25BC"),
+              h("span",{style:{fontSize:15,lineHeight:1.1}},(deltaHoje.pct>=0?"+":"")+deltaHoje.pct.toFixed(2)+"%"),
+              h("span",{style:{fontSize:8,opacity:0.7,fontWeight:400,marginLeft:2}},"hoje desde "+deltaHoje.refHora)
+            ),
+            // Valor nominal em R$ (delta total do dia)
+            h("div",{style:{fontSize:10,fontWeight:600,opacity:0.85,marginTop:1}},
+              (deltaHoje.pct>=0?"+":"\u2212")+fB(Math.abs(total-deltaHoje.refValor))
+            )
           )
         ),
         hasPos&&!hideVal&&valorEstrangeiroBRL>0&&h("div",{style:{fontSize:9,color:"#7A7570",fontFamily:"monospace",marginTop:3,lineHeight:1.4}},
