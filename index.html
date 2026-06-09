@@ -6272,13 +6272,17 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                     explicacao:"Quando a Selic sobe, ativos descontados por taxa caem (FIIs, acoes, imoveis). Renda fixa pos-fixada beneficia diretamente. E o fator macro de maior peso no mercado brasileiro.",
                     impactos:[
                       {classe:"selic",direcao:1,intensidade:"FORTE",detalhe:"beneficia diretamente"},
-                      {classe:"treasuries",direcao:0,intensidade:"BAIXA",detalhe:"depende da Fed, nao da Selic"},
+                      {classe:"rfipca",direcao:-1,intensidade:"FORTE",detalhe:"NTN-B perde MtM quando juros sobem"},
                       {classe:"fii",direcao:-1,intensidade:"FORTE",detalhe:"desconto cap rate"},
                       {classe:"acoes_br",direcao:-1,intensidade:"MEDIA",detalhe:"custo de capital sobe"},
                       {classe:"imoveis",direcao:-1,intensidade:"MEDIA",detalhe:"caro financiar"},
                       {classe:"infra",direcao:-1,intensidade:"MEDIA",detalhe:"alavancagem cara"},
+                      {classe:"agro",direcao:-1,intensidade:"MEDIA",detalhe:"credito rural mais caro"},
                       {classe:"ouro",direcao:-1,intensidade:"BAIXA",detalhe:"juro real maior"},
-                      {classe:"bitcoin",direcao:-1,intensidade:"BAIXA",detalhe:"liquidez global menor"}
+                      {classe:"bitcoin",direcao:-1,intensidade:"BAIXA",detalhe:"liquidez global menor"},
+                      {classe:"treasuries",direcao:0,intensidade:"BAIXA",detalhe:"depende da Fed, nao da Selic"},
+                      {classe:"acoes_ext",direcao:0,intensidade:"BAIXA",detalhe:"depende da Fed, nao da Selic"},
+                      {classe:"reits",direcao:0,intensidade:"BAIXA",detalhe:"depende da Fed, nao da Selic"}
                     ]
                   },
                   {
@@ -6287,13 +6291,18 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                     cor:"#E89060",
                     explicacao:"Quando a inflacao sobe, ativos reais e indexados protegem; renda fixa nominal perde poder de compra. Ouro e o hedge classico. FIIs e infra com receitas indexadas tambem protegem.",
                     impactos:[
+                      {classe:"rfipca",direcao:1,intensidade:"FORTE",detalhe:"protecao real direta (IPCA+ no carrego)"},
                       {classe:"ouro",direcao:1,intensidade:"FORTE",detalhe:"hedge classico"},
-                      {classe:"fii",direcao:1,intensidade:"MEDIA",detalhe:"alugueis indexados IPCA"},
                       {classe:"infra",direcao:1,intensidade:"FORTE",detalhe:"contratos IPCA"},
+                      {classe:"fii",direcao:1,intensidade:"MEDIA",detalhe:"alugueis indexados IPCA"},
                       {classe:"imoveis",direcao:1,intensidade:"MEDIA",detalhe:"valor real preservado"},
                       {classe:"agro",direcao:1,intensidade:"MEDIA",detalhe:"commodities sobem"},
-                      {classe:"treasuries",direcao:-1,intensidade:"MEDIA",detalhe:"renda fixa nominal perde"},
-                      {classe:"selic",direcao:-1,intensidade:"BAIXA",detalhe:"se ficar abaixo do IPCA"}
+                      {classe:"bitcoin",direcao:1,intensidade:"BAIXA",detalhe:"narrativa store of value"},
+                      {classe:"selic",direcao:-1,intensidade:"MEDIA",detalhe:"perde se ficar abaixo do IPCA"},
+                      {classe:"treasuries",direcao:-1,intensidade:"MEDIA",detalhe:"TLT/IEF nominais sofrem; VTIP protege"},
+                      {classe:"acoes_br",direcao:-1,intensidade:"BAIXA",detalhe:"margens corroidas, exceto exportadoras"},
+                      {classe:"acoes_ext",direcao:-1,intensidade:"BAIXA",detalhe:"growth sofre com taxas reais altas"},
+                      {classe:"reits",direcao:-1,intensidade:"BAIXA",detalhe:"juros longos USA sobem"}
                     ]
                   },
                   {
@@ -6305,10 +6314,15 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                       {classe:"treasuries",direcao:1,intensidade:"FORTE",detalhe:"100% dolarizado"},
                       {classe:"acoes_ext",direcao:1,intensidade:"FORTE",detalhe:"100% dolarizado"},
                       {classe:"reits",direcao:1,intensidade:"FORTE",detalhe:"100% dolarizado"},
-                      {classe:"bitcoin",direcao:1,intensidade:"MEDIA",detalhe:"cotado em USD"},
+                      {classe:"bitcoin",direcao:1,intensidade:"FORTE",detalhe:"cotado em USD"},
                       {classe:"ouro",direcao:1,intensidade:"MEDIA",detalhe:"hedge cambial"},
                       {classe:"agro",direcao:1,intensidade:"MEDIA",detalhe:"commodities em USD"},
-                      {classe:"acoes_br",direcao:0,intensidade:"VARIAVEL",detalhe:"depende do setor"}
+                      {classe:"acoes_br",direcao:0,intensidade:"VARIAVEL",detalhe:"depende do setor (exportadora/importadora)"},
+                      {classe:"fii",direcao:-1,intensidade:"BAIXA",detalhe:"100% BRL, sofre custos importados"},
+                      {classe:"infra",direcao:-1,intensidade:"BAIXA",detalhe:"100% BRL, perde poder relativo"},
+                      {classe:"imoveis",direcao:-1,intensidade:"BAIXA",detalhe:"100% BRL"},
+                      {classe:"selic",direcao:-1,intensidade:"BAIXA",detalhe:"100% BRL"},
+                      {classe:"rfipca",direcao:-1,intensidade:"BAIXA",detalhe:"100% BRL"}
                     ]
                   },
                   {
@@ -6320,11 +6334,15 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                       {classe:"acoes_br",direcao:-1,intensidade:"FORTE",detalhe:"todas as acoes BR sofrem"},
                       {classe:"fii",direcao:-1,intensidade:"FORTE",detalhe:"cap rate sobe"},
                       {classe:"infra",direcao:-1,intensidade:"FORTE",detalhe:"juros longos sobem"},
+                      {classe:"rfipca",direcao:-1,intensidade:"FORTE",detalhe:"curva longa BR estressa, MtM sofre"},
                       {classe:"imoveis",direcao:-1,intensidade:"MEDIA",detalhe:"economia desacelera"},
                       {classe:"agro",direcao:-1,intensidade:"MEDIA",detalhe:"misto: USD+ mas vendas BR-"},
+                      {classe:"selic",direcao:0,intensidade:"BAIXA",detalhe:"pos-fixada acompanha juros"},
                       {classe:"treasuries",direcao:1,intensidade:"FORTE",detalhe:"hedge perfeito"},
                       {classe:"acoes_ext",direcao:1,intensidade:"FORTE",detalhe:"hedge perfeito"},
-                      {classe:"reits",direcao:1,intensidade:"FORTE",detalhe:"hedge perfeito"}
+                      {classe:"reits",direcao:1,intensidade:"FORTE",detalhe:"hedge perfeito"},
+                      {classe:"bitcoin",direcao:1,intensidade:"MEDIA",detalhe:"anti-fiat"},
+                      {classe:"ouro",direcao:1,intensidade:"MEDIA",detalhe:"hedge classico"}
                     ]
                   },
                   {
@@ -6337,7 +6355,14 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                       {classe:"acoes_ext",direcao:1,intensidade:"FORTE",detalhe:"flow-driven"},
                       {classe:"reits",direcao:1,intensidade:"FORTE",detalhe:"yield-sensitive"},
                       {classe:"acoes_br",direcao:1,intensidade:"MEDIA",detalhe:"capital estrangeiro"},
-                      {classe:"ouro",direcao:1,intensidade:"BAIXA",detalhe:"mais defensivo"}
+                      {classe:"fii",direcao:1,intensidade:"MEDIA",detalhe:"liquidez global ajuda EM"},
+                      {classe:"infra",direcao:1,intensidade:"BAIXA",detalhe:"liquidez global ajuda"},
+                      {classe:"agro",direcao:1,intensidade:"BAIXA",detalhe:"commodities reagem"},
+                      {classe:"rfipca",direcao:1,intensidade:"BAIXA",detalhe:"curva longa BR relaxa quando Fed solta"},
+                      {classe:"ouro",direcao:1,intensidade:"BAIXA",detalhe:"mais defensivo"},
+                      {classe:"treasuries",direcao:-1,intensidade:"MEDIA",detalhe:"Fed apertando = TLT cai"},
+                      {classe:"selic",direcao:0,intensidade:"BAIXA",detalhe:"depende mais da Selic interna"},
+                      {classe:"imoveis",direcao:0,intensidade:"BAIXA",detalhe:"pouca sensibilidade direta"}
                     ]
                   },
                   {
@@ -6349,7 +6374,13 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                       {classe:"agro",direcao:1,intensidade:"FORTE",detalhe:"diretamente"},
                       {classe:"acoes_br",direcao:1,intensidade:"MEDIA",detalhe:"Vale, Petrobras"},
                       {classe:"ouro",direcao:1,intensidade:"MEDIA",detalhe:"commodity tambem"},
-                      {classe:"imoveis",direcao:1,intensidade:"BAIXA",detalhe:"crescimento economico"}
+                      {classe:"imoveis",direcao:1,intensidade:"BAIXA",detalhe:"crescimento economico"},
+                      {classe:"fii",direcao:1,intensidade:"BAIXA",detalhe:"ciclo economico mais forte"},
+                      {classe:"infra",direcao:0,intensidade:"BAIXA",detalhe:"contratos fixos, pouca sensibilidade"},
+                      {classe:"acoes_ext",direcao:0,intensidade:"BAIXA",detalhe:"misto - depende de setor"},
+                      {classe:"reits",direcao:-1,intensidade:"BAIXA",detalhe:"inflacao decorrente pressiona juros"},
+                      {classe:"rfipca",direcao:-1,intensidade:"BAIXA",detalhe:"inflacao via commodities pressiona curva"},
+                      {classe:"bitcoin",direcao:0,intensidade:"BAIXA",detalhe:"pouca correlacao direta"}
                     ]
                   }
                 ];
@@ -6380,16 +6411,20 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                       const subindo=v.impactos.filter(i=>i.direcao>0);
                       const caindo=v.impactos.filter(i=>i.direcao<0);
                       const neutro=v.impactos.filter(i=>i.direcao===0);
-                      // ============ CALCULO DE EXPOSICAO LIQUIDA ============
+                      // ============ CALCULO DE SENSIBILIDADE LIQUIDA ============
                       // Peso da intensidade: FORTE=1.0, MEDIA=0.6, BAIXA=0.3, VARIAVEL=0.3
                       const pesoIntens=(it)=>it==="FORTE"?1.0:it==="MEDIA"?0.6:it==="BAIXA"?0.3:0.3;
-                      // Exposicao NEGATIVA bruta: % do portfolio em classes prejudicadas pelo vetor
-                      // ponderada pela intensidade (uma classe com impacto BAIXA conta menos)
+                      // EXPOSICAO POSITIVA: % do portfolio em classes que SE BENEFICIAM quando o vetor sobe
+                      // ponderada pela intensidade (sensibilidade ao vetor)
+                      const expoPositiva=subindo.reduce((s,i)=>s+(cw[i.classe]||0)*pesoIntens(i.intensidade),0);
+                      // EXPOSICAO NEGATIVA: % do portfolio em classes que SE PREJUDICAM quando o vetor sobe
                       const expoNegativa=caindo.reduce((s,i)=>s+(cw[i.classe]||0)*pesoIntens(i.intensidade),0);
-                      // HEDGE: % do portfolio em classes que se BENEFICIAM do vetor (protegem)
-                      const hedge=subindo.reduce((s,i)=>s+(cw[i.classe]||0)*pesoIntens(i.intensidade),0);
-                      // RISCO LIQUIDO = exposicao negativa - hedge (clamped >=0)
-                      const riscoLiquido=Math.max(0,expoNegativa-hedge);
+                      // SENSIBILIDADE LIQUIDA = positiva - negativa
+                      // Pode ser POSITIVA (portfolio ganha quando vetor sobe), NEGATIVA (portfolio perde), ou ZERO (neutro)
+                      const sensLiquida=expoPositiva-expoNegativa;
+                      // Cor da sensibilidade: verde se positiva, vermelha se negativa, neutra se proxima de zero
+                      const corSens=sensLiquida>5?"#4CAF82":sensLiquida<-5?"#E05252":"#C8A96E";
+                      const sinalSens=sensLiquida>0?"+":sensLiquida<0?"":"";
                       // intensidade icon
                       const intensidadeIcon=(it)=>it==="FORTE"?"\u25CF\u25CF\u25CF":it==="MEDIA"?"\u25CF\u25CF":it==="BAIXA"?"\u25CF":"\u25CB";
 
@@ -6406,10 +6441,10 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                                 )
                               )
                             ),
-                            // Risco LIQUIDO do portfolio a este vetor
+                            // Sensibilidade liquida do portfolio a este vetor (+/- sign)
                             h("div",{style:{textAlign:"right"}},
-                              h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",letterSpacing:0.5}},"risco liquido"),
-                              h("div",{style:{fontSize:11,color:v.cor,fontFamily:"monospace",fontWeight:700}},riscoLiquido.toFixed(0)+"%")
+                              h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",letterSpacing:0.5}},"sensibilidade liquida"),
+                              h("div",{style:{fontSize:11,color:corSens,fontFamily:"monospace",fontWeight:700}},sinalSens+sensLiquida.toFixed(0)+"%")
                             )
                           )
                         ),
@@ -6419,22 +6454,22 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                           // Explicacao
                           h("p",{style:{fontSize:9,color:"#9A9080",lineHeight:1.6,margin:"0 0 9px",fontStyle:"italic"}},v.explicacao),
 
-                          // ===== BREAKDOWN DO RISCO LIQUIDO =====
+                          // ===== BREAKDOWN DA SENSIBILIDADE LIQUIDA =====
                           h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:5,marginBottom:9,padding:"7px 8px",background:"rgba(0,0,0,0.20)",borderRadius:5}},
                             h("div",{style:{textAlign:"center"}},
-                              h("div",{style:{fontSize:6.5,color:"#7A7060",letterSpacing:1,fontFamily:"monospace"}},"EXPOSICAO -"),
+                              h("div",{style:{fontSize:6.5,color:"#7A7060",letterSpacing:1,fontFamily:"monospace"}},"GANHA +"),
+                              h("div",{style:{fontSize:11,color:"#4CAF82",fontFamily:"monospace",fontWeight:700,marginTop:1}},expoPositiva.toFixed(0)+"%"),
+                              h("div",{style:{fontSize:6.5,color:"#5A5550",fontStyle:"italic",marginTop:1}},"classes beneficiadas")
+                            ),
+                            h("div",{style:{textAlign:"center",borderLeft:"1px solid rgba(255,255,255,0.06)",borderRight:"1px solid rgba(255,255,255,0.06)"}},
+                              h("div",{style:{fontSize:6.5,color:"#7A7060",letterSpacing:1,fontFamily:"monospace"}},"PERDE -"),
                               h("div",{style:{fontSize:11,color:"#E05252",fontFamily:"monospace",fontWeight:700,marginTop:1}},expoNegativa.toFixed(0)+"%"),
                               h("div",{style:{fontSize:6.5,color:"#5A5550",fontStyle:"italic",marginTop:1}},"classes prejudicadas")
                             ),
-                            h("div",{style:{textAlign:"center",borderLeft:"1px solid rgba(255,255,255,0.06)",borderRight:"1px solid rgba(255,255,255,0.06)"}},
-                              h("div",{style:{fontSize:6.5,color:"#7A7060",letterSpacing:1,fontFamily:"monospace"}},"HEDGE +"),
-                              h("div",{style:{fontSize:11,color:"#4CAF82",fontFamily:"monospace",fontWeight:700,marginTop:1}},hedge.toFixed(0)+"%"),
-                              h("div",{style:{fontSize:6.5,color:"#5A5550",fontStyle:"italic",marginTop:1}},"classes beneficiadas")
-                            ),
                             h("div",{style:{textAlign:"center"}},
                               h("div",{style:{fontSize:6.5,color:"#7A7060",letterSpacing:1,fontFamily:"monospace"}},"LIQUIDO"),
-                              h("div",{style:{fontSize:11,color:v.cor,fontFamily:"monospace",fontWeight:700,marginTop:1}},riscoLiquido.toFixed(0)+"%"),
-                              h("div",{style:{fontSize:6.5,color:"#5A5550",fontStyle:"italic",marginTop:1}},"expo - hedge")
+                              h("div",{style:{fontSize:11,color:corSens,fontFamily:"monospace",fontWeight:700,marginTop:1}},sinalSens+sensLiquida.toFixed(0)+"%"),
+                              h("div",{style:{fontSize:6.5,color:"#5A5550",fontStyle:"italic",marginTop:1}},"ganha - perde")
                             )
                           ),
 
@@ -6487,41 +6522,50 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                     })
                   ),
 
-                  // ===== INSIGHT SOBRE EXPOSICAO MACRO =====
+                  // ===== INSIGHT SOBRE SENSIBILIDADE MACRO =====
                   (()=>{
-                    // Calcula RISCO LIQUIDO (exposicao negativa - hedge), ponderado pela intensidade
+                    // Calcula SENSIBILIDADE LIQUIDA por vetor (ganha - perde), ponderado pela intensidade
                     const pesoIntens=(it)=>it==="FORTE"?1.0:it==="MEDIA"?0.6:it==="BAIXA"?0.3:0.3;
                     const exposicoes=vetores.map(v=>{
                       const caindo=v.impactos.filter(i=>i.direcao<0);
                       const subindo=v.impactos.filter(i=>i.direcao>0);
+                      const expoPos=subindo.reduce((s,i)=>s+(cw[i.classe]||0)*pesoIntens(i.intensidade),0);
                       const expoNeg=caindo.reduce((s,i)=>s+(cw[i.classe]||0)*pesoIntens(i.intensidade),0);
-                      const hedge=subindo.reduce((s,i)=>s+(cw[i.classe]||0)*pesoIntens(i.intensidade),0);
-                      const peso=Math.max(0,expoNeg-hedge);// risco liquido
-                      return {nome:v.nome,cor:v.cor,peso,icone:v.icone,expoNeg,hedge};
-                    }).sort((a,b)=>b.peso-a.peso);
+                      const sens=expoPos-expoNeg;// pode ser +, -, ou 0
+                      return {nome:v.nome,cor:v.cor,sens,absSens:Math.abs(sens),icone:v.icone,expoPos,expoNeg};
+                    }).sort((a,b)=>b.absSens-a.absSens);// ordena pela magnitude absoluta
                     const top1=exposicoes[0],top2=exposicoes[1];
+                    const direcao=(s)=>s>0?"se beneficia quando":"sofre quando";
+                    const corDir=(s)=>s>0?"#4CAF82":s<0?"#E05252":"#C8A96E";
 
                     return h("div",{style:{padding:"10px 12px",background:"linear-gradient(135deg,rgba(200,169,110,0.08),rgba(156,125,194,0.04))",border:"1px solid rgba(200,169,110,0.30)",borderRadius:7}},
-                      h("div",{style:{fontSize:9,letterSpacing:1.5,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,marginBottom:7}},"\u{1F4A1} SEU RISCO LIQUIDO AOS VETORES MACRO"),
+                      h("div",{style:{fontSize:9,letterSpacing:1.5,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,marginBottom:7}},"\u{1F4A1} SUA SENSIBILIDADE AOS VETORES MACRO"),
                       h("p",{style:{fontSize:9.5,color:"#E8E2D5",lineHeight:1.7,margin:"0 0 9px",fontFamily:"Georgia,serif",fontStyle:"italic"}},
-                        "Seu maior risco liquido (apos contabilizar hedges) e ",h("strong",{style:{color:top1.cor}},top1.nome)," (",h("strong",{},top1.peso.toFixed(0)+"% liquido"),", apos hedge de ",top1.hedge.toFixed(0)+"%)",
-                        top2&&top2.peso>=top1.peso*0.7?h("span",{}," e ",h("strong",{style:{color:top2.cor}},top2.nome)," (",h("strong",{},top2.peso.toFixed(0)+"% liquido"),")"):"",
-                        ". Sao os fatores macro que mais afetam seus retornos APOS considerar as classes que protegem o portfolio."
+                        "Sua maior sensibilidade liquida e a ",h("strong",{style:{color:top1.cor}},top1.nome)," (",h("strong",{style:{color:corDir(top1.sens)}},(top1.sens>0?"+":"")+top1.sens.toFixed(0)+"%"),"): o portfolio ",h("strong",{},direcao(top1.sens))," esse vetor sobe",
+                        top2&&top2.absSens>=top1.absSens*0.5?h("span",{}," Em segundo, ",h("strong",{style:{color:top2.cor}},top2.nome)," (",h("strong",{style:{color:corDir(top2.sens)}},(top2.sens>0?"+":"")+top2.sens.toFixed(0)+"%"),")"):"",
+                        ". Sensibilidade liquida proxima de zero indica diversificacao genuina (vetor neutro para voce)."
                       ),
-                      // Ranking visual de exposicoes
+                      // Ranking visual de sensibilidades
                       h("div",{style:{display:"flex",flexDirection:"column",gap:4,marginTop:8}},
-                        ...exposicoes.map((e,k)=>h("div",{key:"e"+k,style:{display:"grid",gridTemplateColumns:"20px 130px 1fr 40px",gap:6,alignItems:"center",fontSize:8,fontFamily:"monospace"}},
-                          h("span",{style:{fontSize:11}},e.icone),
-                          h("span",{style:{color:e.cor,fontWeight:700,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}},e.nome),
-                          h("div",{style:{position:"relative",height:6,background:"rgba(255,255,255,0.04)",borderRadius:2,overflow:"hidden"}},
-                            h("div",{style:{position:"absolute",top:0,left:0,height:"100%",width:Math.min(100,e.peso)+"%",background:e.cor,opacity:0.75,borderRadius:2}})
-                          ),
-                          h("span",{style:{textAlign:"right",color:"#E8E2D5",fontWeight:700}},e.peso.toFixed(0)+"%")
-                        ))
+                        ...exposicoes.map((e,k)=>{
+                          const corBarra=e.sens>5?"#4CAF82":e.sens<-5?"#E05252":"#C8A96E";
+                          const sinal=e.sens>0?"+":e.sens<0?"":"";
+                          return h("div",{key:"e"+k,style:{display:"grid",gridTemplateColumns:"20px 130px 1fr 50px",gap:6,alignItems:"center",fontSize:8,fontFamily:"monospace"}},
+                            h("span",{style:{fontSize:11}},e.icone),
+                            h("span",{style:{color:e.cor,fontWeight:700,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}},e.nome),
+                            h("div",{style:{position:"relative",height:6,background:"rgba(255,255,255,0.04)",borderRadius:2,overflow:"hidden"}},
+                              // Barra centralizada: positiva vai pra direita, negativa pra esquerda
+                              h("div",{style:{position:"absolute",top:0,left:e.sens>=0?"50%":(50-Math.min(50,e.absSens))+"%",height:"100%",width:Math.min(50,e.absSens)+"%",background:corBarra,opacity:0.75,borderRadius:2}}),
+                              // Linha central de referencia
+                              h("div",{style:{position:"absolute",top:0,left:"50%",width:1,height:"100%",background:"rgba(255,255,255,0.15)"}})
+                            ),
+                            h("span",{style:{textAlign:"right",color:corBarra,fontWeight:700}},sinal+e.sens.toFixed(0)+"%")
+                          );
+                        })
                       ),
                       // Conclusao estrategica
                       h("div",{style:{fontSize:8.5,color:"#9A9080",fontStyle:"italic",lineHeight:1.55,marginTop:10,paddingTop:8,borderTop:"1px solid rgba(255,255,255,0.06)"}},
-                        h("strong",{style:{color:"#C8A96E"}},"Como reduzir correlacoes"),": para diminuir o ENB efetivo, adicione exposicao a vetores em que voce esta sub-representado. Por exemplo, se voce esta forte em ",h("em",{},"Risco Fiscal BR"),", adicionar Treasuries, REITs ou Bitcoin reduz drasticamente sua exposicao a esse vetor, pois esses ativos respondem a vetores DIFERENTES (Cambio, Liquidez Global)."
+                        h("strong",{style:{color:"#C8A96E"}},"Como interpretar"),": sensibilidade liquida ",h("strong",{style:{color:"#4CAF82"}},"+positiva")," (verde) significa que voce ganha quando o vetor sobe; ",h("strong",{style:{color:"#E05252"}},"-negativa")," (vermelho) significa que voce perde; ",h("strong",{style:{color:"#C8A96E"}},"proxima de zero")," (ambar) significa que o portfolio e neutro - sinal de boa diversificacao entre buckets opostos. Para reduzir uma sensibilidade negativa, adicione classes que se beneficiam desse vetor (ex: contra risco fiscal BR -> Treasuries, EXT, REITs)."
                       )
                     );
                   })()
