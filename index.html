@@ -113,9 +113,11 @@ const TRE_TARGET={TLT:0.40,IEF:0.20,VTIP:0.40};
 
 // ============= CONSTANTES NTN-B (Tesouro IPCA+) =============
 // Vencimentos conhecidos da NTN-B Principal (sem cupom semestral).
-// Esta lista e MUTAVEL: a funcao fetchNTNBTaxas() pode adicionar novos vencimentos
-// descobertos via API (ex: quando o Tesouro emite uma NTN-B 2065, 2070, etc).
-// O objeto e mesclado em runtime e persistido no save criptografado.
+// IMPORTANTE: este mapa contem APENAS vencimentos ofertados como NTN-B Principal pelo TD.
+// O Tesouro Direto NAO oferta 2055 e 2060 como Principal - apenas na versao "com Juros Semestrais"
+// (que e descartada pelo filtro pois o investidor so usa Principal).
+// Esta lista e MUTAVEL: a funcao fetchNTNBTaxas() adiciona automaticamente novos vencimentos
+// Principal descobertos via API (ex: quando o Tesouro voltar a ofertar 2055/2060 Principal, ou novos como 2065).
 const NTNB_VENCIMENTOS_INICIAL={
   "NTNB-2026":"2026-05-15",
   "NTNB-2029":"2029-05-15",
@@ -124,8 +126,6 @@ const NTNB_VENCIMENTOS_INICIAL={
   "NTNB-2040":"2040-08-15",
   "NTNB-2045":"2045-05-15",
   "NTNB-2050":"2050-08-15",
-  "NTNB-2055":"2055-08-15",
-  "NTNB-2060":"2060-08-15",
 };
 // Versao mutavel - comeca igual ao inicial e e expandida quando novos vencimentos sao descobertos
 const NTNB_VENCIMENTOS={...NTNB_VENCIMENTOS_INICIAL};
@@ -2359,159 +2359,162 @@ function KeyScreen({onSave}){
 }
 
 // ============= FETCH DE TAXAS NTN-B =============
-// Tenta multiplas fontes publicas e retorna mapa de taxas por ticker.
-// DESCOBERTA DINAMICA: aprende automaticamente novos vencimentos NTN-B Principal
-// (sem cupom semestral) ofertados pelo Tesouro, sem precisar editar lista fixa no codigo.
-// Resultado: {taxas:{...}, vencimentos:{ticker:dataISO}, vna, ts, fonte}
+// Tenta multiplas fontes EM PARALELO e escolhe a com DATA DE COTACAO MAIS RECENTE.
+// Cada fonte gratuita tem latencia variavel (a API do AA40 tem defasagem de horas a dias).
+// Estrategia: consultar todas em paralelo, escolher a melhor data, fallback se nenhuma responder.
+// DESCOBERTA DINAMICA: aprende automaticamente novos vencimentos NTN-B Principal via API.
+// Resultado: {taxas:{...}, vencimentos:{ticker:dataISO}, vna, ts, dataCotacao, diasDefasagem, fonte}
 async function fetchNTNBTaxas(){
   const proxies=[
     u=>"https://corsproxy.io/?url="+encodeURIComponent(u),
     u=>"https://api.allorigins.win/raw?url="+encodeURIComponent(u),
     u=>"https://api.codetabs.com/v1/proxy/?quest="+encodeURIComponent(u)
   ];
+  // Helper: filtra vencimento e retorna ticker no formato NTNB-AAAA
+  const extrairAno=(nomeCompleto)=>{
+    const m=nomeCompleto.match(/\((20\d{2})\)/)||nomeCompleto.match(/(20\d{2})/);
+    return m?m[1]:null;
+  };
+  const isNTNBPrincipal=(nm)=>{
+    const lo=nm.toLowerCase();
+    if(!lo.includes("ipca"))return false;
+    if(lo.includes("juros semestrais")||lo.includes("juros semestral")||lo.includes("com juros"))return false;
+    if(lo.includes("renda+")||lo.includes("educa+"))return false;
+    return true;
+  };
+  const dataVencimentoFor=(tk,ano)=>{
+    if(NTNB_VENCIMENTOS[tk])return NTNB_VENCIMENTOS[tk];
+    return ano+"-05-15";// fallback default
+  };
 
-  // ============= FONTE PRIMARIA: aposenteaos40.org (CSV) =============
-  // Formato: "Título (Ano)",PU,Taxa,Data
-  // Ex: "Tesouro IPCA+ (2035)",2400.13,7.79,2026-06-05
-  // Taxa ja vem em formato percentual (7.79 = 7.79% a.a.)
-  const urlA40="https://www.aposenteaos40.org/fire-dash/includes/api_tesouro.php?titulo=All";
-  for(const proxyFn of [u=>u,...proxies]){// tenta direto primeiro, depois proxies
+  // ============= FONTE A: aposenteaos40.org (CSV) =============
+  const tentarAA40=async(proxyFn)=>{
+    const url="https://www.aposenteaos40.org/fire-dash/includes/api_tesouro.php?titulo=All";
     try{
       const ctrl=new AbortController();
-      const tid=setTimeout(()=>ctrl.abort(),8000);
-      const r=await fetch(proxyFn(urlA40),{signal:ctrl.signal});
+      const tid=setTimeout(()=>ctrl.abort(),7000);
+      const r=await fetch(proxyFn(url),{signal:ctrl.signal});
       clearTimeout(tid);
-      if(!r.ok)continue;
+      if(!r.ok)return null;
       const text=await r.text();
-      if(!text||text.toLowerCase().includes("host not in allowlist"))continue;
-      if(!text.includes("Tesouro IPCA"))continue;// resposta invalida
-      // Parse CSV linha a linha
+      if(!text||text.toLowerCase().includes("host not in allowlist"))return null;
+      if(!text.includes("Tesouro IPCA"))return null;
       const linhas=text.split(/\r?\n/).filter(l=>l.includes("Tesouro IPCA+"));
-      if(linhas.length===0)continue;
-      const taxas={};
-      const vencimentos={};
-      const now=Date.now();
+      if(linhas.length===0)return null;
+      const taxas={},vencimentos={};
       let dataCotacao=null;
       linhas.forEach(linha=>{
-        // Regex: "Título (Ano)",PU,Taxa,Data
-        // Aceita aspas duplas e dados numericos
         const m=linha.match(/^"([^"]+)"\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*(\d{4}-\d{2}-\d{2})/);
         if(!m)return;
-        const nomeCompleto=m[1];// ex: "Tesouro IPCA+ (2035)"
-        const pu=parseFloat(m[2]);
-        const taxaPct=parseFloat(m[3]);// ja em percentual
-        const dataStr=m[4];
+        const nomeCompleto=m[1],pu=parseFloat(m[2]),taxaPct=parseFloat(m[3]),dataStr=m[4];
         if(!isFinite(pu)||!isFinite(taxaPct))return;
-        // FILTRO: apenas NTN-B Principal (exclui "com Juros Semestrais")
-        const nm=nomeCompleto.toLowerCase();
-        if(!nm.includes("ipca"))return;
-        if(nm.includes("juros semestrais")||nm.includes("juros semestral")||nm.includes("com juros"))return;
-        // Extrai ano
-        const matchAno=nomeCompleto.match(/\((20\d{2})\)/);
-        if(!matchAno)return;
-        const ano=matchAno[1];
+        if(!isNTNBPrincipal(nomeCompleto))return;
+        const ano=extrairAno(nomeCompleto);
+        if(!ano)return;
         const tk="NTNB-"+ano;
-        // Determina data de vencimento: usa o mapa conhecido se ja temos esse ticker,
-        // senao usa heuristica observada dos vencimentos existentes do TD
-        // Mapa observado: 2026/05, 2029/05, 2032/08, 2035/05, 2040/08, 2045/05, 2050/08, 2055/08, 2060/08, 2065/?
-        let dataVencISO;
-        if(NTNB_VENCIMENTOS[tk]){
-          dataVencISO=NTNB_VENCIMENTOS[tk];// usa data conhecida
-        }else{
-          // Heuristica: nao existe padrao limpo. Para anos novos descobertos, usa 15/05 como default.
-          // Quando a data real for relevante (proximo vencimento), o usuario pode descobrir via Tesouro Direto.
-          dataVencISO=ano+"-05-15";
-        }
-        vencimentos[tk]=dataVencISO;
-        // Taxa em decimal (0.0779 para 7,79%)
+        vencimentos[tk]=dataVencimentoFor(tk,ano);
         const taxaDecimal=taxaPct/100;
-        taxas[tk]={
-          taxaBrutaCompra:taxaDecimal,
-          taxaBrutaVenda:taxaDecimal,// CSV nao distingue compra/venda - usa mesma
-          puCompra:pu,
-          puVenda:pu,
-          nome:nomeCompleto,
-          dataCotacao:dataStr,
-          ts:now
-        };
+        taxas[tk]={taxaBrutaCompra:taxaDecimal,taxaBrutaVenda:taxaDecimal,puCompra:pu,puVenda:pu,nome:nomeCompleto,dataCotacao:dataStr,ts:Date.now()};
         dataCotacao=dataStr;
       });
-      if(Object.keys(taxas).length>0){
-        return {taxas,vencimentos,vna:null,ts:now,fonte:"aposenteaos40"+(dataCotacao?" ("+dataCotacao+")":"")};
-      }
-    }catch(e){continue;}
-  }
+      if(Object.keys(taxas).length===0)return null;
+      return {taxas,vencimentos,dataCotacao,fonte:"aposenteaos40"};
+    }catch(e){return null;}
+  };
 
-  // ============= FONTE SECUNDARIA (FALLBACK): radaropcoes.com =============
-  // Mantida como backup. Atualmente retorna strings literais em vez de numeros (API descontinuada),
-  // mas mantida no codigo para o caso de voltar a funcionar futuramente.
-  const urlRadar="https://api.radaropcoes.com/bonds.json";
-  for(const proxyFn of proxies){
+  // ============= FONTE B: radaropcoes.com (JSON) =============
+  // Mantida como fallback. Atualmente retorna strings literais (API descontinuada),
+  // mas pode voltar a funcionar - codigo robusto a falha.
+  const tentarRadar=async(proxyFn)=>{
     try{
       const ctrl=new AbortController();
-      const tid=setTimeout(()=>ctrl.abort(),8000);
-      const r=await fetch(proxyFn(urlRadar),{signal:ctrl.signal});
+      const tid=setTimeout(()=>ctrl.abort(),7000);
+      const r=await fetch(proxyFn("https://api.radaropcoes.com/bonds.json"),{signal:ctrl.signal});
       clearTimeout(tid);
-      if(!r.ok)continue;
+      if(!r.ok)return null;
       const text=await r.text();
-      if(!text||text.toLowerCase().includes("host not in allowlist"))continue;
+      if(!text||text.toLowerCase().includes("host not in allowlist"))return null;
       const parsed=JSON.parse(text);
       const lista=parsed&&parsed.response&&parsed.response.TrsrBdTradgList;
-      if(!Array.isArray(lista)||lista.length===0)continue;
-      const taxas={};
-      const vencimentos={};
-      const now=Date.now();
+      if(!Array.isArray(lista)||lista.length===0)return null;
+      const taxas={},vencimentos={};
+      let dataCotacao=null;
       lista.forEach(item=>{
         const tb=item.TrsrBd;
         if(!tb||!tb.nm)return;
-        const nm=tb.nm.toLowerCase();
-        if(!nm.includes("ipca"))return;
-        if(nm.includes("juros semestrais")||nm.includes("juros semestral")||nm.includes("com juros"))return;
-        if(nm.includes("renda+")||nm.includes("educa+"))return;
-        const matchYear=tb.nm.match(/(20\d{2})/);
-        if(!matchYear)return;
-        const ano=matchYear[1];
+        if(!isNTNBPrincipal(tb.nm))return;
+        const ano=extrairAno(tb.nm);
+        if(!ano)return;
         const tk="NTNB-"+ano;
-        // Validacao: campos numericos podem vir como string-de-erro
-        const taxaR=parseFloat(tb.anulRedRate);
-        const taxaI=parseFloat(tb.anulInvstmtRate);
-        const puR=parseFloat(tb.untrRedVal);
-        const puI=parseFloat(tb.untrInvstmtVal);
-        if(!isFinite(taxaR)&&!isFinite(taxaI))return;// API morta
+        const taxaR=parseFloat(tb.anulRedRate),taxaI=parseFloat(tb.anulInvstmtRate);
+        const puR=parseFloat(tb.untrRedVal),puI=parseFloat(tb.untrInvstmtVal);
+        if(!isFinite(taxaR)&&!isFinite(taxaI))return;
         const norm=(v)=>{const n=parseFloat(v);if(!isFinite(n))return 0;return n>1?n/100:n;};
         let dataVencISO=null;
         if(tb.mtrtyDt){
           if(/^\d{4}-\d{2}-\d{2}/.test(tb.mtrtyDt))dataVencISO=tb.mtrtyDt.substring(0,10);
           else if(/^\d{2}\/\d{2}\/\d{4}/.test(tb.mtrtyDt)){
-            const [d,m,y]=tb.mtrtyDt.split("/");
-            dataVencISO=y+"-"+m+"-"+d;
+            const [d,m,y]=tb.mtrtyDt.split("/");dataVencISO=y+"-"+m+"-"+d;
           }
         }
-        if(!dataVencISO){
-          const anoNum=parseInt(ano);
-          const mesVenc=(anoNum%5===0)?"08":"05";
-          dataVencISO=ano+"-"+mesVenc+"-15";
-        }
+        if(!dataVencISO)dataVencISO=dataVencimentoFor(tk,ano);
         vencimentos[tk]=dataVencISO;
-        taxas[tk]={
-          taxaBrutaCompra:norm(tb.anulInvstmtRate),
-          taxaBrutaVenda:norm(tb.anulRedRate),
-          puCompra:isFinite(puI)?puI:0,
-          puVenda:isFinite(puR)?puR:0,
-          nome:tb.nm,
-          ts:now
-        };
+        // Tenta extrair data da cotacao do payload
+        if(tb.lstUpdtdDt&&!dataCotacao){
+          const dl=tb.lstUpdtdDt;
+          if(/^\d{4}-\d{2}-\d{2}/.test(dl))dataCotacao=dl.substring(0,10);
+        }
+        taxas[tk]={taxaBrutaCompra:norm(tb.anulInvstmtRate),taxaBrutaVenda:norm(tb.anulRedRate),puCompra:isFinite(puI)?puI:0,puVenda:isFinite(puR)?puR:0,nome:tb.nm,ts:Date.now()};
       });
-      if(Object.keys(taxas).length>0){
-        return {taxas,vencimentos,vna:null,ts:now,fonte:"radaropcoes"};
-      }
-    }catch(e){continue;}
+      if(Object.keys(taxas).length===0)return null;
+      return {taxas,vencimentos,dataCotacao,fonte:"radaropcoes"};
+    }catch(e){return null;}
+  };
+
+  // ============= EXECUCAO PARALELA E SELECAO PELA DATA MAIS RECENTE =============
+  // Lanca todas as tentativas em paralelo e coleta resultados conforme chegam
+  const tentativas=[
+    tentarAA40(u=>u),// direto sem proxy
+    ...proxies.map(p=>tentarAA40(p)),
+    ...proxies.map(p=>tentarRadar(p))
+  ];
+  const resultados=(await Promise.all(tentativas.map(p=>p.catch(()=>null)))).filter(r=>r&&r.taxas);
+  if(resultados.length===0)return null;
+  // Escolhe o resultado com data de cotacao MAIS RECENTE
+  // Ordena por dataCotacao decrescente; se empate, prefere o que tem mais titulos
+  resultados.sort((a,b)=>{
+    const da=a.dataCotacao||"0000-00-00",db=b.dataCotacao||"0000-00-00";
+    if(da!==db)return db.localeCompare(da);
+    return Object.keys(b.taxas).length-Object.keys(a.taxas).length;
+  });
+  const melhor=resultados[0];
+  // Calcula dias de defasagem em dias UTEIS (segunda a sexta)
+  let diasDefasagem=null;
+  if(melhor.dataCotacao){
+    const dCot=new Date(melhor.dataCotacao+"T12:00:00");
+    const hoje=new Date();
+    hoje.setHours(12,0,0,0);
+    let dias=0,d=new Date(dCot);
+    while(d<hoje){
+      d.setDate(d.getDate()+1);
+      const dow=d.getDay();
+      if(dow>=1&&dow<=5)dias++;// segunda a sexta
+    }
+    diasDefasagem=dias;
   }
-  return null;
+  return {
+    taxas:melhor.taxas,
+    vencimentos:melhor.vencimentos,
+    vna:null,
+    ts:Date.now(),
+    dataCotacao:melhor.dataCotacao,
+    diasDefasagem,
+    fonte:melhor.fonte+(melhor.dataCotacao?" ("+melhor.dataCotacao+")":"")
+  };
 }
 // ============= COMPONENTE: Card Tesouro Direto / NTN-B =============
 // Mostra todos os titulos NTN-B Principal ofertados com taxa bruta/liquida atual e sinalizacao
-function TesouroNTNBCard({ntnbTaxas,ntnbVNA,ntnbUpdTs,ntnbStatus,onRefresh,port,onTaxaManual}){
+function TesouroNTNBCard({ntnbTaxas,ntnbVNA,ntnbUpdTs,ntnbStatus,ntnbDataCotacao,ntnbDiasDefasagem,onRefresh,port,onTaxaManual}){
   const tickers=Object.keys(NTNB_VENCIMENTOS);
   const taxaLiq=(b)=>b?taxaLiquidaIR(b):0;
   // Sinalizacao por taxa LIQUIDA
@@ -2521,7 +2524,6 @@ function TesouroNTNBCard({ntnbTaxas,ntnbVNA,ntnbUpdTs,ntnbStatus,onRefresh,port,
     if(liq>=0.05)return {cor:"#E8C97A",icon:"\u25CB",texto:"ALOCAR",bg:"rgba(232,201,122,0.12)"};
     return {cor:"#9A9080",icon:"\u25C7",texto:"piso 3%",bg:"rgba(255,255,255,0.02)"};
   };
-  const tsStr=ntnbUpdTs?new Date(ntnbUpdTs).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):"nunca";
 
   return h("div",{style:{marginBottom:20,paddingTop:14,borderTop:"1px solid rgba(255,255,255,0.05)"}},
     h("div",{style:{display:"flex",alignItems:"baseline",justifyContent:"space-between",marginBottom:4,flexWrap:"wrap",gap:6}},
@@ -2529,8 +2531,38 @@ function TesouroNTNBCard({ntnbTaxas,ntnbVNA,ntnbUpdTs,ntnbStatus,onRefresh,port,
       h("button",{onClick:onRefresh,style:{padding:"3px 10px",background:"transparent",border:"1px solid rgba(200,169,110,0.40)",borderRadius:4,color:"#C8A96E",fontSize:9,fontFamily:"monospace",cursor:"pointer",letterSpacing:1}},"\u21BB atualizar")
     ),
     h("div",{style:{fontSize:9,color:"#5A5550",marginBottom:10,fontStyle:"italic"}},
-      "Taxas LIQUIDAS de IR (15% para holders > 720 dias) - referencia para alocacao. ",
-      h("span",{style:{color:"#7A7060"}},"Atualizado: "+tsStr)
+      "Taxas LIQUIDAS de IR (15% para holders > 720 dias) - referencia para alocacao."
+    ),
+    // Linha de status com DATA DA COTACAO real e defasagem em dias uteis
+    (()=>{
+      const corDefasagem=ntnbDiasDefasagem===null?"#7A7060":
+        ntnbDiasDefasagem===0?"#5DBF82":// hoje - verde
+        ntnbDiasDefasagem===1?"#E8C97A":// 1 dia util - amarelo
+        ntnbDiasDefasagem<=3?"#E89E5A":// ate 3 dias - laranja
+        "#E05252";// mais de 3 - vermelho
+      const txtDefasagem=ntnbDiasDefasagem===null?"":
+        ntnbDiasDefasagem===0?"\u{1F7E2} cotacao de HOJE":
+        ntnbDiasDefasagem===1?"\u{1F7E1} defasagem de 1 dia util":
+        ntnbDiasDefasagem<=3?"\u{1F7E0} defasagem de "+ntnbDiasDefasagem+" dias uteis":
+        "\u{1F534} cotacao defasada em "+ntnbDiasDefasagem+" dias uteis - considere atualizar manualmente";
+      return h("div",{style:{fontSize:9,marginBottom:10,padding:"6px 9px",background:"rgba(0,0,0,0.20)",borderRadius:5,border:"1px solid "+corDefasagem+"30",display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}},
+        h("div",{style:{display:"flex",flexDirection:"column",gap:1}},
+          h("span",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",letterSpacing:1.5,fontWeight:700}},"DATA DA COTACAO"),
+          h("span",{style:{fontFamily:"monospace",fontSize:11,color:"#E8DCC0",fontWeight:700}},ntnbDataCotacao?ntnbDataCotacao.split("-").reverse().join("/"):"-")
+        ),
+        h("div",{style:{flex:1,minWidth:140,fontSize:9,color:corDefasagem,fontFamily:"monospace",fontWeight:600,textAlign:"right"}},txtDefasagem)
+      );
+    })(),
+    // Linha de fetch (quando o app buscou)
+    h("div",{style:{fontSize:7,color:"#5A5550",fontFamily:"monospace",marginBottom:8,letterSpacing:1}},
+      "ultimo fetch do app: "+(ntnbUpdTs?new Date(ntnbUpdTs).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):"nunca")
+    ),
+    // Nota informativa sobre disponibilidade no Tesouro Direto
+    h("div",{style:{fontSize:8,color:"#8A7560",marginBottom:8,padding:"6px 9px",background:"rgba(168,139,94,0.06)",border:"1px solid rgba(168,139,94,0.18)",borderRadius:5,lineHeight:1.5}},
+      h("span",{style:{color:"#C8A96E",fontFamily:"monospace",fontWeight:700,letterSpacing:1}},"\u2139 NOTA: "),
+      "O Tesouro Direto oferta NTN-B 2055 e 2060 ",
+      h("strong",{style:{color:"#A88B5E"}},"apenas na versao com cupom semestral"),
+      ", nao como Principal. Como sua estrategia e exclusivamente Principal (sem cupom), esses vencimentos ficam fora. Se o TD voltar a ofertar como Principal, eles aparecem automaticamente."
     ),
     // Cabecalho
     h("div",{style:{display:"grid",gridTemplateColumns:"1fr 0.9fr 0.9fr 1fr 0.8fr",gap:8,padding:"6px 8px",background:"rgba(0,0,0,0.20)",borderRadius:4,fontSize:7,color:"#7A7060",fontFamily:"monospace",letterSpacing:1,fontWeight:700,marginBottom:4}},
@@ -2862,6 +2894,10 @@ function App(){
   const [ntnbUpdTs,setNtnbUpdTs]=useState(0);
   // Status do fetch das taxas
   const [ntnbStatus,setNtnbStatus]=useState("");
+  // Data REAL da cotacao retornada pela API (ISO yyyy-mm-dd) - distinta de ntnbUpdTs (que e quando o app buscou)
+  const [ntnbDataCotacao,setNtnbDataCotacao]=useState(null);
+  // Dias uteis de defasagem entre dataCotacao e hoje (>=0)
+  const [ntnbDiasDefasagem,setNtnbDiasDefasagem]=useState(null);
   // Series mensais dos indices comparativos: {"YYYY-MM": {ibov, ifix, cdi, imab, sp500, nasdaq, poupanca}}
   const [idxMensal,setIdxMensal]=useState({});
   // Insight mensal IA: {mes:"YYYY-MM", texto:"...", ts:123456}
@@ -3167,6 +3203,8 @@ function App(){
         if(dd.ntnbTaxas&&typeof dd.ntnbTaxas==="object")setNtnbTaxas(dd.ntnbTaxas);
         if(typeof dd.ntnbVNA==="number"&&dd.ntnbVNA>0)setNtnbVNA(dd.ntnbVNA);
         if(typeof dd.ntnbUpdTs==="number")setNtnbUpdTs(dd.ntnbUpdTs);
+        if(typeof dd.ntnbDataCotacao==="string")setNtnbDataCotacao(dd.ntnbDataCotacao);
+        if(typeof dd.ntnbDiasDefasagem==="number")setNtnbDiasDefasagem(dd.ntnbDiasDefasagem);
         // Vencimentos NTN-B previamente descobertos via API (alem da lista inicial hardcoded)
         if(dd.ntnbVencimentos&&typeof dd.ntnbVencimentos==="object"){
           mesclarVencimentosNTNB(dd.ntnbVencimentos);
@@ -3189,7 +3227,7 @@ function App(){
     if(!inited||!aesKey)return;
     (async()=>{
       try{
-        const obj={port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,selicAtual,metaMensalIF,cenarioIPCA,dataNascimento,insightRenda,insightRendaTs,insightRendaSnap,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,piCycle,nupl,goldSilver,goldSP500,realGoldZ,fx:{...FX},btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,insightSnap,infIPCA,infIGPM,infINCC,infCPI,ntnbTaxas,ntnbVNA,ntnbUpdTs,ntnbVencimentos:{...NTNB_VENCIMENTOS}};
+        const obj={port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,selicAtual,metaMensalIF,cenarioIPCA,dataNascimento,insightRenda,insightRendaTs,insightRendaSnap,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,piCycle,nupl,goldSilver,goldSP500,realGoldZ,fx:{...FX},btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,insightSnap,infIPCA,infIGPM,infINCC,infCPI,ntnbTaxas,ntnbVNA,ntnbUpdTs,ntnbDataCotacao,ntnbDiasDefasagem,ntnbVencimentos:{...NTNB_VENCIMENTOS}};
         const enc=await aesEncrypt(aesKey,obj);
         localStorage.setItem(SK_ENC,enc);
       }catch(e){}
@@ -3880,11 +3918,12 @@ function App(){
         const res=await fetchNTNBTaxas();
         if(cancelado)return;
         if(res&&res.taxas&&Object.keys(res.taxas).length>0){
-          // Descoberta dinamica: mescla qualquer vencimento novo retornado pela API
           if(res.vencimentos)mesclarVencimentosNTNB(res.vencimentos);
           setNtnbTaxas(res.taxas);
           setNtnbUpdTs(res.ts);
           if(res.vna&&res.vna>0)setNtnbVNA(res.vna);
+          if(res.dataCotacao)setNtnbDataCotacao(res.dataCotacao);
+          if(typeof res.diasDefasagem==="number")setNtnbDiasDefasagem(res.diasDefasagem);
           const qtVenc=Object.keys(NTNB_VENCIMENTOS).length;
           setNtnbStatus("atualizado: "+new Date(res.ts).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})+" - "+qtVenc+" vencimentos disponiveis via "+res.fonte);
         }else{
@@ -5662,31 +5701,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
       const dataHoje=diasSem[hojeData.getDay()]+", "+hojeData.getDate()+" de "+meses[hojeData.getMonth()]+" de "+hojeData.getFullYear();
       const dateHeader=h("div",{style:{fontSize:10,color:"#7A7060",fontFamily:"Georgia,serif",fontStyle:"italic",letterSpacing:0.5,marginBottom:14,paddingBottom:9,borderBottom:"1px solid rgba(200,169,110,0.12)",textAlign:"right"}},dataHoje);
 
-      // Helpers NTN-B
-      const refreshNTNBTaxas=async()=>{
-        setNtnbStatus("buscando...");
-        try{
-          const res=await fetchNTNBTaxas();
-          if(res&&res.taxas&&Object.keys(res.taxas).length>0){
-            if(res.vencimentos)mesclarVencimentosNTNB(res.vencimentos);
-            setNtnbTaxas(res.taxas);
-            setNtnbUpdTs(res.ts);
-            if(res.vna&&res.vna>0)setNtnbVNA(res.vna);
-            const qtVenc=Object.keys(NTNB_VENCIMENTOS).length;
-            setNtnbStatus("atualizado: "+new Date(res.ts).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})+" - "+qtVenc+" vencimentos via "+res.fonte);
-          }else{
-            setNtnbStatus("nao foi possivel buscar - use entrada manual");
-          }
-        }catch(e){setNtnbStatus("erro: "+(e.message||"desconhecido"));}
-      };
-      const setNTNBTaxaManual=(ticker,taxaBruta)=>{
-        setNtnbTaxas(prev=>({...prev,[ticker]:{...(prev[ticker]||{}),taxaBrutaVenda:taxaBruta,taxaBrutaCompra:taxaBruta,ts:Date.now(),manual:true}}));
-        setNtnbUpdTs(Date.now());
-        setNtnbStatus("taxa manual atualizada: "+ticker);
-      };
-      const tesouroCard=h(TesouroNTNBCard,{ntnbTaxas,ntnbVNA,ntnbUpdTs,ntnbStatus,onRefresh:refreshNTNBTaxas,port,onTaxaManual:setNTNBTaxaManual});
-
-      content=h("div",{},dateHeader,h(BolsasCard,{port,cls}),aporteCard,insightCard,h(AllocChart,{cw,ct,fB,MV,hideVal}),h(RiskChart,{cw,selicAtual,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,recalibrarRR_viaIA,calibracaoLoad,calibracaoErr,hasAjustesIA:!!ajustesRR_IA,apiKey}),h(EvolChart,{histMensal,hist,showUSD,setShowUSD,hideVal}),h(ComparativoChart,{histMensal,idxMensal,hideVal}),insightMensalCard,h(HeatmapChart,{hist,histMensal}),tesouroCard,h(CurrencyChart,{port,cls,hideVal}),topPos);
+      content=h("div",{},dateHeader,h(BolsasCard,{port,cls}),aporteCard,insightCard,h(AllocChart,{cw,ct,fB,MV,hideVal}),h(RiskChart,{cw,selicAtual,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,recalibrarRR_viaIA,calibracaoLoad,calibracaoErr,hasAjustesIA:!!ajustesRR_IA,apiKey}),h(EvolChart,{histMensal,hist,showUSD,setShowUSD,hideVal}),h(ComparativoChart,{histMensal,idxMensal,hideVal}),insightMensalCard,h(HeatmapChart,{hist,histMensal}),h(CurrencyChart,{port,cls,hideVal}),topPos);
     }
   }  // POSITIONS
   if(tab==="positions"){
@@ -12490,6 +12505,8 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           if(res.vencimentos)mesclarVencimentosNTNB(res.vencimentos);
           setNtnbTaxas(res.taxas);setNtnbUpdTs(res.ts);
           if(res.vna&&res.vna>0)setNtnbVNA(res.vna);
+          if(res.dataCotacao)setNtnbDataCotacao(res.dataCotacao);
+          if(typeof res.diasDefasagem==="number")setNtnbDiasDefasagem(res.diasDefasagem);
           const qtVenc=Object.keys(NTNB_VENCIMENTOS).length;
           setNtnbStatus("atualizado: "+new Date(res.ts).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})+" - "+qtVenc+" vencimentos via "+res.fonte);
         }else setNtnbStatus("API indisponivel - use entrada manual");
@@ -12518,7 +12535,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
       ),
 
       // Card grande de taxas atuais (reutiliza TesouroNTNBCard)
-      h(TesouroNTNBCard,{ntnbTaxas,ntnbVNA,ntnbUpdTs,ntnbStatus,onRefresh:refreshTaxas,port,onTaxaManual:setTaxaManual}),
+      h(TesouroNTNBCard,{ntnbTaxas,ntnbVNA,ntnbUpdTs,ntnbStatus,ntnbDataCotacao,ntnbDiasDefasagem,onRefresh:refreshTaxas,port,onTaxaManual:setTaxaManual}),
 
       // Posicoes do portfolio
       ntnbPos.length>0&&h("div",{style:{marginTop:24,padding:"14px 16px",background:"linear-gradient(135deg,rgba(200,169,110,0.05),rgba(0,0,0,0.20))",border:"1px solid rgba(200,169,110,0.20)",borderRadius:10}},
