@@ -5524,7 +5524,7 @@ Responda APENAS com o texto do insight, sem prefacio ou comentarios meta.`;
 
   // TABS
   const tabs=h("div",{style:{display:"flex",borderBottom:"1px solid rgba(255,255,255,0.06)",marginBottom:18,marginTop:10,overflowX:"auto"}},
-    ...[{id:"dashboard",label:"Dashboard"},{id:"positions",label:"Posicoes"},{id:"aporte",label:"Aporte"},{id:"chat",label:"Analise"},{id:"mpt",label:"MPT"},{id:"aw",label:"All Weather"},{id:"yale",label:"Yale"},{id:"stress",label:"Stress Test"},{id:"projecao",label:"Projecoes"},{id:"renda",label:"Renda"},{id:"btcouro",label:"BTC/Ouro"},{id:"treasuries",label:"Treasuries"},{id:"tesouro",label:"Tesouro Direto"},{id:"history",label:"Historico"}].map(t=>
+    ...[{id:"dashboard",label:"Dashboard"},{id:"correlacao",label:"Correlação"},{id:"positions",label:"Posições"},{id:"aporte",label:"Aporte"},{id:"chat",label:"Analise"},{id:"mpt",label:"MPT"},{id:"aw",label:"All Weather"},{id:"yale",label:"Yale"},{id:"stress",label:"Stress Test"},{id:"projecao",label:"Projecoes"},{id:"renda",label:"Renda"},{id:"btcouro",label:"BTC/Ouro"},{id:"treasuries",label:"Treasuries"},{id:"tesouro",label:"Tesouro Direto"},{id:"history",label:"Historico"}].map(t=>
       h("button",{key:t.id,onClick:()=>{setTab(t.id);if(t.id!=="aporte"){setApR(null);setStep("r");}},style:{background:"none",border:"none",borderBottom:tab===t.id?"2px solid #C8A96E":"2px solid transparent",color:tab===t.id?"#C8A96E":"#8A8070",padding:"6px 10px",cursor:"pointer",fontSize:12,marginBottom:-1,flexShrink:0,whiteSpace:"nowrap"}},t.label)
     ),
     h("button",{onClick:()=>{
@@ -5653,7 +5653,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
   // DASHBOARD
   if(tab==="dashboard"){
     if(!hasPos){
-      content=h("div",{style:{textAlign:"center",padding:"46px 14px"}},h("div",{style:{fontSize:34,marginBottom:12}},"\u{1F4CB}"),h("p",{style:{color:"#8A8070",fontSize:12,lineHeight:1.7,marginBottom:16,fontStyle:"italic"}},"Nenhuma posicao cadastrada."),h("button",{onClick:()=>setTab("positions"),style:{background:"linear-gradient(135deg,#C8A96E,#A8893E)",border:"none",borderRadius:6,padding:"10px 22px",color:"#0D0F14",fontSize:12,fontWeight:700,cursor:"pointer"}},"Cadastrar posicoes"));
+      content=h("div",{style:{textAlign:"center",padding:"46px 14px"}},h("div",{style:{fontSize:34,marginBottom:12}},"\u{1F4CB}"),h("p",{style:{color:"#8A8070",fontSize:12,lineHeight:1.7,marginBottom:16,fontStyle:"italic"}},"Nenhuma posição cadastrada."),h("button",{onClick:()=>setTab("positions"),style:{background:"linear-gradient(135deg,#C8A96E,#A8893E)",border:"none",borderRadius:6,padding:"10px 22px",color:"#0D0F14",fontSize:12,fontWeight:700,cursor:"pointer"}},"Cadastrar posições"));
     } else {
       const cards=h("div",{style:{marginBottom:18}},
         h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:7}},"Composicao atual"),
@@ -5808,8 +5808,8 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
       content=h("div",{},dateHeader,h(BolsasCard,{port,cls}),aporteCard,insightCard,h(AllocChart,{cw,ct,fB,MV,hideVal}),h(RiskChart,{cw,selicAtual,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,recalibrarRR_viaIA,calibracaoLoad,calibracaoErr,hasAjustesIA:!!ajustesRR_IA,apiKey}),h(EvolChart,{histMensal,hist,showUSD,setShowUSD,hideVal}),h(ComparativoChart,{histMensal,idxMensal,hideVal}),insightMensalCard,h(HeatmapChart,{hist,histMensal}),h(CurrencyChart,{port,cls,hideVal}),topPos);
     }
   }  // POSITIONS
-  if(tab==="positions"){
-    if(editA){
+  if(tab==="positions"||tab==="correlacao"){
+    if(editA&&tab==="positions"){
       const {ticker,classId}=editA;
       const cl=CL.find(c=>c.id===classId),cc=ccy[ticker]||"BRL";
       const isVB=VB.includes(ticker),isGB=GB.includes(ticker);
@@ -7320,24 +7320,35 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         }
       })();
 
-      content=h("div",{},
-        bandsBlock,
-        correlacaoBlock,
-        swensenBlock,
-        aporteConfBlock,
-        imoveisBlock,
-        manutencaoBlock,
-        h("div",{style:{fontSize:11,color:"#8A8070",marginBottom:12,lineHeight:1.6}},"Toque em qualquer ativo para editar."),
-        hidden.length>0&&h("button",{onClick:()=>setShowHid(s=>!s),style:{background:"none",border:"1px solid rgba(255,255,255,0.08)",borderRadius:6,color:"#8A8070",fontSize:10,padding:"4px 10px",cursor:"pointer",fontFamily:"monospace",marginBottom:12}},showHid?"Ocultar escondidos":"Mostrar "+hidden.length+" oculto(s)"),
-        ...rows
-      );
+      if(tab==="correlacao"){
+        // Aba dedicada: apenas analises de correlacao e diversificacao
+        content=h("div",{},
+          h("div",{style:{marginBottom:14,paddingBottom:10,borderBottom:"1px solid rgba(200,169,110,0.12)"}},
+            h("div",{style:{fontSize:10,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:4}},"Análise de Correlação entre Classes"),
+            h("p",{style:{fontSize:10,color:"#8A8070",lineHeight:1.6,margin:0,fontStyle:"italic"}},"Diagnóstico estrutural do portfolio: como as classes se relacionam entre si, exposição aos vetores macro e equilíbrio Yale/Swensen.")
+          ),
+          correlacaoBlock,
+          swensenBlock
+        );
+      }else{
+        // Aba positions normal: cadastro de ativos
+        content=h("div",{},
+          bandsBlock,
+          aporteConfBlock,
+          imoveisBlock,
+          manutencaoBlock,
+          h("div",{style:{fontSize:11,color:"#8A8070",marginBottom:12,lineHeight:1.6}},"Toque em qualquer ativo para editar."),
+          hidden.length>0&&h("button",{onClick:()=>setShowHid(s=>!s),style:{background:"none",border:"1px solid rgba(255,255,255,0.08)",borderRadius:6,color:"#8A8070",fontSize:10,padding:"4px 10px",cursor:"pointer",fontFamily:"monospace",marginBottom:12}},showHid?"Ocultar escondidos":"Mostrar "+hidden.length+" oculto(s)"),
+          ...rows
+        );
+      }
     }
   }
 
   // APORTE
   if(tab==="aporte"){
     if(!hasPos){
-      content=h("div",{style:{textAlign:"center",padding:"46px 14px"}},h("div",{style:{fontSize:34,marginBottom:12}},"\u{1F4CB}"),h("p",{style:{color:"#8A8070",fontSize:12,lineHeight:1.7,marginBottom:16,fontStyle:"italic"}},"Cadastre posicoes primeiro."),h("button",{onClick:()=>setTab("positions"),style:{background:"linear-gradient(135deg,#C8A96E,#A8893E)",border:"none",borderRadius:6,padding:"10px 22px",color:"#0D0F14",fontSize:12,fontWeight:700,cursor:"pointer"}},"Cadastrar posicoes"));
+      content=h("div",{style:{textAlign:"center",padding:"46px 14px"}},h("div",{style:{fontSize:34,marginBottom:12}},"\u{1F4CB}"),h("p",{style:{color:"#8A8070",fontSize:12,lineHeight:1.7,marginBottom:16,fontStyle:"italic"}},"Cadastre posições primeiro."),h("button",{onClick:()=>setTab("positions"),style:{background:"linear-gradient(135deg,#C8A96E,#A8893E)",border:"none",borderRadius:6,padding:"10px 22px",color:"#0D0F14",fontSize:12,fontWeight:700,cursor:"pointer"}},"Cadastrar posições"));
     } else if(step==="done"){
       const done=Object.entries(execE).filter(([,v])=>v.done&&pN(v.qty)>0&&pN(v.price)>0);
       const tot=done.reduce((s,[,v])=>s+pN(v.qty)*pN(v.price),0);
@@ -12972,7 +12983,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
       // Posicoes do portfolio
       ntnbPos.length>0&&h("div",{style:{marginTop:24,padding:"14px 16px",background:"linear-gradient(135deg,rgba(200,169,110,0.05),rgba(0,0,0,0.20))",border:"1px solid rgba(200,169,110,0.20)",borderRadius:10}},
         h("div",{style:{display:"flex",alignItems:"baseline",justifyContent:"space-between",marginBottom:10,flexWrap:"wrap",gap:6}},
-          h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase"}},"Minhas Posicoes NTN-B"),
+          h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase"}},"Minhas Posições NTN-B"),
           h("div",{style:{fontSize:9,color:"#7A7060",fontFamily:"monospace"}},ntnbPos.length+" titulo(s)")
         ),
         // Resumo
