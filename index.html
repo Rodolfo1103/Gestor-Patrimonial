@@ -955,6 +955,101 @@ function ChatPanel({chatM,setChatM,chatIn,setChatIn,chatL,sendChat,apR}){
   );
 }
 
+// Card compacto de Diversificacao para o Dashboard (replica do score + banda da aba Correlacao)
+function DiversificationCard({cw,setTab}){
+  try{
+    // Pesos atuais por classe (normalizados)
+    const wAt=MPT_CLS.map(cid=>(cw[cid]||0)/100);
+    const somaW=wAt.reduce((a,b)=>a+b,0);
+    if(somaW<=0)return null;
+    for(let i=0;i<wAt.length;i++)wAt[i]/=somaW;
+    // Correlacao media ponderada (mesma logica da aba Correlacao)
+    let corrPondTotal=0,pesoTotalPares=0;
+    for(let i=0;i<MPT_CLS.length;i++){
+      for(let j=i+1;j<MPT_CLS.length;j++){
+        const peso=wAt[i]*wAt[j];
+        if(peso<=0)continue;
+        corrPondTotal+=MPT_COR[i][j]*peso;
+        pesoTotalPares+=peso;
+      }
+    }
+    const corrMediaPond=pesoTotalPares>0?corrPondTotal/pesoTotalPares:0;
+    const scoreDiv=Math.max(0,Math.min(100,(1-corrMediaPond)/2*100));
+    const corDiv=scoreDiv>=70?"#4CAF82":scoreDiv>=55?"#7DD17D":scoreDiv>=40?"#E8C44A":scoreDiv>=25?"#E89060":"#E05252";
+    const lblDiv=scoreDiv>=70?"EXCELENTE":scoreDiv>=55?"BOA":scoreDiv>=40?"REGULAR":scoreDiv>=25?"BAIXA":"INSUFICIENTE";
+    // Bandas para a banda visual
+    const bandas=[
+      {min:-1.0,max:-0.2,nome:"otima",cor:"#4CAF82"},
+      {min:-0.2,max:0.0,nome:"boa",cor:"#7DD17D"},
+      {min:0.0,max:0.2,nome:"adequada",cor:"#C8A96E"},
+      {min:0.2,max:0.4,nome:"limitada",cor:"#E8C44A"},
+      {min:0.4,max:0.7,nome:"concentrada",cor:"#E89060"},
+      {min:0.7,max:1.0,nome:"falha",cor:"#E05252"}
+    ];
+    const bandaAtual=bandas.find(b=>corrMediaPond>=b.min&&corrMediaPond<=b.max)||bandas[2];
+    // Posicao do marcador na barra (corrMedia em [-1,+1] mapeado para [0%,100%])
+    const posPct=Math.max(0,Math.min(100,(corrMediaPond+1)/2*100));
+
+    return h("div",{style:{marginBottom:14,padding:"14px 16px",background:"linear-gradient(135deg,rgba(200,169,110,0.06),rgba(156,125,194,0.04))",border:"1px solid rgba(200,169,110,0.20)",borderRadius:10}},
+      // Header com titulo e link para aba completa
+      h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:11,flexWrap:"wrap"}},
+        h("div",{style:{display:"flex",alignItems:"center",gap:7}},
+          h("span",{style:{fontSize:14}},"\u{1F517}"),
+          h("div",{style:{fontSize:10,letterSpacing:2.5,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",fontWeight:700}},"Diversifica\u00e7\u00e3o do Portfolio")
+        ),
+        h("a",{href:"#",onClick:(e)=>{e.preventDefault();setTab("correlacao");},style:{fontSize:8.5,color:"#9C7DC2",fontFamily:"monospace",textDecoration:"underline",letterSpacing:1}},"ANALISE COMPLETA \u2192")
+      ),
+
+      // Score grande + banda
+      h("div",{style:{display:"grid",gridTemplateColumns:"auto 1fr",gap:14,alignItems:"center"}},
+        // Score numerico
+        h("div",{style:{textAlign:"center",minWidth:80}},
+          h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",letterSpacing:1.5,marginBottom:2}},"ESCORE"),
+          h("div",{style:{fontSize:30,color:corDiv,fontFamily:"monospace",fontWeight:700,lineHeight:1}},scoreDiv.toFixed(0),h("span",{style:{fontSize:14,opacity:0.6}},"/100")),
+          h("div",{style:{fontSize:9,color:corDiv,fontFamily:"monospace",fontWeight:700,letterSpacing:1.5,marginTop:3}},lblDiv)
+        ),
+        // Banda visual de correlacao
+        h("div",{},
+          h("div",{style:{fontSize:8,color:"#7A7060",fontFamily:"monospace",letterSpacing:1,marginBottom:5,display:"flex",justifyContent:"space-between"}},
+            h("span",{},"BANDA DE CORRELA\u00c7\u00c3O M\u00c9DIA"),
+            h("span",{style:{color:bandaAtual.cor,fontWeight:700}},corrMediaPond.toFixed(2)," (",bandaAtual.nome,")")
+          ),
+          // Barra com segmentos coloridos
+          h("div",{style:{position:"relative",height:14,background:"rgba(0,0,0,0.30)",borderRadius:3,overflow:"hidden",border:"1px solid rgba(255,255,255,0.06)"}},
+            // Segmentos das bandas
+            ...bandas.map((b,k)=>{
+              const left=((b.min+1)/2)*100;
+              const width=((b.max-b.min)/2)*100;
+              return h("div",{key:"seg"+k,style:{position:"absolute",left:left+"%",width:width+"%",height:"100%",background:b.cor,opacity:0.35}});
+            }),
+            // Marcador da posicao atual
+            h("div",{style:{position:"absolute",left:"calc("+posPct+"% - 1.5px)",top:-2,width:3,height:18,background:"#F0EAD8",borderRadius:1,boxShadow:"0 0 4px rgba(0,0,0,0.5)"}})
+          ),
+          // Labels min/max
+          h("div",{style:{display:"flex",justifyContent:"space-between",fontSize:7,color:"#5A5550",fontFamily:"monospace",marginTop:3,letterSpacing:0.5}},
+            h("span",{},"-1.0 \u00d3TIMA"),
+            h("span",{},"0.0"),
+            h("span",{},"+1.0 FALHA")
+          )
+        )
+      ),
+
+      // Interpretacao curta + CTA
+      h("p",{style:{margin:"11px 0 0",fontSize:9,color:"#9A9080",lineHeight:1.55,fontStyle:"italic"}},
+        bandaAtual.nome==="otima"||bandaAtual.nome==="boa"?
+          "As classes do portfolio se movimentam de forma pouco coordenada - boa resili\u00eancia em crises diversificadas." :
+        bandaAtual.nome==="adequada"?
+          "Diversifica\u00e7\u00e3o aceit\u00e1vel, mas com alguma sobreposi\u00e7\u00e3o entre classes." :
+        bandaAtual.nome==="limitada"?
+          "Classes do portfolio tendem a andar parcialmente juntas em crises sist\u00eamicas." :
+        bandaAtual.nome==="concentrada"?
+          "Sobreposi\u00e7\u00e3o relevante de fatores de risco entre classes." :
+          "O portfolio comporta-se quase como uma \u00fanica classe - efeito de diversifica\u00e7\u00e3o muito limitado."
+      )
+    );
+  }catch(e){console.error("Erro DiversificationCard:",e);return null;}
+}
+
 function BolsasCard({port,cls}){
   const [tick,setTick]=useState(0);
   const [expanded,setExpanded]=useState(false);
@@ -5805,7 +5900,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
       const dataHoje=diasSem[hojeData.getDay()]+", "+hojeData.getDate()+" de "+meses[hojeData.getMonth()]+" de "+hojeData.getFullYear();
       const dateHeader=h("div",{style:{fontSize:10,color:"#7A7060",fontFamily:"Georgia,serif",fontStyle:"italic",letterSpacing:0.5,marginBottom:14,paddingBottom:9,borderBottom:"1px solid rgba(200,169,110,0.12)",textAlign:"right"}},dataHoje);
 
-      content=h("div",{},dateHeader,h(BolsasCard,{port,cls}),aporteCard,insightCard,h(AllocChart,{cw,ct,fB,MV,hideVal}),h(RiskChart,{cw,selicAtual,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,recalibrarRR_viaIA,calibracaoLoad,calibracaoErr,hasAjustesIA:!!ajustesRR_IA,apiKey}),h(EvolChart,{histMensal,hist,showUSD,setShowUSD,hideVal}),h(ComparativoChart,{histMensal,idxMensal,hideVal}),insightMensalCard,h(HeatmapChart,{hist,histMensal}),h(CurrencyChart,{port,cls,hideVal}),topPos);
+      content=h("div",{},dateHeader,h(BolsasCard,{port,cls}),aporteCard,insightCard,h(AllocChart,{cw,ct,fB,MV,hideVal}),h(DiversificationCard,{cw,setTab}),h(RiskChart,{cw,selicAtual,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,recalibrarRR_viaIA,calibracaoLoad,calibracaoErr,hasAjustesIA:!!ajustesRR_IA,apiKey}),h(EvolChart,{histMensal,hist,showUSD,setShowUSD,hideVal}),h(ComparativoChart,{histMensal,idxMensal,hideVal}),insightMensalCard,h(HeatmapChart,{hist,histMensal}),h(CurrencyChart,{port,cls,hideVal}),topPos);
     }
   }  // POSITIONS
   if(tab==="positions"||tab==="correlacao"){
