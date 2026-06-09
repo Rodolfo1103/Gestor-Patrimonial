@@ -7227,82 +7227,164 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                 // gap entre os dois indica nivel de redundancia
                 const gap=enbHerfindahl-enbEfetivo;
                 const gapPct=enbHerfindahl>0?(gap/enbHerfindahl)*100:0;
-                let diagnostico,corDiag;
-                if(gapPct<20){
-                  diagnostico="DIVERSIFICACAO REAL - suas classes sao verdadeiramente independentes. As correlacoes entre elas sao baixas, entao o ganho de espalhar pesos se converte integralmente em diversificacao de risco.";
-                  corDiag="#4CAF82";
-                }else if(gapPct<40){
-                  diagnostico="DIVERSIFICACAO MISTA - algumas classes do portfolio se movem juntas, reduzindo o beneficio teorico de espalhar pesos. Ha redundancia moderada.";
-                  corDiag="#E8C44A";
+                // Faixas calibradas: gap = corr_media^2 * 100. Com corr=0.32 (banda "limitada") -> gap ~10%
+                // Faixas mais rigorosas pra coerencia com banda de correlacao
+                let diagnostico,corDiag,faixaNome;
+                if(gapPct<3){
+                  faixaNome="OTIMO";corDiag="#4CAF82";
+                  diagnostico="DIVERSIFICACAO QUASE PERFEITA - as classes do portfolio sao virtualmente independentes entre si. A correlacao media e tao baixa que cada classe e uma aposta genuinamente distinta. Espalhar pesos aqui converte-se 1-pra-1 em diversificacao real de risco.";
+                }else if(gapPct<8){
+                  faixaNome="BOM";corDiag="#7DD17D";
+                  diagnostico="DIVERSIFICACAO REAL - classes amplamente independentes, sobreposicao minima. O ganho de espalhar pesos se converte em diversificacao genuina. Esta e a zona-alvo para portfolios bem construidos.";
+                }else if(gapPct<15){
+                  faixaNome="REGULAR";corDiag="#E8C44A";
+                  diagnostico="DIVERSIFICACAO PARCIAL - ha sobreposicao moderada entre classes. Algumas se movem juntas, especialmente em crises sistemicas, reduzindo o beneficio teorico de espalhar pesos. Coerente com correlacao media na faixa 'limitada'.";
+                }else if(gapPct<25){
+                  faixaNome="RUIM";corDiag="#E89060";
+                  diagnostico="DIVERSIFICACAO APARENTE - voce tem muitas classes mas elas se movem em bloco. Boa parte do portfolio compartilha os mesmos fatores de risco. O numero alto de classes mascara a falta de diversificacao real.";
                 }else{
-                  diagnostico="DIVERSIFICACAO APARENTE - voce tem muitas classes (alto Herfindahl) mas elas sao correlacionadas demais. Boa parte do portfolio se move junto, mascarando a falta de diversificacao real.";
-                  corDiag="#E89060";
+                  faixaNome="CRITICO";corDiag="#E05252";
+                  diagnostico="REDUNDANCIA CRITICA - apesar das muitas classes nominais, o portfolio comporta-se como tendo poucas apostas. As correlacoes sao tao altas que adicionar mais classes pouco diversifica. Necessario revisar a tese de cada classe.";
                 }
+                // Faixas visuais para a barra
+                const faixasGap=[
+                  {min:0,max:3,nome:"OTIMO",cor:"#4CAF82"},
+                  {min:3,max:8,nome:"BOM",cor:"#7DD17D"},
+                  {min:8,max:15,nome:"REGULAR",cor:"#E8C44A"},
+                  {min:15,max:25,nome:"RUIM",cor:"#E89060"},
+                  {min:25,max:50,nome:"CRITICO",cor:"#E05252"}
+                ];
+                const gapMaxEscala=50;
+                const posPct=Math.min(100,(gapPct/gapMaxEscala)*100);
                 return h("div",{style:{padding:"11px 13px",background:"rgba(91,143,212,0.06)",border:"1px solid rgba(91,143,212,0.30)",borderRadius:7,marginBottom:9}},
-                  h("div",{style:{fontSize:8.5,letterSpacing:1.2,color:"#5B8FD4",fontFamily:"monospace",fontWeight:700,marginBottom:7}},"\u{1F50D} ENB EFETIVO vs ENB HERFINDAHL - QUAL A DIFERENCA?"),
-                  // Explicacao didatica
-                  h("div",{style:{fontSize:9,color:"#9A9080",lineHeight:1.6,marginBottom:9}},
-                    h("p",{style:{margin:"0 0 5px"}},h("strong",{style:{color:"#5B8FD4"}},"ENB Herfindahl")," conta apostas considerando ",h("strong",{},"apenas os pesos"),". Se voce tem N classes com pesos iguais, ele da N. Se voce tem 90% em uma classe, ele da ~1. ",h("em",{},"Mas ele ignora se as classes se movem juntas.")),
-                    h("p",{style:{margin:"0 0 5px"}},h("strong",{style:{color:"#9C7DC2"}},"ENB Efetivo")," (Meucci) corrige isso multiplicando por (1 - correlacao\u00B2). Se as classes sao correlacionadas, ele ",h("strong",{},"penaliza"),". E o verdadeiro numero de apostas independentes."),
-                    h("p",{style:{margin:0}},h("strong",{},"O gap entre eles revela o nivel de redundancia"),": quanto maior o gap, mais voce tem ",h("em",{},"classes redundantes")," (espalha pesos, mas elas se movem juntas).")
-                  ),
-                  // Comparacao visual com seu portfolio
-                  h("div",{style:{padding:"9px 11px",background:"rgba(0,0,0,0.25)",borderRadius:5,marginBottom:9}},
-                    h("div",{style:{fontSize:7.5,color:"#7A7060",fontFamily:"monospace",letterSpacing:1,marginBottom:6}},"NO SEU PORTFOLIO:"),
-                    // Barra comparativa
-                    h("div",{style:{display:"flex",flexDirection:"column",gap:5}},
-                      // ENB Herfindahl
-                      h("div",{style:{display:"grid",gridTemplateColumns:"110px 1fr 42px",gap:6,alignItems:"center",fontSize:8,fontFamily:"monospace"}},
-                        h("span",{style:{color:"#5B8FD4",fontWeight:700}},"ENB Herfindahl"),
-                        h("div",{style:{position:"relative",height:8,background:"rgba(255,255,255,0.04)",borderRadius:3,overflow:"hidden"}},
-                          h("div",{style:{position:"absolute",top:0,left:0,height:"100%",width:(enbHerfindahl/MPT_CLS.length*100)+"%",background:"#5B8FD4",opacity:0.65,borderRadius:3}})
-                        ),
-                        h("span",{style:{textAlign:"right",color:"#5B8FD4",fontWeight:700}},enbHerfindahl.toFixed(2))
-                      ),
-                      // ENB Efetivo
-                      h("div",{style:{display:"grid",gridTemplateColumns:"110px 1fr 42px",gap:6,alignItems:"center",fontSize:8,fontFamily:"monospace"}},
-                        h("span",{style:{color:"#9C7DC2",fontWeight:700}},"ENB Efetivo"),
-                        h("div",{style:{position:"relative",height:8,background:"rgba(255,255,255,0.04)",borderRadius:3,overflow:"hidden"}},
-                          h("div",{style:{position:"absolute",top:0,left:0,height:"100%",width:(enbEfetivo/MPT_CLS.length*100)+"%",background:"#9C7DC2",opacity:0.9,borderRadius:3}})
-                        ),
-                        h("span",{style:{textAlign:"right",color:"#9C7DC2",fontWeight:700}},enbEfetivo.toFixed(2))
-                      )
+                  h("div",{style:{fontSize:8.5,letterSpacing:1.2,color:"#5B8FD4",fontFamily:"monospace",fontWeight:700,marginBottom:7}},"\u{1F50D} ENB EFETIVO vs ENB HERFINDAHL - O GAP REVELA A VERDADE"),
+
+                  // Explicacao didatica completa
+                  h("div",{style:{fontSize:9,color:"#9A9080",lineHeight:1.65,marginBottom:11,padding:"9px 11px",background:"rgba(0,0,0,0.20)",borderRadius:5}},
+                    h("p",{style:{margin:"0 0 7px"}},
+                      h("strong",{style:{color:"#5B8FD4"}},"ENB Herfindahl ("+enbHerfindahl.toFixed(2)+") - QUANTAS classes voce tem na pratica. "),
+                      "Conta apostas usando ",h("strong",{},"apenas os pesos"),". Se voce tem 10 classes com 10% cada, da 10. Se voce tem 90% em uma classe, da ~1. ",
+                      h("em",{},"Limitacao: ignora se as classes se movem juntas - so olha distribuicao de capital.")
                     ),
-                    // Gap numerico
-                    h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginTop:7,paddingTop:6,borderTop:"1px solid rgba(255,255,255,0.06)",fontSize:8,fontFamily:"monospace"}},
-                      h("div",{style:{color:"#7A7060"}},"Gap (redundancia)"),
-                      h("div",{style:{color:corDiag,fontWeight:700}},"-",gap.toFixed(2)," (",gapPct.toFixed(0),"% perda)")
+                    h("p",{style:{margin:"0 0 7px"}},
+                      h("strong",{style:{color:"#9C7DC2"}},"ENB Efetivo ("+enbEfetivo.toFixed(2)+") - quantas APOSTAS independentes voce tem. "),
+                      "Corrige o Herfindahl multiplicando por (1 - correlacao\u00B2). Se duas classes andam juntas (corr alta), elas sao 'meia aposta' cada, nao duas apostas separadas. ",
+                      h("em",{},"E o numero real de fontes distintas de risco/retorno.")
+                    ),
+                    h("p",{style:{margin:0,padding:"7px 9px",background:"rgba(91,143,212,0.10)",borderRadius:4}},
+                      h("strong",{style:{color:"#5B8FD4"}},"O GAP \u00e9 o INDICADOR CHAVE: "),
+                      "ENB Herfindahl - ENB Efetivo = ",h("strong",{style:{color:corDiag}},gap.toFixed(2))," (",gapPct.toFixed(0),"% de perda por correlacao). ",
+                      "Matematicamente, gap = ENB Herfindahl \u00d7 correlacao_media\u00b2. ",
+                      "Quanto MAIOR o gap, MAIS classes voce esta 'pagando' em complexidade sem ganhar diversificacao real. ",
+                      h("strong",{},"Em portfolios institucionais bem construidos, gap fica abaixo de 8%.")
                     )
                   ),
-                  // Diagnostico
-                  h("div",{style:{fontSize:9,color:"#9A9080",lineHeight:1.6,padding:"8px 10px",background:corDiag+"15",border:"1px solid "+corDiag+"40",borderRadius:5}},
-                    h("div",{style:{fontSize:7.5,letterSpacing:1,color:corDiag,fontFamily:"monospace",fontWeight:700,marginBottom:4}},"DIAGNOSTICO"),
-                    diagnostico
+
+                  // Comparacao visual lado a lado
+                  h("div",{style:{padding:"10px 11px",background:"rgba(0,0,0,0.25)",borderRadius:5,marginBottom:11}},
+                    h("div",{style:{fontSize:7.5,color:"#7A7060",fontFamily:"monospace",letterSpacing:1,marginBottom:7}},"NO SEU PORTFOLIO:"),
+                    h("div",{style:{display:"flex",flexDirection:"column",gap:6}},
+                      // ENB Herfindahl
+                      h("div",{style:{display:"grid",gridTemplateColumns:"110px 1fr 50px",gap:8,alignItems:"center",fontSize:8.5,fontFamily:"monospace"}},
+                        h("span",{style:{color:"#5B8FD4",fontWeight:700}},"ENB Herfindahl"),
+                        h("div",{style:{position:"relative",height:10,background:"rgba(255,255,255,0.04)",borderRadius:3,overflow:"hidden"}},
+                          h("div",{style:{position:"absolute",top:0,left:0,height:"100%",width:(enbHerfindahl/MPT_CLS.length*100)+"%",background:"#5B8FD4",opacity:0.65,borderRadius:3}})
+                        ),
+                        h("span",{style:{textAlign:"right",color:"#5B8FD4",fontWeight:700,fontSize:10}},enbHerfindahl.toFixed(2))
+                      ),
+                      // ENB Efetivo
+                      h("div",{style:{display:"grid",gridTemplateColumns:"110px 1fr 50px",gap:8,alignItems:"center",fontSize:8.5,fontFamily:"monospace"}},
+                        h("span",{style:{color:"#9C7DC2",fontWeight:700}},"ENB Efetivo"),
+                        h("div",{style:{position:"relative",height:10,background:"rgba(255,255,255,0.04)",borderRadius:3,overflow:"hidden"}},
+                          h("div",{style:{position:"absolute",top:0,left:0,height:"100%",width:(enbEfetivo/MPT_CLS.length*100)+"%",background:"#9C7DC2",opacity:0.9,borderRadius:3}})
+                        ),
+                        h("span",{style:{textAlign:"right",color:"#9C7DC2",fontWeight:700,fontSize:10}},enbEfetivo.toFixed(2))
+                      )
+                    ),
+                    // Gap visual e classificacao
+                    h("div",{style:{marginTop:10,paddingTop:8,borderTop:"1px solid rgba(255,255,255,0.06)"}},
+                      h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:6,fontSize:8.5,fontFamily:"monospace"}},
+                        h("span",{style:{color:"#7A7060",letterSpacing:1}},"GAP DE REDUNDANCIA"),
+                        h("span",{},
+                          h("strong",{style:{color:corDiag,fontSize:11}},gap.toFixed(2)),
+                          h("span",{style:{color:"#7A7060",fontSize:8,marginLeft:4}},"("),
+                          h("strong",{style:{color:corDiag,fontSize:9}},gapPct.toFixed(0)+"%"),
+                          h("span",{style:{color:"#7A7060",fontSize:8}}," de perda)")
+                        )
+                      ),
+                      // BARRA VISUAL COM FAIXAS DO GAP
+                      h("div",{style:{position:"relative",marginTop:4}},
+                        // Background com segmentos coloridos
+                        h("div",{style:{position:"relative",height:12,borderRadius:3,overflow:"hidden",border:"1px solid rgba(255,255,255,0.05)",display:"flex"}},
+                          ...faixasGap.map((f,k)=>{
+                            const w=(f.max-f.min)/gapMaxEscala*100;
+                            return h("div",{key:k,style:{width:w+"%",height:"100%",background:f.cor,opacity:0.32}});
+                          }),
+                          // Marker da posicao atual
+                          h("div",{style:{position:"absolute",left:"calc("+posPct+"% - 1.5px)",top:-2,bottom:-2,width:3,background:corDiag,boxShadow:"0 0 4px "+corDiag,zIndex:2}})
+                        ),
+                        // Labels das faixas
+                        h("div",{style:{position:"relative",height:14,marginTop:3,fontSize:6.5,fontFamily:"monospace",fontWeight:700,letterSpacing:0.3}},
+                          ...faixasGap.map((f,k)=>{
+                            const center=((f.min+f.max)/2)/gapMaxEscala*100;
+                            return h("div",{key:k,style:{position:"absolute",left:center+"%",transform:"translateX(-50%)",color:f.cor}},f.nome);
+                          })
+                        ),
+                        // Escala numerica
+                        h("div",{style:{display:"flex",justifyContent:"space-between",fontSize:6.5,color:"#5A5550",fontFamily:"monospace",marginTop:14,letterSpacing:0.3}},
+                          h("span",{},"0%"),
+                          h("span",{},"3%"),
+                          h("span",{},"8%"),
+                          h("span",{},"15%"),
+                          h("span",{},"25%"),
+                          h("span",{},"50%+")
+                        )
+                      )
+                    )
                   ),
-                  // Exemplos didaticos
+
+                  // Diagnostico interpretativo
+                  h("div",{style:{fontSize:9.5,color:"#E8E2D5",lineHeight:1.65,padding:"10px 12px",background:corDiag+"15",border:"1px solid "+corDiag+"50",borderRadius:6}},
+                    h("div",{style:{display:"flex",alignItems:"center",gap:8,marginBottom:6}},
+                      h("span",{style:{fontSize:8,letterSpacing:1.5,color:corDiag,fontFamily:"monospace",fontWeight:700,padding:"3px 8px",background:corDiag+"25",borderRadius:3,border:"1px solid "+corDiag+"60"}},faixaNome),
+                      h("span",{style:{fontSize:7.5,color:"#7A7060",fontStyle:"italic"}},"classificacao do gap")
+                    ),
+                    h("div",{style:{fontStyle:"italic",color:"#C8C0B0"}},diagnostico)
+                  ),
+
+                  // Coerencia com outras metricas
+                  h("div",{style:{marginTop:9,padding:"8px 11px",background:"rgba(168,139,94,0.06)",borderLeft:"3px solid #C8A96E",borderRadius:"0 5px 5px 0",fontSize:8.5,color:"#9A9080",lineHeight:1.6}},
+                    h("strong",{style:{color:"#C8A96E"}},"\u{1F517} COERENCIA COM OUTRAS METRICAS: "),
+                    "matematicamente, gap% \u2248 (correlacao_media)\u00b2 \u00d7 100. Se sua correlacao media ponderada esta em ~0.32 (banda 'limitada' na metrica de correlacao), o gap matematico esperado e ~10% (faixa REGULAR aqui). ",
+                    h("strong",{},"Os dois indicadores devem contar a mesma historia: "),
+                    "correlacao limitada \u2192 gap regular; correlacao baixa \u2192 gap bom; correlacao alta \u2192 gap critico. Se algum deles divergir muito do outro, ha algo a investigar."
+                  ),
+
+                  // Exemplos didaticos (mantidos e ajustados aos novos limites)
                   h("details",{style:{marginTop:9}},
-                    h("summary",{style:{fontSize:8,letterSpacing:1.2,color:"#9A9080",fontFamily:"monospace",fontWeight:700,cursor:"pointer",userSelect:"none"}},"\u{1F4CB} 3 EXEMPLOS CLASSICOS PARA ENTENDER"),
+                    h("summary",{style:{fontSize:8,letterSpacing:1.2,color:"#9A9080",fontFamily:"monospace",fontWeight:700,cursor:"pointer",userSelect:"none"}},"\u{1F4CB} 4 EXEMPLOS DIDATICOS DE CALIBRACAO"),
                     h("div",{style:{marginTop:7,fontSize:8.5,color:"#9A9080",lineHeight:1.6}},
-                      // Exemplo 1
                       h("div",{style:{marginBottom:7,padding:"7px 9px",background:"rgba(76,175,130,0.05)",borderLeft:"2px solid #4CAF82",borderRadius:"0 3px 3px 0"}},
-                        h("strong",{style:{color:"#4CAF82"}},"\u2728 IDEAL: 5 classes verdadeiramente independentes"),
-                        h("div",{style:{marginTop:3,fontSize:8}},"20% acoes BR, 20% ouro, 20% renda fixa, 20% imoveis, 20% BTC. Correlacao media ~0.15."),
-                        h("div",{style:{marginTop:3,fontFamily:"monospace",fontSize:7.5,color:"#7A7060"}},"ENB Herfindahl = 5.00 \u2022 ENB Efetivo = 4.89 \u2022 Gap ~2%"),
-                        h("div",{style:{marginTop:3,fontSize:8,fontStyle:"italic",color:"#7A7060"}},"O gap minimo prova que cada classe e uma aposta REAL e independente.")
+                        h("strong",{style:{color:"#4CAF82"}},"\u2728 OTIMO (gap <3%): 5 classes verdadeiramente descorrelacionadas"),
+                        h("div",{style:{marginTop:3,fontSize:8}},"20% acoes BR, 20% ouro, 20% renda fixa, 20% BTC, 20% imoveis. Correlacao media ~0.12."),
+                        h("div",{style:{marginTop:3,fontFamily:"monospace",fontSize:7.5,color:"#7A7060"}},"ENB Herf = 5.00 \u2022 ENB Efetivo = 4.93 \u2022 Gap = 1.4%")
                       ),
-                      // Exemplo 2
+                      h("div",{style:{marginBottom:7,padding:"7px 9px",background:"rgba(125,209,125,0.05)",borderLeft:"2px solid #7DD17D",borderRadius:"0 3px 3px 0"}},
+                        h("strong",{style:{color:"#7DD17D"}},"\u2705 BOM (gap 3-8%): correlacao media baixa"),
+                        h("div",{style:{marginTop:3,fontSize:8}},"Portfolio multiclasses com correlacao media ~0.22 (banda 'adequada')."),
+                        h("div",{style:{marginTop:3,fontFamily:"monospace",fontSize:7.5,color:"#7A7060"}},"ENB Herf = 9.00 \u2022 ENB Efetivo = 8.56 \u2022 Gap = 4.9%")
+                      ),
                       h("div",{style:{marginBottom:7,padding:"7px 9px",background:"rgba(232,196,74,0.05)",borderLeft:"2px solid #E8C44A",borderRadius:"0 3px 3px 0"}},
-                        h("strong",{style:{color:"#E8C44A"}},"\u26A0 MODERADO: muitas classes, algumas correlacionadas"),
-                        h("div",{style:{marginTop:3,fontSize:8}},"11 classes balanceadas mas com FIIs+acoes BR+infra+agro+REITs todas com correlacao ~0.4-0.5 entre si."),
-                        h("div",{style:{marginTop:3,fontFamily:"monospace",fontSize:7.5,color:"#7A7060"}},"ENB Herfindahl = 11.00 \u2022 ENB Efetivo = 4.85 \u2022 Gap ~56%"),
-                        h("div",{style:{marginTop:3,fontSize:8,fontStyle:"italic",color:"#7A7060"}},"Apesar de 11 classes, o ENB Efetivo revela que voce so tem ~5 apostas independentes.")
+                        h("strong",{style:{color:"#E8C44A"}},"\u26A0 REGULAR (gap 8-15%): zona limitada"),
+                        h("div",{style:{marginTop:3,fontSize:8}},"Correlacao media ~0.32 (banda 'limitada'). Classes correlacionam parcialmente."),
+                        h("div",{style:{marginTop:3,fontFamily:"monospace",fontSize:7.5,color:"#7A7060"}},"ENB Herf = 9.00 \u2022 ENB Efetivo = 8.08 \u2022 Gap = 10%"),
+                        h("div",{style:{marginTop:3,fontSize:8,fontStyle:"italic",color:"#7A7060"}},"Esta provavelmente \u00e9 a faixa do seu portfolio.")
                       ),
-                      // Exemplo 3
                       h("div",{style:{padding:"7px 9px",background:"rgba(224,82,82,0.05)",borderLeft:"2px solid #E05252",borderRadius:"0 3px 3px 0"}},
-                        h("strong",{style:{color:"#E05252"}},"\u274C ARMADILHA: diversificacao aparente"),
-                        h("div",{style:{marginTop:3,fontSize:8}},"60% acoes BR, 30% FIIs, 10% renda fixa. Acoes BR e FIIs com correlacao ~0.6 (\"so se diversifica em IBOV\")."),
-                        h("div",{style:{marginTop:3,fontFamily:"monospace",fontSize:7.5,color:"#7A7060"}},"ENB Herfindahl = 2.27 \u2022 ENB Efetivo = 1.78 \u2022 Gap ~22%"),
-                        h("div",{style:{marginTop:3,fontSize:8,fontStyle:"italic",color:"#7A7060"}},"Tres classes, mas funcionam como ~1.8 apostas (dependentes do ciclo brasileiro).")
+                        h("strong",{style:{color:"#E05252"}},"\u274C CRITICO (gap >25%): diversificacao aparente"),
+                        h("div",{style:{marginTop:3,fontSize:8}},"60% acoes BR, 30% FIIs, 10% renda fixa. Acoes BR e FIIs correlacionam ~0.6."),
+                        h("div",{style:{marginTop:3,fontFamily:"monospace",fontSize:7.5,color:"#7A7060"}},"ENB Herf = 2.27 \u2022 ENB Efetivo = 1.45 \u2022 Gap = 36%"),
+                        h("div",{style:{marginTop:3,fontSize:8,fontStyle:"italic",color:"#7A7060"}},"3 classes nominais, mas funcionam como ~1.5 apostas reais.")
                       )
                     )
                   )
