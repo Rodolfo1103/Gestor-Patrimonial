@@ -1301,20 +1301,87 @@ function TranquilidadeCard({total,cw,port,metaMensalIF,setTab,fB,hideVal}){
           ),
 
           // ===== DIMENSAO 1: TAMANHO =====
-          h("div",{style:{marginBottom:9,padding:"8px 10px",background:"rgba(168,139,94,0.08)",borderLeft:"3px solid #C8A96E",borderRadius:"0 4px 4px 0"}},
-            h("div",{style:{fontSize:9,letterSpacing:1.2,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,marginBottom:5}},"\u{1F4B0} 1. TAMANHO DO PATRIMONIO (25%)"),
-            h("p",{style:{margin:"0 0 5px"}},
-              h("strong",{},"M\u00e9trica: "),"multiplo da meta anual = patrim\u00f4nio \u00f7 (meta_mensal \u00d7 12). Calibracao adaptada ao Brasil (Selic real alta + horizonte 30-40 anos + motores de renda preservados):"
+          h("div",{style:{marginBottom:9,padding:"9px 11px",background:"rgba(168,139,94,0.08)",borderLeft:"3px solid #C8A96E",borderRadius:"0 4px 4px 0"}},
+            h("div",{style:{fontSize:9,letterSpacing:1.2,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,marginBottom:6}},"\u{1F4B0} 1. TAMANHO DO PATRIMONIO (25%)"),
+
+            // O conceito FIRE em linguagem clara
+            h("p",{style:{margin:"0 0 7px"}},
+              h("strong",{style:{color:"#C8A96E"}},"\u{1F4D6} O CONCEITO FIRE: "),
+              "FIRE = ",h("em",{},"Financial Independence, Retire Early"),". A ideia central: se voce acumula um patrim\u00f4nio grande o suficiente, pode viver dos rendimentos sem precisar trabalhar - extraindo uma frac\u00e3o pequena por ano sem corroer o principal. O ",h("strong",{},"SWR (Safe Withdrawal Rate)")," e essa frac\u00e3o segura - quanto voce pode sacar anualmente sem o patrimonio acabar antes da sua vida acabar."
             ),
-            h("div",{style:{padding:"6px 8px",background:"rgba(0,0,0,0.20)",borderRadius:3,fontFamily:"monospace",fontSize:8.5,lineHeight:1.7}},
-              h("div",{},h("span",{style:{color:"#E05252",fontWeight:700}},"0-8x meta"),"   \u2192 0-30pts ",h("span",{style:{color:"#5A5550"}},"(acumula\u00e7\u00e3o inicial)")),
-              h("div",{},h("span",{style:{color:"#E89060",fontWeight:700}},"8-20x meta"),"  \u2192 30-60pts ",h("span",{style:{color:"#5A5550"}},"(em constru\u00e7\u00e3o)")),
-              h("div",{},h("span",{style:{color:"#7DD17D",fontWeight:700}},"20x meta"),"     \u2192 ",h("strong",{},"60pts - FIRE B\u00c1SICO BR")," ",h("span",{style:{color:"#5A5550"}},"(SWR 5% sustent\u00e1vel)")),
-              h("div",{},h("span",{style:{color:"#4CAF82",fontWeight:700}},"28x meta"),"     \u2192 ",h("strong",{},"80pts - FIRE SEGURO BR")," ",h("span",{style:{color:"#5A5550"}},"(SWR 3.5%, cushion 35-40 anos)")),
-              h("div",{},h("span",{style:{color:"#4CAF82",fontWeight:700}},"40x+ meta"),"    \u2192 ",h("strong",{},"100pts - FAT FIRE BR")," ",h("span",{style:{color:"#5A5550"}},"(SWR 2.5%, blindado)"))
+
+            // Por que SWR varia (5%, 3.5%, 2.5%)
+            h("p",{style:{margin:"0 0 7px"}},
+              h("strong",{style:{color:"#C8A96E"}},"\u{1F4CA} POR QUE O SWR VARIA: "),
+              "quanto MENOR o SWR, MAIS conservadora a retirada e MAIS o patrim\u00f4nio dura. Ex: com R$ 1MM e SWR 5%, voce saca R$ 50k/ano; com SWR 2.5%, saca R$ 25k. As tres faixas usadas:"
             ),
+            h("div",{style:{padding:"7px 9px",background:"rgba(0,0,0,0.22)",borderRadius:3,fontSize:8.5,lineHeight:1.7,marginBottom:7}},
+              h("div",{},h("span",{style:{color:"#7DD17D",fontWeight:700,fontFamily:"monospace"}},"SWR 5%")," (FIRE basico BR) - saque agressivo, mas vi\u00e1vel no Brasil pela Selic real alta (~5-6%) e motores isentos. Funciona se o portfolio rende >=5% real consistentemente."),
+              h("div",{},h("span",{style:{color:"#4CAF82",fontWeight:700,fontFamily:"monospace"}},"SWR 3.5%")," (FIRE seguro BR) - saque moderado, cushion para 35-40 anos. Padrao recomendado para B&H disciplinado em portfolio diversificado."),
+              h("div",{},h("span",{style:{color:"#4CAF82",fontWeight:700,fontFamily:"monospace"}},"SWR 2.5%")," (Fat FIRE BR) - saque conservador, blindagem contra qualquer cenario. Permite folga para gastos imprevistos e proteg\u00e3o da heranca.")
+            ),
+
+            // A relacao matematica: multiplo = 1/SWR
+            h("p",{style:{margin:"0 0 7px"}},
+              h("strong",{style:{color:"#C8A96E"}},"\u{1F517} A RELACAO: "),
+              "se voce saca SWR% por ano, precisa de ",h("strong",{},"(1/SWR)x")," sua despesa anual em patrimonio. Ex: SWR 5% \u2192 1/0.05 = 20x; SWR 3.5% \u2192 1/0.035 \u2248 28x; SWR 2.5% \u2192 1/0.025 = 40x. ",
+              h("strong",{},"Por isso as faixas s\u00e3o 20x / 28x / 40x")," - n\u00e3o s\u00e3o arbitrarias, sao a matem\u00e1tica direta dos SWRs adotados."
+            ),
+
+            // ===== TABELA NOMINAL DINAMICA - VALORES EM R$ PARA SUA META =====
+            h("div",{style:{padding:"9px 11px",background:"rgba(76,175,130,0.06)",border:"1px solid rgba(76,175,130,0.25)",borderRadius:4,marginBottom:7}},
+              h("div",{style:{fontSize:8,letterSpacing:1.2,color:"#4CAF82",fontFamily:"monospace",fontWeight:700,marginBottom:6}},"\u{1F4B5} VALORES NOMINAIS PARA SUA META (R$ "+(metaMensalIF/1000).toFixed(1)+"k/m\u00eas = R$ "+(metaAnual/1000).toFixed(0)+"k/ano)"),
+
+              // Cabecalho
+              h("div",{style:{display:"grid",gridTemplateColumns:"55px 1fr 90px 50px",gap:6,padding:"4px 0",borderBottom:"1px solid rgba(255,255,255,0.10)",fontSize:7,fontFamily:"monospace",color:"#7A7060",letterSpacing:0.8,marginBottom:4}},
+                h("div",{},"M\u00daLT."),
+                h("div",{},"FAIXA"),
+                h("div",{style:{textAlign:"right"}},"PATRIM. (R$)"),
+                h("div",{style:{textAlign:"right"}},"SCORE")
+              ),
+
+              // Linhas com valores nominais calculados
+              ...[
+                {mult:8,nome:"Acumula\u00e7\u00e3o inicial",cor:"#E89060",score:30,destaque:false},
+                {mult:18.3,nome:"Voc\u00ea est\u00e1 aqui",cor:"#E8C44A",score:56,destaque:true},
+                {mult:20,nome:"FIRE B\u00c1SICO BR (SWR 5%)",cor:"#7DD17D",score:60,destaque:false},
+                {mult:28,nome:"FIRE SEGURO BR (SWR 3.5%)",cor:"#4CAF82",score:80,destaque:false},
+                {mult:40,nome:"FAT FIRE BR (SWR 2.5%)",cor:"#4CAF82",score:100,destaque:false}
+              ].map((f,k)=>{
+                const valorPatrim=f.mult*metaAnual;
+                const valorFmt=hideVal?"\u2022\u2022\u2022":(valorPatrim>=1e6?"R$ "+(valorPatrim/1e6).toFixed(2)+"MM":"R$ "+(valorPatrim/1000).toFixed(0)+"k");
+                // Se for o user, recomputa com multFIRE real
+                const multReal=f.destaque?multFIRE:f.mult;
+                const valReal=f.destaque?total:valorPatrim;
+                const valRealFmt=hideVal?"\u2022\u2022\u2022":(valReal>=1e6?"R$ "+(valReal/1e6).toFixed(2)+"MM":"R$ "+(valReal/1000).toFixed(0)+"k");
+                const scoreReal=f.destaque?scoreTamanho:f.score;
+                return h("div",{key:k,style:{display:"grid",gridTemplateColumns:"55px 1fr 90px 50px",gap:6,padding:"4px 0",fontSize:8.5,fontFamily:"monospace",alignItems:"center",background:f.destaque?"rgba(232,196,74,0.10)":"transparent",borderRadius:f.destaque?3:0,marginLeft:f.destaque?-3:0,marginRight:f.destaque?-3:0,paddingLeft:f.destaque?6:0,paddingRight:f.destaque?6:0,border:f.destaque?"1px solid rgba(232,196,74,0.35)":"none"}},
+                  h("div",{style:{color:f.cor,fontWeight:700}},f.destaque?"\u25BA "+multReal.toFixed(1)+"x":f.mult+"x"),
+                  h("div",{style:{color:"#C8C0B0",fontSize:8}},f.nome),
+                  h("div",{style:{textAlign:"right",color:f.destaque?"#E8DCC0":"#9A9080",fontWeight:f.destaque?700:400}},valRealFmt),
+                  h("div",{style:{textAlign:"right",color:f.cor,fontWeight:700}},scoreReal.toFixed(0))
+                );
+              }),
+
+              // Diagnostico do gap
+              h("div",{style:{marginTop:7,padding:"6px 8px",background:"rgba(0,0,0,0.25)",borderRadius:3,fontSize:8.5,lineHeight:1.55,color:"#C8C0B0"}},
+                h("strong",{style:{color:"#E8C44A"}},"\u{1F4CD} POR QUE VOC\u00ca EST\u00c1 EM "+multFIRE.toFixed(1)+"x: "),
+                "voce tem ",h("strong",{},hideVal?"\u2022\u2022\u2022":"R$ "+(total/1e6).toFixed(2)+"MM"),
+                " e meta de R$ "+(metaMensalIF/1000).toFixed(1)+"k/m\u00eas (R$ "+(metaAnual/1000).toFixed(0)+"k/ano). Sua meta \u00e9 ",h("strong",{},"alta")," - se sua meta fosse R$ ",((total/20)/12/1000).toFixed(1),
+                "k/m\u00eas, voce ja estaria em FIRE basico BR (20x) HOJE mesmo. ",
+                h("strong",{},"O patrim\u00f4nio em si \u00e9 grande"),"; o m\u00faltiplo s\u00f3 mede o casamento ",h("em",{},"patrim\u00f4nio vs padr\u00e3o de vida"),". Faltam ",h("strong",{style:{color:"#E89060"}},hideVal?"\u2022\u2022\u2022":"R$ "+(((20*metaAnual)-total)/1e6).toFixed(2)+"MM"),
+                " para alcan\u00e7ar FIRE b\u00e1sico BR com a meta atual."
+              )
+            ),
+
+            // Comparacao com Trinity Study americano
             h("p",{style:{margin:"5px 0 0",fontSize:8.5,fontStyle:"italic",color:"#9A9080"}},
-              h("strong",{},"Por que faixas BR vs Trinity Study? "),"Trinity (EUA) usa 25x/33x/50x com SWR 4%. No Brasil, Selic real maior (5-6% atual) permite SWR mais agressivo; horizonte de vida tipico mais curto (35-40 anos vs 50+); e portfolios B&H aqui t\u00eam motores de renda isentos (FII/Infra/Agro DY 9%+) que rendem ALEM do SWR. Por isso 20x j\u00e1 e FIRE basico BR vi\u00e1vel."
+              h("strong",{},"Por que essas faixas v\u00eam menores que o Trinity Study americano (25x/33x/50x)? "),
+              "Trinity foi calibrado para portfolios majoritariamente equity americanos com inflac\u00e3o ~2-3% e horizonte 50+ anos. No Brasil: ",
+              "(i) Selic real maior (~5-6%) permite SWR mais agressivo; ",
+              "(ii) horizonte vital tipico mais curto (35-40 anos pos-aposentadoria vs 50+); ",
+              "(iii) portfolios B&H aqui tem motores isentos (FII/Infra/Agro DY 9%+) que rendem ALEM do SWR. ",
+              "Por isso 20x j\u00e1 \u00e9 vi\u00e1vel como FIRE basico BR."
             )
           ),
 
