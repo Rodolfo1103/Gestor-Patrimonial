@@ -199,7 +199,12 @@ const TRE_ROLE={
 };
 const GB=["OURO_FISICO"];
 const IMB=true; // flag indicando que IMV usa ativos custom (cadastrados pelo usuario)
-const FX={BRL:1,USD:5.01,EUR:5.7,GBP:6.8,CHF:6.1,JPY:0.034,AUD:3.25,HKD:0.64,SGD:3.85,DKK:0.76,NOK:0.49,MXN:0.26};
+// Valores iniciais de cambio. Sao apenas FALLBACK; o state real vive no componente App.
+// Usados na hidratacao (boot) antes do primeiro render e por chamadas fora do escopo do App.
+const FX_INIT={BRL:1,USD:5.01,EUR:5.7,GBP:6.8,CHF:6.1,JPY:0.034,AUD:3.25,HKD:0.64,SGD:3.85,DKK:0.76,NOK:0.49,MXN:0.26};
+// FX global legacy - mantido para compatibilidade com codigo fora do escopo do App (ex: pv())
+// Sera mantido sincronizado pelo App via efeito colateral.
+const FX={...FX_INIT};
 // Premissas BASE de risco e retorno por classe (escala 0-10)
 // Valores ancorados em cenario Selic = 10% a.a. (normalizada)
 const RR_BASE={fii:{r:3.5,e:7.5},acoes_br:{r:6.5,e:8.5},acoes_ext:{r:5.5,e:8.0},reits:{r:4.5,e:7.2},selic:{r:1.0,e:4.5},rfipca:{r:3.0,e:7.0},ouro:{r:4.0,e:5.5},bitcoin:{r:9.5,e:9.0},infra:{r:2.5,e:7.0},imoveis:{r:2.0,e:6.0},agro:{r:3.0,e:8.0}};
@@ -3686,7 +3691,9 @@ function App(){
           if(a.label&&a.label!==a.ticker&&!NAMES[a.ticker])NAMES[a.ticker]=a.label;
         });});
         if(dd.fx&&typeof dd.fx==="object"){
-          Object.keys(dd.fx).forEach(k=>{if(typeof dd.fx[k]==="number"&&dd.fx[k]>0)FX[k]=dd.fx[k];});
+          const upd={};
+          Object.keys(dd.fx).forEach(k=>{if(typeof dd.fx[k]==="number"&&dd.fx[k]>0){FX[k]=dd.fx[k];upd[k]=dd.fx[k];}});
+          if(Object.keys(upd).length>0)setFxState(prev=>({...prev,...upd}));
         }
         if(dd.btcUsd&&dd.btcUsd>0){setBtcUsd(dd.btcUsd);setBtcTs(dd.btcTs||null);}
         if(typeof dd.btcVar==="number")setBtcVar(dd.btcVar);
@@ -3762,12 +3769,19 @@ function App(){
   },[autenticado,lastActivity]);
 
   // Atualiza FX em background ao abrir o app (silencioso, nao bloqueia, nao toca em precos de ativos)
-  const [fxBgTick,setFxBgTick]=useState(0);
+  const [fxState,setFxState]=useState({...FX_INIT});
+  // Mantem o objeto FX global sincronizado com o state. Pra qualquer funcao fora do escopo do App
+  // (ex: pv()) que ainda le FX diretamente, esse effect garante que o valor esta atualizado.
+  // Importante: o effect ocorre APOS o render, entao chamadas dentro do render usam fxState diretamente.
+  useEffect(()=>{
+    Object.keys(fxState).forEach(k=>{FX[k]=fxState[k];});
+  },[fxState]);
   useEffect(()=>{
     if(!inited)return;
     let cancelado=false;
     (async()=>{
       let mudou=false;
+      const upd={};// acumula mudancas pra aplicar via setFxState no fim
       // 1) AwesomeAPI (PTAX brasileira, atualizada a cada minuto, retorna BRL direto)
       try{
         const ctrl=new AbortController();
@@ -3780,7 +3794,7 @@ function App(){
             const map={USDBRL:"USD",EURBRL:"EUR",GBPBRL:"GBP",CHFBRL:"CHF",JPYBRL:"JPY",AUDBRL:"AUD"};
             Object.entries(map).forEach(([k,fx])=>{
               const v=parseFloat(d[k]&&d[k].bid);
-              if(v>0){if(Math.abs((FX[fx]||0)-v)>0.0001){FX[fx]=v;mudou=true;}}
+              if(v>0){if(Math.abs((FX[fx]||0)-v)>0.0001){FX[fx]=v;upd[fx]=v;mudou=true;}}
             });
           }
         }
@@ -3796,7 +3810,7 @@ function App(){
           if(!cancelado&&d&&d.rates){
             // Para moedas NAO cobertas pela AwesomeAPI
             ["HKD","SGD","NOK","DKK","MXN"].forEach(k=>{
-              if(d.rates[k]>0){const novo=1/d.rates[k];if(Math.abs((FX[k]||0)-novo)>0.0001){FX[k]=novo;mudou=true;}}
+              if(d.rates[k]>0){const novo=1/d.rates[k];if(Math.abs((FX[k]||0)-novo)>0.0001){FX[k]=novo;upd[k]=novo;mudou=true;}}
             });
           }
         }
@@ -3813,8 +3827,8 @@ function App(){
       }else if(!usdYday||!usdYday.data){
         if(!cancelado)setUsdYday({valor:usdHoje,data:hojeStr});
       }
-      // forca re-render: o save effect ja vai persistir automaticamente
-      setFxBgTick(t=>t+1);
+      // Aplica todas as mudancas de cambio de uma vez (re-render automatico)
+      setFxState(prev=>({...prev,...upd}));
     })();
     // Busca BTC em USD da CoinGecko com variacao 24h
     (async()=>{
@@ -4457,7 +4471,10 @@ function App(){
     Object.entries(port).forEach(([t,p])=>{const v=pv(t,p,ccy,ntnbTaxas,ntnbVNA);if(!v)return;total+=v;const cid=p.classId||cls[t];if(cid)ct[cid]=(ct[cid]||0)+v;});
     const cw={};CL.forEach(c=>{cw[c.id]=total>0?(ct[c.id]/total)*100:0;});
     return {total,ct,cw};
-  },[port,ccy,cls,ntnbTaxas,ntnbVNA]);
+  // fxState esta nas deps para tornar EXPLICITA a dependencia do cambio.
+  // pv() le FX (objeto global sincronizado via effect com fxState). Sem fxState nas deps,
+  // a relacao ficaria implicita - o callback nao mudaria de identidade quando o cambio mudasse.
+  },[port,ccy,cls,ntnbTaxas,ntnbVNA,fxState]);
   const {total,ct,cw}=stats();
   const hasPos=Object.entries(port).some(([t,p])=>hq(t,p));
 
@@ -4554,13 +4571,14 @@ function App(){
     try{
       const allPrices={};
       const failed=[];
+      const fxUpd={};// acumula updates de cambio pra aplicar via setFxState no final
       // Cambio - AwesomeAPI (PTAX, atualizada constantemente) com fallback open.er-api.com
       try{
         const d=await fetchJSON("https://economia.awesomeapi.com.br/json/last/USD-BRL,EUR-BRL,GBP-BRL,CHF-BRL,JPY-BRL,AUD-BRL",6000);
         if(d){
           const map={USDBRL:"USD",EURBRL:"EUR",GBPBRL:"GBP",CHFBRL:"CHF",JPYBRL:"JPY",AUDBRL:"AUD"};
           let n=0;
-          Object.entries(map).forEach(([k,fx])=>{const v=parseFloat(d[k]&&d[k].bid);if(v>0){FX[fx]=v;n++;}});
+          Object.entries(map).forEach(([k,fx])=>{const v=parseFloat(d[k]&&d[k].bid);if(v>0){FX[fx]=v;fxUpd[fx]=v;n++;}});
           dbg.push("FX-Awesome:"+n);
         }else dbg.push("FX-Awesome:sem-d");
       }catch(e){dbg.push("FX-Awesome-erro:"+e.message);}
@@ -4569,10 +4587,12 @@ function App(){
         const d=await fetchJSON("https://open.er-api.com/v6/latest/BRL",6000);
         if(d&&d.rates){
           let n=0;
-          ["HKD","SGD","NOK","DKK","MXN"].forEach(k=>{if(d.rates[k]>0){FX[k]=1/d.rates[k];n++;}});
+          ["HKD","SGD","NOK","DKK","MXN"].forEach(k=>{if(d.rates[k]>0){const v=1/d.rates[k];FX[k]=v;fxUpd[k]=v;n++;}});
           dbg.push("FX-ER:"+n);
         }
       }catch(e){dbg.push("FX-ER-erro:"+e.message);}
+      // Aplica atualizacoes de cambio no state (re-render automatico nos componentes)
+      if(Object.keys(fxUpd).length>0)setFxState(prev=>({...prev,...fxUpd}));
       // Imoveis fisicos: atualiza valor com IPCA acumulado desde a ultima avaliacao
       const imvTickers=Object.keys(port).filter(t=>isImv(t));
       if(imvTickers.length>0){
@@ -6045,7 +6065,11 @@ h("button",{onClick:()=>{
           if(d.lastPU){setLastPU(d.lastPU);}
           if(d.hist){setHist(d.hist);}
           if(Array.isArray(d.histMensal)){setHistMensal(d.histMensal);}
-          if(d.fx&&typeof d.fx==="object"){Object.keys(d.fx).forEach(k=>{if(typeof d.fx[k]==="number"&&d.fx[k]>0)FX[k]=d.fx[k];});}
+          if(d.fx&&typeof d.fx==="object"){
+            const upd={};
+            Object.keys(d.fx).forEach(k=>{if(typeof d.fx[k]==="number"&&d.fx[k]>0){FX[k]=d.fx[k];upd[k]=d.fx[k];}});
+            if(Object.keys(upd).length>0)setFxState(prev=>({...prev,...upd}));
+          }
           if(d.btcUsd&&d.btcUsd>0){setBtcUsd(d.btcUsd);setBtcTs(d.btcTs||null);}
           if(typeof d.btcVar==="number")setBtcVar(d.btcVar);
           if(typeof d.usdVar==="number")setUsdVar(d.usdVar);
