@@ -1506,7 +1506,119 @@ function TranquilidadeCard({total,cw,port,metaMensalIF,setTab,fB,hideVal}){
                 ddPiorPct>=-15?"Amortecimento bom - perda controlada mesmo em crises s\u00e9rias.":
                 ddPiorPct>=-25?"Drawdown moderado - aceit\u00e1vel para Buy & Hold de longo prazo, mas pesado emocionalmente.":
                 ddPiorPct>=-35?"Drawdown severo - portfolio com alta exposi\u00e7\u00e3o a risk assets. Crises grandes machucam forte.":
-                "Drawdown destrutivo - portfolio vulnera\u00e1vel a crises sistemicas. Considerar mais hedge (ouro, NTN-B longa, Treasuries)."
+                "Drawdown destrutivo - portfolio vulnera\u00e1vel a crises sistemicas. Considerar refor\u00e7ar hedges (ver tipos abaixo)."
+              )
+            ),
+
+            // ===== DISTINCAO CRITICA: 2 TIPOS DE HEDGE =====
+            h("div",{style:{padding:"10px 12px",background:"rgba(232,144,96,0.06)",border:"1px solid rgba(232,144,96,0.30)",borderRadius:5,marginBottom:7}},
+              h("div",{style:{fontSize:8.5,letterSpacing:1.2,color:"#E89060",fontFamily:"monospace",fontWeight:700,marginBottom:7}},"\u26A0 ATEN\u00c7\u00c3O: 2 TIPOS DE HEDGE - N\u00c3O CONFUNDIR"),
+
+              // Tipo 1: Hedge anti-volatilidade
+              h("div",{style:{marginBottom:8,padding:"8px 10px",background:"rgba(76,175,130,0.06)",borderLeft:"3px solid #4CAF82",borderRadius:"0 4px 4px 0"}},
+                h("div",{style:{fontSize:9,color:"#4CAF82",fontFamily:"monospace",fontWeight:700,marginBottom:4}},"\u{1F6E1} HEDGE ANTI-VOLATILIDADE (preserva capital sempre)"),
+                h("p",{style:{margin:"0 0 4px",fontSize:9,lineHeight:1.55}},
+                  "Ativos com volatilidade quase zero. ",h("strong",{},"N\u00e3o caem"),
+                  " (ou caem pouqu\u00edssimo) em qualquer cen\u00e1rio. ",h("strong",{style:{color:"#4CAF82"}},"O Selic e o exemplo perfeito"),": Tesouro Selic/LFT tem vol < 1% a.a., sempre rende CDI. ",
+                  h("strong",{},"Positivo em 100% dos 5 cen\u00e1rios"),
+                  " hist\u00f3ricos (+5% a +18%). \u00c9 o ",h("em",{},"hedge cl\u00e1ssico")," do portfolio - protege capital e oferece liquidez para reinvestir nas oportunidades pos-crise."
+                )
+              ),
+
+              // Tipo 2: Hedge de cenario
+              h("div",{style:{marginBottom:8,padding:"8px 10px",background:"rgba(91,143,212,0.06)",borderLeft:"3px solid #5B8FD4",borderRadius:"0 4px 4px 0"}},
+                h("div",{style:{fontSize:9,color:"#5B8FD4",fontFamily:"monospace",fontWeight:700,marginBottom:4}},"\u{1F3AF} HEDGE DE CEN\u00c1RIO (funciona em CERTOS cen\u00e1rios)"),
+                h("p",{style:{margin:"0 0 4px",fontSize:9,lineHeight:1.55}},
+                  "Ativos com correla\u00e7\u00e3o negativa com equity ",h("em",{},"em recess\u00f5es deflacionarias")," (ex: 2008, 2020 - Fed corta juros, curva longa cai, PU sobe). ",
+                  h("strong",{style:{color:"#E89060"}},"Mas sofrem em crises de juros altos (estagfla\u00e7\u00e3o, crise fiscal)"),
+                  " - quando a curva SOBE, o PU dos t\u00edtulos longos despenca por marca\u00e7\u00e3o a mercado. ",
+                  h("strong",{},"NTN-B longa, TLT e ouro")," pertencem a este grupo - n\u00e3o s\u00e3o hedges universais."
+                )
+              ),
+
+              // Tabela comportamento real
+              h("div",{style:{padding:"7px 9px",background:"rgba(0,0,0,0.25)",borderRadius:4,marginBottom:6}},
+                h("div",{style:{fontSize:7.5,color:"#7A7060",fontFamily:"monospace",letterSpacing:1,marginBottom:5}},"COMPORTAMENTO POR CEN\u00c1RIO (matriz hist\u00f3rica real do app):"),
+                h("div",{style:{fontSize:8.5,fontFamily:"monospace",lineHeight:1.7}},
+                  h("div",{},
+                    h("span",{style:{color:"#4CAF82",fontWeight:700}},"SELIC      "),
+                    "\u2192 2008: ",h("span",{style:{color:"#4CAF82"}},"+8%"),
+                    " | 2020: ",h("span",{style:{color:"#4CAF82"}},"+5%"),
+                    " | 2015: ",h("span",{style:{color:"#4CAF82"}},"+18%"),
+                    " | 2022: ",h("span",{style:{color:"#4CAF82"}},"+12%"),
+                    " | 2026+: ",h("span",{style:{color:"#4CAF82"}},"+15%"),
+                    h("span",{style:{color:"#4CAF82",marginLeft:6,fontWeight:700}},"(5/5 \u2705)")
+                  ),
+                  h("div",{},
+                    h("span",{style:{color:"#5B8FD4",fontWeight:700}},"NTN-B      "),
+                    "\u2192 2008: ",h("span",{style:{color:"#4CAF82"}},"+15%"),
+                    " | 2020: ",h("span",{style:{color:"#4CAF82"}},"+8%"),
+                    " | 2015: ",h("span",{style:{color:"#E05252"}},"-12%"),
+                    " | 2022: ",h("span",{style:{color:"#E05252"}},"-8%"),
+                    " | 2026+: ",h("span",{style:{color:"#E05252"}},"-20%"),
+                    h("span",{style:{color:"#E89060",marginLeft:6,fontWeight:700}},"(2/5 \u26A0)")
+                  ),
+                  h("div",{},
+                    h("span",{style:{color:"#C8A96E",fontWeight:700}},"OURO       "),
+                    "\u2192 2008: ",h("span",{style:{color:"#4CAF82"}},"+25%"),
+                    " | 2020: ",h("span",{style:{color:"#4CAF82"}},"+25%"),
+                    " | 2015: ",h("span",{style:{color:"#4CAF82"}},"+30%"),
+                    " | 2022: ",h("span",{style:{color:"#9A9080"}},"0%"),
+                    " | 2026+: ",h("span",{style:{color:"#4CAF82"}},"+40%"),
+                    h("span",{style:{color:"#4CAF82",marginLeft:6,fontWeight:700}},"(4/5 \u2705)")
+                  ),
+                  h("div",{},
+                    h("span",{style:{color:"#9C7DC2",fontWeight:700}},"TREASURIES "),
+                    "\u2192 2008: ",h("span",{style:{color:"#4CAF82"}},"+22%"),
+                    " | 2020: ",h("span",{style:{color:"#4CAF82"}},"+20%"),
+                    " | 2015: ",h("span",{style:{color:"#4CAF82"}},"+5%"),
+                    " | 2022: ",h("span",{style:{color:"#E05252"}},"-30%"),
+                    " | 2026+: ",h("span",{style:{color:"#4CAF82"}},"+10%"),
+                    h("span",{style:{color:"#E89060",marginLeft:6,fontWeight:700}},"(4/5 \u26A0)")
+                  )
+                )
+              ),
+
+              // Conclusao
+              h("p",{style:{margin:0,fontSize:9,lineHeight:1.6,color:"#C8C0B0",fontStyle:"italic"}},
+                h("strong",{style:{color:"#E89060"}},"Conclus\u00e3o pratica: "),
+                "Selic e o ",h("strong",{},"\u00fanico hedge verdadeiramente universal")," - protege em qualquer crise. NTN-B longa, ouro e Treasuries s\u00e3o hedges ",h("em",{},"complementares"),
+                " que brilham em recess\u00f5es deflacion\u00e1rias mas podem AMPLIFICAR perdas em outros cen\u00e1rios (crise fiscal BR, estagfla\u00e7\u00e3o). ",
+                h("strong",{},"Portfolios verdadeiramente resilientes combinam os 2 tipos"),
+                ": Selic como \u00e2ncora de baixa volatilidade + hedges de cen\u00e1rio para amplificar ganho em recess\u00f5es deflacion\u00e1rias."
+              )
+            ),
+
+            // ===== DISTINCAO CRITICA: 2 TIPOS DE HEDGE =====
+            h("div",{style:{padding:"9px 11px",background:"rgba(232,144,96,0.06)",border:"1px solid rgba(232,144,96,0.30)",borderRadius:4,marginBottom:7}},
+              h("div",{style:{fontSize:8,letterSpacing:1.2,color:"#E89060",fontFamily:"monospace",fontWeight:700,marginBottom:6}},"\u26A0 ATEN\u00c7\u00c3O: 2 TIPOS DE HEDGE - N\u00c3O CONFUNDIR"),
+              h("p",{style:{margin:"0 0 7px",fontSize:9,lineHeight:1.6,color:"#C8C0B0"}},
+                h("strong",{style:{color:"#4CAF82"}},"\u{1F6E1} HEDGE ANTI-VOLATILIDADE "),
+                h("span",{style:{color:"#7A7060"}},"(preserva capital sempre)"),
+                ": ativos com vola quase zero, n\u00e3o caem (ou caem pouqu\u00edssimo) mesmo em crise. ",h("strong",{},"O Selic e o exemplo perfeito"),
+                " - LFT/Tesouro Selic tem vola < 1% a.a., sempre cresce com CDI. Em todos os 5 cen\u00e1rios hist\u00f3ricos, Selic foi positivo (+5% a +18%). Esse e o ",h("em",{},"hedge cl\u00e1ssico"),
+                " do portfolio - protege e oferece liquidez pra reinvestir nas oportunidades pos-crise."
+              ),
+              h("p",{style:{margin:"0 0 7px",fontSize:9,lineHeight:1.6,color:"#C8C0B0"}},
+                h("strong",{style:{color:"#5B8FD4"}},"\u{1F3AF} HEDGE DE CEN\u00c1RIO "),
+                h("span",{style:{color:"#7A7060"}},"(funciona EM CERTOS cen\u00e1rios, falha em outros)"),
+                ": ativos com correla\u00e7\u00e3o negativa com equity ",h("em",{},"em recess\u00f5es deflacionarias")," (ex: 2008, 2020 - Fed corta juros, curva longa cai, PU dos t\u00edtulos longos sobe). ",h("strong",{},"Mas sofrem em crises de juros altos (estagfla\u00e7\u00e3o, crise fiscal)"),
+                ". A NTN-B longa, TLT e ouro pertencem a este grupo."
+              ),
+              h("div",{style:{padding:"7px 9px",background:"rgba(0,0,0,0.22)",borderRadius:3,fontSize:8.5,lineHeight:1.6}},
+                h("div",{style:{color:"#7A7060",fontFamily:"monospace",letterSpacing:0.8,marginBottom:5}},"COMPORTAMENTO POR CENARIO (matriz hist\u00f3rica real):"),
+                h("div",{style:{fontFamily:"monospace",color:"#C8C0B0"}},
+                  h("div",{},h("span",{style:{color:"#4CAF82",fontWeight:700}},"SELIC"),"      \u2192 2008: ",h("span",{style:{color:"#4CAF82"}},"+8%")," / 2020: ",h("span",{style:{color:"#4CAF82"}},"+5%")," / 2015: ",h("span",{style:{color:"#4CAF82"}},"+18%")," / 2022: ",h("span",{style:{color:"#4CAF82"}},"+12%")," / 2026+: ",h("span",{style:{color:"#4CAF82"}},"+15%"),h("span",{style:{color:"#4CAF82"}}," (5/5 \u2705)")),
+                  h("div",{},h("span",{style:{color:"#5B8FD4",fontWeight:700}},"NTN-B"),"      \u2192 2008: ",h("span",{style:{color:"#4CAF82"}},"+15%")," / 2020: ",h("span",{style:{color:"#4CAF82"}},"+8%")," / 2015: ",h("span",{style:{color:"#E05252"}},"-12%")," / 2022: ",h("span",{style:{color:"#E05252"}},"-8%")," / 2026+: ",h("span",{style:{color:"#E05252"}},"-20%"),h("span",{style:{color:"#E89060"}}," (2/5 \u26A0)")),
+                  h("div",{},h("span",{style:{color:"#9C7DC2",fontWeight:700}},"OURO"),"       \u2192 2008: ",h("span",{style:{color:"#4CAF82"}},"+25%")," / 2020: ",h("span",{style:{color:"#4CAF82"}},"+25%")," / 2015: ",h("span",{style:{color:"#4CAF82"}},"+30%")," / 2022: ",h("span",{style:{color:"#9A9080"}}," 0%")," / 2026+: ",h("span",{style:{color:"#4CAF82"}},"+40%"),h("span",{style:{color:"#4CAF82"}}," (4/5 \u2705)")),
+                  h("div",{},h("span",{style:{color:"#C8A96E",fontWeight:700}},"TREASURIES")," \u2192 2008: ",h("span",{style:{color:"#4CAF82"}},"+22%")," / 2020: ",h("span",{style:{color:"#4CAF82"}},"+20%")," / 2015: ",h("span",{style:{color:"#4CAF82"}},"+5%")," / 2022: ",h("span",{style:{color:"#E05252"}},"-30%")," / 2026+: ",h("span",{style:{color:"#4CAF82"}},"+10%"),h("span",{style:{color:"#E89060"}}," (4/5 \u26A0)"))
+                )
+              ),
+              h("p",{style:{margin:"7px 0 0",fontSize:8.5,fontStyle:"italic",color:"#9A9080",lineHeight:1.55}},
+                h("strong",{},"Conclus\u00e3o pratica: "),"Selic e o ",h("em",{},"\u00fanico hedge universal"),
+                " - protege em qualquer cen\u00e1rio. NTN-B longa, ouro e Treasuries s\u00e3o hedges ",h("em",{},"complementares"),
+                " que brilham em cen\u00e1rios espec\u00edficos (recess\u00f5es deflacion\u00e1rias) mas podem AMPLIFICAR perdas em outros (crise fiscal BR, estagfla\u00e7\u00e3o com juros altos). ",
+                h("strong",{},"Portfolios verdadeiramente resilientes combinam os 2 tipos"),": Selic como \u00e2ncora de baixa vol + hedges de cen\u00e1rio para amplificar ganho em crises deflacion\u00e1rias."
               )
             ),
 
