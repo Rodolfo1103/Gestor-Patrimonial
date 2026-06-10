@@ -11385,7 +11385,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
       //   1. Renda passiva liquida dos MOTORES (FII+Infra+Agro) - nao tocados nunca
       //   2. Renda passiva liquida das demais classes pagadoras
       //   3. SWR 4% sobre classes nao-pagadoras (BTC+Ouro)
-      //   4. SWR 4% sobre classes pagadoras nao-motoras (Selic+Treasuries+REITs+Acoes BR+EXT)
+      //   4. SWR 4% sobre classes pagadoras nao-motoras (Selic+Treasuries+NTN-B+REITs+Acoes BR+EXT)
       // O SWR de 4% sobre essas e considerado sustentavel pela regra de Bengen
       const calcCapMax=()=>{
         let rendaMotores=0;// renda dos FIIs+Infra+Agro (preservados)
@@ -11495,8 +11495,20 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             ),
             h("div",{style:{background:"rgba(247,147,26,0.05)",borderLeft:"3px solid #F7931A",borderRadius:"0 5px 5px 0",padding:"8px 11px",marginBottom:8}},
               h("div",{style:{fontSize:9,color:"#F7931A",fontFamily:"monospace",fontWeight:700,letterSpacing:1,marginBottom:4}},"\u{1F525} RENDA TOTAL (ESTRATEGIA FIRE)"),
-              h("div",{},h("strong",{},"Renda passiva liquida")," + ",h("strong",{},"SWR 4% ao ano")," (saque sustentavel) sobre ",h("strong",{},"todas as classes EXCETO os motores")," (FIIs + Infra + Agro). Selic, Treasuries, BTC, Ouro, REITs, Acoes BR e EXT contribuem com SWR alem dos seus dividendos."),
+              h("div",{},h("strong",{},"Renda passiva liquida")," + ",h("strong",{},"SWR 4% ao ano")," (saque sustentavel) sobre ",h("strong",{},"todas as classes EXCETO os motores")," (FIIs + Infra + Agro). ",h("strong",{},"Selic, Treasuries, NTN-B (Tesouro IPCA+), BTC, Ouro, REITs, Acoes BR e EXT")," contribuem com SWR alem dos seus dividendos."),
               h("div",{style:{marginTop:4,fontStyle:"italic",fontSize:8.5}},"\u{1F4A1} \u00C9 o que voce pode ",h("strong",{},"realmente sacar")," combinando dividendos + saques mensais sustentaveis. Motores preservados para sempre.")
+            ),
+            // Nota especifica sobre NTN-B no FIRE
+            h("div",{style:{background:"rgba(232,196,74,0.05)",borderLeft:"3px solid #E8C44A",borderRadius:"0 5px 5px 0",padding:"8px 11px",marginBottom:8}},
+              h("div",{style:{fontSize:9,color:"#E8C44A",fontFamily:"monospace",fontWeight:700,letterSpacing:1,marginBottom:4}},"\u{1F4DC} NTN-B PRINCIPAL NO FIRE - NATUREZA CONSUMIVEL"),
+              h("div",{style:{marginBottom:4}},"A classe ",h("strong",{},"NTN-B Principal (Tesouro IPCA+)")," compoe a estrategia de renda FIRE como ",h("strong",{},"classe CONSUMIVEL"),", nao como motor. Razao: o titulo ",h("em",{},"Principal nao paga cupom semestral"),"; todo retorno acumula no PU ate o vencimento."),
+              h("div",{style:{marginBottom:4}},"Como gera renda? ",h("strong",{},"Venda parcial no Tesouro Direto (liquidez D+1)"),". Voce vende uma fracao a cada mes/trimestre conforme necessidade, conservando o restante a juro real travado (IPCA+5/6/7% liq). E exatamente isso que o SWR 4% modela."),
+              h("div",{style:{fontStyle:"italic",fontSize:8.5,marginTop:4,padding:"5px 7px",background:"rgba(232,196,74,0.08)",borderRadius:3}},
+                h("strong",{},"Vantagens da NTN-B no FIRE: "),"(i) renda real protegida da inflacao; (ii) duration permite venda em janelas favoraveis (taxa caindo \u2192 MtM sobe); (iii) hedge moderado anti-equity (",h("strong",{},"corr -0.10/-0.20")," com BR/EXT); (iv) ",h("strong",{},"liquidez diaria")," sem spreads de FII/Infra."),
+              h("div",{style:{fontStyle:"italic",fontSize:8.5,marginTop:4,padding:"5px 7px",background:"rgba(224,82,82,0.06)",borderRadius:3}},
+                h("strong",{},"Atencao MtM: "),"NTN-B longa tem volatilidade real (",h("strong",{},"~10-15% a.a."),") - em ano de stress fiscal BR a marcacao a mercado cai forte. ",h("em",{},"Vender NTN-B em pico de stress materializa perda."),
+                " Idealmente, em FIRE, manter ",h("strong",{},"laddering por duration")," (curtas + medias + longas): voce vende as curtas no stress, preservando as longas para reprecificacao positiva quando a curva normaliza."
+              )
             ),
             h("div",{style:{background:"rgba(91,143,212,0.05)",borderLeft:"3px solid #5B8FD4",borderRadius:"0 5px 5px 0",padding:"8px 11px",marginBottom:8}},
               h("div",{style:{fontSize:9,color:"#5B8FD4",fontFamily:"monospace",fontWeight:700,letterSpacing:1,marginBottom:4}},"\u{1F3DB}\u{FE0F} MOTORES DE RENDA"),
