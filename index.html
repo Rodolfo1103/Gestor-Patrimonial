@@ -1050,6 +1050,410 @@ function DiversificationCard({cw,setTab}){
   }catch(e){console.error("Erro DiversificationCard:",e);return null;}
 }
 
+// Card de Tranquilidade Financeira - indice composto agregando 4 dimensoes:
+// (1) Tamanho do patrimonio, (2) Renda perpetua vs meta, (3) Resiliencia a drawdowns, (4) Diversificacao
+function TranquilidadeCard({total,cw,port,metaMensalIF,setTab,fB,hideVal}){
+  try{
+    if(!total||total<=0)return null;
+    // ============== DIMENSAO 1: TAMANHO DO PATRIMONIO (25%) - CALIBRACAO BR ==============
+    // Marcos FIRE adaptados ao Brasil (Selic real alta + horizonte 30-40 anos):
+    //   8x meta = inicio (acumulacao em curso)
+    //   20x meta = FIRE basico BR (SWR 5%, viavel com motores e juro real alto)
+    //   28x meta = FIRE seguro BR (SWR ~3.5%, cushion para 35-40 anos)
+    //   40x meta = Fat FIRE BR (folga generosa, SWR 2.5%)
+    const metaAnual=(metaMensalIF||35000)*12;
+    const multFIRE=total/metaAnual;// multiplicador da meta anual
+    // Score 0-100 baseado em multFIRE: 0x=0pts, 8x=30pts, 20x=60pts, 28x=80pts, 40x=100pts
+    let scoreTamanho;
+    if(multFIRE<=8)scoreTamanho=multFIRE*3.75;// 0-30 pts (0-8x)
+    else if(multFIRE<=20)scoreTamanho=30+(multFIRE-8)*2.5;// 30-60 pts (8-20x)
+    else if(multFIRE<=28)scoreTamanho=60+(multFIRE-20)*2.5;// 60-80 pts (20-28x)
+    else if(multFIRE<=40)scoreTamanho=80+(multFIRE-28)*(20/12);// 80-100 pts (28-40x)
+    else scoreTamanho=100;
+    scoreTamanho=Math.max(0,Math.min(100,scoreTamanho));
+
+    // ============== DIMENSAO 2: CAPACIDADE DE RENDA PERPETUA (25%) - ICR-RTE ==============
+    // Usa EXATAMENTE a mesma logica da aba Renda (rendaRTEHoje + ifPctAtual):
+    //   1) Renda passiva liquida = soma de v_classe * YIELD_CLASSE[c].base * (1 - IR_DIV[c])
+    //   2) SWR 4% aplicado a TODAS classes que NAO sao motoras (FUNDOS_RENDA_MOTORES) e nao sao imoveis
+    //   3) Total RTE = renda passiva + SWR
+    // Cobertura = totalRTE / metaAnual
+    let rendaPassivaLiq=0;
+    let swrLiq=0;
+    MPT_CLS.forEach(cid=>{
+      const v=total*((cw[cid]||0)/100);// valor da classe em BRL
+      if(v<=0)return;
+      const dy=YIELD_CLASSE[cid]?YIELD_CLASSE[cid].base:0;
+      const ir=IR_DIV[cid]||0;
+      rendaPassivaLiq+=v*dy*(1-ir);
+      // SWR sobre classes nao-motoras e nao-imoveis (canonico ICR-RTE)
+      if(cid!=="imoveis"&&!FUNDOS_RENDA_MOTORES.includes(cid)){
+        swrLiq+=v*SWR;
+      }
+    });
+    const rendaRTE=rendaPassivaLiq+swrLiq;// = rendaRTEHoje canonico
+    const coberturaPct=metaAnual>0?(rendaRTE/metaAnual)*100:0;
+    let scoreRenda;
+    if(coberturaPct>=150)scoreRenda=100;
+    else if(coberturaPct>=120)scoreRenda=85+(coberturaPct-120)*0.5;
+    else if(coberturaPct>=100)scoreRenda=70+(coberturaPct-100)*0.75;
+    else if(coberturaPct>=80)scoreRenda=50+(coberturaPct-80)*1.0;
+    else if(coberturaPct>=60)scoreRenda=30+(coberturaPct-60)*1.0;
+    else scoreRenda=Math.max(0,coberturaPct*0.5);
+    scoreRenda=Math.max(0,Math.min(100,scoreRenda));
+
+    // ============== DIMENSAO 3: RESILIENCIA A DRAWDOWNS (25%) ==============
+    // Calcula drawdown medio simulando os 5 cenarios STRESS_CEN
+    // Usa pesos atuais do portfolio e drawdowns historicos por classe
+    let ddMedio=0;let ddPior=0;
+    STRESS_CEN.forEach(cen=>{
+      let ddCen=0;
+      MPT_CLS.forEach(cid=>{
+        const w=(cw[cid]||0)/100;
+        const dd=cen.dd[cid]||0;
+        ddCen+=w*dd;
+      });
+      ddMedio+=ddCen/STRESS_CEN.length;
+      if(ddCen<ddPior)ddPior=ddCen;
+    });
+    // ddPior em decimal (-0.30 = -30%). Quanto menos negativo, melhor.
+    // Score: 0% dd = 100pts, -10% = 75pts, -20% = 50pts, -30% = 25pts, -40%+ = 0pts
+    const ddPiorPct=ddPior*100;// negativo
+    let scoreResi;
+    if(ddPiorPct>=-5)scoreResi=100;
+    else if(ddPiorPct>=-15)scoreResi=75+(ddPiorPct+5)*2.5;
+    else if(ddPiorPct>=-25)scoreResi=50+(ddPiorPct+15)*2.5;
+    else if(ddPiorPct>=-35)scoreResi=25+(ddPiorPct+25)*2.5;
+    else if(ddPiorPct>=-50)scoreResi=Math.max(0,25+(ddPiorPct+25)*1);
+    else scoreResi=0;
+    scoreResi=Math.max(0,Math.min(100,scoreResi));
+
+    // ============== DIMENSAO 4: DIVERSIFICACAO (25%) ==============
+    // Mesma logica do DiversificationCard
+    const wAt=MPT_CLS.map(cid=>(cw[cid]||0)/100);
+    const somaW=wAt.reduce((a,b)=>a+b,0);
+    if(somaW>0)for(let i=0;i<wAt.length;i++)wAt[i]/=somaW;
+    let corrPondTotal=0,pesoTotalPares=0;
+    for(let i=0;i<MPT_CLS.length;i++){
+      for(let j=i+1;j<MPT_CLS.length;j++){
+        const peso=wAt[i]*wAt[j];
+        if(peso<=0)continue;
+        corrPondTotal+=MPT_COR[i][j]*peso;
+        pesoTotalPares+=peso;
+      }
+    }
+    const corrMediaPond=pesoTotalPares>0?corrPondTotal/pesoTotalPares:0;
+    const scoreDiv=Math.max(0,Math.min(100,(1-corrMediaPond)/2*100));
+
+    // ============== INDICE COMPOSTO ==============
+    const indice=(scoreTamanho+scoreRenda+scoreResi+scoreDiv)/4;
+    const corInd=indice>=80?"#4CAF82":indice>=65?"#7DD17D":indice>=50?"#C8A96E":indice>=35?"#E8C44A":indice>=20?"#E89060":"#E05252";
+    const lblInd=indice>=80?"BLINDADO":indice>=65?"ROBUSTO":indice>=50?"SOLIDO":indice>=35?"EM CONSTRUCAO":indice>=20?"FRAGIL":"INSUFICIENTE";
+    // Faixas para a banda visual (eixo 0-100)
+    const bandas=[
+      {min:0,max:20,nome:"insuficiente",cor:"#E05252"},
+      {min:20,max:35,nome:"fragil",cor:"#E89060"},
+      {min:35,max:50,nome:"em constru\u00e7\u00e3o",cor:"#E8C44A"},
+      {min:50,max:65,nome:"s\u00f3lido",cor:"#C8A96E"},
+      {min:65,max:80,nome:"robusto",cor:"#7DD17D"},
+      {min:80,max:100,nome:"blindado",cor:"#4CAF82"}
+    ];
+    const posPct=Math.max(0,Math.min(100,indice));
+    // Interpretacao textual
+    let interp;
+    if(indice>=80)interp="Portfolio em estado de tranquilidade plena. Capacidade de sustentar renda alvo indefinidamente, com diversificacao real e resistencia a choques severos.";
+    else if(indice>=65)interp="Portfolio robusto. Sustenta a renda alvo com margem confortavel e resiste bem a cenarios adversos historicos.";
+    else if(indice>=50)interp="Portfolio solido em construcao. Cobre a renda alvo no cenario base mas pede reforco em alguma dimensao para alcancar robustez plena.";
+    else if(indice>=35)interp="Portfolio em fase de construcao. Algumas dimensoes (tamanho, renda, resiliencia ou diversificacao) precisam de fortalecimento.";
+    else if(indice>=20)interp="Portfolio fragil para servir de unica fonte de sustento. Necessario continuar acumulando antes de considerar dependencia integral.";
+    else interp="Portfolio insuficiente para tranquilidade financeira. Foco em acumulacao - dependencia de salario continua essencial.";
+
+    return h("div",{style:{marginBottom:14,padding:"14px 16px",background:"linear-gradient(135deg,rgba(76,175,130,0.07),rgba(168,139,94,0.05))",border:"1px solid rgba(76,175,130,0.25)",borderRadius:10}},
+      // Header
+      h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:11,flexWrap:"wrap"}},
+        h("div",{style:{display:"flex",alignItems:"center",gap:7}},
+          h("span",{style:{fontSize:14}},"\u{1F6E1}\u{FE0F}"),
+          h("div",{style:{fontSize:10,letterSpacing:2.5,color:"#4CAF82",fontFamily:"monospace",textTransform:"uppercase",fontWeight:700}},"Tranquilidade Financeira")
+        ),
+        h("a",{href:"#",onClick:(e)=>{e.preventDefault();setTab("renda");},style:{fontSize:8.5,color:"#9C7DC2",fontFamily:"monospace",textDecoration:"underline",letterSpacing:1}},"VER ABA RENDA \u2192")
+      ),
+      // Score + banda
+      h("div",{style:{display:"grid",gridTemplateColumns:"auto 1fr",gap:14,alignItems:"center"}},
+        // Indice numerico
+        h("div",{style:{textAlign:"center",minWidth:80}},
+          h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",letterSpacing:1.5,marginBottom:2}},"\u00cdNDICE"),
+          h("div",{style:{fontSize:30,color:corInd,fontFamily:"monospace",fontWeight:700,lineHeight:1}},indice.toFixed(0),h("span",{style:{fontSize:14,opacity:0.6}},"/100")),
+          h("div",{style:{fontSize:9,color:corInd,fontFamily:"monospace",fontWeight:700,letterSpacing:1.5,marginTop:3}},lblInd)
+        ),
+        // Banda visual
+        h("div",{},
+          h("div",{style:{fontSize:8,color:"#7A7060",fontFamily:"monospace",letterSpacing:1,marginBottom:5,display:"flex",justifyContent:"space-between"}},
+            h("span",{},"BANDA DE TRANQUILIDADE"),
+            h("span",{style:{color:corInd,fontWeight:700}},indice.toFixed(0)," (",lblInd.toLowerCase(),")")
+          ),
+          // Barra com 6 segmentos coloridos
+          h("div",{style:{position:"relative",height:14,background:"rgba(0,0,0,0.30)",borderRadius:3,overflow:"hidden",border:"1px solid rgba(255,255,255,0.06)"}},
+            ...bandas.map((b,k)=>h("div",{key:"seg"+k,style:{position:"absolute",left:b.min+"%",width:(b.max-b.min)+"%",height:"100%",background:b.cor,opacity:0.35}})),
+            // Marcador
+            h("div",{style:{position:"absolute",left:"calc("+posPct+"% - 1.5px)",top:-2,width:3,height:18,background:"#F0EAD8",borderRadius:1,boxShadow:"0 0 4px rgba(0,0,0,0.5)"}})
+          ),
+          // Labels
+          h("div",{style:{display:"flex",justifyContent:"space-between",fontSize:7,color:"#5A5550",fontFamily:"monospace",marginTop:3,letterSpacing:0.5}},
+            h("span",{},"0 INSUFIC."),h("span",{},"50"),h("span",{},"100 BLINDADO")
+          )
+        )
+      ),
+      // Breakdown detalhado das 4 dimensoes com contribuicao e penalizacao
+      (()=>{
+        // Cada dimensao vale ate 25 pontos do indice final.
+        // Contribuicao real = score/4. Penalizacao = 25 - contribuicao.
+        const dims=[
+          {id:"tam",label:"\u{1F4B0} TAMANHO",cor:"#C8A96E",score:scoreTamanho,detail:hideVal?"\u2022\u2022\u2022":multFIRE.toFixed(1)+"x meta anual",alvo:"alvo: 28x (FIRE seguro BR)"},
+          {id:"ren",label:"\u{1F525} RENDA ICR-RTE",cor:"#F7931A",score:scoreRenda,detail:coberturaPct.toFixed(0)+"% da meta ("+fB(rendaRTE/12)+"/m\u00eas)",alvo:"alvo: \u2265150% (folga plena)"},
+          {id:"res",label:"\u{1F6E1} RESILI\u00caNCIA",cor:"#5B8FD4",score:scoreResi,detail:"pior dd hist: "+ddPiorPct.toFixed(1)+"%",alvo:"alvo: dd \u2265 \u22125% (blindado)"},
+          {id:"div",label:"\u{1F517} DIVERSIF.",cor:"#9C7DC2",score:scoreDiv,detail:"corr m\u00e9dia "+corrMediaPond.toFixed(2),alvo:"alvo: corr \u22640.0 (descorrel.)"}
+        ];
+        // Identifica o maior gargalo (menor score)
+        const ordenado=dims.slice().sort((a,b)=>a.score-b.score);
+        const gargalo=ordenado[0];
+        const segundo=ordenado[1];
+        const indiceMax=100;
+        const indicePerdido=indiceMax-indice;
+
+        return h("div",{style:{marginTop:11,padding:"11px 12px",background:"rgba(0,0,0,0.22)",borderRadius:6}},
+          // Header com totais
+          h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:9,paddingBottom:7,borderBottom:"1px solid rgba(255,255,255,0.06)"}},
+            h("div",{style:{fontSize:8,color:"#7A7060",fontFamily:"monospace",letterSpacing:1.2}},"DECOMPOSI\u00c7\u00c3O DO \u00cdNDICE"),
+            h("div",{style:{fontSize:8,fontFamily:"monospace",letterSpacing:0.5}},
+              h("span",{style:{color:corInd}},indice.toFixed(0)),
+              h("span",{style:{color:"#5A5550"}}," + "),
+              h("span",{style:{color:"#E89060"}},indicePerdido.toFixed(0)),
+              h("span",{style:{color:"#5A5550"}}," = 100"),
+              h("span",{style:{color:"#5A5550",fontSize:7,marginLeft:6}},"(conquistado + perdido)")
+            )
+          ),
+
+          // Linhas das 4 dimensoes (uma por linha, mais detalhada)
+          h("div",{style:{display:"flex",flexDirection:"column",gap:6}},
+            ...dims.map((d,k)=>{
+              const contrib=d.score/4;// contribuicao real ao indice (0-25)
+              const perdido=25-contrib;// quanto perdeu desta dimensao (0-25)
+              const corScore=d.score>=65?"#4CAF82":d.score>=35?"#E8C44A":"#E89060";
+              const isGargalo=d.id===gargalo.id;
+              return h("div",{key:k,style:{padding:"7px 9px",background:isGargalo?d.cor+"15":"rgba(255,255,255,0.02)",borderLeft:"3px solid "+d.cor,borderRadius:"0 4px 4px 0",position:"relative"}},
+                // Badge GARGALO
+                isGargalo&&h("div",{style:{position:"absolute",top:5,right:7,fontSize:6.5,letterSpacing:1,color:"#E89060",fontFamily:"monospace",fontWeight:700,padding:"1px 5px",background:"rgba(232,144,96,0.18)",border:"1px solid rgba(232,144,96,0.50)",borderRadius:2}},"\u26A0 GARGALO"),
+                // Linha 1: label + score
+                h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:3,paddingRight:isGargalo?60:0}},
+                  h("span",{style:{fontSize:8,color:d.cor,fontFamily:"monospace",letterSpacing:0.6,fontWeight:700}},d.label),
+                  h("span",{style:{fontSize:10,color:corScore,fontFamily:"monospace",fontWeight:700}},d.score.toFixed(0),h("span",{style:{fontSize:7,color:"#7A7060",fontWeight:400}},"/100"))
+                ),
+                // Linha 2: contribuicao e penalizacao
+                h("div",{style:{display:"flex",alignItems:"center",gap:6,marginBottom:3}},
+                  // Barra horizontal: verde (contrib) + vermelha (perdido)
+                  h("div",{style:{flex:1,display:"flex",height:6,borderRadius:2,overflow:"hidden",background:"rgba(0,0,0,0.30)"}},
+                    h("div",{style:{width:(contrib/25*100)+"%",background:d.cor,opacity:0.85}}),
+                    h("div",{style:{width:(perdido/25*100)+"%",background:"#E05252",opacity:0.30}})
+                  ),
+                  h("span",{style:{fontSize:7.5,fontFamily:"monospace",color:d.cor,fontWeight:700,minWidth:42,textAlign:"right"}},"+"+contrib.toFixed(1)+"pts"),
+                  h("span",{style:{fontSize:7.5,fontFamily:"monospace",color:"#E89060",minWidth:40,textAlign:"right"}},"\u2212"+perdido.toFixed(1))
+                ),
+                // Linha 3: detalhe + alvo
+                h("div",{style:{display:"flex",justifyContent:"space-between",fontSize:7,color:"#7A7060",fontFamily:"monospace",letterSpacing:0.3}},
+                  h("span",{},d.detail),
+                  h("span",{style:{fontStyle:"italic",opacity:0.75}},d.alvo)
+                )
+              );
+            })
+          ),
+
+          // Diagnostico de onde melhorar
+          h("div",{style:{marginTop:9,padding:"7px 10px",background:"rgba(232,144,96,0.07)",border:"1px solid rgba(232,144,96,0.25)",borderRadius:4,fontSize:8.5,color:"#C8C0B0",lineHeight:1.5}},
+            h("strong",{style:{color:"#E89060"}},"\u{1F50D} ONDE MELHORAR: "),
+            h("span",{},"o maior gargalo \u00e9 "),
+            h("strong",{style:{color:gargalo.cor}},gargalo.label.replace(/^.\s/,"")),
+            h("span",{}," (perdeu "),
+            h("strong",{style:{color:"#E89060"}},(25-gargalo.score/4).toFixed(1)+"pts"),
+            h("span",{}," dos 25 poss\u00edveis); seguido por "),
+            h("strong",{style:{color:segundo.cor}},segundo.label.replace(/^.\s/,"")),
+            h("span",{}," ("),
+            h("strong",{style:{color:"#E89060"}},"\u2212"+(25-segundo.score/4).toFixed(1)+"pts"),
+            h("span",{},"). Avan\u00e7ar nessas duas dimens\u00f5es \u00e9 o caminho mais r\u00e1pido para subir de banda.")
+          )
+        );
+      })(),
+
+      // ===== CARD EXPANSIVEL: COMO O INDICE E CALCULADO =====
+      h("details",{style:{marginTop:11,padding:"8px 11px",background:"rgba(91,143,212,0.06)",border:"1px solid rgba(91,143,212,0.20)",borderRadius:5}},
+        h("summary",{style:{cursor:"pointer",userSelect:"none",fontSize:9,color:"#5B8FD4",fontFamily:"monospace",letterSpacing:1.3,fontWeight:700,outline:"none"}},
+          "\u2139 COMO O \u00cdNDICE \u00c9 CALCULADO E AS BANDAS VISUAIS"
+        ),
+        h("div",{style:{marginTop:9,fontSize:9,color:"#C8C0B0",lineHeight:1.65}},
+
+          // Intro
+          h("p",{style:{margin:"0 0 9px"}},
+            "O \u00edndice agrega ",h("strong",{},"4 dimens\u00f5es independentes")," do portfolio em uma nota \u00fanica de 0 a 100. Cada dimens\u00e3o vale ",h("strong",{},"25 pontos m\u00e1ximos"),", e o \u00edndice final \u00e9 a m\u00e9dia simples. A ideia: um portfolio s\u00f3 \u00e9 verdadeiramente tranquilo quando \u00e9 ",h("strong",{},"grande"),", ",h("strong",{},"gera renda perpetua"),", ",h("strong",{},"resiste a crises")," e ",h("strong",{},"\u00e9 diversificado")," - n\u00e3o basta brilhar em uma s\u00f3 dimens\u00e3o."
+          ),
+
+          // ===== DIMENSAO 1: TAMANHO =====
+          h("div",{style:{marginBottom:9,padding:"8px 10px",background:"rgba(168,139,94,0.08)",borderLeft:"3px solid #C8A96E",borderRadius:"0 4px 4px 0"}},
+            h("div",{style:{fontSize:9,letterSpacing:1.2,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,marginBottom:5}},"\u{1F4B0} 1. TAMANHO DO PATRIMONIO (25%)"),
+            h("p",{style:{margin:"0 0 5px"}},
+              h("strong",{},"M\u00e9trica: "),"multiplo da meta anual = patrim\u00f4nio \u00f7 (meta_mensal \u00d7 12). Calibracao adaptada ao Brasil (Selic real alta + horizonte 30-40 anos + motores de renda preservados):"
+            ),
+            h("div",{style:{padding:"6px 8px",background:"rgba(0,0,0,0.20)",borderRadius:3,fontFamily:"monospace",fontSize:8.5,lineHeight:1.7}},
+              h("div",{},h("span",{style:{color:"#E05252",fontWeight:700}},"0-8x meta"),"   \u2192 0-30pts ",h("span",{style:{color:"#5A5550"}},"(acumula\u00e7\u00e3o inicial)")),
+              h("div",{},h("span",{style:{color:"#E89060",fontWeight:700}},"8-20x meta"),"  \u2192 30-60pts ",h("span",{style:{color:"#5A5550"}},"(em constru\u00e7\u00e3o)")),
+              h("div",{},h("span",{style:{color:"#7DD17D",fontWeight:700}},"20x meta"),"     \u2192 ",h("strong",{},"60pts - FIRE B\u00c1SICO BR")," ",h("span",{style:{color:"#5A5550"}},"(SWR 5% sustent\u00e1vel)")),
+              h("div",{},h("span",{style:{color:"#4CAF82",fontWeight:700}},"28x meta"),"     \u2192 ",h("strong",{},"80pts - FIRE SEGURO BR")," ",h("span",{style:{color:"#5A5550"}},"(SWR 3.5%, cushion 35-40 anos)")),
+              h("div",{},h("span",{style:{color:"#4CAF82",fontWeight:700}},"40x+ meta"),"    \u2192 ",h("strong",{},"100pts - FAT FIRE BR")," ",h("span",{style:{color:"#5A5550"}},"(SWR 2.5%, blindado)"))
+            ),
+            h("p",{style:{margin:"5px 0 0",fontSize:8.5,fontStyle:"italic",color:"#9A9080"}},
+              h("strong",{},"Por que faixas BR vs Trinity Study? "),"Trinity (EUA) usa 25x/33x/50x com SWR 4%. No Brasil, Selic real maior (5-6% atual) permite SWR mais agressivo; horizonte de vida tipico mais curto (35-40 anos vs 50+); e portfolios B&H aqui t\u00eam motores de renda isentos (FII/Infra/Agro DY 9%+) que rendem ALEM do SWR. Por isso 20x j\u00e1 e FIRE basico BR vi\u00e1vel."
+            )
+          ),
+
+          // ===== DIMENSAO 2: RENDA =====
+          h("div",{style:{marginBottom:9,padding:"8px 10px",background:"rgba(247,147,26,0.08)",borderLeft:"3px solid #F7931A",borderRadius:"0 4px 4px 0"}},
+            h("div",{style:{fontSize:9,letterSpacing:1.2,color:"#F7931A",fontFamily:"monospace",fontWeight:700,marginBottom:5}},"\u{1F525} 2. RENDA ICR-RTE (25%)"),
+            h("p",{style:{margin:"0 0 5px"}},
+              h("strong",{},"M\u00e9trica: "),"cobertura da meta pela renda total estrategica (mesmo c\u00e1lculo da aba Renda). Soma de ",h("em",{},"dividendos l\u00edquidos de todas as classes")," + ",h("em",{},"SWR 4% sobre classes n\u00e3o-motoras")," (Selic, Treasuries, NTN-B, REITs, A\u00e7\u00f5es BR/EXT, BTC, Ouro). Motores (FII+Infra+Agro) preservados, contribuem so com div\u00eddendos."
+            ),
+            h("div",{style:{padding:"6px 8px",background:"rgba(0,0,0,0.20)",borderRadius:3,fontFamily:"monospace",fontSize:8.5,lineHeight:1.7}},
+              h("div",{},h("span",{style:{color:"#E05252",fontWeight:700}},"<60%"),"     \u2192 0-30pts ",h("span",{style:{color:"#5A5550"}},"(deficit severo)")),
+              h("div",{},h("span",{style:{color:"#E89060",fontWeight:700}},"60-100%"),"  \u2192 30-70pts ",h("span",{style:{color:"#5A5550"}},"(deficit a limite)")),
+              h("div",{},h("span",{style:{color:"#7DD17D",fontWeight:700}},"100%"),"     \u2192 70pts ",h("span",{style:{color:"#5A5550"}},"(cobre apertado)")),
+              h("div",{},h("span",{style:{color:"#4CAF82",fontWeight:700}},"120%"),"     \u2192 85pts ",h("span",{style:{color:"#5A5550"}},"(folga modesta)")),
+              h("div",{},h("span",{style:{color:"#4CAF82",fontWeight:700}},"\u2265150%"),"   \u2192 100pts ",h("span",{style:{color:"#5A5550"}},"(folga plena - acumula\u00e7\u00e3o livre)"))
+            )
+          ),
+
+          // ===== DIMENSAO 3: RESILIENCIA =====
+          h("div",{style:{marginBottom:9,padding:"8px 10px",background:"rgba(91,143,212,0.08)",borderLeft:"3px solid #5B8FD4",borderRadius:"0 4px 4px 0"}},
+            h("div",{style:{fontSize:9,letterSpacing:1.2,color:"#5B8FD4",fontFamily:"monospace",fontWeight:700,marginBottom:5}},"\u{1F6E1}\u{FE0F} 3. RESILIENCIA A DRAWDOWNS (25%)"),
+            h("p",{style:{margin:"0 0 5px"}},
+              h("strong",{},"M\u00e9trica: "),"pior drawdown ponderado entre os 5 cenarios historicos curados na aba Stress (",h("em",{},"2008 - Crise Financeira, 2020 - COVID, 2015 - Recessao BR, 2022 - Stagflacao, hipotetico - Crise Fiscal BR"),"). Aplica os drawdowns historicos por classe aos seus pesos atuais."
+            ),
+            h("div",{style:{padding:"6px 8px",background:"rgba(0,0,0,0.20)",borderRadius:3,fontFamily:"monospace",fontSize:8.5,lineHeight:1.7}},
+              h("div",{},h("span",{style:{color:"#E05252",fontWeight:700}},"dd \u2264 -35%"),"   \u2192 0-25pts ",h("span",{style:{color:"#5A5550"}},"(crise destrutiva)")),
+              h("div",{},h("span",{style:{color:"#E89060",fontWeight:700}},"dd -25 a -35%"),"\u2192 25-50pts ",h("span",{style:{color:"#5A5550"}},"(severo)")),
+              h("div",{},h("span",{style:{color:"#E8C44A",fontWeight:700}},"dd -15 a -25%"),"\u2192 50-75pts ",h("span",{style:{color:"#5A5550"}},"(moderado)")),
+              h("div",{},h("span",{style:{color:"#7DD17D",fontWeight:700}},"dd -5 a -15%"),"\u2192 75-100pts ",h("span",{style:{color:"#5A5550"}},"(amortecido)")),
+              h("div",{},h("span",{style:{color:"#4CAF82",fontWeight:700}},"dd \u2265 -5%"),"   \u2192 100pts ",h("span",{style:{color:"#5A5550"}},"(blindado)"))
+            )
+          ),
+
+          // ===== DIMENSAO 4: DIVERSIFICACAO =====
+          h("div",{style:{marginBottom:9,padding:"8px 10px",background:"rgba(156,125,194,0.08)",borderLeft:"3px solid #9C7DC2",borderRadius:"0 4px 4px 0"}},
+            h("div",{style:{fontSize:9,letterSpacing:1.2,color:"#9C7DC2",fontFamily:"monospace",fontWeight:700,marginBottom:5}},"\u{1F517} 4. DIVERSIFICACAO (25%)"),
+            h("p",{style:{margin:"0 0 5px"}},
+              h("strong",{},"M\u00e9trica: "),"score baseado na correlacao media ponderada entre todas as classes (mesma f\u00f3rmula do card Diversificacao). Convertida de [-1, +1] para [0, 100] via ",h("em",{},"(1 - corr_media) / 2 \u00d7 100"),"."
+            ),
+            h("div",{style:{padding:"6px 8px",background:"rgba(0,0,0,0.20)",borderRadius:3,fontFamily:"monospace",fontSize:8.5,lineHeight:1.7}},
+              h("div",{},h("span",{style:{color:"#4CAF82",fontWeight:700}},"corr \u2264 0.0"),"  \u2192 \u226550pts ",h("span",{style:{color:"#5A5550"}},"(classes descorrelacionadas)")),
+              h("div",{},h("span",{style:{color:"#E8C44A",fontWeight:700}},"corr 0.2-0.4"),"\u2192 30-40pts ",h("span",{style:{color:"#5A5550"}},"(diversificacao limitada)")),
+              h("div",{},h("span",{style:{color:"#E89060",fontWeight:700}},"corr 0.4-0.7"),"\u2192 15-30pts ",h("span",{style:{color:"#5A5550"}},"(concentrada)")),
+              h("div",{},h("span",{style:{color:"#E05252",fontWeight:700}},"corr > 0.7"),"   \u2192 0-15pts ",h("span",{style:{color:"#5A5550"}},"(falha de diversifica\u00e7\u00e3o)"))
+            )
+          ),
+
+          // ===== BANDAS FINAIS =====
+          h("div",{style:{padding:"8px 10px",background:"rgba(76,175,130,0.08)",borderLeft:"3px solid #4CAF82",borderRadius:"0 4px 4px 0"}},
+            h("div",{style:{fontSize:9,letterSpacing:1.2,color:"#4CAF82",fontFamily:"monospace",fontWeight:700,marginBottom:5}},"\u{1F3AF} BANDAS FINAIS DO INDICE COMPOSTO"),
+            h("p",{style:{margin:"0 0 5px"}},
+              "Apos somar as 4 contribui\u00e7\u00f5es (cada classe contribui com score/4 ao total), o resultado cai em uma de 6 bandas:"
+            ),
+            h("div",{style:{padding:"6px 8px",background:"rgba(0,0,0,0.20)",borderRadius:3,fontFamily:"monospace",fontSize:8.5,lineHeight:1.7}},
+              h("div",{},h("span",{style:{color:"#E05252",fontWeight:700}},"0-20"),"     \u2192 INSUFICIENTE ",h("span",{style:{color:"#5A5550"}},"(salario continua essencial)")),
+              h("div",{},h("span",{style:{color:"#E89060",fontWeight:700}},"20-35"),"   \u2192 FRAGIL ",h("span",{style:{color:"#5A5550"}},"(quebra facil em crise)")),
+              h("div",{},h("span",{style:{color:"#E8C44A",fontWeight:700}},"35-50"),"   \u2192 EM CONSTRUCAO ",h("span",{style:{color:"#5A5550"}},"(caminho certo, faltam dimensoes)")),
+              h("div",{},h("span",{style:{color:"#C8A96E",fontWeight:700}},"50-65"),"   \u2192 SOLIDO ",h("span",{style:{color:"#5A5550"}},"(cobre meta no base case)")),
+              h("div",{},h("span",{style:{color:"#7DD17D",fontWeight:700}},"65-80"),"   \u2192 ROBUSTO ",h("span",{style:{color:"#5A5550"}},"(resiste a stress hist\u00f3rico)")),
+              h("div",{},h("span",{style:{color:"#4CAF82",fontWeight:700}},"80-100"),"  \u2192 BLINDADO ",h("span",{style:{color:"#5A5550"}},"(tranquilidade plena)"))
+            )
+          )
+        )
+      ),
+
+      // ===== CONCLUSAO ESTRATEGICA (sempre visivel) =====
+      (()=>{
+        // Conclusao dinamica baseada nos 4 scores
+        // Identifica forcas e gargalos automaticamente
+        const dimsCl=[
+          {nome:"tamanho",score:scoreTamanho,forte:"voce esta acumulando bem - patrim\u00f4nio em "+multFIRE.toFixed(1)+"x meta anual",fraco:"o patrim\u00f4nio ainda \u00e9 modesto vs a meta - continuar acumulando"},
+          {nome:"renda",score:scoreRenda,forte:"sua renda perp\u00e9tua estimada ja cobre "+coberturaPct.toFixed(0)+"% da meta",fraco:"a renda perp\u00e9tua ("+coberturaPct.toFixed(0)+"%) ainda esta abaixo da meta"},
+          {nome:"resili\u00eancia",score:scoreResi,forte:"o portfolio resiste bem a stress (pior dd hist\u00f3rico "+ddPiorPct.toFixed(0)+"%)",fraco:"em crises severas o portfolio cai "+(-ddPiorPct).toFixed(0)+"% - alta exposicao a risk assets"},
+          {nome:"diversifica\u00e7\u00e3o",score:scoreDiv,forte:"classes verdadeiramente independentes (corr "+corrMediaPond.toFixed(2)+")",fraco:"classes correlacionadas (corr "+corrMediaPond.toFixed(2)+") - reduz prote\u00e7\u00e3o em crises sist\u00eamicas"}
+        ];
+        const fortes=dimsCl.filter(d=>d.score>=65);
+        const fracos=dimsCl.filter(d=>d.score<50);
+        const medios=dimsCl.filter(d=>d.score>=50&&d.score<65);
+        // Recomputa gargalo no escopo deste IIFE
+        const gargaloLocal=dimsCl.slice().sort((a,b)=>a.score-b.score)[0];
+
+        // Determina natureza geral do portfolio
+        let leituraGeral,proximoPasso;
+        if(indice>=80){
+          leituraGeral="Tranquilidade financeira em estado pleno. As 4 dimensoes do portfolio convergem para um quadro de robustez excepcional.";
+          proximoPasso="Manter disciplina de aportes e rebalanceamento; o desafio agora \u00e9 preservar a robustez ja conquistada contra erros estrat\u00e9gicos.";
+        }else if(indice>=65){
+          leituraGeral="Portfolio robusto. Sustenta a meta com folga e resiste bem a cen\u00e1rios hist\u00f3ricos adversos. Pequenos ajustes podem levar \u00e0 blindagem plena.";
+          proximoPasso="Foco em consolidar a dimens\u00e3o mais fraca para subir de banda - geralmente diversifica\u00e7\u00e3o ou tamanho.";
+        }else if(indice>=50){
+          leituraGeral="Portfolio s\u00f3lido em construcao. A renda passiva j\u00e1 e robusta, mas faltam pe\u00e7as estruturais (tamanho, resili\u00eancia ou diversifica\u00e7\u00e3o) para alcan\u00e7ar tranquilidade plena.";
+          proximoPasso="Avancar no gargalo principal ("+gargaloLocal.nome+") via direcao dos aportes mensais - rebalanceamento contraciclico \u00e9 a alavanca mais eficiente.";
+        }else if(indice>=35){
+          leituraGeral="Portfolio em fase intermedi\u00e1ria. Algumas dimensoes funcionam, mas a tranquilidade financeira plena exige fortalecimento estrutural antes de servir de \u00fanica fonte de sustento.";
+          proximoPasso="Priorizar acumula\u00e7\u00e3o e diversifica\u00e7\u00e3o sistem\u00e1tica - dep\u00eandencia integral do portfolio ainda \u00e9 prematura.";
+        }else if(indice>=20){
+          leituraGeral="Portfolio em construcao inicial. Apesar de existirem componentes positivos, a fragilidade ainda \u00e9 dominante.";
+          proximoPasso="Foco total em acumular e diversificar - sal\u00e1rio continua sendo a base essencial.";
+        }else{
+          leituraGeral="Patrim\u00f4nio insuficiente para sustento independente. Foco em acumula\u00e7\u00e3o disciplinada.";
+          proximoPasso="Aporte mensal m\u00e1ximo poss\u00edvel - tempo \u00e9 o ativo mais importante neste est\u00e1gio.";
+        }
+
+        return h("div",{style:{marginTop:11,padding:"12px 14px",background:"linear-gradient(135deg,rgba(200,169,110,0.10),rgba(76,175,130,0.04))",border:"1px solid rgba(200,169,110,0.30)",borderRadius:7}},
+          h("div",{style:{display:"flex",alignItems:"center",gap:8,marginBottom:7}},
+            h("span",{style:{fontSize:13}},"\u{1F4DD}"),
+            h("div",{style:{fontSize:9,letterSpacing:1.8,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,textTransform:"uppercase"}},"Conclus\u00e3o Estrat\u00e9gica")
+          ),
+
+          // Leitura geral
+          h("p",{style:{margin:"0 0 7px",fontSize:9.5,color:"#E8DCC0",lineHeight:1.6,fontFamily:"Georgia,serif",fontStyle:"italic"}},
+            leituraGeral
+          ),
+
+          // Forcas
+          fortes.length>0&&h("div",{style:{marginBottom:5,fontSize:9,color:"#C8C0B0",lineHeight:1.55}},
+            h("strong",{style:{color:"#4CAF82"}},"\u2705 Pontos fortes: "),
+            fortes.map((d,i)=>h("span",{key:"f"+i},d.forte,i<fortes.length-1?"; ":".")).reduce((a,b)=>[a,b])
+          ),
+
+          // Pontos a desenvolver
+          fracos.length>0&&h("div",{style:{marginBottom:5,fontSize:9,color:"#C8C0B0",lineHeight:1.55}},
+            h("strong",{style:{color:"#E89060"}},"\u26A0 Pontos a desenvolver: "),
+            fracos.map((d,i)=>h("span",{key:"w"+i},d.fraco,i<fracos.length-1?"; ":".")).reduce((a,b)=>[a,b])
+          ),
+
+          // Pontos medios
+          medios.length>0&&h("div",{style:{marginBottom:5,fontSize:9,color:"#C8C0B0",lineHeight:1.55}},
+            h("strong",{style:{color:"#E8C44A"}},"\u{1F4CA} Dimens\u00f5es intermedi\u00e1rias: "),
+            medios.map((d,i)=>h("span",{key:"m"+i},d.nome,i<medios.length-1?", ":"")).reduce((a,b)=>[a,b]),
+            " - margem clara de melhoria."
+          ),
+
+          // Proximo passo (CTA)
+          h("div",{style:{marginTop:8,padding:"7px 9px",background:"rgba(91,143,212,0.10)",borderLeft:"3px solid #5B8FD4",borderRadius:"0 4px 4px 0",fontSize:9,color:"#C8C0B0",lineHeight:1.55}},
+            h("strong",{style:{color:"#5B8FD4"}},"\u{1F3AF} Pr\u00f3ximo passo estrat\u00e9gico: "),
+            proximoPasso
+          )
+        );
+      })()
+    );
+  }catch(e){console.error("Erro TranquilidadeCard:",e);return null;}
+}
+
 function BolsasCard({port,cls}){
   const [tick,setTick]=useState(0);
   const [expanded,setExpanded]=useState(false);
@@ -5900,7 +6304,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
       const dataHoje=diasSem[hojeData.getDay()]+", "+hojeData.getDate()+" de "+meses[hojeData.getMonth()]+" de "+hojeData.getFullYear();
       const dateHeader=h("div",{style:{fontSize:10,color:"#7A7060",fontFamily:"Georgia,serif",fontStyle:"italic",letterSpacing:0.5,marginBottom:14,paddingBottom:9,borderBottom:"1px solid rgba(200,169,110,0.12)",textAlign:"right"}},dataHoje);
 
-      content=h("div",{},dateHeader,h(BolsasCard,{port,cls}),aporteCard,insightCard,h(AllocChart,{cw,ct,fB,MV,hideVal}),h(DiversificationCard,{cw,setTab}),h(RiskChart,{cw,selicAtual,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,recalibrarRR_viaIA,calibracaoLoad,calibracaoErr,hasAjustesIA:!!ajustesRR_IA,apiKey}),h(EvolChart,{histMensal,hist,showUSD,setShowUSD,hideVal}),h(ComparativoChart,{histMensal,idxMensal,hideVal}),insightMensalCard,h(HeatmapChart,{hist,histMensal}),h(CurrencyChart,{port,cls,hideVal}),topPos);
+      content=h("div",{},dateHeader,h(BolsasCard,{port,cls}),h(TranquilidadeCard,{total,cw,port,metaMensalIF,setTab,fB,hideVal}),aporteCard,insightCard,h(AllocChart,{cw,ct,fB,MV,hideVal}),h(DiversificationCard,{cw,setTab}),h(RiskChart,{cw,selicAtual,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,recalibrarRR_viaIA,calibracaoLoad,calibracaoErr,hasAjustesIA:!!ajustesRR_IA,apiKey}),h(EvolChart,{histMensal,hist,showUSD,setShowUSD,hideVal}),h(ComparativoChart,{histMensal,idxMensal,hideVal}),insightMensalCard,h(HeatmapChart,{hist,histMensal}),h(CurrencyChart,{port,cls,hideVal}),topPos);
     }
   }  // POSITIONS
   if(tab==="positions"||tab==="correlacao"){
