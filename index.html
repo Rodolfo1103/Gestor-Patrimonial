@@ -1386,46 +1386,203 @@ function TranquilidadeCard({total,cw,port,metaMensalIF,setTab,fB,hideVal}){
           ),
 
           // ===== DIMENSAO 2: RENDA =====
-          h("div",{style:{marginBottom:9,padding:"8px 10px",background:"rgba(247,147,26,0.08)",borderLeft:"3px solid #F7931A",borderRadius:"0 4px 4px 0"}},
-            h("div",{style:{fontSize:9,letterSpacing:1.2,color:"#F7931A",fontFamily:"monospace",fontWeight:700,marginBottom:5}},"\u{1F525} 2. RENDA ICR-RTE (25%)"),
-            h("p",{style:{margin:"0 0 5px"}},
-              h("strong",{},"M\u00e9trica: "),"cobertura da meta pela renda total estrategica (mesmo c\u00e1lculo da aba Renda). Soma de ",h("em",{},"dividendos l\u00edquidos de todas as classes")," + ",h("em",{},"SWR 4% sobre classes n\u00e3o-motoras")," (Selic, Treasuries, NTN-B, REITs, A\u00e7\u00f5es BR/EXT, BTC, Ouro). Motores (FII+Infra+Agro) preservados, contribuem so com div\u00eddendos."
+          h("div",{style:{marginBottom:9,padding:"9px 11px",background:"rgba(247,147,26,0.08)",borderLeft:"3px solid #F7931A",borderRadius:"0 4px 4px 0"}},
+            h("div",{style:{fontSize:9,letterSpacing:1.2,color:"#F7931A",fontFamily:"monospace",fontWeight:700,marginBottom:6}},"\u{1F525} 2. RENDA ICR-RTE (25%)"),
+
+            // O conceito
+            h("p",{style:{margin:"0 0 7px"}},
+              h("strong",{style:{color:"#F7931A"}},"\u{1F4D6} O CONCEITO: "),
+              "Enquanto Tamanho mede o ",h("em",{},"estoque")," (quanto voc\u00ea tem), Renda mede o ",h("em",{},"fluxo")," (quanto pode sacar mensalmente sem corroer o principal). ",h("strong",{},"ICR-RTE = Renda Total Estrategica")," - combina dividendos l\u00edquidos recorrentes (sem vender nada) + saque sustent\u00e1vel de 4% ao ano sobre classes nao-motoras. Esse \u00e9 o n\u00famero que importa para FIRE: ",h("strong",{},"quanto sai do portfolio no seu bolso por m\u00eas"),"."
             ),
-            h("div",{style:{padding:"6px 8px",background:"rgba(0,0,0,0.20)",borderRadius:3,fontFamily:"monospace",fontSize:8.5,lineHeight:1.7}},
-              h("div",{},h("span",{style:{color:"#E05252",fontWeight:700}},"<60%"),"     \u2192 0-30pts ",h("span",{style:{color:"#5A5550"}},"(deficit severo)")),
-              h("div",{},h("span",{style:{color:"#E89060",fontWeight:700}},"60-100%"),"  \u2192 30-70pts ",h("span",{style:{color:"#5A5550"}},"(deficit a limite)")),
-              h("div",{},h("span",{style:{color:"#7DD17D",fontWeight:700}},"100%"),"     \u2192 70pts ",h("span",{style:{color:"#5A5550"}},"(cobre apertado)")),
-              h("div",{},h("span",{style:{color:"#4CAF82",fontWeight:700}},"120%"),"     \u2192 85pts ",h("span",{style:{color:"#5A5550"}},"(folga modesta)")),
-              h("div",{},h("span",{style:{color:"#4CAF82",fontWeight:700}},"\u2265150%"),"   \u2192 100pts ",h("span",{style:{color:"#5A5550"}},"(folga plena - acumula\u00e7\u00e3o livre)"))
+
+            // Composicao
+            h("p",{style:{margin:"0 0 7px"}},
+              h("strong",{style:{color:"#F7931A"}},"\u{1F9EE} COMO E COMPOSTA: "),
+              "duas pernas somadas:"
+            ),
+            h("div",{style:{padding:"7px 9px",background:"rgba(0,0,0,0.22)",borderRadius:3,fontSize:8.5,lineHeight:1.7,marginBottom:7}},
+              h("div",{},h("span",{style:{color:"#4CAF82",fontWeight:700}},"(A) DIVIDENDOS LIQUIDOS"),": de TODAS as classes que pagam (FII isento, Infra isento, Agro isento, Selic com IR 15%, Treasuries com IR 30%+c\u00e2mbio, REITs 30%, A\u00e7\u00f5es BR e EXT)."),
+              h("div",{},h("span",{style:{color:"#5B8FD4",fontWeight:700}},"(B) SWR 4% AO ANO"),": aplicado APENAS sobre classes ",h("strong",{},"n\u00e3o-motoras")," (Selic, Treasuries, NTN-B, REITs, A\u00e7\u00f5es, BTC, Ouro). Esse 4% e a fra\u00e7\u00e3o que voce vende anualmente para complementar a renda."),
+              h("div",{style:{marginTop:3,fontStyle:"italic",color:"#9A9080"}},h("strong",{},"Motores preservados"),": FII + Infra + Agro NAO sofrem SWR - eles s\u00e3o ",h("em",{},"motores de renda perpetua")," (DY 8-10% isento, com crescimento real). Voce vive dos dividendos deles ",h("em",{},"sem nunca vender"),".")
+            ),
+
+            // ===== TABELA DINAMICA - VALORES MENSAIS =====
+            h("div",{style:{padding:"9px 11px",background:"rgba(76,175,130,0.06)",border:"1px solid rgba(76,175,130,0.25)",borderRadius:4,marginBottom:7}},
+              h("div",{style:{fontSize:8,letterSpacing:1.2,color:"#4CAF82",fontFamily:"monospace",fontWeight:700,marginBottom:6}},"\u{1F4B5} VALORES MENSAIS - QUANTO PRECISA RENDER (meta R$ "+(metaMensalIF/1000).toFixed(1)+"k/m\u00eas)"),
+              h("div",{style:{display:"grid",gridTemplateColumns:"55px 1fr 90px 50px",gap:6,padding:"4px 0",borderBottom:"1px solid rgba(255,255,255,0.10)",fontSize:7,fontFamily:"monospace",color:"#7A7060",letterSpacing:0.8,marginBottom:4}},
+                h("div",{},"COBERT."),
+                h("div",{},"FAIXA"),
+                h("div",{style:{textAlign:"right"}},"RENDA (R$/m)"),
+                h("div",{style:{textAlign:"right"}},"SCORE")
+              ),
+              ...[
+                {cob:60,nome:"D\u00e9ficit severo",cor:"#E05252",score:30,destaque:false},
+                {cob:coberturaPct,nome:"Voc\u00ea est\u00e1 aqui",cor:scoreRenda>=65?"#4CAF82":scoreRenda>=35?"#E8C44A":"#E89060",score:scoreRenda,destaque:true,renda:rendaRTE/12},
+                {cob:100,nome:"COBERTURA APERTADA",cor:"#7DD17D",score:70,destaque:false},
+                {cob:120,nome:"FOLGA MODESTA",cor:"#4CAF82",score:85,destaque:false},
+                {cob:150,nome:"FOLGA PLENA (alvo)",cor:"#4CAF82",score:100,destaque:false}
+              ].map((f,k)=>{
+                const rendaMensal=f.renda||(f.cob/100*metaMensalIF);
+                const rfmt=hideVal?"\u2022\u2022\u2022":"R$ "+(rendaMensal/1000).toFixed(1)+"k";
+                return h("div",{key:k,style:{display:"grid",gridTemplateColumns:"55px 1fr 90px 50px",gap:6,padding:"4px 0",fontSize:8.5,fontFamily:"monospace",alignItems:"center",background:f.destaque?"rgba(232,196,74,0.10)":"transparent",borderRadius:f.destaque?3:0,marginLeft:f.destaque?-3:0,marginRight:f.destaque?-3:0,paddingLeft:f.destaque?6:0,paddingRight:f.destaque?6:0,border:f.destaque?"1px solid rgba(232,196,74,0.35)":"none"}},
+                  h("div",{style:{color:f.cor,fontWeight:700}},f.destaque?"\u25BA "+f.cob.toFixed(0)+"%":f.cob.toFixed(0)+"%"),
+                  h("div",{style:{color:"#C8C0B0",fontSize:8}},f.nome),
+                  h("div",{style:{textAlign:"right",color:f.destaque?"#E8DCC0":"#9A9080",fontWeight:f.destaque?700:400}},rfmt),
+                  h("div",{style:{textAlign:"right",color:f.cor,fontWeight:700}},f.score.toFixed(0))
+                );
+              }),
+              // Diagnostico
+              h("div",{style:{marginTop:7,padding:"6px 8px",background:"rgba(0,0,0,0.25)",borderRadius:3,fontSize:8.5,lineHeight:1.55,color:"#C8C0B0"}},
+                h("strong",{style:{color:"#E8C44A"}},"\u{1F4CD} SEU CASO ("+coberturaPct.toFixed(0)+"%): "),
+                "seu portfolio gera ",h("strong",{},hideVal?"\u2022\u2022\u2022":"R$ "+(rendaRTE/12).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g,".")+"/m\u00eas")," contra meta de ",h("strong",{},"R$ "+(metaMensalIF/1000).toFixed(1)+"k/m\u00eas"),
+                coberturaPct>=150?". J\u00e1 cobre com folga plena - voce pode continuar acumulando livremente sem pressao de gera\u00e7\u00e3o de caixa.":
+                coberturaPct>=120?". J\u00e1 cobre com folga modesta - sustent\u00e1vel mas sem cushion grande contra surpresas.":
+                coberturaPct>=100?". Cobre apertado - margem zero. Necessario consolidar antes de depender exclusivamente dele.":
+                ". Ainda h\u00e1 deficit - a renda total e menor que sua meta de gasto. Continuar acumulando ate atingir cobertura."
+              )
+            ),
+
+            // Por que SWR de 4% aqui (vs 5%/3.5%/2.5% em Tamanho)
+            h("p",{style:{margin:"5px 0 0",fontSize:8.5,fontStyle:"italic",color:"#9A9080"}},
+              h("strong",{},"Por que SWR 4% aqui (vs 5% do FIRE basico BR)? "),
+              "ICR-RTE usa o SWR canonico do Trinity Study (4%) como ",h("em",{},"padr\u00e3o conservador universal")," para projetar renda perpetua. As faixas de tamanho (5%/3.5%/2.5%) refletem ",h("em",{},"horizontes de tempo diferentes"),"; mas o SWR 4% e o consenso academico para FIRE sustent\u00e1vel em 30 anos com confianca estat\u00edstica alta."
             )
           ),
 
           // ===== DIMENSAO 3: RESILIENCIA =====
-          h("div",{style:{marginBottom:9,padding:"8px 10px",background:"rgba(91,143,212,0.08)",borderLeft:"3px solid #5B8FD4",borderRadius:"0 4px 4px 0"}},
-            h("div",{style:{fontSize:9,letterSpacing:1.2,color:"#5B8FD4",fontFamily:"monospace",fontWeight:700,marginBottom:5}},"\u{1F6E1}\u{FE0F} 3. RESILIENCIA A DRAWDOWNS (25%)"),
-            h("p",{style:{margin:"0 0 5px"}},
-              h("strong",{},"M\u00e9trica: "),"pior drawdown ponderado entre os 5 cenarios historicos curados na aba Stress (",h("em",{},"2008 - Crise Financeira, 2020 - COVID, 2015 - Recessao BR, 2022 - Stagflacao, hipotetico - Crise Fiscal BR"),"). Aplica os drawdowns historicos por classe aos seus pesos atuais."
+          h("div",{style:{marginBottom:9,padding:"9px 11px",background:"rgba(91,143,212,0.08)",borderLeft:"3px solid #5B8FD4",borderRadius:"0 4px 4px 0"}},
+            h("div",{style:{fontSize:9,letterSpacing:1.2,color:"#5B8FD4",fontFamily:"monospace",fontWeight:700,marginBottom:6}},"\u{1F6E1}\u{FE0F} 3. RESILIENCIA A DRAWDOWNS (25%)"),
+
+            // O conceito
+            h("p",{style:{margin:"0 0 7px"}},
+              h("strong",{style:{color:"#5B8FD4"}},"\u{1F4D6} O CONCEITO: "),
+              "Resili\u00eancia mede ",h("strong",{},"quanto o portfolio cairia no pior cen\u00e1rio hist\u00f3rico conhecido"),". Em crises s\u00e9rias (2008, 2020, 2015), portfolios reais sofrem perdas grandes - resili\u00eancia alta significa que o seu ",h("em",{},"resiste melhor")," graças a hedge (ouro, NTN-B, Treasuries) e diversificacao. ",h("strong",{},"Importante: drawdown e tempor\u00e1rio - se voce nao vende, recupera"),"; mas drawdown alto + necessidade de vender = perda materializada."
             ),
-            h("div",{style:{padding:"6px 8px",background:"rgba(0,0,0,0.20)",borderRadius:3,fontFamily:"monospace",fontSize:8.5,lineHeight:1.7}},
-              h("div",{},h("span",{style:{color:"#E05252",fontWeight:700}},"dd \u2264 -35%"),"   \u2192 0-25pts ",h("span",{style:{color:"#5A5550"}},"(crise destrutiva)")),
-              h("div",{},h("span",{style:{color:"#E89060",fontWeight:700}},"dd -25 a -35%"),"\u2192 25-50pts ",h("span",{style:{color:"#5A5550"}},"(severo)")),
-              h("div",{},h("span",{style:{color:"#E8C44A",fontWeight:700}},"dd -15 a -25%"),"\u2192 50-75pts ",h("span",{style:{color:"#5A5550"}},"(moderado)")),
-              h("div",{},h("span",{style:{color:"#7DD17D",fontWeight:700}},"dd -5 a -15%"),"\u2192 75-100pts ",h("span",{style:{color:"#5A5550"}},"(amortecido)")),
-              h("div",{},h("span",{style:{color:"#4CAF82",fontWeight:700}},"dd \u2265 -5%"),"   \u2192 100pts ",h("span",{style:{color:"#5A5550"}},"(blindado)"))
+
+            // Como e calculado
+            h("p",{style:{margin:"0 0 7px"}},
+              h("strong",{style:{color:"#5B8FD4"}},"\u{1F9EE} COMO E CALCULADO: "),
+              "rodamos 5 cen\u00e1rios hist\u00f3ricos curados (ja na aba Stress), aplicando os drawdowns reais por classe aos SEUS pesos atuais. O resultado e o ",h("em",{},"pior")," dos 5 (cen\u00e1rio que mais machucaria seu portfolio):"
+            ),
+            h("div",{style:{padding:"7px 9px",background:"rgba(0,0,0,0.22)",borderRadius:3,fontSize:8.5,lineHeight:1.7,marginBottom:7}},
+              h("div",{},h("span",{style:{color:"#5B8FD4",fontWeight:700}},"\u{1F3E6} 2008")," - Crise Financeira: Lehman cai, equity global -50%, REITs -67%, ouro +25%"),
+              h("div",{},h("span",{style:{color:"#5B8FD4",fontWeight:700}},"\u{1F9A0} 2020")," - COVID: crash em V, BTC -50% antes do rali, recuperacao mais rapida da hist\u00f3ria"),
+              h("div",{},h("span",{style:{color:"#5B8FD4",fontWeight:700}},"\u{1F1E7}\u{1F1F7} 2015")," - Recess\u00e3o BR + Impeachment: B3 -35%, c\u00e2mbio USD/BRL +50%, EXT bombou"),
+              h("div",{},h("span",{style:{color:"#5B8FD4",fontWeight:700}},"\u{1F4C8} 2022")," - Stagflacao: tudo cai junto, BTC -77%, ate Treasuries -30%"),
+              h("div",{},h("span",{style:{color:"#5B8FD4",fontWeight:700}},"\u{1F525} 2026+")," - Hipot\u00e9tico Crise Fiscal BR: BR cai 40%, EXT/ouro protegem via c\u00e2mbio")
+            ),
+
+            // ===== TABELA DINAMICA - VALORES EM R$ DE PERDA POTENCIAL =====
+            h("div",{style:{padding:"9px 11px",background:"rgba(91,143,212,0.06)",border:"1px solid rgba(91,143,212,0.25)",borderRadius:4,marginBottom:7}},
+              h("div",{style:{fontSize:8,letterSpacing:1.2,color:"#5B8FD4",fontFamily:"monospace",fontWeight:700,marginBottom:6}},"\u{1F4B8} QUANTO VOC\u00ca PERDERIA TEMPORARIAMENTE EM CADA FAIXA"),
+              h("div",{style:{display:"grid",gridTemplateColumns:"60px 1fr 90px 50px",gap:6,padding:"4px 0",borderBottom:"1px solid rgba(255,255,255,0.10)",fontSize:7,fontFamily:"monospace",color:"#7A7060",letterSpacing:0.8,marginBottom:4}},
+                h("div",{},"DD %"),
+                h("div",{},"FAIXA"),
+                h("div",{style:{textAlign:"right"}},"PERDA (R$)"),
+                h("div",{style:{textAlign:"right"}},"SCORE")
+              ),
+              ...[
+                {dd:-40,nome:"Crise destrutiva",cor:"#E05252",score:0,destaque:false},
+                {dd:ddPiorPct,nome:"Voc\u00ea est\u00e1 aqui",cor:scoreResi>=65?"#4CAF82":scoreResi>=35?"#E8C44A":"#E89060",score:scoreResi,destaque:true},
+                {dd:-25,nome:"SEVERO",cor:"#E89060",score:50,destaque:false},
+                {dd:-15,nome:"MODERADO",cor:"#E8C44A",score:75,destaque:false},
+                {dd:-5,nome:"AMORTECIDO (alvo)",cor:"#7DD17D",score:100,destaque:false}
+              ].map((f,k)=>{
+                const perdaR=total*Math.abs(f.dd)/100;
+                const pfmt=hideVal?"\u2022\u2022\u2022":(perdaR>=1e6?"R$ "+(perdaR/1e6).toFixed(2)+"MM":"R$ "+(perdaR/1000).toFixed(0)+"k");
+                return h("div",{key:k,style:{display:"grid",gridTemplateColumns:"60px 1fr 90px 50px",gap:6,padding:"4px 0",fontSize:8.5,fontFamily:"monospace",alignItems:"center",background:f.destaque?"rgba(232,196,74,0.10)":"transparent",borderRadius:f.destaque?3:0,marginLeft:f.destaque?-3:0,marginRight:f.destaque?-3:0,paddingLeft:f.destaque?6:0,paddingRight:f.destaque?6:0,border:f.destaque?"1px solid rgba(232,196,74,0.35)":"none"}},
+                  h("div",{style:{color:f.cor,fontWeight:700}},f.destaque?"\u25BA "+f.dd.toFixed(0)+"%":f.dd.toFixed(0)+"%"),
+                  h("div",{style:{color:"#C8C0B0",fontSize:8}},f.nome),
+                  h("div",{style:{textAlign:"right",color:f.destaque?"#E8DCC0":"#9A9080",fontWeight:f.destaque?700:400}},"-"+pfmt),
+                  h("div",{style:{textAlign:"right",color:f.cor,fontWeight:700}},f.score.toFixed(0))
+                );
+              }),
+              // Diagnostico
+              h("div",{style:{marginTop:7,padding:"6px 8px",background:"rgba(0,0,0,0.25)",borderRadius:3,fontSize:8.5,lineHeight:1.55,color:"#C8C0B0"}},
+                h("strong",{style:{color:"#E8C44A"}},"\u{1F4CD} SEU CASO ("+ddPiorPct.toFixed(1)+"%): "),
+                "no pior cen\u00e1rio hist\u00f3rico aplicado ao seu portfolio atual, voc\u00ea perderia ",
+                h("strong",{},hideVal?"\u2022\u2022\u2022":"R$ "+((total*Math.abs(ddPiorPct)/100)/1e6).toFixed(2)+"MM")," temporariamente. ",
+                ddPiorPct>=-5?"Portfolio extremamente resiliente - praticamente blindado contra crises.":
+                ddPiorPct>=-15?"Amortecimento bom - perda controlada mesmo em crises s\u00e9rias.":
+                ddPiorPct>=-25?"Drawdown moderado - aceit\u00e1vel para Buy & Hold de longo prazo, mas pesado emocionalmente.":
+                ddPiorPct>=-35?"Drawdown severo - portfolio com alta exposi\u00e7\u00e3o a risk assets. Crises grandes machucam forte.":
+                "Drawdown destrutivo - portfolio vulnera\u00e1vel a crises sistemicas. Considerar mais hedge (ouro, NTN-B longa, Treasuries)."
+              )
+            ),
+
+            // Por que importa
+            h("p",{style:{margin:"5px 0 0",fontSize:8.5,fontStyle:"italic",color:"#9A9080"}},
+              h("strong",{},"Por que resili\u00eancia importa para tranquilidade? "),
+              "Em FIRE, voc\u00ea ja n\u00e3o tem sal\u00e1rio para 'esperar a poeira baixar'. Se o portfolio cai 35% e voce precisa vender pra pagar contas, a perda vira ",h("em",{},"materializada"),
+              " (sequence-of-returns risk). Portfolio com drawdown amortecido permite manter o saque sustent\u00e1vel mesmo em crise - sua tranquilidade fica intacta."
             )
           ),
 
           // ===== DIMENSAO 4: DIVERSIFICACAO =====
-          h("div",{style:{marginBottom:9,padding:"8px 10px",background:"rgba(156,125,194,0.08)",borderLeft:"3px solid #9C7DC2",borderRadius:"0 4px 4px 0"}},
-            h("div",{style:{fontSize:9,letterSpacing:1.2,color:"#9C7DC2",fontFamily:"monospace",fontWeight:700,marginBottom:5}},"\u{1F517} 4. DIVERSIFICACAO (25%)"),
-            h("p",{style:{margin:"0 0 5px"}},
-              h("strong",{},"M\u00e9trica: "),"score baseado na correlacao media ponderada entre todas as classes (mesma f\u00f3rmula do card Diversificacao). Convertida de [-1, +1] para [0, 100] via ",h("em",{},"(1 - corr_media) / 2 \u00d7 100"),"."
+          h("div",{style:{marginBottom:9,padding:"9px 11px",background:"rgba(156,125,194,0.08)",borderLeft:"3px solid #9C7DC2",borderRadius:"0 4px 4px 0"}},
+            h("div",{style:{fontSize:9,letterSpacing:1.2,color:"#9C7DC2",fontFamily:"monospace",fontWeight:700,marginBottom:6}},"\u{1F517} 4. DIVERSIFICACAO (25%)"),
+
+            // O conceito
+            h("p",{style:{margin:"0 0 7px"}},
+              h("strong",{style:{color:"#9C7DC2"}},"\u{1F4D6} O CONCEITO: "),
+              "Mede ",h("strong",{},"se as classes do portfolio se movem juntas ou independentes umas das outras"),". Diversifica\u00e7\u00e3o real n\u00e3o e ",h("em",{},"ter muitas classes")," - e ter classes que reagem DIFERENTE aos mesmos eventos. Se sua FII, Infra, Agro e A\u00e7\u00f5es BR caem juntas em crise fiscal BR, ",h("strong",{},"voce so tem ~1 aposta")," (Brasil), mesmo tendo 4 classes diferentes."
             ),
-            h("div",{style:{padding:"6px 8px",background:"rgba(0,0,0,0.20)",borderRadius:3,fontFamily:"monospace",fontSize:8.5,lineHeight:1.7}},
-              h("div",{},h("span",{style:{color:"#4CAF82",fontWeight:700}},"corr \u2264 0.0"),"  \u2192 \u226550pts ",h("span",{style:{color:"#5A5550"}},"(classes descorrelacionadas)")),
-              h("div",{},h("span",{style:{color:"#E8C44A",fontWeight:700}},"corr 0.2-0.4"),"\u2192 30-40pts ",h("span",{style:{color:"#5A5550"}},"(diversificacao limitada)")),
-              h("div",{},h("span",{style:{color:"#E89060",fontWeight:700}},"corr 0.4-0.7"),"\u2192 15-30pts ",h("span",{style:{color:"#5A5550"}},"(concentrada)")),
-              h("div",{},h("span",{style:{color:"#E05252",fontWeight:700}},"corr > 0.7"),"   \u2192 0-15pts ",h("span",{style:{color:"#5A5550"}},"(falha de diversifica\u00e7\u00e3o)"))
+
+            // Como e calculado
+            h("p",{style:{margin:"0 0 7px"}},
+              h("strong",{style:{color:"#9C7DC2"}},"\u{1F9EE} COMO E CALCULADO: "),
+              "computamos a ",h("strong",{},"correla\u00e7\u00e3o m\u00e9dia ponderada")," entre todas as classes do seu portfolio (matriz MPT calibrada historicamente). O resultado varia de ",h("strong",{},"-1 a +1"),":"
+            ),
+            h("div",{style:{padding:"7px 9px",background:"rgba(0,0,0,0.22)",borderRadius:3,fontSize:8.5,lineHeight:1.7,marginBottom:7}},
+              h("div",{},h("span",{style:{color:"#4CAF82",fontWeight:700,fontFamily:"monospace"}},"corr = -1"),": classes movem em sentidos opostos (uma sobe quando outra cai) - hedge perfeito"),
+              h("div",{},h("span",{style:{color:"#7DD17D",fontWeight:700,fontFamily:"monospace"}},"corr = 0"),": classes totalmente independentes - diversifica\u00e7\u00e3o ideal"),
+              h("div",{},h("span",{style:{color:"#E8C44A",fontWeight:700,fontFamily:"monospace"}},"corr = +0.5"),": classes parcialmente correlacionadas - protec\u00e3o limitada em crises"),
+              h("div",{},h("span",{style:{color:"#E05252",fontWeight:700,fontFamily:"monospace"}},"corr = +1"),": classes se movem identicas - zero diversifica\u00e7\u00e3o real"),
+              h("div",{style:{marginTop:3,fontStyle:"italic",color:"#9A9080"}},h("strong",{},"Convers\u00e3o para 0-100"),": score = (1 - corr) / 2 \u00d7 100. Logo: corr 0 \u2192 score 50; corr -0.5 \u2192 score 75; corr +0.5 \u2192 score 25.")
+            ),
+
+            // ===== TABELA DINAMICA =====
+            h("div",{style:{padding:"9px 11px",background:"rgba(156,125,194,0.06)",border:"1px solid rgba(156,125,194,0.25)",borderRadius:4,marginBottom:7}},
+              h("div",{style:{fontSize:8,letterSpacing:1.2,color:"#9C7DC2",fontFamily:"monospace",fontWeight:700,marginBottom:6}},"\u{1F310} INTERPRETACAO DAS FAIXAS DE CORRELACAO"),
+              h("div",{style:{display:"grid",gridTemplateColumns:"70px 1fr 70px 50px",gap:6,padding:"4px 0",borderBottom:"1px solid rgba(255,255,255,0.10)",fontSize:7,fontFamily:"monospace",color:"#7A7060",letterSpacing:0.8,marginBottom:4}},
+                h("div",{},"CORR."),
+                h("div",{},"INTERPRETACAO"),
+                h("div",{style:{textAlign:"right"}},"COMPORT."),
+                h("div",{style:{textAlign:"right"}},"SCORE")
+              ),
+              ...[
+                {corr:-0.2,nome:"\u00d3tima diversif.",cor:"#4CAF82",score:60,comp:"hedge real",destaque:false},
+                {corr:0,nome:"Boa diversif.",cor:"#7DD17D",score:50,comp:"independente",destaque:false},
+                {corr:0.2,nome:"Adequada",cor:"#C8A96E",score:40,comp:"sutilmente ligada",destaque:false},
+                {corr:corrMediaPond,nome:"Voc\u00ea est\u00e1 aqui",cor:scoreDiv>=65?"#4CAF82":scoreDiv>=35?"#E8C44A":"#E89060",score:scoreDiv,comp:corrMediaPond<-0.1?"hedge real":corrMediaPond<0.1?"independente":corrMediaPond<0.3?"sutilmente ligada":corrMediaPond<0.5?"andam juntas":"andam em bloco",destaque:true},
+                {corr:0.4,nome:"Limitada",cor:"#E8C44A",score:30,comp:"andam juntas",destaque:false},
+                {corr:0.7,nome:"Concentrada",cor:"#E89060",score:15,comp:"andam em bloco",destaque:false}
+              ].map((f,k)=>{
+                return h("div",{key:k,style:{display:"grid",gridTemplateColumns:"70px 1fr 70px 50px",gap:6,padding:"4px 0",fontSize:8.5,fontFamily:"monospace",alignItems:"center",background:f.destaque?"rgba(232,196,74,0.10)":"transparent",borderRadius:f.destaque?3:0,marginLeft:f.destaque?-3:0,marginRight:f.destaque?-3:0,paddingLeft:f.destaque?6:0,paddingRight:f.destaque?6:0,border:f.destaque?"1px solid rgba(232,196,74,0.35)":"none"}},
+                  h("div",{style:{color:f.cor,fontWeight:700}},f.destaque?"\u25BA "+(f.corr>=0?"+":"")+f.corr.toFixed(2):(f.corr>=0?"+":"")+f.corr.toFixed(2)),
+                  h("div",{style:{color:"#C8C0B0",fontSize:8}},f.nome),
+                  h("div",{style:{textAlign:"right",color:"#9A9080",fontSize:7.5}},f.comp),
+                  h("div",{style:{textAlign:"right",color:f.cor,fontWeight:700}},f.score.toFixed(0))
+                );
+              }),
+              // Diagnostico
+              h("div",{style:{marginTop:7,padding:"6px 8px",background:"rgba(0,0,0,0.25)",borderRadius:3,fontSize:8.5,lineHeight:1.55,color:"#C8C0B0"}},
+                h("strong",{style:{color:"#E8C44A"}},"\u{1F4CD} SEU CASO (corr "+corrMediaPond.toFixed(2)+"): "),
+                "suas classes ",
+                corrMediaPond<-0.1?"se hedge mutuamente - quando uma cai, outras tendem a subir. Configura\u00e7\u00e3o excepcional para preserva\u00e7\u00e3o em crises.":
+                corrMediaPond<0.1?"sao virtualmente independentes - cada uma reage a fatores diferentes. Diversificacao real.":
+                corrMediaPond<0.3?"tem alguma sobreposi\u00e7\u00e3o sutil de fatores. Diversifica\u00e7\u00e3o aceit\u00e1vel mas n\u00e3o ideal.":
+                corrMediaPond<0.5?"caem parcialmente juntas em crises - sobreposi\u00e7\u00e3o moderada de fatores de risco (Brasil + risk-on global).":
+                corrMediaPond<0.7?"se movem em bloco - exposi\u00e7\u00e3o concentrada a poucos fatores macro. Diversifica\u00e7\u00e3o aparente.":
+                "praticamente caem juntas - portfolio comporta-se como uma classe \u00fanica. Diversifica\u00e7\u00e3o nominal sem efeito real."
+              )
+            ),
+
+            // Por que importa em FIRE
+            h("p",{style:{margin:"5px 0 0",fontSize:8.5,fontStyle:"italic",color:"#9A9080"}},
+              h("strong",{},"Por que diversifica\u00e7\u00e3o importa para tranquilidade? "),
+              "Portfolio com correla\u00e7\u00f5es baixas ",h("em",{},"reduz drawdowns automaticamente"),
+              " (varias classes nao caem juntas) e ",h("em",{},"melhora a relac\u00e3o retorno/risco")," (Markowitz). Em FIRE, isso significa que sua renda sustent\u00e1vel pode ser maior pra mesma volatilidade - voce vive mais tranquilo com a mesma capacidade financeira."
             )
           ),
 
