@@ -7232,19 +7232,19 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                 let diagnostico,corDiag,faixaNome;
                 if(gapPct<3){
                   faixaNome="OTIMO";corDiag="#4CAF82";
-                  diagnostico="DIVERSIFICACAO QUASE PERFEITA - as classes do portfolio sao virtualmente independentes entre si. A correlacao media e tao baixa que cada classe e uma aposta genuinamente distinta. Espalhar pesos aqui converte-se 1-pra-1 em diversificacao real de risco.";
+                  diagnostico="Suas classes andam quase sozinhas, cada uma seguindo um caminho diferente. Quando uma cai, as outras nao caem junto necessariamente. Diversificacao excepcional.";
                 }else if(gapPct<8){
                   faixaNome="BOM";corDiag="#7DD17D";
-                  diagnostico="DIVERSIFICACAO REAL - classes amplamente independentes, sobreposicao minima. O ganho de espalhar pesos se converte em diversificacao genuina. Esta e a zona-alvo para portfolios bem construidos.";
+                  diagnostico="Suas classes tem caminhos majoritariamente independentes. Em crises diferentes, partes diferentes do portfolio reagem - exatamente o que se espera de diversificacao real. Esta e a zona-alvo de portfolios institucionais.";
                 }else if(gapPct<15){
                   faixaNome="REGULAR";corDiag="#E8C44A";
-                  diagnostico="DIVERSIFICACAO PARCIAL - ha sobreposicao moderada entre classes. Algumas se movem juntas, especialmente em crises sistemicas, reduzindo o beneficio teorico de espalhar pesos. Coerente com correlacao media na faixa 'limitada'.";
+                  diagnostico="Algumas classes do seu portfolio andam parcialmente juntas. Em crises grandes (como 2008 ou 2020), boa parte cai ao mesmo tempo - o efeito de protecao de espalhar pesos fica reduzido. Coerente com a correlacao media na faixa 'limitada'.";
                 }else if(gapPct<25){
                   faixaNome="RUIM";corDiag="#E89060";
-                  diagnostico="DIVERSIFICACAO APARENTE - voce tem muitas classes mas elas se movem em bloco. Boa parte do portfolio compartilha os mesmos fatores de risco. O numero alto de classes mascara a falta de diversificacao real.";
+                  diagnostico="Voce TEM muitas classes, mas elas se movem em bloco. Como se voce tivesse comprado a 'caixa' inteira e nao itens diferentes. O numero alto de classes ESCONDE a falta de diversificacao real.";
                 }else{
                   faixaNome="CRITICO";corDiag="#E05252";
-                  diagnostico="REDUNDANCIA CRITICA - apesar das muitas classes nominais, o portfolio comporta-se como tendo poucas apostas. As correlacoes sao tao altas que adicionar mais classes pouco diversifica. Necessario revisar a tese de cada classe.";
+                  diagnostico="Apesar das varias classes, o portfolio comporta-se quase como uma so. Os fatores de risco se sobrepoem tanto que adicionar mais classes pouco ajuda. Necessario rever a tese de cada classe.";
                 }
                 // Faixas visuais para a barra
                 const faixasGap=[
@@ -7256,111 +7256,142 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                 ];
                 const gapMaxEscala=50;
                 const posPct=Math.min(100,(gapPct/gapMaxEscala)*100);
+
+                // ===== BENCHMARKS IDEAIS BASEADOS NO NUMERO DE CLASSES DO PORTFOLIO =====
+                // O alvo do ENB Herfindahl depende do numero de classes USADAS
+                // Para um portfolio multi-ativos sofisticado (10-12 classes): alvo ENB Herf >= 8-9
+                // ENB Efetivo ideal: 6-8 (para classes com corr media baixa ~0.2)
+                // Gap saudavel: < 8%
+                const nClassesPortfolio=classesAtivas;
+                const enbHerfAlvo=Math.max(7,nClassesPortfolio*0.75);// 75% do max teorico
+                const enbEfetivoAlvo=enbHerfAlvo*0.93;// assume corr media 0.27 (gap ~7%)
+                const gapAlvo=7;// %
+
+                // Classificacao do ENB Herfindahl
+                const enbHerfStatus=enbHerfindahl>=enbHerfAlvo?"BOM":enbHerfindahl>=enbHerfAlvo*0.7?"REGULAR":"BAIXO";
+                const corEnbHerf=enbHerfindahl>=enbHerfAlvo?"#4CAF82":enbHerfindahl>=enbHerfAlvo*0.7?"#E8C44A":"#E89060";
+                // Classificacao do ENB Efetivo
+                const enbEfStatus=enbEfetivo>=enbEfetivoAlvo?"BOM":enbEfetivo>=enbEfetivoAlvo*0.7?"REGULAR":"BAIXO";
+                const corEnbEf=enbEfetivo>=enbEfetivoAlvo?"#4CAF82":enbEfetivo>=enbEfetivoAlvo*0.7?"#E8C44A":"#E89060";
+
                 return h("div",{style:{padding:"11px 13px",background:"rgba(91,143,212,0.06)",border:"1px solid rgba(91,143,212,0.30)",borderRadius:7,marginBottom:9}},
                   h("div",{style:{fontSize:8.5,letterSpacing:1.2,color:"#5B8FD4",fontFamily:"monospace",fontWeight:700,marginBottom:7}},"\u{1F50D} ENB EFETIVO vs ENB HERFINDAHL - O GAP REVELA A VERDADE"),
 
-                  // Explicacao didatica completa
+                  // ===== ANALOGIA DIDATICA (linguagem leiga) =====
+                  h("div",{style:{fontSize:9.5,color:"#E8DCC0",lineHeight:1.7,marginBottom:11,padding:"10px 13px",background:"rgba(200,169,110,0.08)",borderLeft:"3px solid #C8A96E",borderRadius:"0 6px 6px 0"}},
+                    h("div",{style:{fontSize:8,letterSpacing:1.5,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,marginBottom:6}},"\u{1F4A1} ANALOGIA SIMPLES"),
+                    h("p",{style:{margin:"0 0 7px"}},
+                      "Imagine que voce esta numa loja de doces e quer 10 doces diferentes para variar a experiencia. Voce pega 10 caixas com sabores diferentes. ",
+                      h("strong",{style:{color:"#5B8FD4"}},"O ENB Herfindahl conta caixas: voce tem 10 caixas, esta diversificado! ")
+                    ),
+                    h("p",{style:{margin:"0 0 7px"}},
+                      "Mas ao abrir, voce descobre que 6 das caixas, apesar de rotuladas diferente, sao todas no fundo CHOCOLATE com pequenas variacoes. ",
+                      h("strong",{style:{color:"#9C7DC2"}},"O ENB Efetivo conta SABORES REAIS: voce nao tem 10 sabores, tem so 4-5 diferentes de verdade. ")
+                    ),
+                    h("p",{style:{margin:0,fontStyle:"italic",color:"#9A9080"}},
+                      "Em portfolio: classes 'diferentes' que sobem e descem juntas (FII + Agro + Infra todas reagindo ao ciclo de juros BR) sao como caixas diferentes do mesmo chocolate. ",
+                      h("strong",{style:{color:"#C8A96E"}},"O gap mede esse 'desperdicio': quanto da sua diversificacao e ilusao versus realidade.")
+                    )
+                  ),
+
+                  // ===== EXPLICACAO TECNICA (em prosa simples) =====
                   h("div",{style:{fontSize:9,color:"#9A9080",lineHeight:1.65,marginBottom:11,padding:"9px 11px",background:"rgba(0,0,0,0.20)",borderRadius:5}},
                     h("p",{style:{margin:"0 0 7px"}},
-                      h("strong",{style:{color:"#5B8FD4"}},"ENB Herfindahl ("+enbHerfindahl.toFixed(2)+") - QUANTAS classes voce tem na pratica. "),
-                      "Conta apostas usando ",h("strong",{},"apenas os pesos"),". Se voce tem 10 classes com 10% cada, da 10. Se voce tem 90% em uma classe, da ~1. ",
-                      h("em",{},"Limitacao: ignora se as classes se movem juntas - so olha distribuicao de capital.")
+                      h("strong",{style:{color:"#5B8FD4"}},"ENB Herfindahl ("+enbHerfindahl.toFixed(2)+") = quantas classes voce tem 'no rotulo'. "),
+                      "Conta apenas como o dinheiro esta espalhado. Se voce tem 10 classes com pesos iguais, da 10. Se tem 90% numa classe, da ~1. ",
+                      h("em",{},"Nao olha se as classes se comportam parecido.")
                     ),
                     h("p",{style:{margin:"0 0 7px"}},
-                      h("strong",{style:{color:"#9C7DC2"}},"ENB Efetivo ("+enbEfetivo.toFixed(2)+") - quantas APOSTAS independentes voce tem. "),
-                      "Corrige o Herfindahl multiplicando por (1 - correlacao\u00B2). Se duas classes andam juntas (corr alta), elas sao 'meia aposta' cada, nao duas apostas separadas. ",
-                      h("em",{},"E o numero real de fontes distintas de risco/retorno.")
+                      h("strong",{style:{color:"#9C7DC2"}},"ENB Efetivo ("+enbEfetivo.toFixed(2)+") = quantas classes 'de verdade' diferentes voce tem. "),
+                      "Pega o Herfindahl e desconta as sobreposicoes - classes que andam juntas sao contadas como uma so. ",
+                      h("em",{},"Este e o numero que importa - o de apostas REAIS independentes.")
                     ),
                     h("p",{style:{margin:0,padding:"7px 9px",background:"rgba(91,143,212,0.10)",borderRadius:4}},
-                      h("strong",{style:{color:"#5B8FD4"}},"O GAP \u00e9 o INDICADOR CHAVE: "),
-                      "ENB Herfindahl - ENB Efetivo = ",h("strong",{style:{color:corDiag}},gap.toFixed(2))," (",gapPct.toFixed(0),"% de perda por correlacao). ",
-                      "Matematicamente, gap = ENB Herfindahl \u00d7 correlacao_media\u00b2. ",
-                      "Quanto MAIOR o gap, MAIS classes voce esta 'pagando' em complexidade sem ganhar diversificacao real. ",
-                      h("strong",{},"Em portfolios institucionais bem construidos, gap fica abaixo de 8%.")
+                      h("strong",{style:{color:"#5B8FD4"}},"GAP = "+gap.toFixed(2)+" classes 'fantasmas' ("+gapPct.toFixed(0)+"%). "),
+                      "Sao classes que aparecem no Herfindahl mas que, na pratica, ja estao 'duplicadas' por outra. Voce esta pagando complexidade de gestao por uma diversificacao que nao existe."
                     )
                   ),
 
-                  // Comparacao visual lado a lado
-                  h("div",{style:{padding:"10px 11px",background:"rgba(0,0,0,0.25)",borderRadius:5,marginBottom:11}},
-                    h("div",{style:{fontSize:7.5,color:"#7A7060",fontFamily:"monospace",letterSpacing:1,marginBottom:7}},"NO SEU PORTFOLIO:"),
-                    h("div",{style:{display:"flex",flexDirection:"column",gap:6}},
-                      // ENB Herfindahl
-                      h("div",{style:{display:"grid",gridTemplateColumns:"110px 1fr 50px",gap:8,alignItems:"center",fontSize:8.5,fontFamily:"monospace"}},
-                        h("span",{style:{color:"#5B8FD4",fontWeight:700}},"ENB Herfindahl"),
-                        h("div",{style:{position:"relative",height:10,background:"rgba(255,255,255,0.04)",borderRadius:3,overflow:"hidden"}},
-                          h("div",{style:{position:"absolute",top:0,left:0,height:"100%",width:(enbHerfindahl/MPT_CLS.length*100)+"%",background:"#5B8FD4",opacity:0.65,borderRadius:3}})
-                        ),
-                        h("span",{style:{textAlign:"right",color:"#5B8FD4",fontWeight:700,fontSize:10}},enbHerfindahl.toFixed(2))
+                  // ===== TABELA DE BENCHMARKS IDEAIS =====
+                  h("div",{style:{marginBottom:11,padding:"11px 12px",background:"rgba(76,175,130,0.05)",border:"1px solid rgba(76,175,130,0.25)",borderRadius:6}},
+                    h("div",{style:{fontSize:8.5,letterSpacing:1.3,color:"#4CAF82",fontFamily:"monospace",fontWeight:700,marginBottom:8}},"\u{1F3AF} BENCHMARKS IDEAIS PARA SEU PORTFOLIO ("+nClassesPortfolio+" classes ativas)"),
+                    h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:8,marginBottom:8}},
+                      h("div",{style:{textAlign:"center",padding:"7px 5px",background:"rgba(0,0,0,0.25)",borderRadius:4}},
+                        h("div",{style:{fontSize:6.5,color:"#7A7060",fontFamily:"monospace",letterSpacing:0.8,marginBottom:3}},"METRICA"),
+                        h("div",{style:{fontSize:8.5,color:"#C8C0B0",fontFamily:"monospace",fontWeight:700,letterSpacing:0.5,lineHeight:1.3}},"VOCE / ALVO")
                       ),
-                      // ENB Efetivo
-                      h("div",{style:{display:"grid",gridTemplateColumns:"110px 1fr 50px",gap:8,alignItems:"center",fontSize:8.5,fontFamily:"monospace"}},
-                        h("span",{style:{color:"#9C7DC2",fontWeight:700}},"ENB Efetivo"),
-                        h("div",{style:{position:"relative",height:10,background:"rgba(255,255,255,0.04)",borderRadius:3,overflow:"hidden"}},
-                          h("div",{style:{position:"absolute",top:0,left:0,height:"100%",width:(enbEfetivo/MPT_CLS.length*100)+"%",background:"#9C7DC2",opacity:0.9,borderRadius:3}})
-                        ),
-                        h("span",{style:{textAlign:"right",color:"#9C7DC2",fontWeight:700,fontSize:10}},enbEfetivo.toFixed(2))
+                      h("div",{style:{textAlign:"center",padding:"7px 5px",background:"rgba(0,0,0,0.25)",borderRadius:4}},
+                        h("div",{style:{fontSize:6.5,color:"#5B8FD4",fontFamily:"monospace",letterSpacing:0.8,marginBottom:3}},"ENB HERFINDAHL"),
+                        h("div",{style:{fontSize:11,color:corEnbHerf,fontFamily:"monospace",fontWeight:700,lineHeight:1.2}},enbHerfindahl.toFixed(1)),
+                        h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",marginTop:1}},"alvo: "+enbHerfAlvo.toFixed(1)),
+                        h("div",{style:{fontSize:6.5,color:corEnbHerf,fontFamily:"monospace",fontWeight:700,marginTop:2,letterSpacing:0.5}},enbHerfStatus)
+                      ),
+                      h("div",{style:{textAlign:"center",padding:"7px 5px",background:"rgba(0,0,0,0.25)",borderRadius:4}},
+                        h("div",{style:{fontSize:6.5,color:"#9C7DC2",fontFamily:"monospace",letterSpacing:0.8,marginBottom:3}},"ENB EFETIVO"),
+                        h("div",{style:{fontSize:11,color:corEnbEf,fontFamily:"monospace",fontWeight:700,lineHeight:1.2}},enbEfetivo.toFixed(1)),
+                        h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",marginTop:1}},"alvo: "+enbEfetivoAlvo.toFixed(1)),
+                        h("div",{style:{fontSize:6.5,color:corEnbEf,fontFamily:"monospace",fontWeight:700,marginTop:2,letterSpacing:0.5}},enbEfStatus)
+                      ),
+                      h("div",{style:{textAlign:"center",padding:"7px 5px",background:"rgba(0,0,0,0.25)",borderRadius:4}},
+                        h("div",{style:{fontSize:6.5,color:"#C8A96E",fontFamily:"monospace",letterSpacing:0.8,marginBottom:3}},"GAP"),
+                        h("div",{style:{fontSize:11,color:corDiag,fontFamily:"monospace",fontWeight:700,lineHeight:1.2}},gapPct.toFixed(0)+"%"),
+                        h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",marginTop:1}},"alvo: <"+gapAlvo+"%"),
+                        h("div",{style:{fontSize:6.5,color:corDiag,fontFamily:"monospace",fontWeight:700,marginTop:2,letterSpacing:0.5}},faixaNome)
                       )
                     ),
-                    // Gap visual e classificacao
-                    h("div",{style:{marginTop:10,paddingTop:8,borderTop:"1px solid rgba(255,255,255,0.06)"}},
-                      h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:6,fontSize:8.5,fontFamily:"monospace"}},
-                        h("span",{style:{color:"#7A7060",letterSpacing:1}},"GAP DE REDUNDANCIA"),
-                        h("span",{},
-                          h("strong",{style:{color:corDiag,fontSize:11}},gap.toFixed(2)),
-                          h("span",{style:{color:"#7A7060",fontSize:8,marginLeft:4}},"("),
-                          h("strong",{style:{color:corDiag,fontSize:9}},gapPct.toFixed(0)+"%"),
-                          h("span",{style:{color:"#7A7060",fontSize:8}}," de perda)")
-                        )
+                    h("div",{style:{fontSize:8.5,color:"#9A9080",lineHeight:1.6,fontStyle:"italic"}},
+                      h("strong",{style:{color:"#4CAF82"}},"Como os alvos foram definidos: "),
+                      "para um portfolio de ",nClassesPortfolio," classes ativas, o ",h("strong",{},"ENB Herfindahl ideal e ~"+enbHerfAlvo.toFixed(1)),
+                      " (uso eficiente das classes - 75% do maximo teorico, pesos razoavelmente distribuidos). O ",h("strong",{},"ENB Efetivo ideal e ~"+enbEfetivoAlvo.toFixed(1)),
+                      " (correlacoes baixas o suficiente para preservar quase toda a diversificacao). O ",h("strong",{},"gap ideal e <"+gapAlvo+"%"),
+                      " - referencia de portfolios institucionais (Yale, Norway Pension) que conseguem diversificar GENUINAMENTE."
+                    )
+                  ),
+
+                  // ===== BARRA VISUAL DE CLASSIFICACAO DO GAP =====
+                  h("div",{style:{padding:"11px 12px",background:"rgba(0,0,0,0.25)",borderRadius:5,marginBottom:9}},
+                    h("div",{style:{fontSize:8,letterSpacing:1.2,color:"#7A7060",fontFamily:"monospace",fontWeight:700,marginBottom:7}},"\u{1F4CD} CLASSIFICACAO DO SEU GAP NA ESCALA"),
+                    h("div",{style:{position:"relative",marginBottom:4}},
+                      h("div",{style:{position:"relative",height:14,borderRadius:3,overflow:"hidden",border:"1px solid rgba(255,255,255,0.05)",display:"flex"}},
+                        ...faixasGap.map((f,k)=>{
+                          const w=(f.max-f.min)/gapMaxEscala*100;
+                          return h("div",{key:k,style:{width:w+"%",height:"100%",background:f.cor,opacity:0.32}});
+                        }),
+                        // Marker da posicao atual
+                        h("div",{style:{position:"absolute",left:"calc("+posPct+"% - 1.5px)",top:-2,bottom:-2,width:3,background:corDiag,boxShadow:"0 0 4px "+corDiag,zIndex:2}})
                       ),
-                      // BARRA VISUAL COM FAIXAS DO GAP
-                      h("div",{style:{position:"relative",marginTop:4}},
-                        // Background com segmentos coloridos
-                        h("div",{style:{position:"relative",height:12,borderRadius:3,overflow:"hidden",border:"1px solid rgba(255,255,255,0.05)",display:"flex"}},
-                          ...faixasGap.map((f,k)=>{
-                            const w=(f.max-f.min)/gapMaxEscala*100;
-                            return h("div",{key:k,style:{width:w+"%",height:"100%",background:f.cor,opacity:0.32}});
-                          }),
-                          // Marker da posicao atual
-                          h("div",{style:{position:"absolute",left:"calc("+posPct+"% - 1.5px)",top:-2,bottom:-2,width:3,background:corDiag,boxShadow:"0 0 4px "+corDiag,zIndex:2}})
-                        ),
-                        // Labels das faixas
-                        h("div",{style:{position:"relative",height:14,marginTop:3,fontSize:6.5,fontFamily:"monospace",fontWeight:700,letterSpacing:0.3}},
-                          ...faixasGap.map((f,k)=>{
-                            const center=((f.min+f.max)/2)/gapMaxEscala*100;
-                            return h("div",{key:k,style:{position:"absolute",left:center+"%",transform:"translateX(-50%)",color:f.cor}},f.nome);
-                          })
-                        ),
-                        // Escala numerica
-                        h("div",{style:{display:"flex",justifyContent:"space-between",fontSize:6.5,color:"#5A5550",fontFamily:"monospace",marginTop:14,letterSpacing:0.3}},
-                          h("span",{},"0%"),
-                          h("span",{},"3%"),
-                          h("span",{},"8%"),
-                          h("span",{},"15%"),
-                          h("span",{},"25%"),
-                          h("span",{},"50%+")
-                        )
+                      // Labels das faixas
+                      h("div",{style:{position:"relative",height:16,marginTop:4,fontSize:6.5,fontFamily:"monospace",fontWeight:700,letterSpacing:0.3}},
+                        ...faixasGap.map((f,k)=>{
+                          const center=((f.min+f.max)/2)/gapMaxEscala*100;
+                          return h("div",{key:k,style:{position:"absolute",left:center+"%",transform:"translateX(-50%)",color:f.cor}},f.nome);
+                        })
+                      ),
+                      // Escala numerica
+                      h("div",{style:{display:"flex",justifyContent:"space-between",fontSize:7,color:"#5A5550",fontFamily:"monospace",marginTop:14,letterSpacing:0.3}},
+                        h("span",{},"0%"),h("span",{},"3%"),h("span",{},"8%"),h("span",{},"15%"),h("span",{},"25%"),h("span",{},"50%+")
                       )
                     )
                   ),
 
-                  // Diagnostico interpretativo
-                  h("div",{style:{fontSize:9.5,color:"#E8E2D5",lineHeight:1.65,padding:"10px 12px",background:corDiag+"15",border:"1px solid "+corDiag+"50",borderRadius:6}},
-                    h("div",{style:{display:"flex",alignItems:"center",gap:8,marginBottom:6}},
-                      h("span",{style:{fontSize:8,letterSpacing:1.5,color:corDiag,fontFamily:"monospace",fontWeight:700,padding:"3px 8px",background:corDiag+"25",borderRadius:3,border:"1px solid "+corDiag+"60"}},faixaNome),
-                      h("span",{style:{fontSize:7.5,color:"#7A7060",fontStyle:"italic"}},"classificacao do gap")
+                  // ===== DIAGNOSTICO TEXTUAL (linguagem amigavel) =====
+                  h("div",{style:{fontSize:10,color:"#E8E2D5",lineHeight:1.65,padding:"11px 13px",background:corDiag+"15",border:"1px solid "+corDiag+"50",borderRadius:6}},
+                    h("div",{style:{display:"flex",alignItems:"center",gap:8,marginBottom:7}},
+                      h("span",{style:{fontSize:8.5,letterSpacing:1.5,color:corDiag,fontFamily:"monospace",fontWeight:700,padding:"3px 9px",background:corDiag+"25",borderRadius:3,border:"1px solid "+corDiag+"60"}},faixaNome),
+                      h("span",{style:{fontSize:8,color:"#7A7060",fontStyle:"italic"}},"diagnostico do seu portfolio")
                     ),
-                    h("div",{style:{fontStyle:"italic",color:"#C8C0B0"}},diagnostico)
+                    h("div",{style:{color:"#C8C0B0",fontFamily:"Georgia,serif"}},diagnostico)
                   ),
 
-                  // Coerencia com outras metricas
-                  h("div",{style:{marginTop:9,padding:"8px 11px",background:"rgba(168,139,94,0.06)",borderLeft:"3px solid #C8A96E",borderRadius:"0 5px 5px 0",fontSize:8.5,color:"#9A9080",lineHeight:1.6}},
+                  // ===== COERENCIA COM OUTRAS METRICAS =====
+                  h("div",{style:{marginTop:9,padding:"9px 11px",background:"rgba(168,139,94,0.06)",borderLeft:"3px solid #C8A96E",borderRadius:"0 5px 5px 0",fontSize:8.5,color:"#9A9080",lineHeight:1.6}},
                     h("strong",{style:{color:"#C8A96E"}},"\u{1F517} COERENCIA COM OUTRAS METRICAS: "),
-                    "matematicamente, gap% \u2248 (correlacao_media)\u00b2 \u00d7 100. Se sua correlacao media ponderada esta em ~0.32 (banda 'limitada' na metrica de correlacao), o gap matematico esperado e ~10% (faixa REGULAR aqui). ",
-                    h("strong",{},"Os dois indicadores devem contar a mesma historia: "),
-                    "correlacao limitada \u2192 gap regular; correlacao baixa \u2192 gap bom; correlacao alta \u2192 gap critico. Se algum deles divergir muito do outro, ha algo a investigar."
+                    "matematicamente, gap% \u2248 (correlacao_media)\u00b2 \u00d7 100. Se a correlacao media ponderada estiver em ~0.32 (banda 'limitada'), o gap esperado e ~10% (REGULAR). ",
+                    h("strong",{},"Os tres indicadores devem contar a mesma historia: "),
+                    "correlacao baixa \u2192 gap bom \u2192 score alto; correlacao limitada \u2192 gap regular \u2192 score medio; correlacao alta \u2192 gap critico \u2192 score baixo. Divergencias merecem investigacao."
                   ),
 
-                  // Exemplos didaticos (mantidos e ajustados aos novos limites)
+                  // ===== EXEMPLOS DIDATICOS (mantidos) =====
                   h("details",{style:{marginTop:9}},
                     h("summary",{style:{fontSize:8,letterSpacing:1.2,color:"#9A9080",fontFamily:"monospace",fontWeight:700,cursor:"pointer",userSelect:"none"}},"\u{1F4CB} 4 EXEMPLOS DIDATICOS DE CALIBRACAO"),
                     h("div",{style:{marginTop:7,fontSize:8.5,color:"#9A9080",lineHeight:1.6}},
