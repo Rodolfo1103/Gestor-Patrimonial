@@ -6491,8 +6491,19 @@ Responda APENAS com o texto do insight, sem prefacio ou comentarios meta.`;
       // total ja esta em BRL (pv() retorna BRL por padrao). ref tambem esta em BRL (totalPatrimBRL).
       const pct=((total-ref)/ref)*100;
       const refHora=String(dataRef.getHours()).padStart(2,"0")+":"+String(dataRef.getMinutes()).padStart(2,"0");
+      // DEBUG INFO: passa info completa do calculo para o tooltip e modal de diagnostico
+      const debugInfo="DIAGNOSTICO DA VARIACAO:\n"+
+        "- Patrimonio atual (BRL): R$ "+total.toFixed(2)+"\n"+
+        "- Valor de referencia: R$ "+ref.toFixed(2)+"\n"+
+        "- Diferenca nominal: R$ "+(total-ref).toFixed(2)+"\n"+
+        "- Variacao calculada: "+pct.toFixed(4)+"%\n"+
+        "- Fonte da referencia: "+fonte+"\n"+
+        "- Data/hora da referencia: "+dataRef.toLocaleString("pt-BR")+"\n"+
+        "- Snapshots no historico: "+validos.length+"\n"+
+        "- Snapshot mais antigo: "+(validos[0]?new Date(validos[0].date).toLocaleString("pt-BR"):"N/A")+"\n"+
+        "- Snapshot mais recente: "+(validos[validos.length-1]?new Date(validos[validos.length-1].date).toLocaleString("pt-BR"):"N/A");
       if(Math.abs(pct)>=0.001){
-        deltaHoje={pct,refValor:ref,refHora,fonte};
+        deltaHoje={pct,refValor:ref,refHora,fonte,debugInfo,totalDebug:total,validosLen:validos.length,dataRefStr:dataRef.toLocaleString("pt-BR")};
       }
     }
   }
@@ -6515,7 +6526,8 @@ Responda APENAS com o texto do insight, sem prefacio ou comentarios meta.`;
                 )
           ),
           // Card: variacao HOJE vs fechamento do pregao anterior (delta de UMA sessao de mercado)
-          !hideVal&&deltaHoje&&h("div",{title:"Variacao do patrimonio vs "+(deltaHoje.fonte||("referencia "+deltaHoje.refHora)),style:{display:"inline-flex",flexDirection:"column",alignItems:"flex-start",gap:1,padding:"4px 9px 5px",borderRadius:5,background:"rgba(255,255,255,0.025)",border:"1px solid rgba(255,255,255,0.06)",color:deltaHoje.pct>=0?"#4CAF82":"#E05252",fontFamily:"monospace",fontWeight:700,lineHeight:1.1}},
+          // CLIQUE NO CARD para abrir diagnostico completo com todos os numeros do calculo
+          !hideVal&&deltaHoje&&h("div",{onClick:()=>window.alert(deltaHoje.debugInfo),title:"Toque para ver diagnostico detalhado",style:{display:"inline-flex",flexDirection:"column",alignItems:"flex-start",gap:1,padding:"4px 9px 5px",borderRadius:5,background:"rgba(255,255,255,0.025)",border:"1px solid rgba(255,255,255,0.06)",color:deltaHoje.pct>=0?"#4CAF82":"#E05252",fontFamily:"monospace",fontWeight:700,lineHeight:1.1,cursor:"pointer"}},
             h("div",{style:{display:"inline-flex",alignItems:"baseline",gap:4}},
               h("span",{style:{fontSize:11,lineHeight:1}},deltaHoje.pct>=0?"\u25B2":"\u25BC"),
               h("span",{style:{fontSize:15,lineHeight:1.1}},(deltaHoje.pct>=0?"+":"")+deltaHoje.pct.toFixed(2)+"%"),
