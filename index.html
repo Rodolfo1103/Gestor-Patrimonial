@@ -6366,76 +6366,18 @@ Responda APENAS com o texto do insight, sem prefacio ou comentarios meta.`;
       opacity:op,transition:"opacity 0.5s ease-out",
       position:"relative",overflow:"hidden"
     }},
-      // Bussola dourada grande (260px) - mesmo desenho do icone do PWA
+      // Logo Aletsch Wealth (montanha com sol) - 280px na splash
       h("div",{style:{
         animation:"aw-fadein 0.8s ease-out, aw-glow 3s ease-in-out infinite alternate",
         marginBottom:32
       }},
-        h("svg",{width:260,height:260,viewBox:"0 0 512 512",xmlns:"http://www.w3.org/2000/svg"},
-          h("defs",null,
-            h("linearGradient",{id:"sp-gold",x1:"0%",y1:"0%",x2:"0%",y2:"100%"},
-              h("stop",{offset:"0%",stopColor:"#E8C97A"}),
-              h("stop",{offset:"55%",stopColor:"#C8A96E"}),
-              h("stop",{offset:"100%",stopColor:"#A8893E"})
-            ),
-            h("linearGradient",{id:"sp-goldLight",x1:"0%",y1:"0%",x2:"0%",y2:"100%"},
-              h("stop",{offset:"0%",stopColor:"#F5DC92"}),
-              h("stop",{offset:"100%",stopColor:"#D4B47A"})
-            ),
-            h("linearGradient",{id:"sp-goldDark",x1:"0%",y1:"0%",x2:"0%",y2:"100%"},
-              h("stop",{offset:"0%",stopColor:"#B89252"}),
-              h("stop",{offset:"100%",stopColor:"#705828"})
-            ),
-            h("radialGradient",{id:"sp-starGlow",cx:"50%",cy:"50%",r:"50%"},
-              h("stop",{offset:"0%",stopColor:"#FFE9A8",stopOpacity:"0.9"}),
-              h("stop",{offset:"50%",stopColor:"#E8C97A",stopOpacity:"0.3"}),
-              h("stop",{offset:"100%",stopColor:"#E8C97A",stopOpacity:"0"})
-            )
-          ),
-          h("g",{transform:"translate(256 256)"},
-            // Anel externo da bussola
-            h("circle",{r:"195",fill:"none",stroke:"url(#sp-gold)",strokeWidth:"3",strokeOpacity:"0.9"}),
-            h("circle",{r:"185",fill:"none",stroke:"#C8A96E",strokeWidth:"0.8",strokeOpacity:"0.35"}),
-            // Marcacoes cardeais N/L/S/O
-            h("g",{stroke:"url(#sp-gold)",strokeLinecap:"round",strokeWidth:"3.5"},
-              h("line",{x1:"0",y1:"-193",x2:"0",y2:"-175"}),
-              h("line",{x1:"0",y1:"-193",x2:"0",y2:"-175",transform:"rotate(90)"}),
-              h("line",{x1:"0",y1:"-193",x2:"0",y2:"-175",transform:"rotate(180)"}),
-              h("line",{x1:"0",y1:"-193",x2:"0",y2:"-175",transform:"rotate(270)"})
-            ),
-            // Marcacoes intermediarias
-            h("g",{stroke:"#C8A96E",strokeLinecap:"round",strokeWidth:"1.5",opacity:"0.45"},
-              h("line",{x1:"0",y1:"-192",x2:"0",y2:"-184",transform:"rotate(45)"}),
-              h("line",{x1:"0",y1:"-192",x2:"0",y2:"-184",transform:"rotate(135)"}),
-              h("line",{x1:"0",y1:"-192",x2:"0",y2:"-184",transform:"rotate(225)"}),
-              h("line",{x1:"0",y1:"-192",x2:"0",y2:"-184",transform:"rotate(315)"})
-            ),
-            // Letras N L S O
-            h("g",{fontFamily:"Georgia,serif",fontWeight:"700",textAnchor:"middle"},
-              h("text",{x:"0",y:"-148",fontSize:"30",fill:"url(#sp-goldLight)"},"N"),
-              h("text",{x:"148",y:"11",fontSize:"22",fill:"url(#sp-gold)",opacity:"0.75"},"L"),
-              h("text",{x:"0",y:"163",fontSize:"22",fill:"url(#sp-gold)",opacity:"0.75"},"S"),
-              h("text",{x:"-148",y:"11",fontSize:"22",fill:"url(#sp-gold)",opacity:"0.75"},"O")
-            ),
-            // Ponteiro (agulha): triangulo apontando para o Norte
-            h("g",null,
-              h("polygon",{points:"0,0 14,0 0,125 -14,0",fill:"url(#sp-goldDark)",opacity:"0.85"}),
-              h("polygon",{points:"0,-135 14,0 0,0",fill:"url(#sp-goldDark)"}),
-              h("polygon",{points:"0,-135 -14,0 0,0",fill:"url(#sp-goldLight)"})
-            ),
-            // Estrela no topo da agulha (norte)
-            h("g",{transform:"translate(0 -135)"},
-              h("circle",{r:"22",fill:"url(#sp-starGlow)"}),
-              h("path",{d:"M 0,-14 L 3,-3 L 14,0 L 3,3 L 0,14 L -3,3 L -14,0 L -3,-3 Z",fill:"url(#sp-goldLight)"}),
-              h("circle",{r:"2.5",fill:"#FFF5D8"})
-            ),
-            // Centro com cifrao
-            h("circle",{r:"32",fill:"#0D0F14"}),
-            h("circle",{r:"32",fill:"none",stroke:"url(#sp-gold)",strokeWidth:"2"}),
-            h("circle",{r:"28",fill:"none",stroke:"#C8A96E",strokeWidth:"0.5",strokeOpacity:"0.6"}),
-            h("text",{x:"0",y:"13",fontFamily:"Georgia,serif",fontSize:"38",fontWeight:"400",fill:"url(#sp-gold)",textAnchor:"middle",opacity:"0.92"},"$")
-          )
-        )
+        h("img",{
+          src:"./%C3%ADcone-512.png",// nome do arquivo URL-encoded (i com acento)
+          alt:"Aletsch Wealth",
+          width:280,
+          height:280,
+          style:{display:"block",objectFit:"contain"}
+        })
       ),
       // Nome ALETSCH em destaque
       h("div",{style:{
