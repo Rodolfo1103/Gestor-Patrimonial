@@ -6505,17 +6505,17 @@ Responda APENAS com o texto do insight, sem prefacio ou comentarios meta.`;
   // Calcula variacao do patrimonio HOJE: usa o ULTIMO SNAPSHOT DO DIA ANTERIOR como referencia
   // (representa o fechamento do pregao anterior - garante delta de exatamente UMA sessao de mercado)
   // Fallback: se nao houver snapshot ontem, usa o primeiro snapshot de hoje feito APOS abertura do mercado (10h+)
-  // CRITICO: usar totalBRL puro (recalculado em BRL ignorando ccy de visualizacao) para casar com
-  // o totalPatrimBRL gravado no historico. Sem isso, alternancia de moeda ou variacao cambial
-  // ao longo do dia gera comparacao entre moedas diferentes e pode INVERTER o sinal do delta.
-  let totalBRL_ref=0;
-  Object.entries(port||{}).forEach(([t,p])=>{
-    if(!p)return;
-    const v=pv(t,p,"BRL",ntnbTaxas,ntnbVNA);// FORCA conversao para BRL
-    if(v)totalBRL_ref+=v;
-  });
+  //
+  // CRITICO: o parametro 'ccy' da funcao pv() NAO e uma string de moeda, e um OBJETO mapeando
+  // ticker -> moeda de origem (ex: ccy['MSFT']='USD', ccy['PETR4']='BRL'). A funcao pv() usa
+  // FX[ccy[t]||'BRL'] para converter ativos estrangeiros para BRL. Como pv() ja retorna em BRL
+  // por padrao (FX.BRL=1, FX.USD=~5.5), o 'total' calculado por stats() ja esta em BRL puro -
+  // a confusao anterior de "moeda de visualizacao" era falsa premissa minha. O bug real anterior
+  // (sinal invertido com patrimonio em alta) era causado por passar 'BRL' string em vez do objeto
+  // ccy correto, o que zerava o cambio dos ativos USD (FX['BRL']=1 nesses casos) e subestimava
+  // o totalBRL_ref. Agora usamos o mesmo total ja calculado por stats(), que esta correto em BRL.
   let deltaHoje=null;
-  if(totalBRL_ref>0&&Array.isArray(hist)&&hist.length>0){
+  if(total>0&&Array.isArray(hist)&&hist.length>0){
     const agora=new Date();
     const hojeStr=agora.toDateString();
     // Encontra todos snapshots validos ordenados por data crescente
@@ -6546,11 +6546,11 @@ Responda APENAS com o texto do insight, sem prefacio ou comentarios meta.`;
       }
     }
     if(ref&&ref>0&&dataRef){
-      // AMBOS em BRL: comparacao consistente independente de cambio ou moeda de visualizacao
-      const pct=((totalBRL_ref-ref)/ref)*100;
+      // total ja esta em BRL (pv() retorna BRL por padrao). ref tambem esta em BRL (totalPatrimBRL).
+      const pct=((total-ref)/ref)*100;
       const refHora=String(dataRef.getHours()).padStart(2,"0")+":"+String(dataRef.getMinutes()).padStart(2,"0");
       if(Math.abs(pct)>=0.001){
-        deltaHoje={pct,refValor:ref,refHora,fonte,totalAtualBRL:totalBRL_ref};
+        deltaHoje={pct,refValor:ref,refHora,fonte};
       }
     }
   }
@@ -6581,7 +6581,7 @@ Responda APENAS com o texto do insight, sem prefacio ou comentarios meta.`;
             ),
             // Valor nominal em R$ (delta total do dia)
             h("div",{style:{fontSize:10,fontWeight:600,opacity:0.85,marginTop:1}},
-              (deltaHoje.pct>=0?"+":"\u2212")+fB(Math.abs(deltaHoje.totalAtualBRL-deltaHoje.refValor))
+              (deltaHoje.pct>=0?"+":"\u2212")+fB(Math.abs(total-deltaHoje.refValor))
             )
           )
         ),
