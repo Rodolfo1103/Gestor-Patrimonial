@@ -3032,8 +3032,34 @@ function HeatmapChart({hist,histMensal}){
     h("div",{style:{fontSize:9,color:"#5A5550",marginBottom:10,fontStyle:"italic"}},"Rentabilidade mensal descontando aportes"),
     ...years.map(y=>h("div",{key:y,style:{display:"flex",alignItems:"center",gap:4,marginBottom:5}},
       h("span",{style:{fontSize:9,color:"#8A8070",fontFamily:"monospace",width:34,flexShrink:0}},y),
-      ...byYear[y].map((p,i)=>h("div",{key:i,title:meses[i]+" "+y+": "+(p===null?"sem dados":(p>=0?"+":"")+p.toFixed(2)+"%"),style:{flex:1,aspectRatio:"1",background:colorFor(p),borderRadius:3,display:"flex",alignItems:"center",justifyContent:"center",fontSize:7,color:p===null?"#3A3830":(Math.abs(p)>1?"#0D0F14":"#FFFFFF"),fontFamily:"monospace",fontWeight:"bold",minHeight:22}},p===null?meses[i]:(p>=0?"+":"")+p.toFixed(1))
-    ))),
+      ...byYear[y].map((p,i)=>{
+        // Verifica se esta celula e do MES CORRENTE (em curso) - destaca visualmente
+        const ehHoje=new Date();
+        const ehMesCorrente=parseInt(y)===ehHoje.getFullYear()&&i===ehHoje.getMonth();
+        const ehFuturo=parseInt(y)>ehHoje.getFullYear()||(parseInt(y)===ehHoje.getFullYear()&&i>ehHoje.getMonth());
+        return h("div",{
+          key:i,
+          title:meses[i]+" "+y+": "+(p===null?(ehMesCorrente?"em curso":(ehFuturo?"futuro":"sem dados")):(p>=0?"+":"")+p.toFixed(2)+"%"+(ehMesCorrente?" (em curso - nao entra nas estatisticas)":"")),
+          style:{
+            flex:1,
+            aspectRatio:"1",
+            background:colorFor(p),
+            borderRadius:3,
+            display:"flex",
+            alignItems:"center",
+            justifyContent:"center",
+            fontSize:7,
+            color:p===null?"#3A3830":(Math.abs(p)>1?"#0D0F14":"#FFFFFF"),
+            fontFamily:"monospace",
+            fontWeight:"bold",
+            minHeight:22,
+            // Destaca visualmente o mes corrente com borda tracejada dourada
+            border:ehMesCorrente?"1.5px dashed #E8C97A":"none",
+            boxShadow:ehMesCorrente?"0 0 0 1px rgba(232,201,122,0.3)":"none"
+          }
+        },p===null?meses[i]:(p>=0?"+":"")+p.toFixed(1));
+      })
+    )),
     // Legenda
     h("div",{style:{display:"flex",alignItems:"center",gap:5,marginTop:8,justifyContent:"center"}},
       h("span",{style:{fontSize:8,color:"#7A7570",fontFamily:"monospace"}},"-3%"),
@@ -3041,14 +3067,32 @@ function HeatmapChart({hist,histMensal}){
       h("span",{style:{fontSize:8,color:"#7A7570",fontFamily:"monospace"}},"+3%")
     ),
     // ===== CARD DE ESTATÍSTICAS MENSAIS =====
+    // CAMINHO A (coerencia B&H): estatisticas excluem o MES CORRENTE (ainda em curso).
+    // Mes corrente continua visivel como celula no heatmap acima, mas nao entra nos cards
+    // de Maior Alta / Maior Baixa / % positivos. Evita confusao visual quando mes corrente
+    // esta em movimento oposto ao melhor/pior mes historico (ex: "+1,52% Maior Alta" vs
+    // celula atual em "-1,52%"). Analogo a corretoras profissionais: rendimento do mes
+    // em curso nao entra na rentabilidade YTD oficial ate o mes fechar.
     (()=>{
-      // Calcula as estatísticas a partir do array de variações
-      const validas=variacoes.filter(v=>typeof v.pct==="number"&&!isNaN(v.pct));
-      if(validas.length<1)return null;
+      // Identifica chave do mes corrente (YYYY-MM) para excluir
+      const hoje=new Date();
+      const mesCorrenteKey=hoje.getFullYear()+"-"+String(hoje.getMonth()+1).padStart(2,"0");
+      // Calcula as estatísticas APENAS sobre meses FECHADOS (exclui o mes corrente em curso)
+      const variacoesValidas=variacoes.filter(v=>typeof v.pct==="number"&&!isNaN(v.pct));
+      const validas=variacoesValidas.filter(v=>v.mes!==mesCorrenteKey);
+      // Captura o mes corrente separadamente (se existir na lista)
+      const mesCorrenteData=variacoesValidas.find(v=>v.mes===mesCorrenteKey);
+      // Se nao houver meses fechados, mostra mensagem amigavel
+      if(validas.length<1){
+        return h("div",{style:{marginTop:14,padding:"12px 14px",background:"rgba(200,169,110,0.05)",border:"1px dashed rgba(200,169,110,0.25)",borderRadius:8,textAlign:"center"}},
+          h("div",{style:{fontSize:10,color:"#9A9080",fontFamily:"Georgia,serif",fontStyle:"italic"}},"Estatisticas disponiveis a partir do 1\u00ba mes fechado"),
+          mesCorrenteData&&h("div",{style:{fontSize:9,color:"#7A7060",fontFamily:"monospace",marginTop:6}},"Mes corrente em curso: "+(mesCorrenteData.pct>=0?"+":"")+mesCorrenteData.pct.toFixed(2)+"%")
+        );
+      }
       const positivas=validas.filter(v=>v.pct>0);
       const negativas=validas.filter(v=>v.pct<0);
       const neutras=validas.filter(v=>v.pct===0);
-      // Maior alta e maior baixa
+      // Maior alta e maior baixa (apenas entre meses fechados)
       let maiorAlta=null,maiorBaixa=null;
       validas.forEach(v=>{
         if(maiorAlta===null||v.pct>maiorAlta.pct)maiorAlta=v;
@@ -3064,7 +3108,7 @@ function HeatmapChart({hist,histMensal}){
         // Header do card
         h("div",{style:{display:"flex",alignItems:"baseline",justifyContent:"space-between",marginBottom:11,flexWrap:"wrap",gap:6}},
           h("div",{style:{fontSize:9,letterSpacing:2,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,textTransform:"uppercase"}},"\u{1F4CA} ESTATISTICAS MENSAIS"),
-          h("div",{style:{fontSize:8,color:"#7A7060",fontFamily:"monospace"}},validas.length+" meses analisados")
+          h("div",{style:{fontSize:8,color:"#7A7060",fontFamily:"monospace"}},validas.length+" meses fechados")
         ),
         // Grid 2x2 de estatísticas
         h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:9}},
@@ -3110,6 +3154,16 @@ function HeatmapChart({hist,histMensal}){
             h("span",{},pctPositivos.toFixed(0)+"% positivos"),
             h("span",{},(100-pctPositivos).toFixed(0)+"% negativos")
           )
+        ),
+        // Nota explicativa: mes corrente excluido das estatisticas (esta em curso)
+        h("div",{style:{marginTop:10,paddingTop:9,borderTop:"1px dashed rgba(200,169,110,0.18)",fontSize:8,color:"#7A7060",fontFamily:"monospace",lineHeight:1.6,textAlign:"center"}},
+          mesCorrenteData
+            ? h("span",null,
+                "\u23F3 M\u00eas corrente em curso (",
+                h("span",{style:{color:mesCorrenteData.pct>=0?"#5DBF82":"#C46045",fontWeight:700}},(mesCorrenteData.pct>=0?"+":"")+mesCorrenteData.pct.toFixed(2)+"%"),
+                ") n\u00e3o entra nas estat\u00edsticas"
+              )
+            : h("span",{style:{fontStyle:"italic",opacity:0.7}},"Estat\u00edsticas baseadas apenas em meses fechados")
         )
       );
     })()
