@@ -6444,72 +6444,9 @@ Responda APENAS com o texto do insight, sem prefacio ou comentarios meta.`;
   // Idade do cambio
   const fxIdadeMin=lastPU?Math.floor((Date.now()-new Date(lastPU).getTime())/60000):null;
   const fxAntigo=fxIdadeMin!==null&&fxIdadeMin>60;
-  // Calcula variacao do patrimonio HOJE: usa o ULTIMO SNAPSHOT DO DIA ANTERIOR como referencia
-  // (representa o fechamento do pregao anterior - garante delta de exatamente UMA sessao de mercado)
-  // Fallback: se nao houver snapshot ontem, usa o primeiro snapshot de hoje feito APOS abertura do mercado (10h+)
-  //
-  // CRITICO: o parametro 'ccy' da funcao pv() NAO e uma string de moeda, e um OBJETO mapeando
-  // ticker -> moeda de origem (ex: ccy['MSFT']='USD', ccy['PETR4']='BRL'). A funcao pv() usa
-  // FX[ccy[t]||'BRL'] para converter ativos estrangeiros para BRL. Como pv() ja retorna em BRL
-  // por padrao (FX.BRL=1, FX.USD=~5.5), o 'total' calculado por stats() ja esta em BRL puro -
-  // a confusao anterior de "moeda de visualizacao" era falsa premissa minha. O bug real anterior
-  // (sinal invertido com patrimonio em alta) era causado por passar 'BRL' string em vez do objeto
-  // ccy correto, o que zerava o cambio dos ativos USD (FX['BRL']=1 nesses casos) e subestimava
-  // o totalBRL_ref. Agora usamos o mesmo total ja calculado por stats(), que esta correto em BRL.
-  let deltaHoje=null;
-  if(total>0&&Array.isArray(hist)&&hist.length>0){
-    const agora=new Date();
-    const hojeStr=agora.toDateString();
-    // Encontra todos snapshots validos ordenados por data crescente
-    const validos=hist.filter(r=>r&&r.totalPatrimBRL>0).slice().reverse();// hist eh DESC, viramos pra ASC
-    let ref=null,dataRef=null,fonte=null;
-    // ESTRATEGIA 1 (PREFERENCIAL): PRIMEIRO snapshot de HOJE feito APOS as 10h (abertura B3)
-    // Mostra variacao intraday pura - o quanto o patrimonio andou DENTRO do dia.
-    // Sem somar overnight gap (variacao entre fechamento de ontem e abertura de hoje).
-    const hojeAbertoMercado=validos.find(r=>{
-      const d=new Date(r.date);
-      return d.toDateString()===hojeStr&&d.getHours()>=10;
-    });
-    if(hojeAbertoMercado&&hojeAbertoMercado.totalPatrimBRL>0){
-      ref=hojeAbertoMercado.totalPatrimBRL;
-      dataRef=new Date(hojeAbertoMercado.date);
-      fonte="abertura hoje "+String(dataRef.getHours()).padStart(2,"0")+":"+String(dataRef.getMinutes()).padStart(2,"0");
-    }
-    // ESTRATEGIA 2 (FALLBACK): Se ainda nao houve snapshot apos as 10h de hoje (ex: usuario abriu o
-    // app antes da abertura do mercado), usa o ULTIMO snapshot de dia anterior como referencia
-    // (= fechamento do pregao anterior). Garante que o card sempre mostre algum valor.
-    if(!ref){
-      for(let i=validos.length-1;i>=0;i--){
-        const dStr=new Date(validos[i].date).toDateString();
-        if(dStr!==hojeStr){
-          ref=validos[i].totalPatrimBRL;
-          dataRef=new Date(validos[i].date);
-          fonte="fechamento "+dataRef.toLocaleDateString("pt-BR");
-          break;
-        }
-      }
-    }
-    if(ref&&ref>0&&dataRef){
-      // total ja esta em BRL (pv() retorna BRL por padrao). ref tambem esta em BRL (totalPatrimBRL).
-      const pct=((total-ref)/ref)*100;
-      const refHora=String(dataRef.getHours()).padStart(2,"0")+":"+String(dataRef.getMinutes()).padStart(2,"0");
-      // DEBUG INFO: passa info completa do calculo para o tooltip e modal de diagnostico
-      const debugInfo="DIAGNOSTICO DA VARIACAO:\n"+
-        "- Patrimonio atual (BRL): R$ "+total.toFixed(2)+"\n"+
-        "- Valor de referencia: R$ "+ref.toFixed(2)+"\n"+
-        "- Diferenca nominal: R$ "+(total-ref).toFixed(2)+"\n"+
-        "- Variacao calculada: "+pct.toFixed(4)+"%\n"+
-        "- Fonte da referencia: "+fonte+"\n"+
-        "- Data/hora da referencia: "+dataRef.toLocaleString("pt-BR")+"\n"+
-        "- Snapshots no historico: "+validos.length+"\n"+
-        "- Snapshot mais antigo: "+(validos[0]?new Date(validos[0].date).toLocaleString("pt-BR"):"N/A")+"\n"+
-        "- Snapshot mais recente: "+(validos[validos.length-1]?new Date(validos[validos.length-1].date).toLocaleString("pt-BR"):"N/A");
-      if(Math.abs(pct)>=0.001){
-        deltaHoje={pct,refValor:ref,refHora,fonte,debugInfo,totalDebug:total,validosLen:validos.length,dataRefStr:dataRef.toLocaleString("pt-BR")};
-      }
-    }
-  }
-  const header=h("div",{style:{background:"linear-gradient(180deg,rgba(200,169,110,0.08) 0%,transparent 100%)",borderBottom:"1px solid rgba(200,169,110,0.15)",padding:"14px 18px 10px"}},
+  // NOTA: variacao intraday foi removida do dashboard. Buy & Hold rigoroso de longo prazo
+  // nao acompanha movimento intraday - acompanhamento e mensal via heatmap mensal.
+  const header=h("div",{style:{background:"linear-gradient(180deg,rgba(200,169,110,0.08) 0%,transparent 100%)",padding:"14px 18px 10px",borderBottom:"1px solid rgba(200,169,110,0.15)"}},
     h("div",{style:{fontSize:9,letterSpacing:4,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:2}},"Planejamento Patrimonial - Buy & Hold"),
     h("div",{style:{display:"flex",alignItems:"flex-end",justifyContent:"space-between",gap:8,flexWrap:"wrap"}},
       h("div",{style:{flex:1,minWidth:0}},
@@ -6526,19 +6463,6 @@ Responda APENAS com o texto do insight, sem prefacio ou comentarios meta.`;
                   h("path",{d:"M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"}),
                   h("circle",{cx:"12",cy:"12",r:"3"})
                 )
-          ),
-          // Card: variacao INTRADAY (vs abertura de hoje) - quanto o patrimonio andou DENTRO do dia
-          // Fallback para fechamento de ontem se ainda nao houve snapshot apos 10h hoje
-          !hideVal&&deltaHoje&&h("div",{onClick:()=>window.alert(deltaHoje.debugInfo),title:"Toque para ver diagnostico detalhado",style:{display:"inline-flex",flexDirection:"column",alignItems:"flex-start",gap:1,padding:"4px 9px 5px",borderRadius:5,background:"rgba(255,255,255,0.025)",border:"1px solid rgba(255,255,255,0.06)",color:deltaHoje.pct>=0?"#4CAF82":"#E05252",fontFamily:"monospace",fontWeight:700,lineHeight:1.1,cursor:"pointer"}},
-            h("div",{style:{display:"inline-flex",alignItems:"baseline",gap:4}},
-              h("span",{style:{fontSize:11,lineHeight:1}},deltaHoje.pct>=0?"\u25B2":"\u25BC"),
-              h("span",{style:{fontSize:15,lineHeight:1.1}},(deltaHoje.pct>=0?"+":"")+deltaHoje.pct.toFixed(2)+"%"),
-              h("span",{style:{fontSize:8,opacity:0.7,fontWeight:400,marginLeft:2}},deltaHoje.fonte&&deltaHoje.fonte.indexOf("fechamento")===0?"vs fechamento":"hoje desde "+deltaHoje.refHora)
-            ),
-            // Valor nominal em R$ (delta total do dia)
-            h("div",{style:{fontSize:10,fontWeight:600,opacity:0.85,marginTop:1}},
-              (deltaHoje.pct>=0?"+":"\u2212")+fB(Math.abs(total-deltaHoje.refValor))
-            )
           )
         ),
         hasPos&&!hideVal&&valorEstrangeiroBRL>0&&h("div",{style:{fontSize:9,color:"#7A7570",fontFamily:"monospace",marginTop:3,lineHeight:1.4}},
