@@ -6639,7 +6639,66 @@ h("button",{onClick:()=>{
     inp.click();
   },style:{background:"none",border:"none",color:"#3A3830",fontSize:10,cursor:"pointer",padding:"6px 4px",fontFamily:"monospace",flexShrink:0}},"IMP"),
 h("button",{onClick:()=>{const k=window.prompt("Cole o token Brapi.dev (para cotacoes B3 / Fiagros). Cadastre gratis em brapi.dev/dashboard:",brapiKey||"");if(k===null)return;const lim=k.trim();if(!lim){if(aesKey)saveBrapiKey(aesKey,"");setBrapiKeyS("");alert("Token Brapi removido.");return;}if(lim.length<10){alert("Token muito curto. Verifique se copiou inteiro.");return;}setBrapiKeyS(lim);if(aesKey)saveBrapiKey(aesKey,lim);alert("Token Brapi salvo!");},style:{marginLeft:"auto",background:"none",border:"none",color:brapiKey?"#C8A96E":"#3A3830",fontSize:10,cursor:"pointer",padding:"6px 4px",fontFamily:"monospace",flexShrink:0}},"BRAPI"),
-h("button",{onClick:()=>{const k=window.prompt("Cole sua API key BGeometrics (para MVRV-Z Score do Bitcoin). Cadastre gratis em portal.bgeometrics.com/login:",bgKey||"");if(k===null)return;const lim=k.trim();if(!lim){if(aesKey)saveBgKey(aesKey,"");setBgKeyS("");setMvrvZ(null);setMvrvZTs(null);alert("Chave BGeometrics removida.");return;}if(lim.length<10){alert("Chave muito curta. Verifique se copiou inteira.");return;}setBgKeyS(lim);if(aesKey)saveBgKey(aesKey,lim);alert("Chave BGeometrics salva! O MVRV-Z sera buscado em background.");},style:{background:"none",border:"none",color:bgKey?"#C8A96E":"#3A3830",fontSize:10,cursor:"pointer",padding:"6px 4px",fontFamily:"monospace",flexShrink:0}},"BG"),
+h("button",{onClick:()=>{
+  // Se ja tem chave, abre menu de diagnostico/acoes
+  if(bgKey){
+    const acao=window.prompt(
+      "BGeometrics - Diagnostico MVRV-Z\n\n"+
+      "Status atual:\n"+
+      "- Chave salva: SIM (dourado)\n"+
+      "- MVRV-Z atual: "+(typeof mvrvZ==="number"?mvrvZ.toFixed(2):"NULL (nao buscado)")+"\n"+
+      "- Ultimo fetch: "+(mvrvZTs?new Date(mvrvZTs).toLocaleString("pt-BR"):"NUNCA")+"\n"+
+      "- Ultimo erro: "+(mvrvZErr||"nenhum erro registrado")+"\n\n"+
+      "Digite uma opcao:\n"+
+      "1 = Forcar nova busca agora (ignora cache 12h)\n"+
+      "2 = Trocar a chave\n"+
+      "3 = Remover a chave\n"+
+      "(cancelar para sair)",
+      ""
+    );
+    if(acao===null)return;
+    const op=acao.trim();
+    if(op==="1"){
+      // Forca refetch limpando o timestamp - o useEffect vai re-rodar
+      setMvrvZTs(null);
+      setMvrvZErr("");
+      alert("Cache limpo. O MVRV-Z sera buscado novamente em background (aguarde ~5s).");
+      return;
+    }
+    if(op==="2"){
+      const k=window.prompt("Cole a NOVA chave BGeometrics:","");
+      if(k===null)return;
+      const lim=k.trim();
+      if(lim.length<10){alert("Chave muito curta. Verifique se copiou inteira.");return;}
+      setBgKeyS(lim);
+      if(aesKey)saveBgKey(aesKey,lim);
+      setMvrvZTs(null);// forca refetch com nova chave
+      setMvrvZErr("");
+      alert("Nova chave salva. MVRV-Z sera buscado em background.");
+      return;
+    }
+    if(op==="3"){
+      if(!confirm("Remover a chave BGeometrics? O MVRV-Z deixara de ser exibido."))return;
+      if(aesKey)saveBgKey(aesKey,"");
+      setBgKeyS("");
+      setMvrvZ(null);
+      setMvrvZTs(null);
+      setMvrvZErr("");
+      alert("Chave BGeometrics removida.");
+      return;
+    }
+    return;
+  }
+  // Se nao tem chave, abre prompt para colar
+  const k=window.prompt("Cole sua API key BGeometrics (para MVRV-Z Score do Bitcoin). Cadastre gratis em portal.bgeometrics.com/login:",bgKey||"");
+  if(k===null)return;
+  const lim=k.trim();
+  if(!lim){if(aesKey)saveBgKey(aesKey,"");setBgKeyS("");setMvrvZ(null);setMvrvZTs(null);alert("Chave BGeometrics removida.");return;}
+  if(lim.length<10){alert("Chave muito curta. Verifique se copiou inteira.");return;}
+  setBgKeyS(lim);
+  if(aesKey)saveBgKey(aesKey,lim);
+  alert("Chave BGeometrics salva! O MVRV-Z sera buscado em background.");
+},style:{background:"none",border:"none",color:bgKey?"#C8A96E":"#3A3830",fontSize:10,cursor:"pointer",padding:"6px 4px",fontFamily:"monospace",flexShrink:0}},"BG"),
 h("button",{onClick:async()=>{
   if(!confirm("Limpar cache do app? Isso vai desregistrar service workers e limpar caches do browser. Voce vai precisar recarregar a pagina."))return;
   try{
