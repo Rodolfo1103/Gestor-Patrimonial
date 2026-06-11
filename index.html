@@ -6505,8 +6505,17 @@ Responda APENAS com o texto do insight, sem prefacio ou comentarios meta.`;
   // Calcula variacao do patrimonio HOJE: usa o ULTIMO SNAPSHOT DO DIA ANTERIOR como referencia
   // (representa o fechamento do pregao anterior - garante delta de exatamente UMA sessao de mercado)
   // Fallback: se nao houver snapshot ontem, usa o primeiro snapshot de hoje feito APOS abertura do mercado (10h+)
+  // CRITICO: usar totalBRL puro (recalculado em BRL ignorando ccy de visualizacao) para casar com
+  // o totalPatrimBRL gravado no historico. Sem isso, alternancia de moeda ou variacao cambial
+  // ao longo do dia gera comparacao entre moedas diferentes e pode INVERTER o sinal do delta.
+  let totalBRL_ref=0;
+  Object.entries(port||{}).forEach(([t,p])=>{
+    if(!p)return;
+    const v=pv(t,p,"BRL",ntnbTaxas,ntnbVNA);// FORCA conversao para BRL
+    if(v)totalBRL_ref+=v;
+  });
   let deltaHoje=null;
-  if(total>0&&Array.isArray(hist)&&hist.length>0){
+  if(totalBRL_ref>0&&Array.isArray(hist)&&hist.length>0){
     const agora=new Date();
     const hojeStr=agora.toDateString();
     // Encontra todos snapshots validos ordenados por data crescente
@@ -6537,10 +6546,11 @@ Responda APENAS com o texto do insight, sem prefacio ou comentarios meta.`;
       }
     }
     if(ref&&ref>0&&dataRef){
-      const pct=((total-ref)/ref)*100;
+      // AMBOS em BRL: comparacao consistente independente de cambio ou moeda de visualizacao
+      const pct=((totalBRL_ref-ref)/ref)*100;
       const refHora=String(dataRef.getHours()).padStart(2,"0")+":"+String(dataRef.getMinutes()).padStart(2,"0");
       if(Math.abs(pct)>=0.001){
-        deltaHoje={pct,refValor:ref,refHora,fonte};
+        deltaHoje={pct,refValor:ref,refHora,fonte,totalAtualBRL:totalBRL_ref};
       }
     }
   }
@@ -6571,7 +6581,7 @@ Responda APENAS com o texto do insight, sem prefacio ou comentarios meta.`;
             ),
             // Valor nominal em R$ (delta total do dia)
             h("div",{style:{fontSize:10,fontWeight:600,opacity:0.85,marginTop:1}},
-              (deltaHoje.pct>=0?"+":"\u2212")+fB(Math.abs(total-deltaHoje.refValor))
+              (deltaHoje.pct>=0?"+":"\u2212")+fB(Math.abs(deltaHoje.totalAtualBRL-deltaHoje.refValor))
             )
           )
         ),
