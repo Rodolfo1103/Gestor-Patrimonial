@@ -3814,6 +3814,8 @@ function App(){
   const [pinHash,setPinHash]=useState(()=>{try{return localStorage.getItem(SK_PIN)||"";}catch{return "";}});
   const [aesKey,setAesKey]=useState(null);// CryptoKey em memoria, derivada do PIN
   const [autenticado,setAutenticado]=useState(false);
+  const [splashAtiva,setSplashAtiva]=useState(false);// splash screen com logo Aletsch Wealth (5s apos PIN)
+  const [splashSaindo,setSplashSaindo]=useState(false);// flag para animacao de fade-out
   const [lastActivity,setLastActivity]=useState(Date.now());
   const [pinInput,setPinInput]=useState("");
   const [pinErr,setPinErr]=useState("");
@@ -4103,6 +4105,16 @@ function App(){
       clearInterval(id);
     };
   },[autenticado,lastActivity]);
+
+  // Splash screen Aletsch Wealth: ativa quando o usuario passa pela tela de PIN
+  // Duracao total ~5.5s: 5s estatica + 0.5s fade-out suave
+  useEffect(()=>{
+    if(!autenticado){setSplashAtiva(false);setSplashSaindo(false);return;}
+    setSplashAtiva(true);setSplashSaindo(false);
+    const tFade=setTimeout(()=>setSplashSaindo(true),5000);// inicia fade-out aos 5s
+    const tFim=setTimeout(()=>setSplashAtiva(false),5500);// remove totalmente aos 5.5s
+    return()=>{clearTimeout(tFade);clearTimeout(tFim);};
+  },[autenticado]);
 
   // Atualiza FX em background ao abrir o app (silencioso, nao bloqueia, nao toca em precos de ativos)
   const [fxState,setFxState]=useState({...FX_INIT});
@@ -6344,6 +6356,136 @@ Responda APENAS com o texto do insight, sem prefacio ou comentarios meta.`;
   // if(!apiKey)return h(KeyScreen,{onSave:k=>{setApiKeyS(k);if(aesKey)saveApiKey(aesKey,k);}});
   // Se nao autenticado, mostra tela de PIN ANTES de qualquer outra checagem
   if(!autenticado)return renderTelaPin();
+  // Splash screen com logo grande Aletsch Wealth: aparece por ~5.5s apos PIN aceito
+  if(splashAtiva){
+    const op=splashSaindo?0:1;
+    return h("div",{style:{
+      minHeight:"100vh",
+      background:"radial-gradient(ellipse at center, #1A1A20 0%, #0D0F14 50%, #08090D 100%)",
+      display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",
+      opacity:op,transition:"opacity 0.5s ease-out",
+      position:"relative",overflow:"hidden"
+    }},
+      // Bussola dourada grande (260px) - mesmo desenho do icone do PWA
+      h("div",{style:{
+        animation:"aw-fadein 0.8s ease-out, aw-glow 3s ease-in-out infinite alternate",
+        marginBottom:32
+      }},
+        h("svg",{width:260,height:260,viewBox:"0 0 512 512",xmlns:"http://www.w3.org/2000/svg"},
+          h("defs",null,
+            h("linearGradient",{id:"sp-gold",x1:"0%",y1:"0%",x2:"0%",y2:"100%"},
+              h("stop",{offset:"0%",stopColor:"#E8C97A"}),
+              h("stop",{offset:"55%",stopColor:"#C8A96E"}),
+              h("stop",{offset:"100%",stopColor:"#A8893E"})
+            ),
+            h("linearGradient",{id:"sp-goldLight",x1:"0%",y1:"0%",x2:"0%",y2:"100%"},
+              h("stop",{offset:"0%",stopColor:"#F5DC92"}),
+              h("stop",{offset:"100%",stopColor:"#D4B47A"})
+            ),
+            h("linearGradient",{id:"sp-goldDark",x1:"0%",y1:"0%",x2:"0%",y2:"100%"},
+              h("stop",{offset:"0%",stopColor:"#B89252"}),
+              h("stop",{offset:"100%",stopColor:"#705828"})
+            ),
+            h("radialGradient",{id:"sp-starGlow",cx:"50%",cy:"50%",r:"50%"},
+              h("stop",{offset:"0%",stopColor:"#FFE9A8",stopOpacity:"0.9"}),
+              h("stop",{offset:"50%",stopColor:"#E8C97A",stopOpacity:"0.3"}),
+              h("stop",{offset:"100%",stopColor:"#E8C97A",stopOpacity:"0"})
+            )
+          ),
+          h("g",{transform:"translate(256 256)"},
+            // Anel externo da bussola
+            h("circle",{r:"195",fill:"none",stroke:"url(#sp-gold)",strokeWidth:"3",strokeOpacity:"0.9"}),
+            h("circle",{r:"185",fill:"none",stroke:"#C8A96E",strokeWidth:"0.8",strokeOpacity:"0.35"}),
+            // Marcacoes cardeais N/L/S/O
+            h("g",{stroke:"url(#sp-gold)",strokeLinecap:"round",strokeWidth:"3.5"},
+              h("line",{x1:"0",y1:"-193",x2:"0",y2:"-175"}),
+              h("line",{x1:"0",y1:"-193",x2:"0",y2:"-175",transform:"rotate(90)"}),
+              h("line",{x1:"0",y1:"-193",x2:"0",y2:"-175",transform:"rotate(180)"}),
+              h("line",{x1:"0",y1:"-193",x2:"0",y2:"-175",transform:"rotate(270)"})
+            ),
+            // Marcacoes intermediarias
+            h("g",{stroke:"#C8A96E",strokeLinecap:"round",strokeWidth:"1.5",opacity:"0.45"},
+              h("line",{x1:"0",y1:"-192",x2:"0",y2:"-184",transform:"rotate(45)"}),
+              h("line",{x1:"0",y1:"-192",x2:"0",y2:"-184",transform:"rotate(135)"}),
+              h("line",{x1:"0",y1:"-192",x2:"0",y2:"-184",transform:"rotate(225)"}),
+              h("line",{x1:"0",y1:"-192",x2:"0",y2:"-184",transform:"rotate(315)"})
+            ),
+            // Letras N L S O
+            h("g",{fontFamily:"Georgia,serif",fontWeight:"700",textAnchor:"middle"},
+              h("text",{x:"0",y:"-148",fontSize:"30",fill:"url(#sp-goldLight)"},"N"),
+              h("text",{x:"148",y:"11",fontSize:"22",fill:"url(#sp-gold)",opacity:"0.75"},"L"),
+              h("text",{x:"0",y:"163",fontSize:"22",fill:"url(#sp-gold)",opacity:"0.75"},"S"),
+              h("text",{x:"-148",y:"11",fontSize:"22",fill:"url(#sp-gold)",opacity:"0.75"},"O")
+            ),
+            // Ponteiro (agulha): triangulo apontando para o Norte
+            h("g",null,
+              h("polygon",{points:"0,0 14,0 0,125 -14,0",fill:"url(#sp-goldDark)",opacity:"0.85"}),
+              h("polygon",{points:"0,-135 14,0 0,0",fill:"url(#sp-goldDark)"}),
+              h("polygon",{points:"0,-135 -14,0 0,0",fill:"url(#sp-goldLight)"})
+            ),
+            // Estrela no topo da agulha (norte)
+            h("g",{transform:"translate(0 -135)"},
+              h("circle",{r:"22",fill:"url(#sp-starGlow)"}),
+              h("path",{d:"M 0,-14 L 3,-3 L 14,0 L 3,3 L 0,14 L -3,3 L -14,0 L -3,-3 Z",fill:"url(#sp-goldLight)"}),
+              h("circle",{r:"2.5",fill:"#FFF5D8"})
+            ),
+            // Centro com cifrao
+            h("circle",{r:"32",fill:"#0D0F14"}),
+            h("circle",{r:"32",fill:"none",stroke:"url(#sp-gold)",strokeWidth:"2"}),
+            h("circle",{r:"28",fill:"none",stroke:"#C8A96E",strokeWidth:"0.5",strokeOpacity:"0.6"}),
+            h("text",{x:"0",y:"13",fontFamily:"Georgia,serif",fontSize:"38",fontWeight:"400",fill:"url(#sp-gold)",textAnchor:"middle",opacity:"0.92"},"$")
+          )
+        )
+      ),
+      // Nome ALETSCH em destaque
+      h("div",{style:{
+        fontFamily:"'Cinzel','Trajan Pro','Georgia',serif",
+        fontSize:42,
+        fontWeight:400,
+        letterSpacing:14,
+        color:"#E8C97A",
+        textTransform:"uppercase",
+        marginBottom:6,
+        animation:"aw-fadein 1s ease-out 0.3s both",
+        textShadow:"0 0 30px rgba(232,201,122,0.25)"
+      }},"Aletsch"),
+      // Linha decorativa entre nome e tagline
+      h("div",{style:{
+        width:80,
+        height:1,
+        background:"linear-gradient(90deg, transparent, #C8A96E, transparent)",
+        marginBottom:10,
+        animation:"aw-fadein 1s ease-out 0.6s both"
+      }}),
+      // Tagline WEALTH
+      h("div",{style:{
+        fontFamily:"'Cinzel','Trajan Pro','Georgia',serif",
+        fontSize:16,
+        fontWeight:400,
+        letterSpacing:18,
+        color:"#A8893E",
+        textTransform:"uppercase",
+        marginBottom:48,
+        animation:"aw-fadein 1s ease-out 0.6s both"
+      }},"Wealth"),
+      // Linha tagline Buy & Hold (sutil, no rodape)
+      h("div",{style:{
+        position:"absolute",
+        bottom:50,
+        fontFamily:"monospace",
+        fontSize:10,
+        letterSpacing:4,
+        color:"#5A4F30",
+        textTransform:"uppercase",
+        animation:"aw-fadein 1s ease-out 1s both"
+      }},"Planejamento Patrimonial \u00b7 Buy & Hold"),
+      // CSS de animacoes (inline)
+      h("style",null,
+        "@keyframes aw-fadein{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}"+
+        "@keyframes aw-glow{0%{filter:drop-shadow(0 0 12px rgba(232,201,122,0.15))}100%{filter:drop-shadow(0 0 28px rgba(232,201,122,0.35))}}"
+      )
+    );
+  }
   if(!inited)return h("div",{style:{minHeight:"100vh",background:"#0D0F14",display:"flex",alignItems:"center",justifyContent:"center"}},h("span",{style:{color:"#C8A96E",fontFamily:"monospace",letterSpacing:3}},"CARREGANDO..."));
 
   const MV=v=>hideVal?"----":v;
