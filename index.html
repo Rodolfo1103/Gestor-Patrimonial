@@ -3752,6 +3752,7 @@ function App(){
   const [mvrvZ,setMvrvZ]=useState(null);// numero
   const [mvrvZTs,setMvrvZTs]=useState(null);// timestamp da ultima busca
   const [mvrvZErr,setMvrvZErr]=useState("");// debug: erro ao buscar
+  const [mvrvRefetchTick,setMvrvRefetchTick]=useState(0);// contador para forcar re-fetch (usado em deps do useEffect)
   // Bitcoin metricas complementares
   const [piCycle,setPiCycle]=useState(null);// {ma111, ma350x2, ratio, isTopSignal}
   const [nupl,setNupl]=useState(null);// numero -1 a 1
@@ -4855,7 +4856,7 @@ function App(){
       }
     })();
     return()=>{cancelado=true;};
-  },[inited,bgKey]);
+  },[inited,bgKey,mvrvRefetchTick]);
 
   // Recalibra RR (premissas de risco/retorno) sempre que Selic ou ajustes IA mudam
   // Forca re-render via rrTick (RR eh global mutavel)
@@ -6659,10 +6660,11 @@ h("button",{onClick:()=>{
     if(acao===null)return;
     const op=acao.trim();
     if(op==="1"){
-      // Forca refetch limpando o timestamp - o useEffect vai re-rodar
+      // Forca refetch limpando o timestamp E incrementando o tick (re-roda useEffect via deps)
       setMvrvZTs(null);
       setMvrvZErr("");
-      alert("Cache limpo. O MVRV-Z sera buscado novamente em background (aguarde ~5s).");
+      setMvrvRefetchTick(t=>t+1);
+      alert("Cache limpo e refetch forcado. O MVRV-Z sera buscado novamente em background (aguarde ~5s). Toque em BG novamente para ver o resultado.");
       return;
     }
     if(op==="2"){
