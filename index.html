@@ -6462,29 +6462,31 @@ Responda APENAS com o texto do insight, sem prefacio ou comentarios meta.`;
     const hojeStr=agora.toDateString();
     // Encontra todos snapshots validos ordenados por data crescente
     const validos=hist.filter(r=>r&&r.totalPatrimBRL>0).slice().reverse();// hist eh DESC, viramos pra ASC
-    // ESTRATEGIA 1 (PREFERENCIAL): Ultimo snapshot do dia anterior (= fechamento do pregao anterior)
-    // Procura no array reverso (ASC) o ULTIMO elemento que NAO seja de hoje
     let ref=null,dataRef=null,fonte=null;
-    for(let i=validos.length-1;i>=0;i--){
-      const dStr=new Date(validos[i].date).toDateString();
-      if(dStr!==hojeStr){
-        ref=validos[i].totalPatrimBRL;
-        dataRef=new Date(validos[i].date);
-        fonte="fechamento "+dataRef.toLocaleDateString("pt-BR");
-        break;
-      }
+    // ESTRATEGIA 1 (PREFERENCIAL): PRIMEIRO snapshot de HOJE feito APOS as 10h (abertura B3)
+    // Mostra variacao intraday pura - o quanto o patrimonio andou DENTRO do dia.
+    // Sem somar overnight gap (variacao entre fechamento de ontem e abertura de hoje).
+    const hojeAbertoMercado=validos.find(r=>{
+      const d=new Date(r.date);
+      return d.toDateString()===hojeStr&&d.getHours()>=10;
+    });
+    if(hojeAbertoMercado&&hojeAbertoMercado.totalPatrimBRL>0){
+      ref=hojeAbertoMercado.totalPatrimBRL;
+      dataRef=new Date(hojeAbertoMercado.date);
+      fonte="abertura hoje "+String(dataRef.getHours()).padStart(2,"0")+":"+String(dataRef.getMinutes()).padStart(2,"0");
     }
-    // ESTRATEGIA 2 (FALLBACK): Se nao ha snapshot de dias anteriores, usar primeiro snapshot
-    // de hoje feito APOS as 10h (abertura B3) para evitar contar variacao de madrugada com precos defasados
+    // ESTRATEGIA 2 (FALLBACK): Se ainda nao houve snapshot apos as 10h de hoje (ex: usuario abriu o
+    // app antes da abertura do mercado), usa o ULTIMO snapshot de dia anterior como referencia
+    // (= fechamento do pregao anterior). Garante que o card sempre mostre algum valor.
     if(!ref){
-      const hojeAbertoMercado=validos.find(r=>{
-        const d=new Date(r.date);
-        return d.toDateString()===hojeStr&&d.getHours()>=10;
-      });
-      if(hojeAbertoMercado&&hojeAbertoMercado.totalPatrimBRL>0){
-        ref=hojeAbertoMercado.totalPatrimBRL;
-        dataRef=new Date(hojeAbertoMercado.date);
-        fonte="abertura hoje "+String(dataRef.getHours()).padStart(2,"0")+":"+String(dataRef.getMinutes()).padStart(2,"0");
+      for(let i=validos.length-1;i>=0;i--){
+        const dStr=new Date(validos[i].date).toDateString();
+        if(dStr!==hojeStr){
+          ref=validos[i].totalPatrimBRL;
+          dataRef=new Date(validos[i].date);
+          fonte="fechamento "+dataRef.toLocaleDateString("pt-BR");
+          break;
+        }
       }
     }
     if(ref&&ref>0&&dataRef){
@@ -6525,8 +6527,8 @@ Responda APENAS com o texto do insight, sem prefacio ou comentarios meta.`;
                   h("circle",{cx:"12",cy:"12",r:"3"})
                 )
           ),
-          // Card: variacao HOJE vs fechamento do pregao anterior (delta de UMA sessao de mercado)
-          // CLIQUE NO CARD para abrir diagnostico completo com todos os numeros do calculo
+          // Card: variacao INTRADAY (vs abertura de hoje) - quanto o patrimonio andou DENTRO do dia
+          // Fallback para fechamento de ontem se ainda nao houve snapshot apos 10h hoje
           !hideVal&&deltaHoje&&h("div",{onClick:()=>window.alert(deltaHoje.debugInfo),title:"Toque para ver diagnostico detalhado",style:{display:"inline-flex",flexDirection:"column",alignItems:"flex-start",gap:1,padding:"4px 9px 5px",borderRadius:5,background:"rgba(255,255,255,0.025)",border:"1px solid rgba(255,255,255,0.06)",color:deltaHoje.pct>=0?"#4CAF82":"#E05252",fontFamily:"monospace",fontWeight:700,lineHeight:1.1,cursor:"pointer"}},
             h("div",{style:{display:"inline-flex",alignItems:"baseline",gap:4}},
               h("span",{style:{fontSize:11,lineHeight:1}},deltaHoje.pct>=0?"\u25B2":"\u25BC"),
