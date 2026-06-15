@@ -15158,17 +15158,6 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
       }catch(e){}
     }
     const bandasCam=bandasCambial(idadeUI);
-    // Calcula % de cada bucket vs subalvo (para o card superior de gaps)
-    const pctBuckets={};
-    if(totalCambialBRL>0){
-      pctBuckets.USD=(buckets.USD/totalCambialBRL)*100;
-      pctBuckets.EUR=(buckets.EUR/totalCambialBRL)*100;
-      pctBuckets.JPY=(buckets.JPY/totalCambialBRL)*100;
-      pctBuckets.OUTROS=(buckets.OUTROS/totalCambialBRL)*100;
-    }else{
-      pctBuckets.USD=pctBuckets.EUR=pctBuckets.JPY=pctBuckets.OUTROS=0;
-    }
-    const subalvos={USD:50,EUR:20,JPY:20,OUTROS:10};
 
     content=h("div",{},
       // Header
@@ -15191,34 +15180,6 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             h("div",{style:{fontSize:7,letterSpacing:1.5,color:"#7A7060",fontFamily:"monospace",marginBottom:3}},"% DO PATRIM\u00d4NIO"),
             h("div",{style:{fontSize:22,color:"#3DA17C",fontFamily:"monospace",fontWeight:700,lineHeight:1}},pctPatrim.toFixed(1)+"%")
           )
-        )
-      ),
-
-      // Card de buckets de subalvo (USD/EUR/JPY/Outras)
-      h("div",{style:{padding:"12px 14px",background:"rgba(61,161,124,0.06)",border:"1px solid rgba(61,161,124,0.25)",borderRadius:8,marginBottom:14}},
-        h("div",{style:{fontSize:8,letterSpacing:1.5,color:"#3DA17C",fontFamily:"monospace",fontWeight:700,marginBottom:7}},"\u{1F3AF} ALVOS POR BUCKET (composi\u00e7\u00e3o interna do caixa cambial)"),
-        ...[
-          {chave:"USD",label:"USD"},
-          {chave:"EUR",label:"EUR"},
-          {chave:"JPY",label:"JPY"},
-          {chave:"OUTROS",label:"Outras"}
-        ].map((b,k)=>{
-          const atual=pctBuckets[b.chave]||0;
-          const alvo=subalvos[b.chave];
-          const gap=atual-alvo;
-          const corGap=Math.abs(gap)<=5?"#7DD17D":Math.abs(gap)<=10?"#E8C44A":"#E89060";
-          return h("div",{key:k,style:{display:"grid",gridTemplateColumns:"60px 1fr 60px 60px",gap:6,padding:"4px 0",fontSize:9.5,fontFamily:"monospace",alignItems:"center"}},
-            h("div",{style:{color:"#3DA17C",fontWeight:700}},b.label),
-            h("div",{style:{height:6,background:"rgba(255,255,255,0.06)",borderRadius:3,overflow:"hidden",position:"relative"}},
-              h("div",{style:{position:"absolute",top:0,left:0,height:"100%",width:Math.min(100,atual)+"%",background:corGap,transition:"width 0.3s"}}),
-              h("div",{style:{position:"absolute",top:-1,left:alvo+"%",width:1,height:8,background:"#E8DCC0"}})
-            ),
-            h("div",{style:{textAlign:"right",color:"#E8DCC0",fontWeight:700}},totalCambialBRL>0?atual.toFixed(0)+"%":"\u2014"),
-            h("div",{style:{textAlign:"right",color:corGap,fontWeight:700}},totalCambialBRL>0?(gap>=0?"+":"")+gap.toFixed(0)+"pp":"alvo "+alvo+"%")
-          );
-        }),
-        h("p",{style:{margin:"6px 0 0",fontSize:8,color:"#7A7060",fontStyle:"italic",fontFamily:"monospace"}},
-          "Linha branca = alvo. Barra verde = bem alinhado (\u00b15pp), amarela = desvio moderado, laranja = grande desvio."
         )
       ),
 
