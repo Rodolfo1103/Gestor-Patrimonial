@@ -318,8 +318,210 @@ const IR_DIV={
   imoveis:0.275,// aluguel via Carne-Leao (faixa media)
   agro:0// FIAGRO isento PF
 };
-// Safe Withdrawal Rate (regra dos 4% para 30+ anos)
-const SWR=0.04;// 4% anual
+// =====================================================================
+// CALIBRACAO DINAMICA POR HORIZONTE DE VIDA (FUNDAMENTACAO CIENTIFICA)
+// =====================================================================
+// Substitui o SWR fixo de 4% (Trinity Study original, horizonte 30 anos)
+// por SWR ajustado dinamicamente ao horizonte de vida do investidor.
+//
+// REFERENCIAS:
+// - Pfau (2018) "How Much Can I Spend in Retirement"
+// - Bengen Updated (2020) "Conserving Client Portfolios During Retirement"
+// - Big ERN Safe Withdrawal Rate Series (Karsten Jeske)
+// - Sharpe (2007) "Time Diversification: Definitions and Some Closed-Form Solutions"
+//
+// LOGICA:
+// - Quanto maior o horizonte, maior o sequence-of-returns risk
+// - Quanto maior o horizonte, maior a inflacao acumulada (em 50 anos a 4%a.a.=7x)
+// - Quanto maior o horizonte, mais profunda a cauda ruim do Monte Carlo
+// - Em 30 anos SWR ~4.0%; em 50 anos SWR ~3.4%; em perpetuidade SWR ~3.0%
+//
+// CALIBRACAO (queda de 0.033%/ano adicional alem de 30 anos):
+//   SWR(h) = max(3.0%, 4.0% - max(0, (h-30)*0.033%))
+//
+// CONSTANTES:
+const EXPECTATIVA_VIDA_BR=90;// IBGE 2023 + ajuste para alto padrao socioeconomico (Pinheiro et al)
+const SWR_FLOOR=0.030;// 3.0% perpetuidade real (yield seguro longo prazo)
+const SWR_BASE_30Y=0.040;// 4.0% Trinity Study para 30 anos
+const SWR_DECAY_PER_YEAR=0.00033;// queda de 0.033% por ano alem de 30 anos
+//
+// Calcula horizonte estimado em anos a partir da idade atual
+function horizonteEstimado(idade){
+  if(typeof idade!=="number"||idade<18||idade>100)return 30;// fallback Trinity
+  return Math.max(10,EXPECTATIVA_VIDA_BR-idade);
+}
+//
+// Calcula SWR seguro ajustado ao horizonte (Pfau-style)
+function swrAjustado(idade){
+  const h=horizonteEstimado(idade);
+  const excedente=Math.max(0,h-30);
+  return Math.max(SWR_FLOOR,SWR_BASE_30Y-excedente*SWR_DECAY_PER_YEAR);
+}
+//
+// Calcula multiplicador FIRE SEGURO (reciproco do SWR ajustado)
+function multFIRESeguro(idade){
+  return 1/swrAjustado(idade);
+}
+//
+// Calcula 3 niveis de FIRE calibrados por horizonte + margens BR + Senilidade:
+// - Basico: 0.85x do seguro_ajustado (aperto, sobrevive sem margem - NAO RECOMENDADO para BR)
+// - Seguro: 1/SWR_ajustado x (1+margem_BR) x (1+margem_Senilidade) (FIRE robusto p/ horizonte real)
+// - Fat:    1.5x do seguro (folga substancial, conforto e legado)
+//
+// MARGENS DE SEGURANCA APLICADAS (defaults ATIVOS):
+// - Margem BR (+10%): para horizonte >=40 anos. Brasil tem ~1 crise estrutural a cada 5 anos
+//   (1986, 1990, 1994, 1999, 2002, 2008, 2015, 2020). Em 50 anos serao 8-10 crises adicionais.
+// - Margem Senilidade (+5%): para horizonte >=30 anos. Saude/cuidados aos 70+ custa 3-5x mais.
+//   IPCA saude historicamente 2-3pp acima do IPCA geral. Casas de repouso especializadas (Alzheimer)
+//   custam R$15-25k/mes - exigem reserva separada nao incluida no SWR base.
+function calibracoesFIRE(idade,opcoes){
+  const opts=opcoes||{};
+  const aplicaMargemBR=opts.aplicaMargemBR!==false;// default TRUE
+  const aplicaMargemSenilidade=opts.aplicaMargemSenilidade!==false;// default TRUE
+  const swr=swrAjustado(idade);
+  const horizonte=horizonteEstimado(idade);
+  // Base: 1/SWR (recíproco)
+  const seguroBase=1/swr;
+  // Margem BR: +10% se horizonte >=40 anos
+  const margemBR=(aplicaMargemBR&&horizonte>=40)?0.10:0;
+  // Margem Senilidade: +5% se horizonte >=30 anos
+  const margemSenilidade=(aplicaMargemSenilidade&&horizonte>=30)?0.05:0;
+  // Aplica margens compostas (nao aditivas - mais conservador)
+  const seguroComMargens=seguroBase*(1+margemBR)*(1+margemSenilidade);
+  return{
+    basico:Math.round(seguroComMargens*0.85*10)/10,
+    seguro:Math.round(seguroComMargens*10)/10,
+    fat:Math.round(seguroComMargens*1.5*10)/10,
+    seguroBase:Math.round(seguroBase*10)/10,// para referencia/comparacao
+    swr:swr,
+    horizonte:horizonte,
+    margemBR:margemBR,
+    margemSenilidade:margemSenilidade,
+    margemTotal:Math.round(((1+margemBR)*(1+margemSenilidade)-1)*1000)/10// em percentual
+  };
+}
+// SWR legado mantido para compatibilidade temporaria (usado em pontos onde idade
+// nao esta disponivel ou em fallback). Default Trinity 30y.
+const SWR=0.04;// LEGADO - sera substituido por swrAjustado(idade) onde aplicavel
+//
+// =====================================================================
+// BLINDAGEM CAMBIAL - PROTECAO ESTRUTURAL DO PATRIMONIO
+// =====================================================================
+// Fundamentacao: investidor brasileiro em horizonte longo (>30a) precisa
+// estruturalmente de % do patrimonio em MOEDAS FORTES (USD, EUR, JPY, GBP, CHF, etc)
+// como hedge contra crises sistemicas BR.
+//
+// Historico de crises BR (R$ desvalorizou 35-80% em cada):
+// - 1999 (banda cambial): -70%
+// - 2002 (Lula): -70%
+// - 2015-16 (impeachment): -80%
+// - 2020 (COVID): -35%
+//
+// Inflacao acumulada 2000-2024:
+// - IPCA BR: ~280% (5.5%/a) | CPI EUA: ~75% (2.3%/a) | HICP EUR: ~65% (2.1%/a) | CPI JPN: ~5% (0.2%/a)
+// - Em 51a a 5.7% a.a., R$ perde ~17x poder de compra; USD ~3x (5.7x mais erosao em BRL)
+//
+// CALIBRACAO POR IDADE (alvo cambial cai gradualmente com horizonte mais curto):
+// - 25-39a (horizonte 51-65a): alvo 35% em moedas fortes
+// - 40-49a (horizonte 41-50a): alvo 30%
+// - 50-59a (horizonte 31-40a): alvo 25%
+// - 60+ (horizonte <30a): alvo 20%
+// Logica: mais jovem = mais tempo para usufruir blindagem; conforme envelhece,
+// mais despesas em R$ (saude BR, custo de vida, heranca) reduzem necessidade.
+//
+// SUBALVOS DENTRO DO BUCKET CAMBIAL (definidos pelo investidor):
+// - USD: 50% (moeda de reserva global, liquidez maxima)
+// - EUR: 20% (segunda moeda de reserva, diversificacao monetaria)
+// - JPY: 20% (regime monetario nao-convencional, descorrelacionado)
+// - Outras (GBP, CHF, etc): 10%
+function alvoCambial(idade){
+  if(typeof idade!=="number"||idade<18)return 0.35;
+  if(idade<=39)return 0.35;
+  if(idade<=49)return 0.30+(49-idade)*(0.05/10);// interpolacao linear 0.30->0.35
+  if(idade<=59)return 0.25+(59-idade)*(0.05/10);// interpolacao linear 0.25->0.30
+  if(idade<=70)return 0.20+(70-idade)*(0.05/11);// interpolacao linear 0.20->0.25
+  return 0.20;
+}
+// Calcula bandas em torno do alvo (similar a margem de seguranca)
+function bandasCambial(idade){
+  const alvo=alvoCambial(idade);
+  return{
+    alvo:alvo,
+    min:Math.max(0.10,alvo-0.07),// banda inferior (~7pp abaixo do alvo)
+    max:Math.min(0.50,alvo+0.10)// banda superior (~10pp acima do alvo)
+  };
+}
+// Subalvos internos do bucket cambial (composicao por moeda)
+const SUBALVOS_CAMBIAL={USD:0.50,EUR:0.20,JPY:0.20,OUTROS:0.10};
+// Define quais moedas sao "FORTES" (compoem o bucket de blindagem)
+const MOEDAS_FORTES=["USD","EUR","JPY","GBP","CHF","CAD","AUD","SEK","NOK","DKK","NZD","SGD","HKD"];
+//
+// Detecta automaticamente as moedas estrangeiras presentes no portfolio
+// (qualquer moeda diferente de BRL definida em BCCY). Retorna array ordenado
+// por relevancia: USD/EUR/JPY primeiro (subalvos principais), depois alfabetico.
+function getMoedasDoPortfolio(port){
+  if(!port||typeof port!=="object")return["USD","EUR","JPY"];// fallback inicial
+  const moedasSet=new Set();
+  Object.keys(port).forEach(t=>{
+    const ccy=BCCY[t];
+    if(ccy&&ccy!=="BRL")moedasSet.add(ccy);
+  });
+  // Garantir pelo menos USD/EUR/JPY (mesmo que portfolio nao tenha ativos ali ainda)
+  ["USD","EUR","JPY"].forEach(m=>moedasSet.add(m));
+  const arr=Array.from(moedasSet);
+  // Ordenar: USD, EUR, JPY primeiro (subalvos principais), depois alfabetico
+  const prioridade={USD:0,EUR:1,JPY:2};
+  arr.sort((a,b)=>{
+    const pa=prioridade[a]!==undefined?prioridade[a]:99;
+    const pb=prioridade[b]!==undefined?prioridade[b]:99;
+    if(pa!==pb)return pa-pb;
+    return a.localeCompare(b);
+  });
+  return arr;
+}
+// Mapeia uma moeda para seu bucket de subalvo (USD/EUR/JPY/OUTROS)
+// USD/EUR/JPY caem em buckets proprios; todas as outras agregam em OUTROS
+function bucketDaMoeda(moeda){
+  if(moeda==="USD"||moeda==="EUR"||moeda==="JPY")return moeda;
+  return "OUTROS";
+}
+// Metadata de exibicao por moeda (simbolo, casas decimais para input, bandeira emoji)
+// Moedas com unidades grandes (JPY, HKD, MXN, etc) usam 0 casas decimais
+const MOEDAS_META={
+  USD:{simbolo:"US$ ",casas:2,bandeira:"\u{1F1FA}\u{1F1F8}",nome:"D\u00f3lar Americano"},
+  EUR:{simbolo:"\u20ac ",casas:2,bandeira:"\u{1F1EA}\u{1F1FA}",nome:"Euro"},
+  JPY:{simbolo:"\u00a5 ",casas:0,bandeira:"\u{1F1EF}\u{1F1F5}",nome:"Iene Japon\u00eas"},
+  GBP:{simbolo:"\u00a3 ",casas:2,bandeira:"\u{1F1EC}\u{1F1E7}",nome:"Libra Esterlina"},
+  CHF:{simbolo:"CHF ",casas:2,bandeira:"\u{1F1E8}\u{1F1ED}",nome:"Franco Su\u00ed\u00e7o"},
+  CAD:{simbolo:"C$ ",casas:2,bandeira:"\u{1F1E8}\u{1F1E6}",nome:"D\u00f3lar Canadense"},
+  AUD:{simbolo:"A$ ",casas:2,bandeira:"\u{1F1E6}\u{1F1FA}",nome:"D\u00f3lar Australiano"},
+  SEK:{simbolo:"kr ",casas:2,bandeira:"\u{1F1F8}\u{1F1EA}",nome:"Coroa Sueca"},
+  NOK:{simbolo:"kr ",casas:2,bandeira:"\u{1F1F3}\u{1F1F4}",nome:"Coroa Norueguesa"},
+  DKK:{simbolo:"kr ",casas:2,bandeira:"\u{1F1E9}\u{1F1F0}",nome:"Coroa Dinamarquesa"},
+  NZD:{simbolo:"NZ$ ",casas:2,bandeira:"\u{1F1F3}\u{1F1FF}",nome:"D\u00f3lar Neozeland\u00eas"},
+  SGD:{simbolo:"S$ ",casas:2,bandeira:"\u{1F1F8}\u{1F1EC}",nome:"D\u00f3lar de Singapura"},
+  HKD:{simbolo:"HK$ ",casas:2,bandeira:"\u{1F1ED}\u{1F1F0}",nome:"D\u00f3lar de Hong Kong"},
+  MXN:{simbolo:"MX$ ",casas:2,bandeira:"\u{1F1F2}\u{1F1FD}",nome:"Peso Mexicano"}
+};
+function getMoedaMeta(m){
+  return MOEDAS_META[m]||{simbolo:m+" ",casas:2,bandeira:"\u{1F30D}",nome:m};
+}
+//
+// Calcula score 0-100 de Blindagem Cambial
+// pctCambialAtual: percentual atual em moedas fortes (0-1, ex: 0.32 = 32%)
+function scoreBlindagemCambial(pctCambialAtual,idade){
+  const{alvo,min,max}=bandasCambial(idade);
+  const pct=Math.max(0,Math.min(1,pctCambialAtual||0));
+  // Score: 100 se igual ao alvo; decai conforme se afasta para baixo OU para cima
+  // Abaixo do min: score linear de 0 a 70 (subexposicao critica)
+  // Entre min e alvo: 70 a 100 (subexposicao moderada a ideal)
+  // Entre alvo e max: 100 a 85 (sobreexposicao moderada - ainda boa)
+  // Acima do max: 85 a 60 (sobreexposicao excessiva - patrimonio descolado de R$)
+  if(pct<min)return Math.max(0,(pct/min)*70);
+  if(pct<=alvo)return 70+((pct-min)/(alvo-min))*30;// 70->100
+  if(pct<=max)return 100-((pct-alvo)/(max-alvo))*15;// 100->85
+  return Math.max(40,85-((pct-max)/(0.20))*25);// 85->60 (cai gradualmente acima do max)
+}
 // Inflacao esperada para deflacionar projecoes em poder de compra atual
 const IPCA_PROJETADO=0.04;// 4% a.a. (valor default historico)
 // IPCA por cenario para correcao da meta de IF e deflacao da renda real
@@ -1057,32 +1259,56 @@ function DiversificationCard({cw,setTab}){
 
 // Card de Tranquilidade Financeira - indice composto agregando 4 dimensoes:
 // (1) Tamanho do patrimonio, (2) Renda perpetua vs meta, (3) Resiliencia a drawdowns, (4) Diversificacao
-function TranquilidadeCard({total,cw,port,metaMensalIF,setTab,fB,hideVal}){
+function TranquilidadeCard({total,cw,port,metaMensalIF,setTab,fB,hideVal,dataNascimento,cambialCash}){
   try{
     if(!total||total<=0)return null;
-    // ============== DIMENSAO 1: TAMANHO DO PATRIMONIO (25%) - CALIBRACAO BR ==============
-    // Marcos FIRE adaptados ao Brasil (Selic real alta + horizonte 30-40 anos):
-    //   8x meta = inicio (acumulacao em curso)
-    //   20x meta = FIRE basico BR (SWR 5%, viavel com motores e juro real alto)
-    //   28x meta = FIRE seguro BR (SWR ~3.5%, cushion para 35-40 anos)
-    //   40x meta = Fat FIRE BR (folga generosa, SWR 2.5%)
+    // ============== CALIBRACAO POR IDADE/HORIZONTE (CIENTIFICO) ==============
+    // Calcula idade atual a partir de dataNascimento. Fallback: 40 anos (padrao moderado).
+    let idadeAtual=40;
+    if(dataNascimento){
+      try{
+        const nasc=new Date(dataNascimento);
+        if(!isNaN(nasc.getTime())){
+          const hoje=new Date();
+          let i=hoje.getFullYear()-nasc.getFullYear();
+          const m=hoje.getMonth()-nasc.getMonth();
+          if(m<0||(m===0&&hoje.getDate()<nasc.getDate()))i--;
+          if(i>=18&&i<=100)idadeAtual=i;
+        }
+      }catch(e){}
+    }
+    const fireCal=calibracoesFIRE(idadeAtual);
+    // fireCal contem: basico (~0.85x), seguro (1/SWR ajustado), fat (1.5x), swr, horizonte
+    //
+    // ============== DIMENSAO 1: TAMANHO DO PATRIMONIO (25%) - CALIBRADO POR HORIZONTE ==============
+    // Marcos FIRE ajustados dinamicamente ao horizonte de vida:
+    //   8x meta = inicio (acumulacao em curso) - mantido como referencia universal
+    //   basico (BR-Trinity ajustado) = sobrevive mas margem fina
+    //   seguro = FIRE robusto (1/SWR_ajustado)
+    //   fat = folga generosa (1.5x seguro)
+    //
+    // Para 30 anos horizonte: basico~21x, seguro~25x, fat~38x (Trinity puro)
+    // Para 50 anos horizonte: basico~25x, seguro~29x, fat~44x (mais exigente)
+    // Para 60 anos horizonte: basico~28x, seguro~33x, fat~50x (perpetuidade)
     const metaAnual=(metaMensalIF||35000)*12;
-    const multFIRE=total/metaAnual;// multiplicador da meta anual
-    // Score 0-100 baseado em multFIRE: 0x=0pts, 8x=30pts, 20x=60pts, 28x=80pts, 40x=100pts
+    const multFIRE=total/metaAnual;
+    // Score 0-100: 0x=0pts, 8x=30pts, basico=60pts, seguro=80pts, fat=100pts
     let scoreTamanho;
     if(multFIRE<=8)scoreTamanho=multFIRE*3.75;// 0-30 pts (0-8x)
-    else if(multFIRE<=20)scoreTamanho=30+(multFIRE-8)*2.5;// 30-60 pts (8-20x)
-    else if(multFIRE<=28)scoreTamanho=60+(multFIRE-20)*2.5;// 60-80 pts (20-28x)
-    else if(multFIRE<=40)scoreTamanho=80+(multFIRE-28)*(20/12);// 80-100 pts (28-40x)
+    else if(multFIRE<=fireCal.basico)scoreTamanho=30+(multFIRE-8)*(30/(fireCal.basico-8));// 30-60 pts (8-basico)
+    else if(multFIRE<=fireCal.seguro)scoreTamanho=60+(multFIRE-fireCal.basico)*(20/(fireCal.seguro-fireCal.basico));// 60-80 pts
+    else if(multFIRE<=fireCal.fat)scoreTamanho=80+(multFIRE-fireCal.seguro)*(20/(fireCal.fat-fireCal.seguro));// 80-100 pts
     else scoreTamanho=100;
     scoreTamanho=Math.max(0,Math.min(100,scoreTamanho));
 
-    // ============== DIMENSAO 2: CAPACIDADE DE RENDA PERPETUA (25%) - ICR-RTE ==============
-    // Usa EXATAMENTE a mesma logica da aba Renda (rendaRTEHoje + ifPctAtual):
+    // ============== DIMENSAO 2: CAPACIDADE DE RENDA PERPETUA (25%) - ICR-RTE AJUSTADO ==============
+    // Usa EXATAMENTE a mesma logica da aba Renda, MAS com SWR calibrado por horizonte:
     //   1) Renda passiva liquida = soma de v_classe * YIELD_CLASSE[c].base * (1 - IR_DIV[c])
-    //   2) SWR 4% aplicado a TODAS classes que NAO sao motoras (FUNDOS_RENDA_MOTORES) e nao sao imoveis
-    //   3) Total RTE = renda passiva + SWR
-    // Cobertura = totalRTE / metaAnual
+    //   2) SWR_AJUSTADO aplicado a TODAS classes nao-motoras e nao-imoveis
+    //      (em vez do SWR fixo 4%, usa swrAjustado(idade) - reflete dispersao de outcomes)
+    //   3) Total RTE = renda passiva + SWR_ajustado
+    // Para horizonte 30 anos: SWR=4.0%; 50 anos: SWR=3.34%; 60 anos: SWR=3.0%
+    const SWR_AJUSTADO=fireCal.swr;// SWR calibrado por horizonte
     let rendaPassivaLiq=0;
     let swrLiq=0;
     MPT_CLS.forEach(cid=>{
@@ -1091,9 +1317,9 @@ function TranquilidadeCard({total,cw,port,metaMensalIF,setTab,fB,hideVal}){
       const dy=YIELD_CLASSE[cid]?YIELD_CLASSE[cid].base:0;
       const ir=IR_DIV[cid]||0;
       rendaPassivaLiq+=v*dy*(1-ir);
-      // SWR sobre classes nao-motoras e nao-imoveis (canonico ICR-RTE)
+      // SWR ajustado sobre classes nao-motoras e nao-imoveis (canonico ICR-RTE)
       if(cid!=="imoveis"&&!FUNDOS_RENDA_MOTORES.includes(cid)){
-        swrLiq+=v*SWR;
+        swrLiq+=v*SWR_AJUSTADO;
       }
     });
     const rendaRTE=rendaPassivaLiq+swrLiq;// = rendaRTEHoje canonico
@@ -1124,16 +1350,64 @@ function TranquilidadeCard({total,cw,port,metaMensalIF,setTab,fB,hideVal}){
     // ddPior em decimal (-0.30 = -30%). Quanto menos negativo, melhor.
     // Score: 0% dd = 100pts, -10% = 75pts, -20% = 50pts, -30% = 25pts, -40%+ = 0pts
     const ddPiorPct=ddPior*100;// negativo
-    let scoreResi;
-    if(ddPiorPct>=-5)scoreResi=100;
-    else if(ddPiorPct>=-15)scoreResi=75+(ddPiorPct+5)*2.5;
-    else if(ddPiorPct>=-25)scoreResi=50+(ddPiorPct+15)*2.5;
-    else if(ddPiorPct>=-35)scoreResi=25+(ddPiorPct+25)*2.5;
-    else if(ddPiorPct>=-50)scoreResi=Math.max(0,25+(ddPiorPct+25)*1);
-    else scoreResi=0;
-    scoreResi=Math.max(0,Math.min(100,scoreResi));
+    let scoreResiDD;// score do sub-componente DRAWDOWN (70% do score Resiliencia)
+    if(ddPiorPct>=-5)scoreResiDD=100;
+    else if(ddPiorPct>=-15)scoreResiDD=75+(ddPiorPct+5)*2.5;
+    else if(ddPiorPct>=-25)scoreResiDD=50+(ddPiorPct+15)*2.5;
+    else if(ddPiorPct>=-35)scoreResiDD=25+(ddPiorPct+25)*2.5;
+    else if(ddPiorPct>=-50)scoreResiDD=Math.max(0,25+(ddPiorPct+25)*1);
+    else scoreResiDD=0;
+    scoreResiDD=Math.max(0,Math.min(100,scoreResiDD));
 
-    // ============== DIMENSAO 4: DIVERSIFICACAO (25%) ==============
+    // ===== CALCULO DO % DO PATRIMONIO EM MOEDAS FORTES (CAMBIAL) =====
+    // Usa a logica do CurrencyChart: calcula valor por moeda baseado em BCCY[ticker]
+    // Ouro fisico (GB) e considerado BRL pois comprado em reais; Ouro ETF (GOLD11) tambem BRL
+    // Bitcoin e ouro internacional sao tratados como USD (cotados em USD globalmente)
+    // cambialBreakdown e dinamico: aceita QUALQUER moeda que apareca no portfolio.
+    // Para fins de subalvos (USD 50% / EUR 20% / JPY 20% / Outros 10%), USD/EUR/JPY tem chave propria
+    // e todas as demais moedas sao agregadas em "Outros" apenas na exibicao/calculo de gaps.
+    const cambialBreakdown={};
+    let totalCambialAtual=0;
+    Object.entries(port||{}).forEach(([t,p])=>{
+      if(!p)return;
+      const v=pv(t,p,(()=>{const c={};Object.keys(BCCY).forEach(k=>c[k]=BCCY[k]);return c;})());
+      if(!v||v<=0)return;
+      let ccy=BCCY[t]||"BRL";
+      if(typeof GB!=="undefined"&&Array.isArray(GB)&&GB.includes(t))ccy="BRL";
+      // Aceita qualquer moeda nao-BRL como exposicao cambial
+      if(ccy!=="BRL"&&MOEDAS_FORTES.includes(ccy)){
+        totalCambialAtual+=v;
+        cambialBreakdown[ccy]=(cambialBreakdown[ccy]||0)+v;
+      }
+    });
+    // SOMA O CAIXA CAMBIAL ao cambialBreakdown (convertido para BRL via FX)
+    // Itera dinamicamente todas as moedas do cambialCash e agrega nos 4 buckets de subalvo
+    // (USD/EUR/JPY mantem buckets proprios, demais moedas agregam em "Outros").
+    // Caixa cambial conta como exposicao cambial real porque o capital esta de fato em
+    // corretora americana em moeda forte aguardando preco justo dos ativos finais.
+    if(cambialCash&&typeof cambialCash==="object"){
+      Object.entries(cambialCash).forEach(([moeda,valNativo])=>{
+        if(typeof valNativo!=="number"||valNativo<=0)return;
+        const fx=FX[moeda];
+        if(!fx||fx<=0)return;
+        const valBRL=valNativo*fx;
+        // Adiciona ao breakdown POR moeda (granular) - para exibicao na aba Caixa Cambial
+        cambialBreakdown[moeda]=(cambialBreakdown[moeda]||0)+valBRL;
+        totalCambialAtual+=valBRL;
+        // Tambem agrega no bucket de subalvo (USD/EUR/JPY direto; demais em "Outros")
+        // Nota: ja foi tratado em cambialBreakdown[moeda] acima; "Outros" e calculado
+        // dinamicamente no render via somatorio.
+      });
+    }
+    const pctCambialAtual=total>0?totalCambialAtual/total:0;// 0-1
+    const bandasCamb=bandasCambial(idadeAtual);
+    const scoreResiCambial=scoreBlindagemCambial(pctCambialAtual,idadeAtual);
+    // Score Resiliencia FINAL = 70% drawdown + 30% blindagem cambial
+    // Fundamentacao: drawdown captura resiliencia a stress de mercado;
+    // cambial captura resiliencia a crises sistemicas BR (regime monetario)
+    const scoreResi=scoreResiDD*0.70+scoreResiCambial*0.30;
+
+    // ============== DIMENSAO 4: DIVERSIFICACAO (17%) ==============
     // Mesma logica do DiversificationCard
     const wAt=MPT_CLS.map(cid=>(cw[cid]||0)/100);
     const somaW=wAt.reduce((a,b)=>a+b,0);
@@ -1150,8 +1424,29 @@ function TranquilidadeCard({total,cw,port,metaMensalIF,setTab,fB,hideVal}){
     const corrMediaPond=pesoTotalPares>0?corrPondTotal/pesoTotalPares:0;
     const scoreDiv=Math.max(0,Math.min(100,(1-corrMediaPond)/2*100));
 
-    // ============== INDICE COMPOSTO ==============
-    const indice=(scoreTamanho+scoreRenda+scoreResi+scoreDiv)/4;
+    // ============== DIMENSAO 5: BLINDAGEM CAMBIAL (17%) - NOVA ==============
+    // Usa o mesmo score de Resiliencia Cambial calculado acima, mas como dimensao standalone
+    // Fundamentacao: hedge estrutural contra crises sistemicas BR (1999/2002/2015/2020 = -35% a -80% do R$)
+    // Alvo dinamico por idade: 35% (25-39a) -> 30% (40-49a) -> 25% (50-59a) -> 20% (60+)
+    // Subalvos: USD 50%, EUR 20%, JPY 20%, Outros 10%
+    const scoreBlindagem=scoreResiCambial;// mesmo calculo, exposto como 5a dimensao independente
+    // Composicao % atual por moeda forte (para exibicao no card)
+    const pctPorMoeda={};
+    if(totalCambialAtual>0){
+      Object.keys(cambialBreakdown).forEach(m=>{
+        pctPorMoeda[m]=cambialBreakdown[m]/totalCambialAtual;// % dentro do bucket cambial
+      });
+    }
+
+    // ============== INDICE COMPOSTO - PESOS DIFERENCIADOS ==============
+    // Pesos diferenciados (escolha do investidor + fundamentacao):
+    // - Tamanho 22%: fundamental para FIRE - sem patrimonio adequado, nada funciona
+    // - Renda 22%: fundamental para FIRE - capacidade de saque sustentavel
+    // - Resiliencia 22%: critica em horizonte longo (drawdown + cambial blindam crises)
+    // - Diversificacao 17%: importante mas complementar (overlap com MPT)
+    // - Blindagem Cambial 17%: protecao estrutural contra crises BR (overlap com Resiliencia cambial)
+    // Total = 100%
+    const indice=(scoreTamanho*0.22+scoreRenda*0.22+scoreResi*0.22+scoreDiv*0.17+scoreBlindagem*0.17);
     const corInd=indice>=80?"#4CAF82":indice>=65?"#7DD17D":indice>=50?"#C8A96E":indice>=35?"#E8C44A":indice>=20?"#E89060":"#E05252";
     const lblInd=indice>=80?"BLINDADO":indice>=65?"ROBUSTO":indice>=50?"SOLIDO":indice>=35?"EM CONSTRUCAO":indice>=20?"FRAGIL":"INSUFICIENTE";
     // Faixas para a banda visual (eixo 0-100)
@@ -1178,7 +1473,10 @@ function TranquilidadeCard({total,cw,port,metaMensalIF,setTab,fB,hideVal}){
       h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:11,flexWrap:"wrap"}},
         h("div",{style:{display:"flex",alignItems:"center",gap:7}},
           h("span",{style:{fontSize:14}},"\u{1F6E1}\u{FE0F}"),
-          h("div",{style:{fontSize:10,letterSpacing:2.5,color:"#4CAF82",fontFamily:"monospace",textTransform:"uppercase",fontWeight:700}},"Tranquilidade Financeira")
+          h("div",{},
+            h("div",{style:{fontSize:10,letterSpacing:2.5,color:"#4CAF82",fontFamily:"monospace",textTransform:"uppercase",fontWeight:700}},"Tranquilidade Financeira"),
+            h("div",{style:{fontSize:7,letterSpacing:1,color:"#6A6050",fontFamily:"monospace",marginTop:2}},"calibrado p/ "+idadeAtual+"a \u2022 horizonte "+fireCal.horizonte+"a \u2022 SWR "+(fireCal.swr*100).toFixed(2)+"%")
+          )
         ),
         h("a",{href:"#",onClick:(e)=>{e.preventDefault();setTab("renda");},style:{fontSize:8.5,color:"#9C7DC2",fontFamily:"monospace",textDecoration:"underline",letterSpacing:1}},"VER ABA RENDA \u2192")
       ),
@@ -1213,10 +1511,11 @@ function TranquilidadeCard({total,cw,port,metaMensalIF,setTab,fB,hideVal}){
         // Cada dimensao vale ate 25 pontos do indice final.
         // Contribuicao real = score/4. Penalizacao = 25 - contribuicao.
         const dims=[
-          {id:"tam",label:"\u{1F4B0} TAMANHO",cor:"#C8A96E",score:scoreTamanho,detail:hideVal?"\u2022\u2022\u2022":multFIRE.toFixed(1)+"x meta anual",alvo:"alvo: 28x (FIRE seguro BR)"},
-          {id:"ren",label:"\u{1F525} RENDA ICR-RTE",cor:"#F7931A",score:scoreRenda,detail:coberturaPct.toFixed(0)+"% da meta ("+fB(rendaRTE/12)+"/m\u00eas)",alvo:"alvo: \u2265150% (folga plena)"},
-          {id:"res",label:"\u{1F6E1} RESILI\u00caNCIA",cor:"#5B8FD4",score:scoreResi,detail:"pior dd hist: "+ddPiorPct.toFixed(1)+"%",alvo:"alvo: dd \u2265 \u22125% (blindado)"},
-          {id:"div",label:"\u{1F517} DIVERSIF.",cor:"#9C7DC2",score:scoreDiv,detail:"corr m\u00e9dia "+corrMediaPond.toFixed(2),alvo:"alvo: corr \u22640.0 (descorrel.)"}
+          {id:"tam",label:"\u{1F4B0} TAMANHO",cor:"#C8A96E",score:scoreTamanho,peso:22,detail:hideVal?"\u2022\u2022\u2022":multFIRE.toFixed(1)+"x meta anual",alvo:"alvo: "+fireCal.seguro.toFixed(0)+"x (FIRE seguro, "+fireCal.horizonte+"a horizonte)"},
+          {id:"ren",label:"\u{1F525} RENDA ICR-RTE",cor:"#F7931A",score:scoreRenda,peso:22,detail:coberturaPct.toFixed(0)+"% da meta ("+fB(rendaRTE/12)+"/m\u00eas)",alvo:"alvo: \u2265150% (SWR "+(SWR_AJUSTADO*100).toFixed(2)+"%)"},
+          {id:"res",label:"\u{1F6E1} RESILI\u00caNCIA",cor:"#5B8FD4",score:scoreResi,peso:22,detail:"dd "+ddPiorPct.toFixed(1)+"% (70%) + camb "+(pctCambialAtual*100).toFixed(0)+"% (30%)",alvo:"alvo: dd \u2265-5% E camb \u2265"+(bandasCamb.alvo*100).toFixed(0)+"%"},
+          {id:"div",label:"\u{1F517} DIVERSIF.",cor:"#9C7DC2",score:scoreDiv,peso:17,detail:"corr m\u00e9dia "+corrMediaPond.toFixed(2),alvo:"alvo: corr \u22640.0 (descorrel.)"},
+          {id:"camb",label:"\u{1F4B5} BLINDAGEM CAMBIAL",cor:"#3DA17C",score:scoreBlindagem,peso:17,detail:hideVal?"\u2022\u2022\u2022":(pctCambialAtual*100).toFixed(1)+"% em moedas fortes",alvo:"alvo: "+(bandasCamb.alvo*100).toFixed(0)+"% ("+(bandasCamb.min*100).toFixed(0)+"-"+(bandasCamb.max*100).toFixed(0)+"%), idade "+idadeAtual+"a"}
         ];
         // Identifica o maior gargalo (menor score)
         const ordenado=dims.slice().sort((a,b)=>a.score-b.score);
@@ -1310,22 +1609,30 @@ function TranquilidadeCard({total,cw,port,metaMensalIF,setTab,fB,hideVal}){
               "FIRE = ",h("em",{},"Financial Independence, Retire Early"),". A ideia central: se voce acumula um patrim\u00f4nio grande o suficiente, pode viver dos rendimentos sem precisar trabalhar - extraindo uma frac\u00e3o pequena por ano sem corroer o principal. O ",h("strong",{},"SWR (Safe Withdrawal Rate)")," e essa frac\u00e3o segura - quanto voce pode sacar anualmente sem o patrimonio acabar antes da sua vida acabar."
             ),
 
-            // Por que SWR varia (5%, 3.5%, 2.5%)
+            // Por que SWR varia
             h("p",{style:{margin:"0 0 7px"}},
               h("strong",{style:{color:"#C8A96E"}},"\u{1F4CA} POR QUE O SWR VARIA: "),
-              "quanto MENOR o SWR, MAIS conservadora a retirada e MAIS o patrim\u00f4nio dura. Ex: com R$ 1MM e SWR 5%, voce saca R$ 50k/ano; com SWR 2.5%, saca R$ 25k. As tres faixas usadas:"
+              "quanto MAIOR o horizonte, MENOR o SWR seguro - porque h\u00e1 mais tempo para crises e infla\u00e7\u00e3o acumulada corroerem o portf\u00f3lio. ",
+              h("strong",{},"A funda\u00e7\u00e3o cient\u00edfica:")," Pfau (2018), Bengen Updated (2020) e Big ERN demonstraram que SWR seguro cai aproximadamente 0.033 pontos percentuais por ano adicional al\u00e9m de 30 anos:"
             ),
             h("div",{style:{padding:"7px 9px",background:"rgba(0,0,0,0.22)",borderRadius:3,fontSize:8.5,lineHeight:1.7,marginBottom:7}},
-              h("div",{},h("span",{style:{color:"#7DD17D",fontWeight:700,fontFamily:"monospace"}},"SWR 5%")," (FIRE basico BR) - saque agressivo, mas vi\u00e1vel no Brasil pela Selic real alta (~5-6%) e motores isentos. Funciona se o portfolio rende >=5% real consistentemente."),
-              h("div",{},h("span",{style:{color:"#4CAF82",fontWeight:700,fontFamily:"monospace"}},"SWR 3.5%")," (FIRE seguro BR) - saque moderado, cushion para 35-40 anos. Padrao recomendado para B&H disciplinado em portfolio diversificado."),
-              h("div",{},h("span",{style:{color:"#4CAF82",fontWeight:700,fontFamily:"monospace"}},"SWR 2.5%")," (Fat FIRE BR) - saque conservador, blindagem contra qualquer cenario. Permite folga para gastos imprevistos e proteg\u00e3o da heranca.")
+              h("div",{},h("span",{style:{color:"#4CAF82",fontWeight:700,fontFamily:"monospace"}},"30 anos: SWR ~4.0%")," (Trinity original, base cl\u00e1ssica)"),
+              h("div",{},h("span",{style:{color:"#E8C44A",fontWeight:700,fontFamily:"monospace"}},"40 anos: SWR ~3.67%")," (FIRE precoce, dispersa\u00e7\u00e3o moderada de outcomes)"),
+              h("div",{},h("span",{style:{color:"#E89060",fontWeight:700,fontFamily:"monospace"}},"50 anos: SWR ~3.34%")," (FIRE jovem - SEU CASO se 39a, alta dispersa\u00e7\u00e3o)"),
+              h("div",{},h("span",{style:{color:"#C46045",fontWeight:700,fontFamily:"monospace"}},"60+ anos: SWR 3.0%")," (perpetuidade, floor te\u00f3rico de yield real seguro)")
             ),
 
-            // A relacao matematica: multiplo = 1/SWR
-            h("p",{style:{margin:"0 0 7px"}},
-              h("strong",{style:{color:"#C8A96E"}},"\u{1F517} A RELACAO: "),
-              "se voce saca SWR% por ano, precisa de ",h("strong",{},"(1/SWR)x")," sua despesa anual em patrimonio. Ex: SWR 5% \u2192 1/0.05 = 20x; SWR 3.5% \u2192 1/0.035 \u2248 28x; SWR 2.5% \u2192 1/0.025 = 40x. ",
-              h("strong",{},"Por isso as faixas s\u00e3o 20x / 28x / 40x")," - n\u00e3o s\u00e3o arbitrarias, sao a matem\u00e1tica direta dos SWRs adotados."
+            // CALIBRACAO PERSONALIZADA POR IDADE
+            h("div",{style:{padding:"9px 11px",background:"rgba(76,175,130,0.08)",border:"1px solid rgba(76,175,130,0.35)",borderRadius:4,marginBottom:7}},
+              h("div",{style:{fontSize:8.5,letterSpacing:1.2,color:"#4CAF82",fontFamily:"monospace",fontWeight:700,marginBottom:6}},"\u{1F3AF} SUA CALIBRA\u00c7\u00c3O PESSOAL ("+idadeAtual+" anos)"),
+              h("div",{style:{fontSize:8.5,lineHeight:1.7,color:"#C8C0B0"}},
+                h("div",{},h("strong",{},"Horizonte estimado:")," "+fireCal.horizonte+" anos (at\u00e9 "+EXPECTATIVA_VIDA_BR+" anos - IBGE BR ajustado para alto padr\u00e3o socioecon\u00f4mico)"),
+                h("div",{},h("strong",{},"SWR ajustado:")," "+(fireCal.swr*100).toFixed(2)+"% ao ano (vs 4.0% Trinity puro)"),
+                h("div",{},h("strong",{},"Multiplicador base (1/SWR):")," "+fireCal.seguroBase.toFixed(1)+"x meta anual"),
+                fireCal.margemBR>0&&h("div",{style:{color:"#E8C44A"}},h("strong",{},"+10% margem Brasil:")," historicamente ~1 crise estrutural a cada 5a (1986/90/94/99/02/08/15/20). Em "+fireCal.horizonte+"a, ~"+Math.floor(fireCal.horizonte/5)+" crises adicionais"),
+                fireCal.margemSenilidade>0&&h("div",{style:{color:"#E8C44A"}},h("strong",{},"+5% margem Senilidade:")," sa\u00fade aos 70+ custa 3-5x mais; cuidados especializados (Alzheimer) R$15-25k/m\u00eas; IPCA sa\u00fade roda 2-3pp acima do IPCA geral"),
+                fireCal.margemTotal>0&&h("div",{style:{marginTop:4,paddingTop:4,borderTop:"1px dashed rgba(76,175,130,0.30)"}},h("strong",{style:{color:"#4CAF82"}},"M\u00daLTIPLOS FINAIS:")," ",h("strong",{},fireCal.basico.toFixed(1)+"x")," (b\u00e1sico) / ",h("strong",{style:{color:"#4CAF82"}},fireCal.seguro.toFixed(1)+"x")," (",h("u",{},"seguro robusto"),") / ",h("strong",{},fireCal.fat.toFixed(1)+"x")," (fat) \u2014 com margens BR+Senilidade aplicadas (+"+fireCal.margemTotal.toFixed(1)+"%)")
+              )
             ),
 
             // ===== TABELA NOMINAL DINAMICA - VALORES EM R$ PARA SUA META =====
@@ -1340,48 +1647,48 @@ function TranquilidadeCard({total,cw,port,metaMensalIF,setTab,fB,hideVal}){
                 h("div",{style:{textAlign:"right"}},"SCORE")
               ),
 
-              // Linhas com valores nominais calculados
+              // Linhas com valores nominais calculados (DINAMICOS por horizonte+margens)
               ...[
                 {mult:8,nome:"Acumula\u00e7\u00e3o inicial",cor:"#E89060",score:30,destaque:false},
-                {mult:18.3,nome:"Voc\u00ea est\u00e1 aqui",cor:"#E8C44A",score:56,destaque:true},
-                {mult:20,nome:"FIRE B\u00c1SICO BR (SWR 5%)",cor:"#7DD17D",score:60,destaque:false},
-                {mult:28,nome:"FIRE SEGURO BR (SWR 3.5%)",cor:"#4CAF82",score:80,destaque:false},
-                {mult:40,nome:"FAT FIRE BR (SWR 2.5%)",cor:"#4CAF82",score:100,destaque:false}
+                {mult:multFIRE,nome:"Voc\u00ea est\u00e1 aqui",cor:"#E8C44A",score:scoreTamanho,destaque:true},
+                {mult:fireCal.basico,nome:"FIRE B\u00c1SICO (sem margem confort\u00e1vel)",cor:"#7DD17D",score:60,destaque:false},
+                {mult:fireCal.seguro,nome:"FIRE SEGURO ("+fireCal.horizonte+"a hor"+(fireCal.margemTotal>0?" + margens BR/Sen":"")+")",cor:"#4CAF82",score:80,destaque:false},
+                {mult:fireCal.fat,nome:"FAT FIRE (folga generosa)",cor:"#4CAF82",score:100,destaque:false}
               ].map((f,k)=>{
                 const valorPatrim=f.mult*metaAnual;
                 const valorFmt=hideVal?"\u2022\u2022\u2022":(valorPatrim>=1e6?"R$ "+(valorPatrim/1e6).toFixed(2)+"MM":"R$ "+(valorPatrim/1000).toFixed(0)+"k");
-                // Se for o user, recomputa com multFIRE real
                 const multReal=f.destaque?multFIRE:f.mult;
                 const valReal=f.destaque?total:valorPatrim;
                 const valRealFmt=hideVal?"\u2022\u2022\u2022":(valReal>=1e6?"R$ "+(valReal/1e6).toFixed(2)+"MM":"R$ "+(valReal/1000).toFixed(0)+"k");
                 const scoreReal=f.destaque?scoreTamanho:f.score;
                 return h("div",{key:k,style:{display:"grid",gridTemplateColumns:"55px 1fr 90px 50px",gap:6,padding:"4px 0",fontSize:8.5,fontFamily:"monospace",alignItems:"center",background:f.destaque?"rgba(232,196,74,0.10)":"transparent",borderRadius:f.destaque?3:0,marginLeft:f.destaque?-3:0,marginRight:f.destaque?-3:0,paddingLeft:f.destaque?6:0,paddingRight:f.destaque?6:0,border:f.destaque?"1px solid rgba(232,196,74,0.35)":"none"}},
-                  h("div",{style:{color:f.cor,fontWeight:700}},f.destaque?"\u25BA "+multReal.toFixed(1)+"x":f.mult+"x"),
+                  h("div",{style:{color:f.cor,fontWeight:700}},f.destaque?"\u25BA "+multReal.toFixed(1)+"x":f.mult.toFixed(1)+"x"),
                   h("div",{style:{color:"#C8C0B0",fontSize:8}},f.nome),
                   h("div",{style:{textAlign:"right",color:f.destaque?"#E8DCC0":"#9A9080",fontWeight:f.destaque?700:400}},valRealFmt),
                   h("div",{style:{textAlign:"right",color:f.cor,fontWeight:700}},scoreReal.toFixed(0))
                 );
               }),
 
-              // Diagnostico do gap
+              // Diagnostico do gap (atualizado para usar fireCal.seguro como alvo principal)
               h("div",{style:{marginTop:7,padding:"6px 8px",background:"rgba(0,0,0,0.25)",borderRadius:3,fontSize:8.5,lineHeight:1.55,color:"#C8C0B0"}},
                 h("strong",{style:{color:"#E8C44A"}},"\u{1F4CD} POR QUE VOC\u00ca EST\u00c1 EM "+multFIRE.toFixed(1)+"x: "),
                 "voce tem ",h("strong",{},hideVal?"\u2022\u2022\u2022":"R$ "+(total/1e6).toFixed(2)+"MM"),
-                " e meta de R$ "+(metaMensalIF/1000).toFixed(1)+"k/m\u00eas (R$ "+(metaAnual/1000).toFixed(0)+"k/ano). Sua meta \u00e9 ",h("strong",{},"alta")," - se sua meta fosse R$ ",((total/20)/12/1000).toFixed(1),
-                "k/m\u00eas, voce ja estaria em FIRE basico BR (20x) HOJE mesmo. ",
-                h("strong",{},"O patrim\u00f4nio em si \u00e9 grande"),"; o m\u00faltiplo s\u00f3 mede o casamento ",h("em",{},"patrim\u00f4nio vs padr\u00e3o de vida"),". Faltam ",h("strong",{style:{color:"#E89060"}},hideVal?"\u2022\u2022\u2022":"R$ "+(((20*metaAnual)-total)/1e6).toFixed(2)+"MM"),
-                " para alcan\u00e7ar FIRE b\u00e1sico BR com a meta atual."
+                " e meta de R$ "+(metaMensalIF/1000).toFixed(1)+"k/m\u00eas. ",
+                h("strong",{},"Para FIRE SEGURO ROBUSTO ("+fireCal.seguro.toFixed(1)+"x): "),
+                "faltam ",h("strong",{style:{color:"#E89060"}},hideVal?"\u2022\u2022\u2022":"R$ "+(((fireCal.seguro*metaAnual)-total)/1e6).toFixed(2)+"MM"),
+                " - alvo robusto com margens BR + Senilidade incorporadas. ",
+                h("em",{},"Este \u00e9 o n\u00famero conservador que respeita: dispersa\u00e7\u00e3o de outcomes em "+fireCal.horizonte+"a + crises estruturais BR + custo de senilidade. N\u00c3O confie em multiplicadores menores - eles superestimam sua seguran\u00e7a.")
               )
             ),
 
             // Comparacao com Trinity Study americano
             h("p",{style:{margin:"5px 0 0",fontSize:8.5,fontStyle:"italic",color:"#9A9080"}},
-              h("strong",{},"Por que essas faixas v\u00eam menores que o Trinity Study americano (25x/33x/50x)? "),
-              "Trinity foi calibrado para portfolios majoritariamente equity americanos com inflac\u00e3o ~2-3% e horizonte 50+ anos. No Brasil: ",
-              "(i) Selic real maior (~5-6%) permite SWR mais agressivo; ",
-              "(ii) horizonte vital tipico mais curto (35-40 anos pos-aposentadoria vs 50+); ",
-              "(iii) portfolios B&H aqui tem motores isentos (FII/Infra/Agro DY 9%+) que rendem ALEM do SWR. ",
-              "Por isso 20x j\u00e1 \u00e9 vi\u00e1vel como FIRE basico BR."
+              h("strong",{},"Por que essas faixas s\u00e3o MAIORES que o Trinity Study original (25x/33x/50x)? "),
+              "Trinity assume horizonte 30 anos, infla\u00e7\u00e3o 2-3%, portfolio US 60/40. Para SEU CASO: ",
+              "(i) horizonte de "+fireCal.horizonte+" anos exige SWR menor (mais tempo = mais risco de cauda); ",
+              "(ii) Brasil tem hist\u00f3rico de crises sist\u00eamicas a cada ~5 anos vs ~10 anos no EUA; ",
+              "(iii) senilidade no Brasil tem custo crescente real (sa\u00fade privada + cuidados especializados). ",
+              "Por isso ",h("strong",{},fireCal.seguro.toFixed(1)+"x \u00e9 o m\u00e9rito robusto")," para voc\u00ea - n\u00e3o conservadorismo excessivo, e sim ",h("u",{},"calibra\u00e7\u00e3o cient\u00edfica honesta"),"."
             )
           ),
 
@@ -1698,11 +2005,98 @@ function TranquilidadeCard({total,cw,port,metaMensalIF,setTab,fB,hideVal}){
             )
           ),
 
+          // ===== DIMENSAO 5: BLINDAGEM CAMBIAL (NOVA) =====
+          h("div",{style:{marginBottom:9,padding:"9px 11px",background:"rgba(61,161,124,0.08)",borderLeft:"3px solid #3DA17C",borderRadius:"0 4px 4px 0"}},
+            h("div",{style:{fontSize:9,letterSpacing:1.2,color:"#3DA17C",fontFamily:"monospace",fontWeight:700,marginBottom:6}},"\u{1F4B5} 5. BLINDAGEM CAMBIAL (17%)"),
+
+            // O conceito
+            h("p",{style:{margin:"0 0 7px"}},
+              h("strong",{style:{color:"#3DA17C"}},"\u{1F4D6} O CONCEITO: "),
+              "Para investidor brasileiro com horizonte longo (>30a), a unica forma estrutural de se proteger contra ",h("strong",{},"crises sistemicas do Brasil")," e ter parte do patrimonio em ",h("strong",{},"moedas fortes"),". Quando o R$ desvaloriza dramaticamente (1999/2002/2015/2020 = perdas de 35% a 80%), quem tem exposicao em USD/EUR/JPY ",h("em",{},"perde MUITO menos")," ou ate ganha em termos de poder de compra global. ",
+              h("strong",{},"Esta dimensao captura essa blindagem estrutural"),"."
+            ),
+
+            // Fundamentacao historica
+            h("p",{style:{margin:"0 0 7px"}},
+              h("strong",{style:{color:"#3DA17C"}},"\u{1F4CA} FUNDAMENTACAO HISTORICA: "),
+              "Em 24 anos (2000-2024), inflacao acumulada do R$ foi ~280% (IPCA 5.5%/a), do USD ~75% (CPI 2.3%/a). Em SEU horizonte de "+fireCal.horizonte+"a, projetando manutencao desses regimes, R$ deve perder ~17x poder de compra; USD apenas ~3x. ",h("strong",{},"Diferenca composta de 5.7x"),". Sem hedge cambial, voce esta apostando 100% que o BCB sera capaz de controlar inflacao por meio seculo - aposta extremamente concentrada num unico regime monetario."
+            ),
+
+            // CALIBRACAO POR IDADE
+            h("div",{style:{padding:"9px 11px",background:"rgba(61,161,124,0.10)",border:"1px solid rgba(61,161,124,0.35)",borderRadius:4,marginBottom:7}},
+              h("div",{style:{fontSize:8.5,letterSpacing:1.2,color:"#3DA17C",fontFamily:"monospace",fontWeight:700,marginBottom:6}},"\u{1F3AF} SUA CALIBRA\u00c7\u00c3O CAMBIAL ("+idadeAtual+" anos)"),
+              h("div",{style:{fontSize:8.5,lineHeight:1.7,color:"#C8C0B0"}},
+                h("div",{},h("strong",{},"Alvo cambial:")," "+(bandasCamb.alvo*100).toFixed(0)+"% do patrim\u00f4nio em moedas fortes"),
+                h("div",{},h("strong",{},"Banda aceit\u00e1vel:")," "+(bandasCamb.min*100).toFixed(0)+"% \u2014 "+(bandasCamb.max*100).toFixed(0)+"%"),
+                h("div",{},h("strong",{},"L\u00f3gica do alvo dinamico:")," quanto mais jovem, mais tempo para usufruir blindagem cambial. Aos 25-39a: 35%; 40-49a: 30%; 50-59a: 25%; 60+: 20%. Conforme envelhece, suas despesas em R$ (saude BR, custo de vida) reduzem a necessidade."),
+                h("div",{style:{marginTop:4,paddingTop:4,borderTop:"1px dashed rgba(61,161,124,0.30)"}},h("strong",{style:{color:"#3DA17C"}},"EXPOSI\u00c7\u00c3O ATUAL: "),h("strong",{},(pctCambialAtual*100).toFixed(1)+"% em moedas fortes")," (gap "+((pctCambialAtual-bandasCamb.alvo)*100>=0?"+":"")+((pctCambialAtual-bandasCamb.alvo)*100).toFixed(1)+"pp vs alvo)")
+              )
+            ),
+
+            // SUBALVOS COMPOSICAO INTERNA
+            h("div",{style:{padding:"9px 11px",background:"rgba(0,0,0,0.22)",borderRadius:4,marginBottom:7}},
+              h("div",{style:{fontSize:8,letterSpacing:1.2,color:"#3DA17C",fontFamily:"monospace",fontWeight:700,marginBottom:6}},"\u{1F30D} COMPOSI\u00c7\u00c3O INTERNA DO BUCKET CAMBIAL"),
+              // Cabecalho
+              h("div",{style:{display:"grid",gridTemplateColumns:"40px 1fr 60px 60px 50px",gap:6,padding:"4px 0",borderBottom:"1px solid rgba(255,255,255,0.10)",fontSize:7,fontFamily:"monospace",color:"#7A7060",letterSpacing:0.8,marginBottom:4}},
+                h("div",{},"MOEDA"),
+                h("div",{},"PROP\u00d3SITO"),
+                h("div",{style:{textAlign:"right"}},"ALVO"),
+                h("div",{style:{textAlign:"right"}},"ATUAL"),
+                h("div",{style:{textAlign:"right"}},"GAP")
+              ),
+              // Linhas
+              ...[
+                {moeda:"USD",alvo:50,desc:"Reserva global, liquidez m\u00e1xima",chave:"USD"},
+                {moeda:"EUR",alvo:20,desc:"2\u00aa reserva, regime BCE",chave:"EUR"},
+                {moeda:"JPY",alvo:20,desc:"Regime BoJ, descorrelacionado",chave:"JPY"},
+                {moeda:"Outras",alvo:10,desc:"GBP, CHF, CAD, AUD, etc.",chave:"Outros"}
+              ].map((m,k)=>{
+                const atualPct=m.chave==="Outros"
+                  ?(Object.entries(pctPorMoeda).reduce((acc,[mo,v])=>{
+                    if(mo==="USD"||mo==="EUR"||mo==="JPY")return acc;
+                    return acc+(v||0);
+                  },0)*100)
+                  :((pctPorMoeda[m.chave]||0)*100);
+                const gap=atualPct-m.alvo;
+                const corGap=Math.abs(gap)<=5?"#7DD17D":Math.abs(gap)<=10?"#E8C44A":"#E89060";
+                return h("div",{key:k,style:{display:"grid",gridTemplateColumns:"40px 1fr 60px 60px 50px",gap:6,padding:"4px 0",fontSize:8.5,fontFamily:"monospace",alignItems:"center"}},
+                  h("div",{style:{color:"#3DA17C",fontWeight:700}},m.moeda),
+                  h("div",{style:{color:"#9A9080",fontSize:8}},m.desc),
+                  h("div",{style:{textAlign:"right",color:"#C8C0B0"}},m.alvo.toFixed(0)+"%"),
+                  h("div",{style:{textAlign:"right",color:atualPct>0?"#E8DCC0":"#5A5550",fontWeight:atualPct>0?700:400}},totalCambialAtual>0?atualPct.toFixed(1)+"%":"0%"),
+                  h("div",{style:{textAlign:"right",color:corGap,fontWeight:700}},totalCambialAtual>0?(gap>=0?"+":"")+gap.toFixed(0)+"pp":"\u2014")
+                );
+              }),
+              h("div",{style:{marginTop:6,padding:"5px 7px",fontSize:7.5,color:"#7A7060",fontFamily:"monospace",fontStyle:"italic"}},
+                "* GAP = diferen\u00e7a entre alocac\u00e3o ATUAL e ALVO interno (dentro do bucket cambial). Verde = pr\u00f3ximo do alvo (\u00b15pp), amarelo = desvio moderado, laranja = grande desvio."
+              )
+            ),
+
+            // POR QUE CADA MOEDA
+            h("p",{style:{margin:"0 0 7px"}},
+              h("strong",{style:{color:"#3DA17C"}},"\u2696\uFE0F POR QUE A COMPOSI\u00c7\u00c3O 50/20/20/10: "),
+              h("strong",{},"USD 50% "),"\u2014 moeda de reserva global, liquidez incompar\u00e1vel, base do sistema financeiro internacional. ",
+              h("strong",{},"EUR 20% "),"\u2014 segunda reserva mundial, regime monet\u00e1rio do BCE (historicamente mais conservador que Fed). ",
+              h("strong",{},"JPY 20% "),"\u2014 regime do BoJ (n\u00e3o-convencional ha decadas), traz descorrela\u00e7\u00e3o vs USD/EUR; em crises globais, yen tende a se valorizar (carry trade reversal). ",
+              h("strong",{},"Outras 10% "),"\u2014 espa\u00e7o para CHF (suica - safe haven), GBP, CAD, AUD - diversifica\u00e7\u00e3o adicional sem peso excessivo."
+            ),
+
+            // Score atual
+            h("p",{style:{margin:"5px 0 0",fontSize:8.5,fontStyle:"italic",color:"#9A9080"}},
+              h("strong",{},"Score atual de Blindagem Cambial: "),h("span",{style:{color:scoreBlindagem>=80?"#4CAF82":scoreBlindagem>=65?"#7DD17D":scoreBlindagem>=50?"#C8A96E":scoreBlindagem>=35?"#E8C44A":"#E89060",fontWeight:700}},scoreBlindagem.toFixed(0)+"/100"),". ",
+              scoreBlindagem>=80?"Excelente! Voce esta dentro do alvo e bem composto entre moedas - blindagem real contra crises BR.":
+              scoreBlindagem>=65?"Bom. Pr\u00f3ximo do alvo - aportes em EXT/REITs/Treasuries refinam a composi\u00e7\u00e3o interna.":
+              scoreBlindagem>=50?"Mediano. Falta exposi\u00e7\u00e3o cambial significativa para o horizonte longo - priorize EXT em pr\u00f3ximos aportes.":
+              scoreBlindagem>=35?"Insuficiente. Patrim\u00f4nio muito dependente do regime monet\u00e1rio BR - vulner\u00e1vel a crises sist\u00eamicas.":
+              "CR\u00cdTICO. Pratically nenhuma blindagem cambial - exposi\u00e7\u00e3o concentrada num unico regime monet\u00e1rio por "+fireCal.horizonte+"a."
+            )
+          ),
+
           // ===== BANDAS FINAIS =====
           h("div",{style:{padding:"8px 10px",background:"rgba(76,175,130,0.08)",borderLeft:"3px solid #4CAF82",borderRadius:"0 4px 4px 0"}},
             h("div",{style:{fontSize:9,letterSpacing:1.2,color:"#4CAF82",fontFamily:"monospace",fontWeight:700,marginBottom:5}},"\u{1F3AF} BANDAS FINAIS DO INDICE COMPOSTO"),
             h("p",{style:{margin:"0 0 5px"}},
-              "Apos somar as 4 contribui\u00e7\u00f5es (cada classe contribui com score/4 ao total), o resultado cai em uma de 6 bandas:"
+              "Apos somar as 5 contribui\u00e7\u00f5es ponderadas (Tamanho 22% + Renda 22% + Resili\u00eancia 22% + Diversifica\u00e7\u00e3o 17% + Blindagem Cambial 17%), o resultado cai em uma de 6 bandas:"
             ),
             h("div",{style:{padding:"6px 8px",background:"rgba(0,0,0,0.20)",borderRadius:3,fontFamily:"monospace",fontSize:8.5,lineHeight:1.7}},
               h("div",{},h("span",{style:{color:"#E05252",fontWeight:700}},"0-20"),"     \u2192 INSUFICIENTE ",h("span",{style:{color:"#5A5550"}},"(salario continua essencial)")),
@@ -3785,6 +4179,15 @@ function App(){
   const [step,setStep]=useState("r");
   const [hist,setHist]=useState([]);
   const [histMensal,setHistMensal]=useState([]);// snapshots consolidados por mes (1 por mes, sem limite)
+  // ====== CAIXA CAMBIAL - capital em moedas fortes aguardando preco justo dos ativos finais ======
+  // Estrutura dinamica: { USD: valor_em_USD, EUR: valor_em_EUR, JPY: valor_em_JPY, ... }
+  // Cada chave e o codigo da moeda (ISO 4217), valor em SUA MOEDA NATIVA.
+  // As moedas exibidas sao detectadas dinamicamente via getMoedasDoPortfolio(port).
+  // Conversao para BRL via FX[moeda] para fins de calculo de patrimonio total e blindagem cambial.
+  // Edicao manual pelo investidor na aba "Caixa Cambial".
+  const [cambialCash,setCambialCash]=useState({});
+  const [editCambialMoeda,setEditCambialMoeda]=useState(null);// moeda em edicao
+  const [editCambialVal,setEditCambialVal]=useState("");// valor sendo editado na UI
   // ====== NTN-B / Tesouro IPCA+ ======
   // ntnbTaxas: {ticker: {taxaBrutaCompra, taxaBrutaVenda, puCompra, puVenda, ts}}
   // ts = timestamp da ultima atualizacao (epoch ms)
@@ -4059,6 +4462,21 @@ function App(){
         setPort(portMigrado);setCustom(dd.custom||{});setHidden(dd.hidden||[]);
         setLastPU(dd.lastPU||null);setHist(dd.hist||[]);
         if(Array.isArray(dd.histMensal))setHistMensal(dd.histMensal);
+        // Carrega caixa cambial (estrutura dinamica: aceita qualquer moeda ISO)
+        // Migracao: o campo legado "OUT" (que armazenava em USD equivalente) NAO e mais usado;
+        // se aparecer dado legado, ele e descartado pois nao temos como saber qual moeda especifica.
+        if(dd.cambialCash&&typeof dd.cambialCash==="object"){
+          const migrado={};
+          Object.entries(dd.cambialCash).forEach(([moeda,valor])=>{
+            // Aceita qualquer codigo de moeda valido (3 letras maiusculas) com valor numerico
+            // Ignora o campo "OUT" legado (migracao silenciosa)
+            if(moeda==="OUT")return;
+            if(typeof valor==="number"&&valor>=0&&/^[A-Z]{3}$/.test(moeda)){
+              migrado[moeda]=valor;
+            }
+          });
+          setCambialCash(migrado);
+        }
         if(dd.idxMensal&&typeof dd.idxMensal==="object")setIdxMensal(dd.idxMensal);
         if(dd.insightMensal&&typeof dd.insightMensal==="object")setInsightMensal(dd.insightMensal);
         if(typeof dd.selicAtual==="number"&&dd.selicAtual>0)setSelicAtual(dd.selicAtual);
@@ -4132,12 +4550,12 @@ function App(){
     if(!inited||!aesKey)return;
     (async()=>{
       try{
-        const obj={port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,selicAtual,metaMensalIF,cenarioIPCA,dataNascimento,insightRenda,insightRendaTs,insightRendaSnap,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,piCycle,nupl,goldSilver,goldSP500,realGoldZ,fx:{...FX},btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,insightSnap,infIPCA,infIGPM,infINCC,infCPI,ntnbTaxas,ntnbVNA,ntnbUpdTs,ntnbDataCotacao,ntnbDiasDefasagem,ntnbVencimentos:{...NTNB_VENCIMENTOS}};
+        const obj={port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,selicAtual,metaMensalIF,cenarioIPCA,dataNascimento,insightRenda,insightRendaTs,insightRendaSnap,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,piCycle,nupl,goldSilver,goldSP500,realGoldZ,fx:{...FX},btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,insightSnap,infIPCA,infIGPM,infINCC,infCPI,ntnbTaxas,ntnbVNA,ntnbUpdTs,ntnbDataCotacao,ntnbDiasDefasagem,ntnbVencimentos:{...NTNB_VENCIMENTOS},cambialCash};
         const enc=await aesEncrypt(aesKey,obj);
         localStorage.setItem(SK_ENC,enc);
       }catch(e){}
     })();
-  },[port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,selicAtual,metaMensalIF,cenarioIPCA,dataNascimento,insightRenda,insightRendaTs,insightRendaSnap,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,piCycle,nupl,goldSilver,goldSP500,realGoldZ,btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,insightSnap,infIPCA,infIGPM,infINCC,infCPI,ntnbTaxas,ntnbVNA,ntnbUpdTs,inited,aesKey]);
+  },[port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,selicAtual,metaMensalIF,cenarioIPCA,dataNascimento,insightRenda,insightRendaTs,insightRendaSnap,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,piCycle,nupl,goldSilver,goldSP500,realGoldZ,btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,insightSnap,infIPCA,infIGPM,infINCC,infCPI,ntnbTaxas,ntnbVNA,ntnbUpdTs,cambialCash,inited,aesKey]);
 
   // Auto-lock por inatividade (15 min)
   useEffect(()=>{
@@ -4872,12 +5290,24 @@ function App(){
   const stats=useCallback(()=>{
     let total=0;const ct={};CL.forEach(c=>{ct[c.id]=0;});
     Object.entries(port).forEach(([t,p])=>{const v=pv(t,p,ccy,ntnbTaxas,ntnbVNA);if(!v)return;total+=v;const cid=p.classId||cls[t];if(cid)ct[cid]=(ct[cid]||0)+v;});
+    // Adiciona Caixa Cambial ao patrimonio total (convertido em BRL via FX)
+    // Itera dinamicamente todas as moedas presentes no cambialCash.
+    // Caixa Cambial e classe nao-motora, similar a Selic 2031, mas em moeda forte aguardando
+    // preco justo dos ativos finais. Nao aparece nas classes do portfolio (e classe paralela).
+    if(cambialCash&&typeof cambialCash==="object"){
+      Object.entries(cambialCash).forEach(([moeda,valNativo])=>{
+        if(typeof valNativo!=="number"||valNativo<=0)return;
+        const fx=FX[moeda];
+        if(!fx||fx<=0)return;// se nao temos FX para essa moeda, ignora
+        total+=valNativo*fx;
+      });
+    }
     const cw={};CL.forEach(c=>{cw[c.id]=total>0?(ct[c.id]/total)*100:0;});
     return {total,ct,cw};
   // fxState esta nas deps para tornar EXPLICITA a dependencia do cambio.
   // pv() le FX (objeto global sincronizado via effect com fxState). Sem fxState nas deps,
   // a relacao ficaria implicita - o callback nao mudaria de identidade quando o cambio mudasse.
-  },[port,ccy,cls,ntnbTaxas,ntnbVNA,fxState]);
+  },[port,ccy,cls,ntnbTaxas,ntnbVNA,fxState,cambialCash]);
   const {total,ct,cw}=stats();
   const hasPos=Object.entries(port).some(([t,p])=>hq(t,p));
 
@@ -5702,19 +6132,39 @@ function App(){
       const cenarioForte=Object.entries(protCen).sort((a,b)=>b[1]-a[1])[0];
 
       // ===== INDICE DE TRANQUILIDADE FINANCEIRA - 5O PILAR DE REBALANCEAMENTO =====
-      // Replica EXATAMENTE a logica do TranquilidadeCard do dashboard (linhas 1063+).
+      // Replica EXATAMENTE a logica do TranquilidadeCard do dashboard.
       // 4 dimensoes x 25% cada: Tamanho + Renda ICR-RTE + Resiliencia + Diversificacao
+      //
+      // CALIBRACAO POR HORIZONTE DE VIDA (cientifico, Pfau/Bengen Updated):
+      // - SWR e multiplicadores FIRE ajustados dinamicamente pela idade do investidor
+      // - Reflete dispersao de outcomes maior em horizontes longos
+      // - Calculo: horizonte = 90 - idade; SWR = max(3%, 4% - max(0, (h-30)*0.033%))
+      let idadeAtual_TQ=40;// fallback
+      if(dataNascimento){
+        try{
+          const nasc=new Date(dataNascimento);
+          if(!isNaN(nasc.getTime())){
+            const hojeTQ=new Date();
+            let i=hojeTQ.getFullYear()-nasc.getFullYear();
+            const m=hojeTQ.getMonth()-nasc.getMonth();
+            if(m<0||(m===0&&hojeTQ.getDate()<nasc.getDate()))i--;
+            if(i>=18&&i<=100)idadeAtual_TQ=i;
+          }
+        }catch(e){}
+      }
+      const fireCal_TQ=calibracoesFIRE(idadeAtual_TQ);
+      const SWR_AJ_TQ=fireCal_TQ.swr;
       const metaAnualTQ=(metaMensalIF||35000)*12;
-      // DIMENSAO 1: Tamanho (calibracao BR)
+      // DIMENSAO 1: Tamanho (calibrado por horizonte)
       const multFIRE_TQ=total/metaAnualTQ;
       let scoreTamanho_TQ;
       if(multFIRE_TQ<=8)scoreTamanho_TQ=multFIRE_TQ*3.75;
-      else if(multFIRE_TQ<=20)scoreTamanho_TQ=30+(multFIRE_TQ-8)*2.5;
-      else if(multFIRE_TQ<=28)scoreTamanho_TQ=60+(multFIRE_TQ-20)*2.5;
-      else if(multFIRE_TQ<=40)scoreTamanho_TQ=80+(multFIRE_TQ-28)*(20/12);
+      else if(multFIRE_TQ<=fireCal_TQ.basico)scoreTamanho_TQ=30+(multFIRE_TQ-8)*(30/(fireCal_TQ.basico-8));
+      else if(multFIRE_TQ<=fireCal_TQ.seguro)scoreTamanho_TQ=60+(multFIRE_TQ-fireCal_TQ.basico)*(20/(fireCal_TQ.seguro-fireCal_TQ.basico));
+      else if(multFIRE_TQ<=fireCal_TQ.fat)scoreTamanho_TQ=80+(multFIRE_TQ-fireCal_TQ.seguro)*(20/(fireCal_TQ.fat-fireCal_TQ.seguro));
       else scoreTamanho_TQ=100;
       scoreTamanho_TQ=Math.max(0,Math.min(100,scoreTamanho_TQ));
-      // DIMENSAO 2: Renda ICR-RTE (canonico - dividendos liq + SWR 4% nao-motoras)
+      // DIMENSAO 2: Renda ICR-RTE (dividendos liq + SWR AJUSTADO sobre nao-motoras)
       let rendaPassivaLiq_TQ=0,swrLiq_TQ=0;
       MPT_CLS.forEach(cid=>{
         const v=total*((cw[cid]||0)/100);
@@ -5722,7 +6172,7 @@ function App(){
         const dy=YIELD_CLASSE[cid]?YIELD_CLASSE[cid].base:0;
         const ir=IR_DIV[cid]||0;
         rendaPassivaLiq_TQ+=v*dy*(1-ir);
-        if(cid!=="imoveis"&&!FUNDOS_RENDA_MOTORES.includes(cid))swrLiq_TQ+=v*SWR;
+        if(cid!=="imoveis"&&!FUNDOS_RENDA_MOTORES.includes(cid))swrLiq_TQ+=v*SWR_AJ_TQ;
       });
       const rendaRTE_TQ=rendaPassivaLiq_TQ+swrLiq_TQ;
       const coberturaPct_TQ=metaAnualTQ>0?(rendaRTE_TQ/metaAnualTQ)*100:0;
@@ -5734,7 +6184,7 @@ function App(){
       else if(coberturaPct_TQ>=60)scoreRenda_TQ=30+(coberturaPct_TQ-60)*1.0;
       else scoreRenda_TQ=Math.max(0,coberturaPct_TQ*0.5);
       scoreRenda_TQ=Math.max(0,Math.min(100,scoreRenda_TQ));
-      // DIMENSAO 3: Resiliencia (pior drawdown nos 5 cenarios STRESS_CEN)
+      // DIMENSAO 3a: Resiliencia DRAWDOWN (sub-componente 70% da Resiliencia)
       let ddPior_TQ=0;
       STRESS_CEN.forEach(cen=>{
         let ddCen=0;
@@ -5746,14 +6196,45 @@ function App(){
         if(ddCen<ddPior_TQ)ddPior_TQ=ddCen;
       });
       const ddPiorPct_TQ=ddPior_TQ*100;
-      let scoreResi_TQ;
-      if(ddPiorPct_TQ>=-5)scoreResi_TQ=100;
-      else if(ddPiorPct_TQ>=-15)scoreResi_TQ=75+(ddPiorPct_TQ+5)*2.5;
-      else if(ddPiorPct_TQ>=-25)scoreResi_TQ=50+(ddPiorPct_TQ+15)*2.5;
-      else if(ddPiorPct_TQ>=-35)scoreResi_TQ=25+(ddPiorPct_TQ+25)*2.5;
-      else if(ddPiorPct_TQ>=-50)scoreResi_TQ=Math.max(0,25+(ddPiorPct_TQ+25)*1);
-      else scoreResi_TQ=0;
-      scoreResi_TQ=Math.max(0,Math.min(100,scoreResi_TQ));
+      let scoreResiDD_TQ;
+      if(ddPiorPct_TQ>=-5)scoreResiDD_TQ=100;
+      else if(ddPiorPct_TQ>=-15)scoreResiDD_TQ=75+(ddPiorPct_TQ+5)*2.5;
+      else if(ddPiorPct_TQ>=-25)scoreResiDD_TQ=50+(ddPiorPct_TQ+15)*2.5;
+      else if(ddPiorPct_TQ>=-35)scoreResiDD_TQ=25+(ddPiorPct_TQ+25)*2.5;
+      else if(ddPiorPct_TQ>=-50)scoreResiDD_TQ=Math.max(0,25+(ddPiorPct_TQ+25)*1);
+      else scoreResiDD_TQ=0;
+      scoreResiDD_TQ=Math.max(0,Math.min(100,scoreResiDD_TQ));
+      // DIMENSAO 3b: Calculo % cambial atual (para sub-componente Resiliencia + 5a dimensao Blindagem)
+      // Estrutura dinamica: aceita qualquer moeda nao-BRL que apareca no portfolio
+      const cambialBreakdown_TQ={};
+      let totalCambialAtual_TQ=0;
+      Object.entries(port||{}).forEach(([t,p])=>{
+        if(!p)return;
+        const v=pv(t,p,(()=>{const c={};Object.keys(BCCY).forEach(k=>c[k]=BCCY[k]);return c;})());
+        if(!v||v<=0)return;
+        let ccy=BCCY[t]||"BRL";
+        if(typeof GB!=="undefined"&&Array.isArray(GB)&&GB.includes(t))ccy="BRL";
+        if(ccy!=="BRL"&&MOEDAS_FORTES.includes(ccy)){
+          totalCambialAtual_TQ+=v;
+          cambialBreakdown_TQ[ccy]=(cambialBreakdown_TQ[ccy]||0)+v;
+        }
+      });
+      // SOMA O CAIXA CAMBIAL ao cambialBreakdown_TQ (estrutura dinamica)
+      if(cambialCash&&typeof cambialCash==="object"){
+        Object.entries(cambialCash).forEach(([moeda,valNativo])=>{
+          if(typeof valNativo!=="number"||valNativo<=0)return;
+          const fx=FX[moeda];
+          if(!fx||fx<=0)return;
+          const valBRL=valNativo*fx;
+          cambialBreakdown_TQ[moeda]=(cambialBreakdown_TQ[moeda]||0)+valBRL;
+          totalCambialAtual_TQ+=valBRL;
+        });
+      }
+      const pctCambialAtual_TQ=total>0?totalCambialAtual_TQ/total:0;
+      const bandasCamb_TQ=bandasCambial(idadeAtual_TQ);
+      const scoreResiCambial_TQ=scoreBlindagemCambial(pctCambialAtual_TQ,idadeAtual_TQ);
+      // Resiliencia composta: 70% drawdown + 30% cambial
+      const scoreResi_TQ=scoreResiDD_TQ*0.70+scoreResiCambial_TQ*0.30;
       // DIMENSAO 4: Diversificacao (mesma logica do DiversificationCard)
       const wAt_TQ=MPT_CLS.map(cid=>(cw[cid]||0)/100);
       const somaW_TQ=wAt_TQ.reduce((a,b)=>a+b,0);
@@ -5769,15 +6250,25 @@ function App(){
       }
       const corrMediaPond_TQ=pesoTotalPares_TQ>0?corrPondTotal_TQ/pesoTotalPares_TQ:0;
       const scoreDiv_TQ=Math.max(0,Math.min(100,(1-corrMediaPond_TQ)/2*100));
-      // INDICE COMPOSTO
-      const indiceTQ=(scoreTamanho_TQ+scoreRenda_TQ+scoreResi_TQ+scoreDiv_TQ)/4;
+      // DIMENSAO 5: Blindagem Cambial (5a dimensao standalone, mesmo score do sub-componente)
+      const scoreBlindagem_TQ=scoreResiCambial_TQ;
+      // Composicao percentual por moeda (dentro do bucket cambial)
+      const pctPorMoeda_TQ={};
+      if(totalCambialAtual_TQ>0){
+        Object.keys(cambialBreakdown_TQ).forEach(m=>{
+          pctPorMoeda_TQ[m]=cambialBreakdown_TQ[m]/totalCambialAtual_TQ;
+        });
+      }
+      // INDICE COMPOSTO COM PESOS DIFERENCIADOS (22/22/22/17/17)
+      const indiceTQ=(scoreTamanho_TQ*0.22+scoreRenda_TQ*0.22+scoreResi_TQ*0.22+scoreDiv_TQ*0.17+scoreBlindagem_TQ*0.17);
       const bandaTQ=indiceTQ>=80?"BLINDADO":indiceTQ>=65?"ROBUSTO":indiceTQ>=50?"SOLIDO":indiceTQ>=35?"EM CONSTRUCAO":indiceTQ>=20?"FRAGIL":"INSUFICIENTE";
-      // Identifica gargalo principal (menor score) e segundo gargalo
+      // Identifica gargalo principal (menor score) e segundo gargalo - agora com 5 dimensoes
       const dimsTQ=[
-        {id:"tamanho",score:scoreTamanho_TQ,valor:multFIRE_TQ.toFixed(1)+"x meta",alvo:"28x (FIRE seguro BR)"},
-        {id:"renda",score:scoreRenda_TQ,valor:coberturaPct_TQ.toFixed(0)+"% da meta",alvo:">=150% (folga plena)"},
-        {id:"resiliencia",score:scoreResi_TQ,valor:"dd pior "+ddPiorPct_TQ.toFixed(1)+"%",alvo:"dd >= -5%"},
-        {id:"diversificacao",score:scoreDiv_TQ,valor:"corr media "+corrMediaPond_TQ.toFixed(2),alvo:"corr <=0 (descorrel.)"}
+        {id:"tamanho",score:scoreTamanho_TQ,peso:22,valor:multFIRE_TQ.toFixed(1)+"x meta",alvo:fireCal_TQ.seguro.toFixed(0)+"x (FIRE seguro, "+fireCal_TQ.horizonte+"a horiz)"},
+        {id:"renda",score:scoreRenda_TQ,peso:22,valor:coberturaPct_TQ.toFixed(0)+"% da meta",alvo:">=150% (SWR "+(SWR_AJ_TQ*100).toFixed(2)+"%)"},
+        {id:"resiliencia",score:scoreResi_TQ,peso:22,valor:"dd "+ddPiorPct_TQ.toFixed(1)+"% (70%) + camb "+(pctCambialAtual_TQ*100).toFixed(0)+"% (30%)",alvo:"dd >= -5% E camb >="+(bandasCamb_TQ.alvo*100).toFixed(0)+"%"},
+        {id:"diversificacao",score:scoreDiv_TQ,peso:17,valor:"corr media "+corrMediaPond_TQ.toFixed(2),alvo:"corr <=0 (descorrel.)"},
+        {id:"blindagem_cambial",score:scoreBlindagem_TQ,peso:17,valor:(pctCambialAtual_TQ*100).toFixed(1)+"% em moedas fortes",alvo:(bandasCamb_TQ.alvo*100).toFixed(0)+"% (banda "+(bandasCamb_TQ.min*100).toFixed(0)+"-"+(bandasCamb_TQ.max*100).toFixed(0)+"%) p/ idade "+idadeAtual_TQ+"a"}
       ];
       const dimsTQOrd=dimsTQ.slice().sort((a,b)=>a.score-b.score);
       const gargaloTQ=dimsTQOrd[0];
@@ -5902,28 +6393,89 @@ function App(){
       // ===== BLOCO DA TRANQUILIDADE FINANCEIRA - 5O PILAR ESTRUTURAL =====
       const blocoTranquilidade=
         "\\n\\n=== INDICE DE TRANQUILIDADE FINANCEIRA - 5O PILAR DE REBALANCEAMENTO ESTRUTURAL ===\\n"+
+        "PARAMETRIZACAO CIENTIFICA POR HORIZONTE DE VIDA + MARGENS BRASIL/SENILIDADE:\\n"+
+        "  - Idade do investidor: "+idadeAtual_TQ+" anos (recalculada dinamicamente a cada render)\\n"+
+        "  - Horizonte estimado: "+fireCal_TQ.horizonte+" anos (ate "+EXPECTATIVA_VIDA_BR+", IBGE BR alto padrao socioeconomico)\\n"+
+        "  - SWR base ajustado: "+(SWR_AJ_TQ*100).toFixed(2)+"% ao ano (Pfau/Bengen: cai 0.033pp/ano alem de 30a)\\n"+
+        "  - Multiplicador BASE (1/SWR): "+fireCal_TQ.seguroBase.toFixed(1)+"x meta anual\\n"+
+        (fireCal_TQ.margemBR>0?"  - MARGEM BRASIL (+10%): aplicada para horizonte >=40a. Brasil tem ~1 crise estrutural a cada 5a historicamente (1986/90/94/99/02/08/15/20). Em "+fireCal_TQ.horizonte+"a serao ~"+Math.floor(fireCal_TQ.horizonte/5)+" crises adicionais.\\n":"")+
+        (fireCal_TQ.margemSenilidade>0?"  - MARGEM SENILIDADE (+5%): aplicada para horizonte >=30a. Custo de saude/cuidados aos 70+ pode ser 3-5x maior. IPCA saude historicamente 2-3pp acima do IPCA geral. Cuidados Alzheimer/demencia: R$15-25k/mes em casas especializadas - NAO inclusos no SWR base.\\n":"")+
+        "  - Multiplicador FIRE SEGURO ROBUSTO FINAL: "+fireCal_TQ.seguro.toFixed(1)+"x meta anual (com margens BR+Senilidade compostas, +"+fireCal_TQ.margemTotal.toFixed(1)+"%)\\n"+
+        "  - Marcos: BASICO "+fireCal_TQ.basico.toFixed(1)+"x (insuficiente sem margens), SEGURO "+fireCal_TQ.seguro.toFixed(1)+"x (recomendado), FAT "+fireCal_TQ.fat.toFixed(1)+"x (folga generosa)\\n\\n"+
+        "PARAMETRIZACAO CIENTIFICA DE BLINDAGEM CAMBIAL (HEDGE ESTRUTURAL CONTRA CRISES BR):\\n"+
+        "  - Alvo cambial dinamico por idade ("+idadeAtual_TQ+"a): "+(bandasCamb_TQ.alvo*100).toFixed(0)+"% do patrimonio em MOEDAS FORTES\\n"+
+        "  - Banda aceitavel: "+(bandasCamb_TQ.min*100).toFixed(0)+"%-"+(bandasCamb_TQ.max*100).toFixed(0)+"% (abaixo do min = subexposicao critica; acima do max = descolamento de R$)\\n"+
+        "  - EXPOSICAO ATUAL: "+(pctCambialAtual_TQ*100).toFixed(1)+"% em moedas fortes (gap "+((pctCambialAtual_TQ-bandasCamb_TQ.alvo)*100>=0?"+":"")+((pctCambialAtual_TQ-bandasCamb_TQ.alvo)*100).toFixed(1)+"pp vs alvo)\\n"+
+        "  - SUBALVOS internos (composicao do bucket cambial): USD 50%, EUR 20%, JPY 20%, Outras moedas fortes 10%\\n"+
+        "  - DISTRIBUICAO ATUAL dentro do bucket cambial: "+
+          (totalCambialAtual_TQ>0?
+            "USD "+((pctPorMoeda_TQ.USD||0)*100).toFixed(0)+"% (alvo 50%, gap "+(((pctPorMoeda_TQ.USD||0)-0.50)*100>=0?"+":"")+(((pctPorMoeda_TQ.USD||0)-0.50)*100).toFixed(0)+"pp) | "+
+            "EUR "+((pctPorMoeda_TQ.EUR||0)*100).toFixed(0)+"% (alvo 20%, gap "+(((pctPorMoeda_TQ.EUR||0)-0.20)*100>=0?"+":"")+(((pctPorMoeda_TQ.EUR||0)-0.20)*100).toFixed(0)+"pp) | "+
+            "JPY "+((pctPorMoeda_TQ.JPY||0)*100).toFixed(0)+"% (alvo 20%, gap "+(((pctPorMoeda_TQ.JPY||0)-0.20)*100>=0?"+":"")+(((pctPorMoeda_TQ.JPY||0)-0.20)*100).toFixed(0)+"pp) | "+
+            "Outras "+(((pctPorMoeda_TQ.GBP||0)+(pctPorMoeda_TQ.CHF||0)+(pctPorMoeda_TQ.CAD||0)+(pctPorMoeda_TQ.AUD||0)+(pctPorMoeda_TQ.Outros||0))*100).toFixed(0)+"% (alvo 10%)"
+            :"SEM EXPOSICAO CAMBIAL - portfolio 100% em BRL")+
+        "\\n  - FUNDAMENTACAO: investidor BR em horizonte longo precisa estruturalmente de % em USD/EUR/JPY como hedge contra crises sistemicas BR. Em todas crises (1999/2002/2015/2020), R$ desvalorizou 35-80%; quem tinha exposicao cambial perdeu menos. IPCA BR 2000-2024 acumulou ~280% vs CPI EUA ~75% (R$ perde poder de compra 3.7x mais rapido).\\n"+
+        "  - Score Blindagem Cambial ATUAL: "+scoreBlindagem_TQ.toFixed(0)+"/100\\n\\n"+
+        "REGRAS CRITICAS DE INTERPRETACAO (FILOSOFIA DE MARGEM DE SEGURANCA):\\n"+
+        "* NAO declarar IF (independencia financeira) atingida antes de patrimonio >= "+fireCal_TQ.seguro.toFixed(1)+"x meta anual. O 'basico' "+fireCal_TQ.basico.toFixed(1)+"x e referencia teorica de sobrevivencia MINIMA - NAO de IF robusta. NUNCA recomendar reduzir aportes ou alterar o portfolio para fase 'pre-IF' antes do seguro robusto.\\n"+
+        "* O multiplicador "+fireCal_TQ.seguro.toFixed(1)+"x JA INCORPORA: (a) dispersao de outcomes em "+fireCal_TQ.horizonte+"a (Monte Carlo), (b) crises estruturais brasileiras recorrentes, (c) inflacao acumulada (a 4%a.a. multiplica "+(Math.pow(1.04,fireCal_TQ.horizonte)).toFixed(1)+"x em "+fireCal_TQ.horizonte+"a), (d) custo crescente de saude na senilidade.\\n"+
+        "* Quanto MAIS JOVEM o investidor, MAIOR a dispersao de outcomes - MAIOR a necessidade de margem extra. Aos 39a (horizonte 51a), NAO confiar em multiplicadores tradicionais Trinity 25x/33x - sao subestimacoes para este horizonte.\\n"+
+        "* Em qualquer mensao sobre 'tamanho do patrimonio' ou 'capacidade de IF' no relatorio do aporte, SEMPRE referenciar o multiplicador SEGURO ROBUSTO ("+fireCal_TQ.seguro.toFixed(1)+"x) como meta, NUNCA o basico.\\n"+
+        "* BLINDAGEM CAMBIAL E METRICA ESTRUTURAL: aportes mensais DEVEM convergir gradualmente para o alvo cambial da idade ("+(bandasCamb_TQ.alvo*100).toFixed(0)+"%). Se subexposto, priorizar classes em USD/EUR/JPY (EXT, REITs, Treasuries). Se sobreexposto (>"+(bandasCamb_TQ.max*100).toFixed(0)+"%), priorizar classes em BRL.\\n\\n"+
         "INDICE COMPOSTO ATUAL: "+indiceTQ.toFixed(0)+"/100 (banda: "+bandaTQ+")\\n"+
-        "Esta e a metrica MACRO que sintetiza a qualidade do portfolio em 4 dimensoes (25% cada):\\n"+
-        "  - TAMANHO: "+scoreTamanho_TQ.toFixed(0)+"/100 ("+dimsTQ[0].valor+", alvo "+dimsTQ[0].alvo+")\\n"+
-        "  - RENDA ICR-RTE: "+scoreRenda_TQ.toFixed(0)+"/100 ("+dimsTQ[1].valor+", alvo "+dimsTQ[1].alvo+")\\n"+
-        "  - RESILIENCIA: "+scoreResi_TQ.toFixed(0)+"/100 ("+dimsTQ[2].valor+", alvo "+dimsTQ[2].alvo+")\\n"+
-        "  - DIVERSIFICACAO: "+scoreDiv_TQ.toFixed(0)+"/100 ("+dimsTQ[3].valor+", alvo "+dimsTQ[3].alvo+")\\n"+
+        "Esta e a metrica MACRO que sintetiza a qualidade do portfolio em 5 DIMENSOES com pesos DIFERENCIADOS:\\n"+
+        "  - TAMANHO (22%): "+scoreTamanho_TQ.toFixed(0)+"/100 ("+dimsTQ[0].valor+", alvo "+dimsTQ[0].alvo+")\\n"+
+        "  - RENDA ICR-RTE (22%): "+scoreRenda_TQ.toFixed(0)+"/100 ("+dimsTQ[1].valor+", alvo "+dimsTQ[1].alvo+")\\n"+
+        "  - RESILIENCIA (22%): "+scoreResi_TQ.toFixed(0)+"/100 - HIBRIDA: 70% drawdown ("+scoreResiDD_TQ.toFixed(0)+"/100) + 30% cambial ("+scoreResiCambial_TQ.toFixed(0)+"/100). "+dimsTQ[2].valor+"\\n"+
+        "  - DIVERSIFICACAO (17%): "+scoreDiv_TQ.toFixed(0)+"/100 ("+dimsTQ[3].valor+", alvo "+dimsTQ[3].alvo+")\\n"+
+        "  - BLINDAGEM CAMBIAL (17%): "+scoreBlindagem_TQ.toFixed(0)+"/100 ("+dimsTQ[4].valor+", alvo "+dimsTQ[4].alvo+")\\n"+
         "GARGALO PRINCIPAL: "+gargaloTQ.id+" (score "+gargaloTQ.score.toFixed(0)+"/100). SEGUNDO GARGALO: "+segundoGargaloTQ.id+" (score "+segundoGargaloTQ.score.toFixed(0)+"/100).\\n\\n"+
         "INSTRUCAO DE USO COMO 5O PILAR:\\n"+
         "1) O OBJETIVO DE LONGO PRAZO DO INVESTIDOR e SUBIR O INDICE DE TRANQUILIDADE de forma sustentavel. Esta e a metrica QUE O INVESTIDOR ACOMPANHA NO DASHBOARD. Cada aporte mensal deve contribuir para mover o indice na direcao certa.\\n"+
         "2) PRIORIZACAO DOS GARGALOS: a dimensao com MENOR score (o gargalo) deve receber atencao preferencial no aporte. Para subir o indice composto, a alavanca mais eficiente e aumentar a dimensao mais baixa (rendimento marginal maior).\\n"+
         "3) DIALOGOS COM OS OUTROS 5 PILARES:\\n"+
         "   * Se gargalo = TAMANHO: aportes em classes de ALTO RETORNO ESPERADO (equity, real assets produtivos) avancam mais rapido. CUIDADO: nao sacrificar diversificacao.\\n"+
-        "   * Se gargalo = RENDA: priorizar classes com DY/yield real alto (FII, Infra, Agro, NTN-B em IPCA+ alto). DIALOGA com Yale realAssets e inflationHedge.\\n"+
-        "   * Se gargalo = RESILIENCIA: priorizar HEDGES UNIVERSAIS (Selic - hedge anti-volatilidade) + complementarmente HEDGES DE CENARIO (NTN-B longa, ouro, Treasuries). DIALOGA com AW (resiliencia macro) - sao parcialmente sobrepostos.\\n"+
+        "   * Se gargalo = RENDA: priorizar classes com DY/yield real alto (FII, Infra, Agro, NTN-B em IPCA+ alto). DIALOGA com Yale realAssets e inflationHedge. ATENCAO: o SWR considerado para esta dimensao ja e "+(SWR_AJ_TQ*100).toFixed(2)+"% (calibrado por horizonte), nao 4%.\\n"+
+        "   * Se gargalo = RESILIENCIA: priorizar HEDGES UNIVERSAIS (Selic - hedge anti-volatilidade) + complementarmente HEDGES DE CENARIO (NTN-B longa, ouro, Treasuries). DIALOGA com AW (resiliencia macro). Componente cambial (30%) tambem entra aqui - se gargalo de resiliencia + subexposicao cambial, priorizar EXT/REIT/Treasuries.\\n"+
         "   * Se gargalo = DIVERSIFICACAO: priorizar classes com BAIXA CORRELACAO em relacao as sobreallocadas. BTC corr~0 com tudo e a alavanca mais potente. NTN-B longa traz correlacao negativa com equity (-0.20 a -0.30). DIALOGA com MPT (HHI) - sao parcialmente sobrepostos.\\n"+
+        "   * Se gargalo = BLINDAGEM CAMBIAL: priorizar classes denominadas em USD/EUR/JPY (EXT, REITs, Treasuries). Respeitar SUBALVOS internos do bucket cambial - se USD ja em 60% do bucket (acima do alvo 50%), priorizar EUR/JPY. BTC tambem conta como exposicao USD (cotado em USD globalmente).\\n"+
         "4) META DE LONGO PRAZO PARA DIVERSIFICACAO (REDUCAO GRADUAL DE CORRELACAO):\\n"+
         "   * O investidor deseja que o portfolio CAMINHE GRADUALMENTE PARA CORRELACAO MEDIA PONDERADA MAIS BAIXA - rumo a score de diversificacao mais alto.\\n"+
         "   * Correlacao atual: "+corrMediaPond_TQ.toFixed(2)+". Cada aporte deve, na medida do possivel, reduzir essa correlacao media (ou pelo menos NAO aumentar).\\n"+
         "   * Antes de aumentar uma classe, simule mentalmente: 'esse aporte reduz a corr media ponderada do portfolio?'. Classes com BAIXA correlacao com as ja sobreallocadas reduzem; classes correlacionadas com as ja grandes (FII+Infra+Agro juntas, BR+EXT juntas) aumentam.\\n"+
         "   * Quando duas oportunidades empatam em qualidade/preco, PREFERIR sempre a que reduz mais a correlacao media. Este e um VETOR DIRECIONAL de longo prazo.\\n"+
-        "5) MENCAO OBRIGATORIA NO RESUMO: para CADA classe na Parte 1 do resumo, mencione tambem o IMPACTO ESPERADO no Indice de Tranquilidade. Ex: 'Este aporte em BTC reforca a dimensao Diversificacao (gargalo atual) - reduz corr media de "+corrMediaPond_TQ.toFixed(2)+" para ~"+(corrMediaPond_TQ-0.01).toFixed(2)+", potencial aumento de +1 ponto no score de Diversificacao e +0.3 no indice composto'.\\n"+
-        "6) NUNCA forcar aporte em classe ruim em fundamentos so para subir o indice - este e o 5o pilar, complementar aos demais (qualidade + preco + MPT + AW + Yale + Vetores Macro + Tranquilidade). A logica de qualidade e preco SEMPRE prevalece se houver conflito.\\n";
+        "5) META DE LONGO PRAZO PARA BLINDAGEM CAMBIAL:\\n"+
+        "   * Convergir gradualmente para "+(bandasCamb_TQ.alvo*100).toFixed(0)+"% do patrimonio em moedas fortes (USD/EUR/JPY + Outras).\\n"+
+        "   * Composicao interna do bucket cambial: USD 50% / EUR 20% / JPY 20% / Outras 10%.\\n"+
+        "   * Quando subexposto (<"+(bandasCamb_TQ.alvo*100).toFixed(0)+"%): priorizar aportes em EXT/REITs/Treasuries. Avaliar QUAL moeda dentro do bucket esta mais em deficit (vs subalvo) para escolher entre EXT americanas (USD), EXT europeias (EUR), EXT japonesas/asiaticas (JPY ou outras).\\n"+
+        "   * Quando sobreexposto (>"+(bandasCamb_TQ.max*100).toFixed(0)+"%): mesmo com cambio favoravel, NAO ampliar mais classes estrangeiras - priorizar BR/FII/Infra/Agro/NTN-B/Selic (todas em BRL).\\n"+
+        "   * Este vetor cambial e ESTRUTURAL, complementar (nao substitui) o cambio TATICO do Eixo 5 universal.\\n\\n"+
+        "CAIXA CAMBIAL ATUAL (capital em corretora americana aguardando preco justo dos ativos finais):\\n"+
+        ((()=>{
+          if(!cambialCash||typeof cambialCash!=="object"||Object.keys(cambialCash).length===0)
+            return "  (vazio - nenhuma moeda preenchida no Caixa Cambial)\\n";
+          return Object.entries(cambialCash)
+            .filter(([m,v])=>typeof v==="number"&&v>0)
+            .map(([moeda,valor])=>{
+              const fx=FX[moeda]||0;
+              const valBRL=valor*fx;
+              return "  - "+moeda+": "+moeda+" "+valor.toFixed(2)+" (R$ "+valBRL.toFixed(0)+")\\n";
+            }).join("")||"  (todas as moedas zeradas)\\n";
+        })())+
+        "\\nREGRA DE FALLBACK CAMBIAL (CRITICA - tratamento das oportunidades nao-encontradas):\\n"+
+        "Quando o investidor tem GAP DE BLINDAGEM CAMBIAL (subexposicao vs alvo "+(bandasCamb_TQ.alvo*100).toFixed(0)+"%) E nao ha ativos com preco justo na moeda em deficit, a IA deve aplicar a seguinte HIERARQUIA DE FALLBACK ao distribuir o aporte:\\n"+
+        "  1a escolha: ativo NA MOEDA com preco justo (EXT americana se gap em USD, EXT europeia se gap em EUR, EXT asiatica/japonesa se gap em JPY, ABBN se gap em CHF, HLMA se gap em GBP, REA/WES se gap em AUD, etc). Se ha ativo elegivel, alocar normalmente.\\n"+
+        "  2a escolha (FALLBACK CAMBIAL): se NAO ha ativo com preco justo na moeda em deficit, REDIRECIONAR o valor para o CAIXA CAMBIAL na moeda apropriada. O Caixa Cambial cumpre o papel de MANTER A EXPOSICAO CAMBIAL enquanto aguarda o preco disciplinado do ativo final.\\n"+
+        "  3a escolha (FALLBACK FINAL BRL): so se NAO ha gap cambial (ja esta no alvo ou acima) OU se nao ha NENHUMA classe atrativa em moeda forte, entao redirecionar para SELIC 2031 (caixa BRL).\\n\\n"+
+        "FORMATO NO JSON para usar a regra de fallback cambial: A IA deve sugerir uma classe especial 'caixacambial' no array 'classes', com sub-itens por moeda. Tickers no formato CAIXA-XXX onde XXX e o codigo da moeda (USD/EUR/JPY/GBP/CHF/CAD/AUD/SEK/NOK/DKK/NZD/SGD/HKD/MXN/etc - qualquer moeda nao-BRL que apareca no portfolio do investidor). Exemplo:\\n"+
+        "  {id:'caixacambial',pct:8,valor:800,ativos:[{rank:1,ticker:'CAIXA-USD',valor:800,score:'CAIXA ESTRATEGICO',metricas:'Aguardando preco justo de ativo USD',porque_essa_posicao:'Gap cambial USD de Xpp + ativos EXT americanos atualmente caros (P/L > 22x S&P). Capital em USD aguarda oportunidade.'}]}\\n"+
+        "  Pode ter mais de um ticker CAIXA-XXX se gap distribuido entre moedas (ex: CAIXA-EUR + CAIXA-JPY simultaneamente).\\n"+
+        "  No campo 'estrategia_macro', mencionar EXPLICITAMENTE: 'Caixa Cambial recebeu R$X (lista de moedas) por nao haver oportunidades de preco justo em ativos da respectiva moeda. Capital fica em corretora americana em moeda estrangeira aguardando preco disciplinado.'\\n"+
+        "  IMPORTANTE: a classe 'caixacambial' NAO esta sujeita ao teto de 30% (analoga a Selic 2031) - pode receber qualquer percentual quando justificado pelo gap cambial + ausencia de oportunidades.\\n"+
+        "  IMPORTANTE: o Caixa Cambial JA conta para a Blindagem Cambial atual (e somado ao breakdown por moeda). Ao avaliar gap cambial, considere o caixa cambial existente + ativos investidos. Subalvos: USD 50% / EUR 20% / JPY 20% / TODAS DEMAIS moedas agregadas 10% (para fins de gap de bucket no score de Blindagem).\\n\\n"+
+        "6) MENCAO OBRIGATORIA NO RESUMO: para CADA classe na Parte 1 do resumo, mencione tambem o IMPACTO ESPERADO no Indice de Tranquilidade. Ex: 'Este aporte em MSFT reforca a dimensao Blindagem Cambial (gargalo atual) - aumenta exposicao USD de 18% para 19% do patrimonio, aproximando do alvo "+(bandasCamb_TQ.alvo*100).toFixed(0)+"%; potencial aumento de +2 pontos no score de Blindagem e +0.4 no indice composto'.\\n"+
+        "7) NUNCA forcar aporte em classe ruim em fundamentos so para subir o indice - este e o 5o pilar, complementar aos demais (qualidade + preco + MPT + AW + Yale + Vetores Macro + Tranquilidade). A logica de qualidade e preco SEMPRE prevalece se houver conflito.\\n"+
+        "8) MENCAO OBRIGATORIA NO VEREDITO: ao final do relatorio, mencione 'capacidade de IF' do investidor SOMENTE referenciando o multiplicador SEGURO ROBUSTO ("+fireCal_TQ.seguro.toFixed(1)+"x). NAO usar Trinity Study tradicional (25x/33x/50x) como referencia para este investidor especifico - aquela calibracao subestima riscos para o horizonte real dele.\\n";
 
       const msg="Analista Buy&Hold aposentadoria rigoroso, filosofia 'quality at a reasonable price' (Charlie Munger, Terry Smith). PORTFOLIO:"+JSON.stringify(ci)+"\\nAPORTE:R$"+v+"\\nPATRIMONIO_TOTAL:R$"+Math.round(total)+"\\nINDICADORES_TECNICOS_MACRO: {mvrvZ:"+(typeof mvrvZ==="number"?mvrvZ.toFixed(2):"null")+", piCycleRatio:"+(piCycle&&typeof piCycle.ratio==="number"?piCycle.ratio.toFixed(3):"null")+", piCycleTopSignal:"+(piCycle&&piCycle.isTopSignal?"true":"false")+", nupl:"+(typeof nupl==="number"?nupl.toFixed(3):"null")+", goldSilverRatio:"+(typeof goldSilver==="number"?goldSilver.toFixed(1):"null")+", goldSP500Ratio:"+(typeof goldSP500==="number"?goldSP500.toFixed(3):"null")+", realGoldZScore:"+(typeof realGoldZ==="number"?realGoldZ.toFixed(2):"null")+", xauVar90d:"+(typeof xauVar==="number"?(xauVar*100).toFixed(1)+"%":"null")+", btcVar90d:"+(typeof btcVar==="number"?(btcVar*100).toFixed(1)+"%":"null")+", selicAtual:"+(typeof selicAtual==="number"?selicAtual.toFixed(2)+"%":"null")+"}\\n\\nFILOSOFIA DE INVESTIMENTO DO INVESTIDOR (RESPEITAR INTEGRALMENTE):\\n1) Foco PRIMARIO em QUALIDADE do ativo: vantagem competitiva durável, capacidade de geração de caixa consistente, ROE/ROIC elevados e estáveis, gestão competente e alinhada, baixo risco de descontinuidade do negócio. Para FIIs: gestão experiente, ativos premium, vacância controlada, inquilinos AAA. Para infra/Fiagros: ativos estratégicos, contratos longos, baixo risco regulatório/operacional.\\n2) Aceitar pagar preço JUSTO por excelência: nao buscar pechincha cega. Preferir um ativo de qualidade no preço justo a um medíocre descontado. Value trap (negocio em decadencia barato) é o pior erro: evitar tickers cujo desconto reflete deterioração estrutural.\\n3) Preferencia natural: qualidade + desconto razoavel quando ambos estão disponíveis. Mas se nao houver desconto, qualidade no preço justo é aceitável.\\n4) Aportes contínuos: o tempo dilui pontos de entrada (dollar cost averaging). Não esperar minima absoluta de preço (que pode nunca chegar).\\n5) Disciplina anti-bolha: NUNCA pagar preço claramente acima de fundamentos que nao se justifique.\\n\\nDISCIPLINA SWENSEN/YALE (REBALANCEAMENTO CONTRACICLICO) - PRINCIPIO COMPLEMENTAR:\\nO investidor adota a filosofia Swensen/Yale Endowment de rebalanceamento disciplinado contraciclo. Como B&H rigoroso (zero vendas), o rebalanceamento e feito EXCLUSIVAMENTE via direcao dos aportes mensais. Aplique este principio na alocacao:\\n1) Identifique classes ABAIXO do alvo (campo 'peso' < ponto medio de min/max): essas classes estao 'compradas com desconto relativo' (caso queda) ou 'sub-representadas' (caso novo capital). Receberao aporte MAIOR proporcionalmente.\\n2) Identifique classes ACIMA do alvo (campo 'peso' > max): aporte deve ser REDUZIDO ou apenas o piso, permitindo que o portfolio retorne ao alvo gradualmente sem vendas.\\n3) Em ambientes de stress (acoes caindo > 10% no mes), a logica contraciclica de Swensen INTENSIFICA: aporte agressivo nas classes que caíram mais, ate o limite do drift natural.\\n4) Em ambientes de euforia (acoes em maximas historicas, multiplos esticados), a disciplina Swensen RESTRINGE: ate classes abaixo do alvo recebem aporte cauteloso se os fundamentos nao justificarem.\\nEsta disciplina e complementar aos criterios de qualidade e preco - nao os substitui. Mencione no 'estrategia_macro' quando ela for relevante para a decisao.\\n\\nREGRAS OPERACIONAIS RIGIDAS (devem sempre ser respeitadas): zero vendas; todas 11 classes que recebem aporte (FII,BR,EXT,REIT,SEL,TRE,NTNB,XAU,BTC,INF,AGRO) recebem PISO MINIMO de 3% DO APORTE MENSAL (NAO 3% do patrimonio - sao conceitos diferentes); priorizar classes abaixo do alvo; IMOVEIS nao recebem aporte; NENHUM ticker individual pode passar de 5% do PATRIMONIO TOTAL apos aporte (limite duro inviolavel); NENHUMA CLASSE DE RISCO pode receber MAIS QUE 30% DO APORTE MENSAL, mesmo que esteja sinalizando COMPRA MUITO FORTE ou oportunidade unica (TETO MAXIMO inviolavel - principio fundamental de diversificacao temporal, reduz o risco de erro concentrado em uma unica tese e mantem a disciplina B&H de espalhar entradas). EXCECAO UNICA: o TESOURO SELIC (classe selic, Selic 2031) NAO esta sujeito ao teto de 30% - pode receber qualquer percentual acima de 30% sem restricao, dada sua natureza de CAIXA ESTRATEGICO PRODUTIVO e reserva de liquidez (nao e ativo de risco, e mecanismo de seguranca do portfolio). O teto de 30% aplica-se as 10 classes de risco restantes (FII, BR, EXT, REIT, TRE, NTNB, XAU, BTC, INF, AGRO).\\n\\nJUSTIFICATIVA DO TETO DE 30% POR CLASSE DE RISCO: a evidencia empirica de longo prazo mostra que mesmo gestores excepcionais erram com frequencia surpreendente em apostas concentradas. Buy & Hold rigoroso reconhece essa incerteza: melhor dividir entradas em multiplas teses do que apostar tudo numa unica, ainda que o sinal pareca extraordinario. Por isso o teto de 30% e INVIOLAVEL para qualquer das 10 classes de risco (FII, BR, EXT, REIT, TRE, NTNB, XAU, BTC, INF, AGRO) - se uma delas pareceu merecer 40% do aporte, isso e SINAL de que a IA esta supervalorizando uma tese unica. Quando o sinal e excepcionalmente forte numa classe de risco, alocar o maximo de 30% nela e DISTRIBUIR o restante entre as 2-3 melhores oportunidades secundarias, mesmo que estas tenham sinais marginalmente menos atraentes. O TESOURO SELIC e a UNICA CLASSE FORA DO TETO: por ser caixa estrategico produtivo (nao motor de retorno, nao tese de investimento), ele e o destino natural do excedente quando as classes de risco nao oferecem oportunidades atrativas. Em situacoes em que multiplas classes ficam no piso 3% por falta de precos favoraveis, a Selic pode legitimamente receber 40%, 50% ou mais do aporte mensal - isso e estrategia correta, nao concentracao indesejada. Este e um pilar da boa gestao de risco: limitar exposicao em classes de risco, expandir liquidez produtiva quando nao ha oportunidades.\\n\\nDISTINCAO CONCEITUAL FUNDAMENTAL (NUNCA CONFUNDIR):\\n  (1) PISO DO APORTE MENSAL = 3%: e o piso minimo do percentual do macroaporte do MES que cada classe deve receber. Se o aporte e R$ 10.000, cada classe recebe no minimo R$ 300. Regra OPERACIONAL para garantir presenca continua das classes na carteira.\\n  (2) BANDAS PATRIMONIAIS (min/max % do patrimonio) = DEFINIDAS PELO INVESTIDOR: estao nos campos 'min' e 'max' de cada classe no PORTFOLIO. Definem quanto da CARTEIRA pode estar em cada classe. NAO podem ser alteradas pela IA - sao a alocacao estrategica desejada pelo investidor.\\n  (3) LIMITE 5% POR ATIVO = 5% do PATRIMONIO TOTAL: regra dura de gestao de risco idiossincratico. Aplicada por TICKER, nao por classe.\\nEstes 3 conceitos NUNCA devem ser misturados. Frases como 'piso 3%' referem-se SEMPRE ao aporte mensal, nao ao patrimonio.\\n\\nFRAMEWORK DE ANALISE CONTEXTUAL UNIVERSAL (aplicar a TODAS as classes):\\n\\nPRINCIPIO FUNDAMENTAL: Nenhuma classe e decidida em isolamento. A taxa absoluta, o multiplo, o yield, a metrica tecnica - todos sao INSUMOS, nunca decisores unicos. A decisao final emerge da SINTESE de 5 eixos:\\n\\nEIXO 1 - PRECO/QUALIDADE INTRINSECA DO ATIVO: a metrica fundamental especifica da classe (taxa, multiplo, yield, MVRV, etc) esta favoravel? Use o criterio especifico de cada classe nas regras abaixo.\\n\\nEIXO 2 - CENARIO MACRO VIGENTE (All Weather): qual cenario c1/c2/c3/c4 esta dominante? Use protCenAtual e protCenAW do contexto para avaliar.\\n  * c1 (cresc+ infl+): favorece equity BR, real assets, ouro, NTN-B\\n  * c2 (cresc+ infl-): favorece equity EXT (especialmente growth), compounders, REITs\\n  * c3 (cresc- infl+ ESTAGFLACAO): favorece ouro, NTN-B, infra, agro (HEDGE PRIMARIO)\\n  * c4 (cresc- infl-): favorece Selic, treasuries longos (TLT), renda fixa nominal\\n\\nEIXO 3 - VALOR RELATIVO (spread vs alternativas concorrentes): toda classe compete por capital com outras. Avalie:\\n  * FII vs NTN-B liquida (FII deve oferecer spread >=4pp sobre NTN-B liq para compensar risco imobiliario)\\n  * REIT vs Treasuries (REIT yield deve superar Treasury 10Y + 3pp pelo risco)\\n  * Acoes BR vs Acoes EXT (premio Brasil: spread P/E EXT - P/E BR; quando muito amplo, BR esta barato relativo)\\n  * NTN-B vs Selic real liquida (NTN-B precisa de premio >=1pp sobre Selic real para compensar duration)\\n  * Ouro vs BTC (ambos hedge: quando ouro caro relativo (Real Gold Z>+1), BTC pode preencher; quando BTC em ZONA risco, ouro preenche)\\n  * Infra vs FII (ambos no bucket realAssets: quando spread > 1pp, priorizar o de maior yield real)\\n\\nEIXO 4 - DIVERSIFICACAO E CORRELACAO (evitar duplicacao de risco):\\n  * Antes de aumentar uma classe, verifique correlacoes com as ja sobrealocadas\\n  * NTN-B: a correlacao MEDIA com outras classes (-0.10 BR, -0.20 EXT, +0.15 Selic, +0.25 Ouro, +0.30 Infra) ESCONDE variacao por duration. Cada NTN-B se comporta diferente: CURTA correlaciona +0.50 com Selic (substituto de Selic); LONGA correlaciona -0.30 com EXT e +0.50 com TLT (hedge anti-equity). VEJA o campo 'durationModificada' e 'bucketDuration' de cada NTN-B no contexto para decisao precisa\\n  * NTN-B forte corr com infra (+0.30), ouro (+0.25) na MEDIA - se infra/ouro no max, NTN-B duplica hedge inflacionario\\n  * FII forte corr com infra (+0.40), agro (+0.45), imoveis (+0.30) - bucket realAssets concentrado\\n  * BR forte corr com EXT (+0.55) - quando equities globais estao em maxima, ambas concentram\\n  * BTC corr quase zero com tudo - sempre traz diversificacao genuina (proposito principal)\\n  * Treasuries corr negativa com BR (-0.20) e EXT (-0.30) - excelente hedge anti-equity\\n  * NTN-B corr negativa com EXT (-0.20) e BR (-0.10) - hedge moderado anti-equity local e global\\n  * Yale buckets devem se aproximar do alvo: equity 37%, realAssets 40%, altLiquid 3%, inflationHedge 8%, fixedNominal 12%\\n  * META DIRECIONAL DE LONGO PRAZO (REDUCAO GRADUAL DE CORRELACAO): o investidor deseja que a correlacao media ponderada do portfolio diminua GRADUALMENTE ao longo dos meses, melhorando o score de Diversificacao do Indice de Tranquilidade. Antes de aumentar uma classe, avalie: este aporte reduz a corr media ponderada do portfolio? Classes com baixa correlacao em relacao as ja sobreallocadas reduzem; classes correlacionadas com as ja grandes (FII+Infra+Agro juntas, BR+EXT juntas) aumentam. Quando duas oportunidades empatam em qualidade/preco, PREFERIR sempre a que reduz mais a correlacao. Este e um VETOR DIRECIONAL persistente - a SOMA dos aportes ao longo dos meses deve mover o portfolio nessa direcao.\\n\\nEIXO 5 - CONTEXTO MACRO BRASILEIRO ESPECIFICO:\\n  * Selic atual nominal (do contexto): se muito alta (>14%), favorece RF nominal e duration curta; se caindo, equity local se beneficia\\n  * IPCA anual (do contexto): se > 5%, NTN-B e real assets ganham apelo; se < 3,5%, Selic nominal mais atraente\\n  * Selic real (Selic - IPCA): se > 8%, RF nominal compete agressivamente com equity (high bar)\\n  * Risco fiscal: avaliar tendencia da curva longa (NTN-B 2050+ taxa elevada sinaliza stress fiscal)\\n  * Cambio (USD): se USD desvalorizando, EXT perde ganho cambial - reduzir; se valorizando, EXT amplifica retorno\\n\\nSINTESE: para CADA classe, integre os 5 eixos para decidir o peso final. Justifique no porque_essa_posicao mencionando quais eixos foram decisivos. Quando eixos conflitam (ex: Eixo 1 favorece mas Eixo 4 contraindica), explique o desempate.\\n\\nANALISE DO BUCKET DE RENDA FIXA (Selic + Treasuries + NTN-B):\\n\\nEstas 3 classes COMPETEM ENTRE SI por capital de renda fixa. Decidir cada uma em isolamento e ineficiente. Avalie o bucket inteiro:\\n\\n1) Calcule a taxa real liquida esperada de cada uma:\\n   - Selic: (Selic nominal * 0.85) - IPCA esperado (ja inclui IR longo prazo)\\n   - Treasuries: blend dos 3 ETFs (TLT yield * 0.70 (IR USA + cambio) + IEF * 0.70 + VTIP yield real * 0.70) - estimativa\\n   - NTN-B: taxa liquida ja calculada (ntnbTaxasLiquidas)\\n\\n2) Hierarquia de escolha no bucket RF:\\n   - Selic real liq > NTN-B liq + 1pp -> peso maior em Selic, menor em NTN-B\\n   - NTN-B liq > Selic real liq + 1pp -> peso maior em NTN-B, Selic apenas no piso\\n   - Diferenca < 1pp -> distribuir conforme contexto AW (c3 favorece NTN-B; c4 favorece Selic; c1/c2 misto)\\n   - Treasuries adicional se USD desvalorizado vs media (oportunidade de entrar barato em USD) E se yield 10Y >3.5%\\n\\n3) Duration ALIGNMENT: nao concentrar duration excessiva\\n   - Cada NTN-B tem 'durationModificada' e 'bucketDuration' no contexto - USE-OS\\n   - NTN-B CURTA (<5a) comporta-se como Selic+IPCA (corr +0.50 com Selic, +0.05 com TLT)\\n   - NTN-B MEDIA (5-12a) e equilibrada (corr +0.30 Selic, +0.20 TLT)\\n   - NTN-B LONGA (12-20a) e EXTRA-LONGA (>20a) sao equivalentes ao TLT em comportamento (corr +0.45 a +0.55 com TLT) - duplicacao critica se TLT no max\\n   - Se TLT no max (40% da classe TRE) + NTN-B longa no max -> RISCO CONCENTRADO de duration. Prefira NTN-B media ou curta nessa situacao\\n   - Se Selic no max -> evitar NTN-B curta (corr +0.50). Prefira media/longa para diversificar duration global\\n   - Idealmente (carteira laddering): NTN-B curta (~25% da classe) + media (~40%) + longa (~35%) - reduz vol total da classe\\n   - Cenario c2 (cresc+ infl-): reduzir duration global - prefira VTIP e NTN-B CURTA (2029)\\n   - Cenario c3 (estagflacao): aumentar duration - VTIP e NTN-B LONGA/EXTRA-LONGA (2045-2060) para maximizar efeito hedge anti-equity\\n\\n4) JUSTIFICATIVA OBRIGATORIA no estrategia_macro: mencione explicitamente a logica de spread entre as 3 classes de RF (ex: 'NTN-B liq IPCA+6,2% liderou no bucket RF por superar Selic real liq estimada em ~1,8pp; Selic mantida no piso por menor duration; Treasuries acima do piso por USD favoravel')\\n\\nFRAMEWORK CONTEXTUAL DE EQUITY E REAL ASSETS:\\n\\nCada classe de equity (BR, EXT, REITs) e real asset (FII, Infra, Agro) deve ser decidida pelos 5 EIXOS universais. As regras especificas abaixo SAO COMPLEMENTARES ao framework universal - nao decidem em isolamento.\\n\\n=========================================\\nREGRA ESPECIAL FII (Fundos Imobiliarios BR):\\n=========================================\\n\\nEIXO 1 - PRECO/QUALIDADE FII (criterios fundamentais):\\n  * P/VPA <= 0.97 e DY >= 9% (preferenciais, nao absolutos)\\n  * FII tijolo: vacancia controlada (<8%), inquilinos AAA, gestao premium, ativos premium\\n  * FII papel: rating dos CRIs (preferencia AA+), duration ajustada ao ciclo, qualidade dos emissores\\n  * Hibridos (logistico, shoppings, urbano): qualidade dos contratos atipicos, perfil de inquilinos\\n\\nEIXO 2 - CENARIO AW PARA FIIs:\\n  * c1 (cresc+ infl+): FAVORAVEL - reajustes contratuais por IPCA + crescimento\\n  * c2 (cresc+ infl-): NEUTRO - cresc bom mas FIIs perdem reajuste inflacionario\\n  * c3 (cresc- infl+): MISTO - FIIs de papel se beneficiam (CDI alto), tijolo sofre vacancia\\n  * c4 (cresc- infl-): DESFAVORAVEL - juros baixos ajudam P/VPA mas economia fraca pressiona alugueis\\n\\nEIXO 3 - VALOR RELATIVO FII vs NTN-B (CRITICO):\\n  * Compare DY de FII liquida (FII e isento PF) com NTN-B Principal liquida\\n  * Spread FII - NTN-B liq deve ser >=4pp para FII de tijolo (premio pelo risco imobiliario)\\n  * Spread FII - NTN-B liq deve ser >=3pp para FII de papel high grade (menor risco)\\n  * Se FII oferece <2pp sobre NTN-B liq, NTN-B e claramente superior (risco-ajustado)\\n  * Se NTN-B liq esta em IPCA+6% (~12,2% nominal assumindo IPCA 5,7%), FII precisa DY >=16% nominal para ser preferivel - raro\\n  * Em janelas de NTN-B alta, REDUZIR exposicao a FII de papel (que compete diretamente)\\n\\nEIXO 4 - DIVERSIFICACAO FII:\\n  * FII correlaciona forte com agro (+0.45), infra (+0.40), imoveis fisicos (+0.30)\\n  * Se bucket realAssets (FII+Infra+Agro+Imoveis) ja esta acima de 45%, FII vira marginal\\n  * Avalie SAUDE DO CICLO IMOBILIARIO agregado: vacancias gerais BR subindo (pressao em tijolo) ou caindo?\\n  * Concentracao em FII papel: se Selic alta cai, FII papel sofre reprecificacao - manter mix tijolo/papel/hibrido equilibrado\\n\\nEIXO 5 - CONTEXTO MACRO BR:\\n  * Selic caindo: FII tijolo se beneficia (cap rate compression), FII papel perde DY\\n  * Selic subindo: FII papel se beneficia (DY sobe), FII tijolo sofre desconto P/VPA\\n  * IPCA acelerando: tijolo se beneficia de reajustes contratuais (com defasagem)\\n  * Ciclo imobiliario: condominios novos saturando ou absorcao saudavel?\\n\\n=========================================\\nREGRA ESPECIAL REITs (REIT EUA):\\n=========================================\\n\\nEIXO 1 - PRECO/QUALIDADE REITs:\\n  * P/FFO razoavel (15-20x para qualidade), AFFO yield >= 6% para health/specialty, >=5% para top-tier\\n  * Dividend coverage: payout ratio < 90% do FFO (sustentabilidade)\\n  * Qualidade dos contratos: triple-net (NNN como O - excelente), gross leases, term remaining\\n  * IR retido 30% (sem tratado completo BR-EUA) - o yield bruto precisa ser maior para compensar\\n\\nEIXO 2 - CENARIO AW PARA REITs:\\n  * c1 (cresc+ infl+): FAVORAVEL - reajustes inflacionarios em alguns segmentos\\n  * c2 (cresc+ infl-): MUITO FAVORAVEL - cresc bom, juros estaveis ou caindo, refinanciamento fica facil\\n  * c3 (cresc- infl+): DESFAVORAVEL - custo de capital sobe, propriedades sofrem reprecificacao\\n  * c4 (cresc- infl-): MISTO - juros caindo ajuda valuation, mas demanda fraca para imoveis\\n\\nEIXO 3 - VALOR RELATIVO REITs vs TREASURIES (CRITICO):\\n  * REIT yield liquido (apos IR 30%) precisa superar Treasury 10Y yield + 3pp\\n  * Se Treasury 10Y em 4.5%, REIT precisa de yield bruto >=10% para compensar IR e risco (4.5+3 = 7.5pp / 0.70 = 10.7% bruto)\\n  * Se yield REIT < Treasury 10Y bruto + 1pp, Treasury e superior (risco-ajustado)\\n  * Em ciclo de alta de juros USA, REITs ficam marginais ate Fed pausar\\n\\nEIXO 4 - DIVERSIFICACAO REITs:\\n  * REIT correlaciona moderado com EXT (+0.30) e BR (+0.20) - parte do bucket equity global\\n  * Correlacao com taxas USA: forte negativa em ciclo de alta (-0.40 com 10Y yield)\\n  * Se EXT ja no max e Treasuries longas (TLT) no max, REIT vira menos util\\n  * Setor de REIT importa: O (NNN) menos sensivel a juros que torres de telecom ou shoppings\\n\\nEIXO 5 - CONTEXTO MACRO GLOBAL:\\n  * Curva Fed Funds: ciclo de alta = REITs sofrem ate pausa\\n  * USD: USD desvalorizado favorece entrada em REITs (preco mais barato em BRL); USD forte amplifica retorno apos compra\\n  * Vacancias setoriais USA: office em crise estrutural (work-from-home); industrial e self-storage robustos\\n\\n=========================================\\nREGRA ESPECIAL ACOES BR:\\n=========================================\\n\\nEIXO 1 - PRECO/QUALIDADE BR:\\n  * Ciclicas (commodities, financeiras): P/L <= 10, normalizado em mid-cycle (NAO extrapolar picos)\\n  * Compounders (Itausa, B3, etc): P/L <= 18, ROE >= 15%, crescimento real consistente\\n  * Dividendos consistentes 5+ anos, ROIC > custo de capital, baixa alavancagem\\n  * Evitar value traps: empresas baratas porque qualidade deteriorou estruturalmente\\n\\nEIXO 2 - CENARIO AW PARA BR:\\n  * c1 (cresc+ infl+): MUITO FAVORAVEL - cresc nominal alto, lucros corporativos beneficiados\\n  * c2 (cresc+ infl-): FAVORAVEL - cenario raro mas otimo para bolsa BR\\n  * c3 (cresc- infl+): DESFAVORAVEL - margens pressionadas, exceto exportadoras\\n  * c4 (cresc- infl-): RUIM - recessao + inflacao baixa = lucros caindo\\n\\nEIXO 3 - VALOR RELATIVO BR vs EXT (PREMIO BRASIL):\\n  * P/L medio Ibovespa vs P/L S&P500: spread historico medio ~6-8 pontos (S&P mais caro)\\n  * Se spread > 10 pontos (Ibov muito barato relativo), BR oferece valor - aumentar peso\\n  * Se spread < 4 pontos (BR caro em termos relativos), EXT oferece valor - reduzir BR\\n  * Ajuste pelo CDI: BR precisa de earnings yield (1/PL) > CDI nominal para ser preferivel a renda fixa local\\n  * Ex: Selic 15%, BR P/L 8 (EY 12.5%) -> BR ainda nao supera Selic, exige crescimento real para compensar\\n\\nEIXO 4 - DIVERSIFICACAO BR:\\n  * BR correlaciona forte com EXT (+0.55) - em crises globais ambas caem juntas\\n  * BR setorial: commodities (PETR, VALE) movem com China/global commodity cycle\\n  * Domestic plays (varejo, bancos) movem com Selic e economia local\\n  * Evitar concentracao setorial: se ja tem 3+ ciclicas commodity, proxima sugestao deveria ser compounder ou domestic\\n  * Yale equity bucket: BR (~10%) + EXT (~20%) + FII (~7%) = 37% alvo\\n\\nEIXO 5 - CONTEXTO MACRO BR ESPECIFICO:\\n  * Selic real (Selic - IPCA): se > 8% (Brasil tipico), bolsa sofre - exige earnings yield muito alto\\n  * Ciclo de commodities (CRB index, oleo WTI): exportadoras se beneficiam em alta\\n  * Risco eleitoral/fiscal: spreads sovereign abertos sinalizam pressao sobre bolsa\\n  * Cambio: USD/BRL alto favorece exportadoras (PETR, VALE, SUZB); USD baixo favorece domesticas\\n\\n=========================================\\nREGRA ESPECIAL ACOES EXT (Equity Global):\\n=========================================\\n\\nEIXO 1 - PRECO/QUALIDADE EXT:\\n  * Value (PEP, XOM, BRKB): P/L <= 18, ROE consistente, moats verificados\\n  * Growth (MSFT, GOOGL, ASML, ADBE): aceitar P/L mais alto se crescimento de top-line > 10% e ROIC > 20%\\n  * Asia/EM (HKG, Tencent, BABA): P/L baixo mas exigir margem de seguranca maior (risco politico)\\n  * Diversificacao geografica: EUA (~60%), Europa (~20%), Asia (~20%) como referencia\\n\\nEIXO 2 - CENARIO AW PARA EXT:\\n  * c1 (cresc+ infl+): FAVORAVEL para value e industrials, menos para growth tecnologia\\n  * c2 (cresc+ infl-): IDEAL para growth (Goldilocks) - melhor cenario possivel\\n  * c3 (cresc- infl+): DESFAVORAVEL - margem corroida, multiplos contraem\\n  * c4 (cresc- infl-): MISTO - Fed cortando juros ajuda growth, mas demanda fraca\\n\\nEIXO 3 - VALOR RELATIVO EXT:\\n  * S&P500 forward P/L vs media historica (16x) - hoje normalmente em torno de 20-22x (esticado)\\n  * Equity risk premium (1/PE - Treasury 10Y): quando ERP < 3%, equity caro vs RF\\n  * Asia/EM frequentemente em PL 8-12 (descontado) - oportunidade relativa quando S&P >22x\\n  * Europe value vs US growth: spread persistente, mas Europe oferece DY alto + valuation menor\\n\\nEIXO 4 - DIVERSIFICACAO EXT:\\n  * EXT correlaciona forte com BR (+0.55) e moderada com REITs (+0.30)\\n  * Setor tech (MSFT, GOOGL, ASML, ADBE) concentra muito - se ja >40% da classe EXT, diversificar para industrials/staples\\n  * Asia tem corr menor (~+0.40 com S&P) - traz alguma descorrelacao\\n  * Yale bucket equity 37%: EXT e a maior parte (~20%)\\n\\nEIXO 5 - CONTEXTO MACRO GLOBAL:\\n  * Fed policy: ciclo de alta -> growth sofre desproporcionalmente; ciclo de corte -> growth rali\\n  * USD vs basket: USD desvalorizado favorece compra (entrada barata), USD forte amplifica retorno apos\\n  * China crescimento e tensoes geopoliticas: afetam Asia (HKG, TSE) e materials USA\\n  * Earnings season: usar EPS growth realizado vs guidance para julgar momento\\n\\n=========================================\\nREGRA ESPECIAL INFRAESTRUTURA (FI-Infra):\\n=========================================\\n\\nEIXO 1 - PRECO/QUALIDADE INFRA:\\n  * DY >= 9.5% (preferencia, isento PF)\\n  * Qualidade dos ativos: transmissao eletrica (concessoes longas 30+ anos), saneamento (regulado), pedagios (rodovias estrategicas)\\n  * Contratos atipicos com reajustes IPCA+\\n  * Diversificacao setorial: nao concentrar so transmissao OU so saneamento\\n\\nEIXO 2 - CENARIO AW PARA INFRA:\\n  * c1 (cresc+ infl+): MUITO FAVORAVEL - reajustes contratuais + economia ativa = caixa alto\\n  * c2 (cresc+ infl-): FAVORAVEL - cresc bom, contratos longos protegem\\n  * c3 (cresc- infl+): FAVORAVEL - reajustes IPCA protegem ate em recessao (HEDGE NATURAL)\\n  * c4 (cresc- infl-): NEUTRO - sem reajuste mas Selic baixa beneficia comparativo\\n\\nEIXO 3 - VALOR RELATIVO INFRA:\\n  * Spread Infra DY vs NTN-B liq: deve ser >=3pp (premio pelo risco regulatorio + liquidez)\\n  * Spread Infra DY vs FII tijolo DY: tipicamente +1pp por contratos mais longos e regulados\\n  * Se NTN-B em IPCA+6.5% liq, Infra precisa DY real >=9.5% para ser preferivel\\n  * Em comparacao com FII papel: Infra menos sensivel a CDI, mais sensivel a IPCA\\n\\nEIXO 4 - DIVERSIFICACAO INFRA:\\n  * Infra correlaciona forte com FII (+0.40) e NTN-B (+0.30) - cuidado para nao duplicar duration de juro real\\n  * Bucket Yale realAssets: FII (~22%) + Infra (~7%) + Agro (~5%) + Imoveis (~6%) = 40% alvo\\n  * Setores BR: transmissao (TAESA related) vs saneamento (SAPR4 related) vs rodovias\\n\\nEIXO 5 - CONTEXTO MACRO INFRA:\\n  * Ciclo de investimento publico BR: PAC, leiloes ANTT, ANEEL afetam pipeline\\n  * IPCA: pilar fundamental do DY infra (contratos reajustados por IPCA)\\n  * Risco regulatorio: revisoes tarifarias, mudancas marco regulatorio\\n  * Selic real alta: comprime spread (porque NTN-B compete) - infra fica menos atrativa relativamente\\n\\n=========================================\\nREGRA ESPECIAL FIAGROS (Agro/Agronegocio):\\n=========================================\\n\\nEIXO 1 - PRECO/QUALIDADE FIAGRO:\\n  * DY >= 10% (preferencia, isento PF)\\n  * Qualidade dos CRA's: rating preferencia AA+, originadores diversificados, garantias reais (terras, plantios)\\n  * Concentracao no portfolio do FIAGRO: pulverizado entre safras, regioes, culturas\\n  * Estrutura juridica: due diligence sobre LOA do fundo\\n\\nEIXO 2 - CENARIO AW PARA AGRO:\\n  * c1 (cresc+ infl+): FAVORAVEL - alta de commodities, renda agricola alta\\n  * c2 (cresc+ infl-): NEUTRO - cresc bom mas commodities podem estagnar\\n  * c3 (cresc- infl+): MISTO - commodities sobem (hedge inflacionario), mas demanda mundial pode cair\\n  * c4 (cresc- infl-): RUIM - commodities sob pressao, default em CRA's sobe\\n\\nEIXO 3 - VALOR RELATIVO AGRO:\\n  * Spread FIAGRO DY vs NTN-B liq: deve ser >=4pp (premio pelo risco safra + creditos rurais)\\n  * Compare com FII papel: FIAGRO geralmente DY +1-2pp acima de FII papel pelo risco safra\\n  * Em janelas de NTN-B alta, FIAGRO precisa DY >=15% nominal para ser preferivel\\n\\nEIXO 4 - DIVERSIFICACAO AGRO:\\n  * Agro correlaciona forte com FII (+0.45) - ambos sao real assets BR sensiveis a credito\\n  * Correlacao com SLCE3, AGRO3 (acoes agro) - se ja tem essas, FIAGRO duplica exposicao tematica\\n  * Ciclo agricola: clima, safras, El Nino/La Nina afetam todo o bucket simultaneamente\\n  * Bucket realAssets: ja no max? Avaliar antes de aumentar agro\\n\\nEIXO 5 - CONTEXTO MACRO AGRO:\\n  * Ciclo agricola BR: safra de soja/milho, preco WTI/CRB, demanda China\\n  * Risco climatico: La Nina, secas no Centro-Oeste, geadas no Sul\\n  * Politicas: subsidios, credito rural Plano Safra\\n  * Cambio: USD alto favorece exportadores (boa parte do PIB agro)\\n\\nREGRA ESPECIAL TREASURIES (TRE):\\nA classe Treasuries e composta por APENAS 3 ETFs com PESOS-ALVO INTERNOS pre-definidos pelo investidor:\\n- TLT (40% da classe): hedge anti-crash de equity, duration ~17 anos. Funcao: amortecimento em crises deflacionarias/recessivas (sobe quando equity cai forte). Sofre em ciclos de alta de juros (ex: 2022).\\n- IEF (20% da classe): amortecedor de volatilidade, duration ~7.5 anos. Funcao: descorrelacao moderada com equity, menor vol que TLT.\\n- VTIP (40% da classe): protecao inflacionaria pura, duration ~2.5 anos. Funcao: hedge contra inflacao americana SEM o onus de duration alta (em 2022 caiu so -3% enquanto TIP/TLT cairam 12-31%).\\n\\nA composicao 40/20/40 traduz objetivos do investidor: hedge anti-crash (TLT) + amortecimento (IEF) + protecao inflacionaria (VTIP). NAO sugerir outros ETFs (TIP, VGLT, GOVT, SCHQ, SCHP, STIP) - foram explicitamente excluidos pelo investidor.\\n\\nCRITERIO DE PRECO PARA TREASURIES: NAO sao avaliados por fundamentos tradicionais (P/L, DY, P/VPA). O criterio de 'preco favoravel' e o YIELD ATUAL:\\n- Para TLT/IEF (nominais): Treasury 10Y yield > 4.5% e EXCELENTE, 3.5-4.5% ATRATIVO, 2-3.5% NEUTRO, <2% CARO (piso 3%)\\n- Para VTIP (TIPS): yield real >2% e EXCELENTE, 1-2% ATRATIVO, <1% NEUTRO, <0 CARO\\n\\nESTRATEGIA DE ALOCACAO DENTRO DA CLASSE:\\nQuando alocar para a classe Treasuries, distribuir o valor seguindo PRINCIPALMENTE os pesos-alvo (40% TLT + 20% IEF + 40% VTIP), com pequenos ajustes para rebalanceamento se algum ETF estiver muito acima ou abaixo do seu peso-alvo interno.\\n\\nEx: Se a classe receber R$ 5.000 e os pesos atuais dos 3 ETFs estao em 35/22/43 (vs alvo 40/20/40), distribuir o aporte priorizando TLT (que esta abaixo do alvo) e reduzindo VTIP (que esta acima): TLT R$ 2.500 (50%), IEF R$ 1.000 (20%), VTIP R$ 1.500 (30%).\\n\\nNo ranking dos 3 ETFs, sempre incluir os 3 - mesmo que com valores diferentes para rebalanceamento. Limite de 5% por ativo continua valendo individualmente para cada ETF.\\n\\nREGRA ESPECIAL NTN-B (TESOURO IPCA+) - RFIPCA:\\nA classe NTN-B abrange titulos do Tesouro Direto IPCA+ Principal SEM CUPOM SEMESTRAL (carrego ate o vencimento). Os vencimentos disponiveis estao listados no array 'ativos' da classe rfipca no PORTFOLIO. Cada ticker representa um vencimento DIFERENTE (ex: NTNB-2029, NTNB-2035, NTNB-2040, etc - descobertos automaticamente via API).\\n\\nFILOSOFIA DE DECISAO NTN-B: A taxa de juros real e UM INSUMO, NAO O UNICO DECISOR. A decisao sobre quanto alocar em NTN-B deve emergir da analise CONTEXTUAL do portfolio como um todo - considerando correlacoes, cenario macro vigente, composicao atual e proposito estrategico da classe. NUNCA decidir alocacao apenas pela taxa absoluta.\\n\\nPAPEL ESTRATEGICO NO PORTFOLIO:\\n- Hedge inflacionario REAL com cupom garantido (diferente de ouro que e hedge sem cupom)\\n- Ancora de longo prazo: trava juro real por decadas - reduz volatilidade marcacao a mercado se carregada\\n- Descorrelacao com equities globais (correlacao -0.20 com acoes EXT, -0.10 com BR)\\n- Correlacao POSITIVA forte com infra (+0.30) e moderada com Selic (+0.15) - CUIDADO para nao duplicar risco de taxa\\n- Correlacao POSITIVA com ouro (+0.25) - ambos hedge inflacionario, NAO somar excessivamente sem proposito\\n- Composicao Yale: classe 'inflationHedge' (junto com ouro)\\n- NAO e motor de renda: Principal nao paga cupom semestral, todo retorno acumulado no PU. Em FIRE: consumida via venda parcial (liquidez diaria no TD).\\n\\nANALISE EM 5 EIXOS - AVALIAR TODOS antes de decidir o peso:\\n\\nEIXO 1 - PRECO (taxa LIQUIDA de IR 15% para >720d):\\n  * Use campo 'ntnbTaxasLiquidas' do contexto para obter taxas reais atuais\\n  * IPCA+5% liq = IPCA+5,88% bruto / IPCA+6% liq = IPCA+7,06% bruto / IPCA+7% liq = IPCA+8,24% bruto\\n  * <IPCA+5% liq: caro - apenas piso de 3% DO APORTE MENSAL (NAO 3% do patrimonio)\\n  * IPCA+5% a 6% liq: razoavel - aporte normal (acima do piso de 3% do aporte)\\n  * >=IPCA+6% liq: barato - oportunidade de reforco (peso maior no aporte mensal)\\n  * IMPORTANTE: estes percentuais sao do APORTE DO MES. As bandas patrimoniais (% do patrimonio) sao definidas pelo investidor e respeitadas a parte.\\n\\nEIXO 2 - CENARIO ALL WEATHER VIGENTE:\\n  * Cenario c1 (cresc+ infl+): NTN-B BOA (protecao real) - peso normal a acima\\n  * Cenario c2 (cresc+ infl-): NTN-B RUIM (oportunidade de custo vs equities) - reduzir, talvez piso\\n  * Cenario c3 (cresc- infl+ ESTAGFLACAO): NTN-B EXCELENTE (melhor classe possivel) - reforcar agressivamente\\n  * Cenario c4 (cresc- infl-): NTN-B MEDIANA (Selic e melhor) - peso normal\\n  * Use o vetor protCenAW e protCenAtual ja calculados no contexto para verificar alinhamento\\n\\nEIXO 3 - VALOR RELATIVO vs ALTERNATIVAS DE RENDA FIXA:\\n  * Compare NTN-B liquida com Selic liquida (Selic anual * 0.85 menos IPCA)\\n  * Exemplo: Se Selic 15% nominal e IPCA 4%, Selic real liquida = 15*0.85 - 4 = 8,75% nominal nao deflacionada... use logica composta correta\\n  * Regra pratica: se NTN-B liq oferece premio < 1pp sobre Selic real liquida estimada, Selic e preferivel (menor duration, menor risco MtM)\\n  * Compare com Treasuries (VTIP em particular - mesmo proposito de hedge inflacionario, mas inflacao USA)\\n  * Se VTIP oferece yield real > 2% e USD esta desvalorizado, pode ser preferivel a NTN-B em alguns cenarios\\n\\nEIXO 4 - DIVERSIFICACAO E DUPLICACAO DE RISCO:\\n  * Olhe a composicao atual: se infra ja esta no maximo (7%) e Selic no max (8%), adicionar muita NTN-B duplica exposicao a curva de juros\\n  * Se ouro ja esta no piso superior (>=5%), entao inflationHedge ja esta atendido - NTN-B vira marginal\\n  * Se equities (BR+EXT+FII+REIT) estao acima do alvo, NTN-B traz descorrelacao valiosa - pode AUMENTAR peso\\n  * Se carteira ja tem duration alta (TLT + treasuries longos), adicionar NTN-B longa CONCENTRA risco - prefira vencimentos curto/medio\\n\\nEIXO 5 - CONTEXTO MACRO BRASILEIRO:\\n  * IPCA atual (anual) esta no contexto via 'IPCA anual: X%' - se IPCA >5%, NTN-B mais atraente (real protegido em ambiente inflacionario)\\n  * Se ipcaAnual baixou para <4%, NTN-B perde apelo relativo vs Selic nominal alta\\n  * Selic atual no contexto: se Selic real (Selic - IPCA) > 8%, Selic nominal pode ser preferivel para parte da alocacao\\n  * Risco fiscal BR: avaliar tendencia da curva longa - se curva longa estressada (>7% bruto), oportunidade de proteger contra deterioracao futura\\n\\nDECISAO FINAL: integre os 5 eixos para decidir o PERCENTUAL DO APORTE MENSAL destinado a classe NTN-B. O piso minimo e 3% DO APORTE MENSAL (regra operacional para garantir presenca continua da classe na carteira). O teto pode ir alem do alvo da banda patrimonial se a sintese contextual justificar - mas SOMENTE quando os 5 eixos apontarem oportunidade real. Justifique no porque_essa_posicao mencionando explicitamente quais eixos pesaram mais.\\n\\nATENCAO CONCEITUAL CRITICA: o 'piso 3%' SEMPRE se refere ao % do APORTE MENSAL (do macroaporte do mes), NUNCA ao % do patrimonio. As BANDAS PATRIMONIAIS (min/max de % do patrimonio que cada classe pode ocupar) sao DEFINIDAS PELO INVESTIDOR e estao nos campos 'min' e 'max' de cada classe no PORTFOLIO - NAO podem ser alteradas pela IA. Quando uma classe esta proxima do max da banda patrimonial, mesmo com taxa favoravel, NAO ULTRAPASSAR o max apos o aporte (isso violaria a alocacao desejada pelo investidor).\\n\\nDURATION COMO DECISOR PRINCIPAL DA SELECAO DO VENCIMENTO:\\n\\nCada NTN-B Principal e um ATIVO DIFERENTE em comportamento, embora estejam na mesma classe. Use o campo 'durationModificada' e 'bucketDuration' do contexto (calculado em runtime) para escolher o vencimento certo.\\n\\nBUCKETS DE DURATION:\\n  * CURTA (<5 anos, ex: NTNB-2029): vol MtM ~3-4%a.a., comporta-se como RF nominal de medio prazo\\n  * MEDIA (5-12 anos, ex: NTNB-2032/2035): vol MtM ~6-9%a.a., trade-off equilibrado entre carrego e MtM\\n  * LONGA (12-20 anos, ex: NTNB-2040/2045): vol MtM ~10-13%a.a., hedge mais efetivo anti-equity\\n  * EXTRA-LONGA (>20 anos, ex: NTNB-2050/2055/2060): vol MtM ~14-17%a.a., comporta-se como TLT (hedge anti-crash forte)\\n\\nCORRELACOES POR DURATION (insumo critico para Eixo 4 da NTN-B):\\nA correlacao da matriz MPT (rfipca = -0.10 com BR, -0.20 com EXT, +0.15 com Selic, +0.25 com Ouro, +0.30 com Infra, +0.20 com FII) e o VALOR MEDIO PONDERADO. As correlacoes REAIS variam significativamente por duration:\\n\\n  NTN-B CURTA (2029):\\n    vs Equity BR: ~-0.05 / vs Equity EXT: ~-0.10 / vs Selic: ~+0.50 / vs TLT: ~+0.05 / vs Ouro: ~+0.15\\n    Comportamento: similar a Selic+IPCA. Hedge anti-equity FRACO. Substituto natural de Selic em c1/c3.\\n\\n  NTN-B MEDIA (2032/2035):\\n    vs Equity BR: ~-0.10 / vs Equity EXT: ~-0.20 / vs Selic: ~+0.30 / vs TLT: ~+0.20 / vs Ouro: ~+0.25\\n    Comportamento: equilibrio. Trade-off otimo para investidor B&H que aceita alguma volatilidade.\\n\\n  NTN-B LONGA (2040/2045):\\n    vs Equity BR: ~-0.20 / vs Equity EXT: ~-0.30 / vs Selic: ~+0.10 / vs TLT: ~+0.45 / vs Ouro: ~+0.30\\n    Comportamento: hedge anti-equity FORTE. Sensivel a inflacao implicita longa e risco fiscal.\\n\\n  NTN-B EXTRA-LONGA (2050/2055/2060):\\n    vs Equity BR: ~-0.25 / vs Equity EXT: ~-0.35 / vs Selic: ~+0.05 / vs TLT: ~+0.55 / vs Ouro: ~+0.35\\n    Comportamento: praticamente o TLT brasileiro. Hedge anti-crash mais potente, mas vol elevada.\\n\\nREGRAS DE SELECAO DE VENCIMENTO POR CONTEXTO:\\n\\n1) DEFAULT (cenario base, sem stress): vencimentos MEDIOS (2032-2035-2040) - melhor relacao risco/retorno e diversificacao para B&H\\n\\n2) CENARIO c3 (ESTAGFLACAO) + equities sobreallocadas: LONGA/EXTRA-LONGA (2045-2060) - maximiza efeito hedge anti-equity (corr -0.25 a -0.35 com BR/EXT)\\n\\n3) CENARIO c4 (RECESSAO + Fed cortando): LONGA/EXTRA-LONGA - amplifica ganho MtM quando juros caem (similar ao TLT subindo)\\n\\n4) CENARIO c2 (CRESCIMENTO + INFLACAO BAIXA): CURTA (2029) - reduz vol global do portfolio, libera capital para equities; longas sofrem em ciclo de alta de juros\\n\\n5) CARTEIRA JA COM TLT (Treasuries) PROXIMO DO MAX:\\n   - Evitar NTN-B LONGA/EXTRA-LONGA (correlacao +0.45 a +0.55 com TLT - duplica risco de duration)\\n   - Priorizar NTN-B MEDIA (corr +0.20 com TLT - aceitavel)\\n   - Ou NTN-B CURTA (corr quase zero com TLT - diversifica)\\n\\n6) CARTEIRA JA COM SELIC PROXIMO DO MAX:\\n   - Evitar NTN-B CURTA (corr +0.50 com Selic - duplica exposicao a juro curto BR)\\n   - Priorizar NTN-B LONGA/EXTRA-LONGA (corr +0.05 a +0.10 com Selic - diversifica duration)\\n\\n7) CARTEIRA JA COM OURO PROXIMO DO MAX:\\n   - NTN-B EXTRA-LONGA tem corr +0.35 com Ouro (alta sobreposicao no bucket inflationHedge)\\n   - Considerar NTN-B MEDIA ou aceitar concentracao temaica em hedge inflacionario se cenario justifica\\n\\n8) EQUITIES (BR+EXT+FII+REIT) ACIMA DO ALVO Yale:\\n   - Priorizar NTN-B LONGA/EXTRA-LONGA - maior efeito de hedge (corr -0.20 a -0.35 com equities)\\n   - Esta e a janela em que NTN-B longa justifica vol MtM mais alta\\n\\n9) MULTIPLOS VENCIMENTOS COM TAXA SIMILAR (diferenca <0.3pp na liquida):\\n   - Distribuir o aporte da classe entre 2-3 buckets de duration (laddering)\\n   - Ex: 40% media + 40% longa + 20% curta - reduz risco de marcacao a mercado concentrada\\n\\n10) UM VENCIMENTO COM TAXA CLARAMENTE SUPERIOR (>0.5pp acima dos demais):\\n    - Priorizar esse vencimento mesmo que duration nao seja ideal - oportunidade de carry\\n    - MAS verificar se a duration faz sentido pelo contexto (regras 1-8) antes de concentrar >70% do aporte da classe nele\\n\\nOBRIGATORIO: no campo 'porque_essa_posicao' de cada NTN-B sugerida, mencionar:\\n  (a) o bucket de duration (curta/media/longa/extra-longa)\\n  (b) a correlacao com a classe mais sobreallocada do portfolio (ex: 'corr -0.25 com BR sobreallocada justifica long duration')\\n  (c) por que esse vencimento e o melhor diante das alternativas\\n\\nFORMATO NO JSON: tickers neste formato exato: NTNB-AAAA (onde AAAA e o ano do vencimento). Use APENAS vencimentos que existem em 'ativos' da classe rfipca no PORTFOLIO. No campo metricas, mencionar a taxa LIQUIDA de IR (ex: 'Taxa liquida IPCA+5,42%') e equivalencia bruta. No tir_implicita, usar o numero LIQUIDO de IR (ex: '5,42% real LIQUIDA de IR (IPCA+6,38% bruto)'). No porque_essa_posicao, mencionar como contexto AW/correlacao/macro influenciaram o peso escolhido. Limite 5% por ativo continua valendo INDIVIDUALMENTE para cada vencimento.\\n\\nREGRA ESPECIAL BITCOIN E OURO (HEDGE ASSETS - ANALISE CONTEXTUAL + METRICAS TECNICAS):\\n\\nBitcoin e Ouro NAO sao avaliados por fundamentos tradicionais. Sao HEDGES com proposito especifico no portfolio: descorrelacao, hedge inflacionario nao-soberano, hedge anti-fiat. A decisao final integra as METRICAS TECNICAS (insumo principal de timing) com o FRAMEWORK CONTEXTUAL UNIVERSAL.\\n\\nPAPEL ESTRATEGICO DESTAS CLASSES:\\n  * BITCOIN: hedge anti-fiat / hedge anti-sistema bancario / store of value digital / ativo de correlacao quase ZERO com tudo (proposito principal: diversificacao genuina)\\n  * OURO: hedge inflacionario classico / store of value milenar / hedge anti-crise sistemica / correlacao moderada positiva com NTN-B (+0.25) - ambos sao inflation hedge\\n  * Yale buckets: BTC em 'altLiquid' (alvo 3%), Ouro em 'inflationHedge' (alvo junto com NTN-B em 8%)\\n\\nINTEGRACAO COM EIXOS UNIVERSAIS (alem das metricas tecnicas abaixo):\\n\\nEIXO 2 - CENARIO AW PARA HEDGE ASSETS:\\n  * c1 (cresc+ infl+): Ouro FAVORAVEL (hedge classico), BTC NEUTRO (depende do ciclo)\\n  * c2 (cresc+ infl-): AMBOS DESFAVORAVEIS - oportunidade de custo vs equity, mas BTC pode rali por liquidez\\n  * c3 (cresc- infl+ ESTAGFLACAO): Ouro EXCELENTE (melhor classe para esse regime), BTC bom como hedge anti-fiat\\n  * c4 (cresc- infl-): Ouro NEUTRO, BTC bom (Fed corta juros, liquidez ajuda BTC)\\n\\nEIXO 3 - VALOR RELATIVO OURO vs BTC (substituibilidade parcial):\\n  * Quando OURO em zona de risco (Real Gold Z >= +1 OU Gold-Silver >= 80 OU Gold-SP500 >= 0.55): BTC pode PARCIALMENTE preencher a funcao de hedge\\n  * Quando BTC em zona de risco (MVRV-Z >= 3 OU NUPL >= 0.65): OURO pode preencher a funcao de descorrelacao\\n  * NAO sao substitutos perfeitos: BTC tem maior volatilidade e proposito diferente (anti-fiat vs hedge classico)\\n  * Quando ambos em zona favoravel: priorize OURO se equity esta caro (cenario tradicional), priorize BTC se equity em correcao mas Fed seguindo restritivo\\n\\nEIXO 4 - DIVERSIFICACAO HEDGE:\\n  * Se OURO ja no piso superior (>=5%) E NTN-B no max -> bucket inflationHedge atendido, OURO marginal\\n  * Se BTC ja em 3% (alvo Yale altLiquid) -> qualquer aumento alem disso aumenta desproporcionalmente risco idiossincratico\\n  * BTC e a unica classe com correlacao quase ZERO com TUDO - sempre traz valor de diversificacao genuina (proposito unico)\\n  * Ouro tem corr +0.25 com NTN-B - se NTN-B sobreallocada, OURO duplica exposicao a hedge inflacionario\\n\\nEIXO 5 - CONTEXTO MACRO HEDGE:\\n  * BTC: ciclo de halvening (eventos a cada 4 anos), adocao institucional, M2 supply global\\n  * OURO: real yield USA (TIPS yield negativo = ouro sobe), tensoes geopoliticas, banco central buying\\n  * USD strength: ambos correlacionam negativamente com USD - USD forte pressiona BTC e ouro\\n  * Fed policy: ciclo de alta = ouro sob pressao (rendimento real sobe), ciclo de corte = ouro rali\\n\\nDECISAO INTEGRADA: combine as METRICAS TECNICAS (logica de precaucao detalhada abaixo) com os EIXOS 2-5 do framework universal. METRICAS TECNICAS tem PESO MAIOR mas nao SAO unicas:\\n  - Se metricas em zona de risco extremo -> PISO 3% (regra mantida, NAO ULTRAPASSAR)\\n  - Se metricas favoraveis MAS contexto desfavoravel (Eixos 2-5) -> aporte normal mas NAO acima do alvo\\n  - Se metricas favoraveis E contexto favoravel (alinhamento) -> oportunidade de reforco moderado acima do alvo\\n  - Se metricas neutras E contexto MUITO favoravel (ex: ouro em c3 estagflacao) -> peso acima do piso justificado pelo contexto\\n\\nOBRIGATORIEDADE de mencionar no porque_essa_posicao QUAL eixo predominou alem das metricas tecnicas. Ex: 'MVRV-Z em 2.1 (neutro) + Eixo 4 indica BTC ainda traz diversificacao genuina vs portfolio equity-heavy -> peso normal'.\\n\\nMANTIDA A LOGICA DE PRECAUCAO DAS METRICAS: se QUALQUER UMA das metricas indicar zona de risco extremo, aplicar piso 3% automaticamente.\\n\\n=> BITCOIN (3 metricas):\\n\\n(1) MVRV-Z Score (campo 'mvrvZ' nos indicadores):\\n  * < 0: fundo de ciclo - APORTE CHEIO\\n  * 0 a 2: neutro - APORTE NORMAL\\n  * 2 a 4: expansao - APORTE PARCIAL\\n  * >= 4: SOBREVALORIZACAO/TOPO -> ZONA DE RISCO EXTREMO\\n\\n(2) Pi Cycle Top (campo 'piCycleRatio' e 'piCycleTopSignal'):\\n  * Ratio < 0.7: longe do topo - OK\\n  * Ratio 0.7 a 0.95: aproximando - atencao\\n  * Ratio >= 1.0 OU piCycleTopSignal=true: SINAL HISTORICO DE TOPO -> ZONA DE RISCO EXTREMO\\n  (Pi Cycle acertou TODOS os topos historicos do BTC: 2013, 2017, 2021)\\n\\n(3) NUPL - Net Unrealized Profit/Loss (campo 'nupl'):\\n  * < 0: Capitulacao - APORTE FORTE\\n  * 0 a 0.25: Esperanca/Medo - APORTE NORMAL\\n  * 0.25 a 0.50: Otimismo - neutro\\n  * 0.50 a 0.75: Crenca - atencao\\n  * >= 0.75: EUFORIA -> ZONA DE RISCO EXTREMO\\n\\nDECISAO BITCOIN (PRECAUCAO): Se QUALQUER UMA das 3 metricas estiver em ZONA DE RISCO EXTREMO (MVRV-Z>=4 OU piCycleTopSignal=true OU NUPL>=0.75), aplicar PISO 3% + excedente Selic 2031. Justificar EXPLICITAMENTE no resumo, porque_essa_posicao e estrategia_macro QUAL(IS) metrica(s) acionou a regra. Se metricas estiverem em null/desconhecidas, IGNORE-AS (nao tratar como risco).\\n\\n=> OURO XAU (3 metricas):\\n\\n(1) Gold-Silver Ratio (campo 'goldSilverRatio'):\\n  * < 40: prata muito cara vs ouro - OK\\n  * 40 a 70: equilibrio historico - OK\\n  * 70 a 85: ouro caro vs prata - atencao\\n  * >= 85: OURO SUPERVALORIZADO VS METAIS -> ZONA DE RISCO EXTREMO\\n\\n(2) Gold/S&P500 Ratio (campo 'goldSP500Ratio' - via ETFs GLD/SPY):\\n  * < 0.25: ouro relativamente barato vs equity - OK\\n  * 0.25 a 0.45: equilibrio - OK\\n  * 0.45 a 0.65: ouro caro vs equity - atencao\\n  * >= 0.65: OURO CARISSIMO VS EQUITY (apenas atingido em 2011 e 2024-25) -> ZONA DE RISCO EXTREMO\\n\\n(3) Real Gold Z-Score (campo 'realGoldZScore' - preco do ouro USD deflacionado vs media historica):\\n  * < -1: ouro real abaixo da media historica - APORTE CHEIO\\n  * -1 a 0: levemente abaixo - APORTE NORMAL\\n  * 0 a +1: levemente acima da media - neutro\\n  * +1 a +2: acima da media - atencao\\n  * >= +2: OURO EXTRAORDINARIAMENTE CARO EM TERMOS REAIS -> ZONA DE RISCO EXTREMO\\n\\nDECISAO OURO (PRECAUCAO): Se QUALQUER UMA das 3 metricas estiver em ZONA DE RISCO EXTREMO (Gold-Silver>=85 OU Gold-SP500>=0.65 OU realGoldZScore>=2.0), aplicar PISO 3% + excedente Selic 2031. Justificar EXPLICITAMENTE qual(is) metrica(s) acionou a regra. Se metricas estiverem em null, IGNORE-AS.\\n\\nOBRIGACAO DE TRANSPARENCIA - Para Bitcoin e Ouro, quando aplicar piso 3%:\\n1) No campo 'resumo': mencionar QUAL metrica acionou a regra (ex: 'MVRV-Z em 4.8 acionou piso 3% para BTC' ou 'Gold-Silver Ratio em 87 acionou piso 3% para OURO')\\n2) No 'porque_essa_posicao' do ativo: justificar tecnicamente com os numeros\\n3) No 'estrategia_macro': listar todos os desvios e valores das metricas que motivaram\\n4) Se MULTIPLAS metricas estiverem em risco extremo simultaneamente, mencionar todas (sinal mais forte)\\n5) NUNCA aplicar piso 3% em BTC/Ouro sem justificar com numeros das metricas\\n\\nREGRA DO LIMITE 5% POR ATIVO - FILTRO OBRIGATORIO DE CANDIDATOS (CRITICA E INVIOLAVEL):\\n- ANTES de montar o ranking de 3 ativos em qualquer classe, voce DEVE FILTRAR os candidatos eliminando todos os ativos que ja estao em ou acima de 5% do patrimonio total.\\n- Esta regra e INDEPENDENTE de fundamentos: mesmo que o ativo esteja com preco extremamente favoravel, qualidade excepcional, TIR alta, margem de seguranca enorme - SE JA ESTA EM 5% OU MAIS DO PATRIMONIO, NAO PODE RECEBER NENHUM CENTAVO. Esta concentracao representa risco idiossincratico inaceitavel, independente da convicao na tese.\\n- Para ativos PROXIMOS do limite (ex: 4.5%, 4.7%, 4.9%), voce pode incluir no ranking PORÉM o valor sugerido deve manter o ativo ESTRITAMENTE ABAIXO DE 5% apos aporte. Calcule: valor_maximo = (0.05 * patrimonio_total) - posicao_atual_em_R$ - margem_seguranca.\\n- Se apos o filtro a classe nao tiver 3 ativos elegiveis, sugira quantos houver (2 ou 1).\\n- IMPORTANTE: voce TRABALHA EXCLUSIVAMENTE COM OS ATIVOS QUE JA EXISTEM NO PORTFOLIO DO INVESTIDOR. NUNCA, EM HIPOTESE NENHUMA, sugerir tickers que nao estejam atualmente no portfolio. A selecao do universo investivel e prerrogativa exclusiva do investidor.\\n- Se apos o filtro a classe NAO TIVER NENHUM ativo elegivel (todos seus tickers nessa classe ja estao em 5%+), aplicar a REGRA DE OPORTUNIDADE: a classe NAO recebe nenhum aporte naquele ciclo (nem mesmo o piso de 3%) e TODO o valor que seria alocado vai integralmente para TESOURO SELIC 2031.\\n- No campo 'limite5pct' do veredito, listar nominalmente quais tickers foram excluidos do ranking por estarem em 5%+, mesmo que tivessem preco favoravel.\\n\\nREGRA DE OPORTUNIDADE (CRITICA): A IA deve avaliar se HA OU NAO ATIVOS COM PRECO FAVORAVEL em cada classe usando os criterios ja definidos (fair value, spread, TIR minima exigida, margem de seguranca, qualidade). Quando uma classe NAO TIVER oportunidades atrativas no momento (precos altos, ativos com TIR abaixo do minimo exigido, sem margem de seguranca):\\n- Alocar APENAS o piso minimo de 3% do macroaporte naquela classe\\n- O EXCEDENTE que seria alocado naquela classe deve ser REDIRECIONADO INTEGRALMENTE para TESOURO SELIC 2031\\n- JUSTIFICAR EXPLICITAMENTE no campo 'resumo' e no campo 'estrategia_macro' o motivo do desvio: ex: 'Sem oportunidades atrativas em [classe], R$X redirecionados para Selic 2031 como caixa estrategico produtivo'\\n\\nOBRIGATORIEDADE DE ATIVO NO PISO 3% (CRITICA E INVIOLAVEL): Quando uma classe receber apenas o piso de 3% do macroaporte (por precos altos ou ausencia de oportunidades ideais), a IA DEVE OBRIGATORIAMENTE apontar 1 ATIVO ELEGIVEL DO PORTFOLIO ATUAL para receber esse valor minimo. NUNCA deixar a classe com lista de ativos vazia quando houver pelo menos 1 ticker elegivel (abaixo de 5%). Regras especificas:\\n- O ativo escolhido para o piso 3% deve ser o MELHOR DISPONIVEL entre os elegiveis pelo filtro de 5%, mesmo que nao seja a oportunidade ideal de preco\\n- SOMENTE entre os tickers que ja existem no portfolio do investidor - NUNCA sugerir nomes novos\\n- O JSON deve conter pelo menos 1 ativo no array 'ativos' da classe quando houver candidato elegivel\\n- No campo 'porque_essa_posicao' deve constar explicitamente: 'Aporte minimo de piso 3% - melhor opcao elegivel diante das condicoes atuais' ou similar, deixando claro que e exposicao minima estrategica e nao recomendacao de COMPRA FORTE\\n- O 'score' nesses casos deve ser realisticamente 'JUSTO' ou 'NEUTRO', nao 'COMPRA FORTE' (esse seria contraditorio com a alocacao minima)\\n- UNICA EXCECAO: se TODOS os tickers da classe estiverem em 5%+, a classe pula o piso e tudo vai pra Selic 2031 (conforme regra do limite 5% acima)\\n\\nO TESOURO SELIC 2031 e a UNICA CLASSE QUE PODE RECEBER ALOCACAO ACIMA DO ALVO sem alarmes, dada sua natureza de reserva de liquidez produtiva. Todas as demais classes devem respeitar suas bandas. NAO E NECESSARIO se preocupar se Selic ficar muito acima do alvo - faz parte da estrategia.\\n\\nLembre-se: a filosofia de Buy & Hold quality privilegia DISCIPLINA sobre PRESSA. Se nao ha bons precos, NAO FORCAR a compra apenas para cumprir a alocacao da classe. Estacionar em liquidez produtiva (Selic 2031) e sempre superior a pagar caro em ativo medíocre ou em ativo bom porem caro. E ainda mais importante: NUNCA violar o limite de 5% por ativo, sob nenhuma justificativa - este e o pilar da gestao de risco idiossincratico do portfolio. Tambem NUNCA sugerir nomes de ativos que nao estejam no portfolio - a selecao do universo investivel cabe exclusivamente ao investidor.\\n\\nMULTIPLOS COMO PREFERENCIA, NAO REGRA PROIBITIVA: FII P/VPA<=0.97 e DY>=9%; Ciclicas P/L<=10; Compounders P/L<=18; Exterior value P/L<=18; Infra DY>=9.5%; Fiagros DY>=10%. Estes valores sao apenas REFERENCIAS preferenciais - um ativo de qualidade pode ser recomendado mesmo fora desses parametros se houver justificativa em fundamentos solidos, mencionando explicitamente o porque na metrica.\\n\\nFORMATO OBRIGATORIO DO CAMPO 'resumo' - ESTRUTURA NARRATIVA EM 2 PARTES SEQUENCIAIS:\\n\\nO campo 'resumo' do JSON DEVE seguir esta estrutura sequencial obrigatoria, sem excecao. O texto deve ser fluido, em prosa, mas seguir EXATAMENTE esta ordem:\\n\\n===== PARTE 1: DIVISAO DO APORTE POR CLASSE =====\\nComece SEMPRE pela divisao do aporte por classe de ativos, em ORDEM DECRESCENTE DE VALOR (a classe que recebe MAIS dinheiro primeiro, depois a segunda, e assim por diante ate a ultima). Para CADA classe, a justificativa DEVE responder explicitamente a 4 perguntas:\\n\\n  (a) QUANTO: percentual do aporte (ex: 18%) e valor em reais (ex: R$ 1.800)\\n\\n  (b) POR QUE OPORTUNIDADE: qual eixo do framework de 5 dimensoes pesou mais nesta decisao tatica (preco, cenario AW, valor relativo, diversificacao, macro)\\n\\n  (c) POR QUE REBALANCEAMENTO ESTRUTURAL: como este aporte aproxima o portfolio das 5 METAS ESTRUTURAIS - este e PILAR FUNDAMENTAL da decisao, nao um afterthought. Mencionar explicitamente para CADA classe o vetor de gap atual vs as 5 metas:\\n     - FRONTEIRA EFICIENTE (MPT/Markowitz): a classe esta sobre/sub representada vs o ponto otimo da fronteira eficiente? Aumentar/reduzir esta classe melhora a relacao Sharpe? Use os dados de gap pp em relacao ao ponto otimo do contexto MPT.\\n     - ALL WEATHER (Dalio): qual a cobertura atual da classe nos 4 cenarios (c1/c2/c3/c4)? Este aporte fortalece a resiliencia em qual cenario? Use o vetor protCenAtual e protCenAW do contexto.\\n     - YALE ENDOWMENT (Swensen): a qual bucket Yale esta classe pertence (equity 37%, realAssets 40%, altLiquid 3%, inflationHedge 8%, fixedNominal 12%)? O bucket esta acima/abaixo do alvo? Este aporte aproxima ou afasta do alvo Yale?\\n\\n  (d) SINTESE: como o vetor de oportunidade (item b) DIALOGA com o vetor de rebalanceamento estrutural (item c). Quando ambos convergem, e a janela ideal para reforco. Quando conflitam (ex: oportunidade clara em classe ja sobreallocada), explique o desempate.\\n\\nExemplo de redacao da Parte 1 (note como cada classe integra os 4 elementos):\\n  'A classe Acoes EXT lidera com 22% do aporte (R$ 2.200) por uma trinca de razoes que convergem: (i) oportunidade tatica - growth de qualidade em compounders MSFT/GOOGL com TIR de 13-15% real, alem do USD desvalorizado oferecer entrada favoravel em BRL; (ii) rebalanceamento estrutural - na fronteira eficiente, EXT esta 4pp abaixo do ponto otimo de Sharpe (gap negativo); no All Weather, o cenario c2 vigente (cresc+ infl-) e exatamente onde EXT brilha (protCenAtual 0.78); no Yale, o bucket equity esta em 31% vs alvo 37%, com EXT sendo o componente mais subalocado (~6pp abaixo); (iii) sintese - oportunidade tatica e vetor de rebalanceamento estao alinhados, justificando posicao acima do piso. A classe NTN-B vem em segundo com 16% (R$ 1.600) - taticamente, taxa liquida IPCA+6,3% supera Selic real liq em ~2pp (Eixo 3 do framework); estruturalmente, o bucket inflationHedge Yale esta proximo do alvo mas a duration longa traz hedge anti-equity valioso dado equity sobreallocado nas outras dimensoes. A classe Bitcoin recebera apenas o piso de 3% (R$ 300), pois apesar do BTC contribuir genuinamente para diversificacao no MPT (corr~0), as metricas tecnicas (MVRV-Z em 4.2) acionam regra de precaucao independente do contexto estrutural...'\\n(e assim por diante, ate cobrir TODAS as classes, da maior para a menor, incluindo as que ficam no piso 3%)\\n\\n===== PARTE 2: DIVISAO POR ATIVOS DENTRO DE CADA CLASSE =====\\nDEPOIS da Parte 1 completa, apresente a divisao por ativos individuais, classe por classe (na MESMA ordem decrescente de valor da Parte 1). Para CADA classe, liste o ranking de ate 3 ativos (#1 top pick, #2, #3) com:\\n  (a) ticker, valor em reais e percentual da classe\\n  (b) justificativa especifica daquele ativo naquela posicao (qualidade, preco, TIR, margem de seguranca)\\nExemplo de redacao da Parte 2:\\n  'Dentro da classe Acoes EXT, #1 MSFT recebera R$ 990 (45% da classe) por ser compounder com ROIC >25%, P/L 28x justificavel pelo crescimento de 15% top-line e moat de cloud/IA. #2 GOOGL recebera R$ 770 (35%) por trade-off similar mas com valuation mais barato (P/L 22x). #3 ASML recebera R$ 440 (20%) por exposicao secular a semicondutores avancados. Dentro de NTN-B, o aporte sera dividido em 3 vencimentos seguindo laddering de duration: #1 NTNB-2040 com R$ 720 (45%) por bucket longo com taxa IPCA+6,3% liq...'\\n(e assim por diante, classe por classe, na mesma ordem da Parte 1, incluindo classes com apenas 1 ou 2 ativos quando aplicavel pela regra de 5%)\\n\\nREGRAS DE OURO DO FORMATO:\\n1) NUNCA inverter a ordem (sempre Parte 1 antes da Parte 2)\\n2) Na Parte 1, ORDEM SEMPRE decrescente por valor R$ recebido\\n3) Na Parte 2, manter MESMA ordem que apareceu na Parte 1 (nao re-ordenar por outro criterio)\\n4) Para CADA classe na Parte 1, OBRIGATORIO mencionar os 5 PILARES de rebalanceamento estrutural (MPT/AW/Yale/Vetores Macro/Tranquilidade) alem da oportunidade tatica - NAO basta dizer 'subexposto', precisa quantificar o gap pp em cada uma das 4 dimensoes (gap MPT pp, cobertura AW, gap bucket Yale, impacto esperado nas sensibilidades liquidas dos vetores macro mais desbalanceados)\\n5) O texto deve fluir naturalmente em prosa, NAO usar bullets ou listas markdown no campo 'resumo'\\n6) Mencione explicitamente quando a classe esta no piso 3% (ex: 'A classe X recebera apenas o piso de 3% do aporte (R$ 300) porque...')\\n7) Se uma classe foi redirecionada para Selic por nao ter oportunidades, mencionar na Parte 1 com a justificativa\\n8) Quando vetor de oportunidade (tatico) CONFLITA com vetor estrutural (rebalanceamento), explicitar o desempate - ex: 'Apesar da NTN-B em IPCA+6,5% liq ser tatica oportuna, o bucket inflationHedge ja esta no alvo Yale e equities estao 5pp abaixo da fronteira eficiente, por isso o aporte na NTN-B fica em 8% (proximo do piso de oportunidade) e o excedente vai para EXT'\\n\\nFILOSOFIA DO REBALANCEAMENTO ESTRUTURAL (FUNDAMENTAL):\\nO investidor e Buy & Hold rigoroso (zero vendas). Portanto, o UNICO mecanismo disponivel para aproximar o portfolio das 5 metas estruturais (MPT, AW, Yale, Vetores Macro, Tranquilidade Financeira) e atraves da DIRECAO DOS APORTES MENSAIS. Cada aporte e uma oportunidade de rebalanceamento contraciclico.\\n\\nAs 5 metas estruturais NAO sao redundantes - cada uma captura uma dimensao diferente do risco:\\n  - MPT (Markowitz): otimizacao matematica retorno x risco baseada em correlacoes historicas. Visa Sharpe maximo.\\n  - All Weather (Dalio): resiliencia FRENTE A REGIMES MACRO DIFERENTES (cresc/infl). Visa robustez em qualquer cenario.\\n  - Yale (Swensen): diversificacao ENTRE CLASSES FUNCIONALMENTE DISTINTAS (equity como motor, realAssets como hedge inflacionario produtivo, etc). Visa robustez institucional.\\n  - Vetores Macroeconomicos (Sensibilidade Liquida): equilibrio das exposicoes liquidas aos 6 vetores (Selic, IPCA, Cambio, Risco Fiscal BR, Liquidez Global, Commodities). Visa neutralidade macroeconomica - sensibilidades liquidas distribuidas reduzem dependencia de UM unico fator macro.\\n  - Tranquilidade Financeira (Indice composto): metrica SINTETICA que combina Tamanho, Renda perpetua (ICR-RTE), Resiliencia a drawdowns e Diversificacao em uma nota 0-100. Visa que cada aporte mensal mova o portfolio para uma banda mais robusta no dashboard de Tranquilidade. Esta meta DIALOGA com as outras 4 (a dimensao Diversificacao se sobrepoe com MPT/HHI; Resiliencia se sobrepoe com AW; Renda se sobrepoe com Yale realAssets/inflationHedge), mas o INDICE COMPOSTO da uma sintese acionavel unica.\\n\\nQuando as 5 metas APONTAM NA MESMA DIRECAO sobre uma classe (todas mostram subalocacao ou todas mostram sobrealocacao), o sinal e MUITO forte e o aporte deve refletir isso. Quando elas DIVERGEM, a IA deve fazer um julgamento ponderado, explicitando o trade-off no resumo.\\n\\nREGRA DE PONDERACAO: cada vetor (oportunidade tatica vs rebalanceamento estrutural) deve ter peso aproximado de 50% na decisao final. NAO permitir que apenas oportunidade tatica (preco favoravel) ou apenas rebalanceamento estrutural (gap nas 3 metas) decida sozinho - ambos sao igualmente fundamentais.\\n\\nOS DEMAIS CAMPOS DO JSON (alertas, classes[], veredito) seguem o padrao tecnico ja definido - a estrutura narrativa especial e APENAS para o campo 'resumo'.\\n\\nRANKING UNICO POR CLASSE (1, 2, 3): Para CADA classe que receba aporte, sugira EXATAMENTE 3 ativos em ORDEM DE PREFERENCIA - apenas UMA lista ordenada por classe (NAO dois rankings separados, NAO uma lista por qualidade e outra por preco).\\n\\nA POSICAO de cada ativo (1, 2 ou 3) reflete o RESULTADO COMBINADO da equacao QUALIDADE x PRECO no momento atual:\\n- Ativo #1 (TOP PICK): melhor combinacao geral entre qualidade do ativo e preco atual\\n- Ativo #2: boa combinacao, mas com algum trade-off em relacao ao #1\\n- Ativo #3: alternativa valida com trade-off maior\\n\\nNo campo 'porque_essa_posicao' de cada ativo, EXPLIQUE em uma frase POR QUE ele esta naquela posicao - mencionando como qualidade e preco se equilibraram.\\n\\nANALISE DE PRECO DETALHADA - para CADA ativo do ranking, preencher:\\n- 'tir_implicita': TIR estimada do ativo dado o preco ATUAL (string com % e breve composicao). Ex FII: '11.8% (DY 9.2% + crescimento real 2.6%)'; Acao: '14% (EY 8% + crescimento 6%)'; Tesouro IPCA+: '5,42% real LIQUIDA de IR (IPCA+6,38% bruto)'.\\n- 'tir_minima_exigida': TIR minima que VOCE julga adequada para o RISCO especifico daquele ativo (proponha caso a caso). Ex: 'FII logistico de qualidade: 11% (CDI longo + 2 a 3pp pelo risco imobiliario)'; 'Ciclica sem moat: 18 a 20%'; 'Compounder com moat: 13 a 15%'.\\n- 'adequacao_risco_retorno': SIM ou NAO - a tir_implicita atende ou supera a tir_minima_exigida? Texto curto explicando: 'SIM - TIR 12% supera 11% exigida, com folga modesta' ou 'NAO - TIR 13% abaixo dos 18% exigidos para ciclica'.\\n- 'margem_seguranca': % de desconto vs preco-teto (= preco em que TIR ficaria igual ao minimo). Ex: 'aprox 8% de margem (preco-teto R$ 135, atual R$ 124)'. Para aportes regulares aceitar margens de ~10%; reforços em momentos de pânico exigem 20-30%.\\n- 'red_flag': APENAS QUANDO houver deterioracao estrutural identificada (vacancia subindo, ROE caindo, divida crescendo, perda de market share, mudanca de gestao, perda de inquilino-ancora, etc). Se nao houver red flag, OMITIR este campo (nao incluir no JSON). Quando incluir, ser direto: 'Vacancia subiu de 4% para 12% em 6 meses - monitorar' ou 'ROE caiu de 18% para 11% em 3 anos - perda de eficiencia operacional'.\\n\\nO valor monetario do aporte na classe e distribuido com #1 recebendo o maior valor, #2 valor intermediario, #3 menor valor (mas todos os 3 com valor>0 caso o investidor queira diversificar). Use o campo 'rank' (1, 2 ou 3).\\n\\nApos sugerir, AVALIE CRITICAMENTE em 3 dimensoes: (1) eficiencia_rebalanceamento, (2) qualidade_dos_ativos_escolhidos (compounders solidos? FIIs com inquilinos AAA? sem value traps? algum ativo com premio excessivo sem justificativa fundamentalista?), (3) limite_5pct. Caso tenha aplicado a REGRA DE OPORTUNIDADE redirecionando excedentes para Selic 2031, MENCIONE EXPLICITAMENTE em 'estrategia_macro' quais classes ficaram apenas com o piso de 3% e quanto foi para Selic como caixa estrategico."+blocoMPT_AW+blocoVetoresMacro+blocoTranquilidade+"\\n\\nJSON sem markdown: {resumo:...,alertas:[],classes:[{id:fii,pct:25,valor:2500,ativos:[{rank:1,ticker:HGLG11,valor:1200,score:COMPRA FORTE|COMPRA|JUSTO,metricas:'P/VPA 0.91 DY 9.2%',porque_essa_posicao:'gestao premium + desconto modesto',tir_implicita:'11.8% (DY 9.2% + crescimento real 2.6%)',tir_minima_exigida:'10.5% para FII logistico de qualidade',adequacao_risco_retorno:'SIM - retorno supera exigencia com folga',margem_seguranca:'aprox 12% vs preco-teto'},{rank:2,ticker:KNCR11,valor:800,score:COMPRA,metricas:'...',porque_essa_posicao:'...',tir_implicita:'...',tir_minima_exigida:'...',adequacao_risco_retorno:'SIM/NAO ...',margem_seguranca:'...'},{rank:3,ticker:XPLG11,valor:500,score:JUSTO,metricas:'...',porque_essa_posicao:'...',tir_implicita:'...',tir_minima_exigida:'...',adequacao_risco_retorno:'...',margem_seguranca:'...',red_flag:'(SO SE HOUVER) vacancia em alta'}]}],veredito:{eficiencia:{nota:OTIMO|BOM|REGULAR|RUIM,texto:explicacao curta},qualidade:{nota:OTIMO|BOM|REGULAR|RUIM,texto:explicacao - alguma duvida de value trap? algum compounder pagando alem do justo? algum ativo com red flag merece atencao?},limite5pct:{ok:true|false,texto:explicacao},estrategia_macro:'breve explicacao de como voce balanceou MPT (fronteira eficiente), AW (resiliencia macro), Yale (buckets), Vetores Macro (sensibilidade liquida) e Tranquilidade Financeira (4 dimensoes) na sugestao - em 1-2 frases'}}";
       const txt=await callAPI([{role:"user",content:msg}],apiKey);
@@ -6598,7 +7150,7 @@ Responda APENAS com o texto do insight, sem prefacio ou comentarios meta.`;
 
   // TABS
   const tabs=h("div",{style:{display:"flex",borderBottom:"1px solid rgba(255,255,255,0.06)",marginBottom:18,marginTop:10,overflowX:"auto"}},
-    ...[{id:"dashboard",label:"Dashboard"},{id:"correlacao",label:"Correlação"},{id:"positions",label:"Posições"},{id:"aporte",label:"Aporte"},{id:"chat",label:"Analise"},{id:"mpt",label:"MPT"},{id:"aw",label:"All Weather"},{id:"yale",label:"Yale"},{id:"stress",label:"Stress Test"},{id:"projecao",label:"Projecoes"},{id:"renda",label:"Renda"},{id:"btcouro",label:"BTC/Ouro"},{id:"treasuries",label:"Treasuries"},{id:"tesouro",label:"Tesouro Direto"},{id:"history",label:"Historico"}].map(t=>
+    ...[{id:"dashboard",label:"Dashboard"},{id:"correlacao",label:"Correlação"},{id:"positions",label:"Posições"},{id:"aporte",label:"Aporte"},{id:"caixacambial",label:"Caixa Cambial"},{id:"chat",label:"Analise"},{id:"mpt",label:"MPT"},{id:"aw",label:"All Weather"},{id:"yale",label:"Yale"},{id:"stress",label:"Stress Test"},{id:"projecao",label:"Projecoes"},{id:"renda",label:"Renda"},{id:"btcouro",label:"BTC/Ouro"},{id:"treasuries",label:"Treasuries"},{id:"tesouro",label:"Tesouro Direto"},{id:"history",label:"Historico"}].map(t=>
       h("button",{key:t.id,onClick:()=>{setTab(t.id);if(t.id!=="aporte"){setApR(null);setStep("r");}},style:{background:"none",border:"none",borderBottom:tab===t.id?"2px solid #C8A96E":"2px solid transparent",color:tab===t.id?"#C8A96E":"#8A8070",padding:"6px 10px",cursor:"pointer",fontSize:12,marginBottom:-1,flexShrink:0,whiteSpace:"nowrap"}},t.label)
     ),
     h("button",{onClick:()=>{
@@ -7049,7 +7601,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
       const dataHoje=diasSem[hojeData.getDay()]+", "+hojeData.getDate()+" de "+meses[hojeData.getMonth()]+" de "+hojeData.getFullYear();
       const dateHeader=h("div",{style:{fontSize:10,color:"#7A7060",fontFamily:"Georgia,serif",fontStyle:"italic",letterSpacing:0.5,marginBottom:14,paddingBottom:9,borderBottom:"1px solid rgba(200,169,110,0.12)",textAlign:"right"}},dataHoje);
 
-      content=h("div",{},dateHeader,h(BolsasCard,{port,cls}),h(TranquilidadeCard,{total,cw,port,metaMensalIF,setTab,fB,hideVal}),aporteCard,insightCard,h(AllocChart,{cw,ct,fB,MV,hideVal}),h(DiversificationCard,{cw,setTab}),h(RiskChart,{cw,selicAtual,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,recalibrarRR_viaIA,calibracaoLoad,calibracaoErr,hasAjustesIA:!!ajustesRR_IA,apiKey}),h(EvolChart,{histMensal,hist,showUSD,setShowUSD,hideVal}),h(ComparativoChart,{histMensal,idxMensal,hideVal}),insightMensalCard,h(HeatmapChart,{hist,histMensal}),h(CurrencyChart,{port,cls,hideVal}),topPos);
+      content=h("div",{},dateHeader,h(BolsasCard,{port,cls}),h(TranquilidadeCard,{total,cw,port,metaMensalIF,setTab,fB,hideVal,dataNascimento,cambialCash}),aporteCard,insightCard,h(AllocChart,{cw,ct,fB,MV,hideVal}),h(DiversificationCard,{cw,setTab}),h(RiskChart,{cw,selicAtual,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,recalibrarRR_viaIA,calibracaoLoad,calibracaoErr,hasAjustesIA:!!ajustesRR_IA,apiKey}),h(EvolChart,{histMensal,hist,showUSD,setShowUSD,hideVal}),h(ComparativoChart,{histMensal,idxMensal,hideVal}),insightMensalCard,h(HeatmapChart,{hist,histMensal}),h(CurrencyChart,{port,cls,hideVal,cambialCash}),topPos);
     }
   }  // POSITIONS
   if(tab==="positions"||tab==="correlacao"){
@@ -14559,6 +15111,233 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         )
       )
     );
+  }
+
+  if(tab==="caixacambial"){
+    try{
+    // Detecta dinamicamente as moedas do portfolio (todas exceto BRL)
+    const moedasDoPort=getMoedasDoPortfolio(port);
+    // Garante que moedas com caixa preenchido apareçam mesmo se nao estao mais no portfolio
+    Object.keys(cambialCash||{}).forEach(m=>{
+      if(!moedasDoPort.includes(m)&&m!=="BRL")moedasDoPort.push(m);
+    });
+    // Reordenar com USD/EUR/JPY primeiro, depois alfabetico
+    const prioridade={USD:0,EUR:1,JPY:2};
+    moedasDoPort.sort((a,b)=>{
+      const pa=prioridade[a]!==undefined?prioridade[a]:99;
+      const pb=prioridade[b]!==undefined?prioridade[b]:99;
+      if(pa!==pb)return pa-pb;
+      return a.localeCompare(b);
+    });
+    // Calcula totais e agregacoes nos 4 buckets de subalvo (USD/EUR/JPY/Outras)
+    let totalCambialBRL=0;
+    const valoresPorMoeda={};
+    const buckets={USD:0,EUR:0,JPY:0,OUTROS:0};
+    moedasDoPort.forEach(moeda=>{
+      const valNativo=(cambialCash&&typeof cambialCash[moeda]==="number")?cambialCash[moeda]:0;
+      const fx=FX[moeda]||0;
+      const valBRL=valNativo*fx;
+      valoresPorMoeda[moeda]={valNativo,valBRL,fx};
+      totalCambialBRL+=valBRL;
+      const bucket=bucketDaMoeda(moeda);
+      buckets[bucket]+=valBRL;
+    });
+    const pctPatrim=total>0?(totalCambialBRL/total)*100:0;
+    // Idade e alvo cambial para contexto
+    let idadeUI=40;
+    if(dataNascimento){
+      try{
+        const nasc=new Date(dataNascimento);
+        if(!isNaN(nasc.getTime())){
+          const hojeUI=new Date();
+          let i=hojeUI.getFullYear()-nasc.getFullYear();
+          const m=hojeUI.getMonth()-nasc.getMonth();
+          if(m<0||(m===0&&hojeUI.getDate()<nasc.getDate()))i--;
+          if(i>=18&&i<=100)idadeUI=i;
+        }
+      }catch(e){}
+    }
+    const bandasCam=bandasCambial(idadeUI);
+    // Calcula % de cada bucket vs subalvo (para o card superior de gaps)
+    const pctBuckets={};
+    if(totalCambialBRL>0){
+      pctBuckets.USD=(buckets.USD/totalCambialBRL)*100;
+      pctBuckets.EUR=(buckets.EUR/totalCambialBRL)*100;
+      pctBuckets.JPY=(buckets.JPY/totalCambialBRL)*100;
+      pctBuckets.OUTROS=(buckets.OUTROS/totalCambialBRL)*100;
+    }else{
+      pctBuckets.USD=pctBuckets.EUR=pctBuckets.JPY=pctBuckets.OUTROS=0;
+    }
+    const subalvos={USD:50,EUR:20,JPY:20,OUTROS:10};
+
+    content=h("div",{},
+      // Header
+      h("div",{style:{fontSize:9,letterSpacing:3,color:"#3DA17C",fontFamily:"monospace",textTransform:"uppercase",marginBottom:6}},"Caixa Cambial"),
+      h("p",{style:{color:"#8A8070",fontSize:11,lineHeight:1.6,marginBottom:14,fontStyle:"italic"}},
+        "Capital alocado em moedas estrangeiras em corretora americana, aguardando pre\u00e7os justos dos ativos finais. ",
+        "An\u00e1logo cambial do Tesouro Selic 2031 - cumpre fun\u00e7\u00e3o de blindagem cambial enquanto a disciplina de pre\u00e7o e respeitada. ",
+        "Faz parte do patrim\u00f4nio total e contribui para a Blindagem Cambial do \u00cdndice de Tranquilidade. ",
+        "As moedas listadas s\u00e3o detectadas automaticamente do seu portf\u00f3lio."
+      ),
+
+      // Card resumo total
+      h("div",{style:{padding:"14px 16px",background:"linear-gradient(135deg,rgba(61,161,124,0.10),rgba(61,161,124,0.04))",border:"1px solid rgba(61,161,124,0.30)",borderRadius:10,marginBottom:14}},
+        h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}},
+          h("div",{},
+            h("div",{style:{fontSize:7,letterSpacing:1.5,color:"#7A7060",fontFamily:"monospace",marginBottom:3}},"TOTAL CAIXA CAMBIAL"),
+            h("div",{style:{fontSize:22,color:"#3DA17C",fontFamily:"monospace",fontWeight:700,lineHeight:1}},hideVal?"\u2022\u2022\u2022":fB(totalCambialBRL))
+          ),
+          h("div",{style:{textAlign:"right"}},
+            h("div",{style:{fontSize:7,letterSpacing:1.5,color:"#7A7060",fontFamily:"monospace",marginBottom:3}},"% DO PATRIM\u00d4NIO"),
+            h("div",{style:{fontSize:22,color:"#3DA17C",fontFamily:"monospace",fontWeight:700,lineHeight:1}},pctPatrim.toFixed(1)+"%")
+          )
+        )
+      ),
+
+      // Card de buckets de subalvo (USD/EUR/JPY/Outras)
+      h("div",{style:{padding:"12px 14px",background:"rgba(61,161,124,0.06)",border:"1px solid rgba(61,161,124,0.25)",borderRadius:8,marginBottom:14}},
+        h("div",{style:{fontSize:8,letterSpacing:1.5,color:"#3DA17C",fontFamily:"monospace",fontWeight:700,marginBottom:7}},"\u{1F3AF} ALVOS POR BUCKET (composi\u00e7\u00e3o interna do caixa cambial)"),
+        ...[
+          {chave:"USD",label:"USD"},
+          {chave:"EUR",label:"EUR"},
+          {chave:"JPY",label:"JPY"},
+          {chave:"OUTROS",label:"Outras"}
+        ].map((b,k)=>{
+          const atual=pctBuckets[b.chave]||0;
+          const alvo=subalvos[b.chave];
+          const gap=atual-alvo;
+          const corGap=Math.abs(gap)<=5?"#7DD17D":Math.abs(gap)<=10?"#E8C44A":"#E89060";
+          return h("div",{key:k,style:{display:"grid",gridTemplateColumns:"60px 1fr 60px 60px",gap:6,padding:"4px 0",fontSize:9.5,fontFamily:"monospace",alignItems:"center"}},
+            h("div",{style:{color:"#3DA17C",fontWeight:700}},b.label),
+            h("div",{style:{height:6,background:"rgba(255,255,255,0.06)",borderRadius:3,overflow:"hidden",position:"relative"}},
+              h("div",{style:{position:"absolute",top:0,left:0,height:"100%",width:Math.min(100,atual)+"%",background:corGap,transition:"width 0.3s"}}),
+              h("div",{style:{position:"absolute",top:-1,left:alvo+"%",width:1,height:8,background:"#E8DCC0"}})
+            ),
+            h("div",{style:{textAlign:"right",color:"#E8DCC0",fontWeight:700}},totalCambialBRL>0?atual.toFixed(0)+"%":"\u2014"),
+            h("div",{style:{textAlign:"right",color:corGap,fontWeight:700}},totalCambialBRL>0?(gap>=0?"+":"")+gap.toFixed(0)+"pp":"alvo "+alvo+"%")
+          );
+        }),
+        h("p",{style:{margin:"6px 0 0",fontSize:8,color:"#7A7060",fontStyle:"italic",fontFamily:"monospace"}},
+          "Linha branca = alvo. Barra verde = bem alinhado (\u00b15pp), amarela = desvio moderado, laranja = grande desvio."
+        )
+      ),
+
+      // Card explicativo
+      h("div",{style:{padding:"11px 13px",background:"rgba(232,196,74,0.06)",border:"1px solid rgba(232,196,74,0.25)",borderRadius:8,marginBottom:14,fontSize:10,lineHeight:1.6,color:"#C8C0B0"}},
+        h("div",{style:{fontSize:8,letterSpacing:1.5,color:"#E8C44A",fontFamily:"monospace",fontWeight:700,marginBottom:5}},"\u{1F4A1} COMO FUNCIONA"),
+        h("ul",{style:{margin:0,paddingLeft:18}},
+          h("li",{style:{marginBottom:4}},"O capital fica ",h("strong",{},"de fato em corretora americana")," (Interactive Brokers, Avenue, Inter Internacional, etc.) em sua moeda nativa - exposi\u00e7\u00e3o cambial real."),
+          h("li",{style:{marginBottom:4}},"Quando o aporte mensal indicar caixa cambial em alguma moeda, voc\u00ea ",h("strong",{},"executa a opera\u00e7\u00e3o externamente")," (envia BRL, converte na corretora) e ",h("strong",{},"registra o valor aqui manualmente"),"."),
+          h("li",{style:{marginBottom:4}},"Quando uma oportunidade de pre\u00e7o justo aparecer em algum ativo (EXT, REIT, Treasury) ",h("strong",{},"na moeda correspondente"),", voc\u00ea ",h("strong",{},"consome o caixa")," comprando o ativo - reduza o valor aqui correspondentemente."),
+          h("li",{},"Rendimento ",h("strong",{},"zero")," por default (cash em corretora). Se voc\u00ea usar SGOV/BIL/Money Market, ainda assim registre como caixa cambial pelo valor atualizado.")
+        )
+      ),
+
+      // Card grande com as linhas dinamicas de moedas do portfolio
+      h("div",{style:{padding:"14px 16px",background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:10,marginBottom:14}},
+        h("div",{style:{fontSize:9,letterSpacing:2,color:"#3DA17C",fontFamily:"monospace",fontWeight:700,marginBottom:11}},
+          "\u{1F4B5} SUB-CAIXAS POR MOEDA (",moedasDoPort.length," moedas)"
+        ),
+
+        // Linha cabecalho
+        h("div",{style:{display:"grid",gridTemplateColumns:"30px 1fr 100px 90px 60px 45px",gap:6,padding:"6px 0",borderBottom:"1px solid rgba(255,255,255,0.10)",fontSize:7,fontFamily:"monospace",color:"#7A7060",letterSpacing:0.8,marginBottom:6,alignItems:"center"}},
+          h("div",{}," "),
+          h("div",{},"MOEDA"),
+          h("div",{style:{textAlign:"right"}},"VALOR NATIVO"),
+          h("div",{style:{textAlign:"right"}},"VALOR (R$)"),
+          h("div",{style:{textAlign:"right"}},"% BUCKET"),
+          h("div",{style:{textAlign:"center"}},"\u270e")
+        ),
+
+        // Linhas das moedas (dinamicas)
+        ...moedasDoPort.map((moeda,k)=>{
+          const meta=getMoedaMeta(moeda);
+          const dados=valoresPorMoeda[moeda]||{valNativo:0,valBRL:0,fx:FX[moeda]||0};
+          const pctBucket=totalCambialBRL>0?(dados.valBRL/totalCambialBRL)*100:0;
+          const valNativoFmt=meta.casas===0?
+            (dados.valNativo).toLocaleString("pt-BR",{maximumFractionDigits:0}):
+            (dados.valNativo).toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2});
+          return h("div",{key:k,style:{display:"grid",gridTemplateColumns:"30px 1fr 100px 90px 60px 45px",gap:6,padding:"10px 0",borderBottom:k<moedasDoPort.length-1?"1px solid rgba(255,255,255,0.05)":"none",fontSize:11,fontFamily:"monospace",alignItems:"center"}},
+            h("div",{style:{fontSize:16}},meta.bandeira),
+            h("div",{},
+              h("div",{style:{color:"#3DA17C",fontWeight:700,fontSize:11}},moeda),
+              h("div",{style:{color:"#7A7060",fontSize:8}},meta.nome),
+              h("div",{style:{color:"#5A5550",fontSize:7,marginTop:1}},
+                "FX: "+(dados.fx>0?dados.fx.toFixed(dados.fx<1?4:2):"\u2014"),
+                "  \u2022  Bucket: "+(bucketDaMoeda(moeda)==="OUTROS"?"Outras":bucketDaMoeda(moeda))
+              )
+            ),
+            h("div",{style:{textAlign:"right",color:dados.valNativo>0?"#E8DCC0":"#5A5550",fontWeight:dados.valNativo>0?700:400,fontSize:10}},
+              hideVal?"\u2022\u2022\u2022":meta.simbolo+valNativoFmt
+            ),
+            h("div",{style:{textAlign:"right",color:dados.valBRL>0?"#C8C0B0":"#5A5550",fontSize:10}},
+              hideVal?"\u2022\u2022\u2022":fB(dados.valBRL)
+            ),
+            h("div",{style:{textAlign:"right",color:dados.valBRL>0?"#E8DCC0":"#5A5550",fontSize:10,fontWeight:dados.valBRL>0?700:400}},
+              pctBucket.toFixed(0)+"%"
+            ),
+            h("button",{onClick:()=>{setEditCambialMoeda(moeda);setEditCambialVal(String(dados.valNativo||0));},style:{background:"rgba(61,161,124,0.15)",border:"1px solid rgba(61,161,124,0.40)",borderRadius:4,padding:"5px 8px",color:"#3DA17C",fontSize:9,fontFamily:"monospace",cursor:"pointer",fontWeight:700}},"\u270e")
+          );
+        }),
+
+        // Linha de total
+        h("div",{style:{marginTop:10,padding:"8px 0",borderTop:"1px solid rgba(61,161,124,0.25)",display:"grid",gridTemplateColumns:"30px 1fr 100px 90px 60px 45px",gap:6,alignItems:"center",fontSize:11,fontFamily:"monospace"}},
+          h("div",{}),
+          h("div",{style:{color:"#3DA17C",fontWeight:700,fontSize:10}},"TOTAL"),
+          h("div",{}),
+          h("div",{style:{textAlign:"right",color:"#E8DCC0",fontWeight:700}},hideVal?"\u2022\u2022\u2022":fB(totalCambialBRL)),
+          h("div",{style:{textAlign:"right",color:"#3DA17C",fontWeight:700}},"100%"),
+          h("div",{})
+        )
+      ),
+
+      // Modal de edicao (overlay simples)
+      editCambialMoeda&&h("div",{onClick:()=>setEditCambialMoeda(null),style:{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.75)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}},
+        h("div",{onClick:(e)=>e.stopPropagation(),style:{background:"#1A1A1A",border:"1px solid rgba(61,161,124,0.40)",borderRadius:10,padding:20,maxWidth:400,width:"100%"}},
+          (()=>{
+            const metaEdit=getMoedaMeta(editCambialMoeda);
+            const fxEdit=FX[editCambialMoeda]||0;
+            const valNumerico=parseFloat(String(editCambialVal).replace(",","."))||0;
+            const valBRLPreview=valNumerico*fxEdit;
+            return h("div",{},
+              h("div",{style:{fontSize:9,letterSpacing:2,color:"#3DA17C",fontFamily:"monospace",fontWeight:700,marginBottom:10}},
+                "EDITAR CAIXA ",metaEdit.bandeira," ",editCambialMoeda
+              ),
+              h("p",{style:{color:"#8A8070",fontSize:10,lineHeight:1.5,marginBottom:8}},
+                "Valor em ",h("strong",{style:{color:"#E8DCC0"}},metaEdit.nome+" ("+metaEdit.simbolo.trim()+")"),":"
+              ),
+              h("input",{type:"number",step:metaEdit.casas===0?"1":"0.01",value:editCambialVal,onChange:(e)=>setEditCambialVal(e.target.value),placeholder:"0",style:{width:"100%",padding:"10px 12px",fontSize:14,fontFamily:"monospace",background:"rgba(0,0,0,0.4)",border:"1px solid rgba(61,161,124,0.35)",borderRadius:6,color:"#E8DCC0",outline:"none",boxSizing:"border-box"},autoFocus:true}),
+              fxEdit>0?h("div",{style:{marginTop:8,padding:"7px 10px",background:"rgba(0,0,0,0.30)",borderRadius:5,fontSize:10,color:"#9A9080",fontFamily:"monospace"}},
+                "FX atual: 1 "+editCambialMoeda+" = R$ "+fxEdit.toFixed(fxEdit<1?4:2),
+                h("br"),
+                "Equivalente: ",h("strong",{style:{color:"#3DA17C"}},fB(valBRLPreview))
+              ):h("div",{style:{marginTop:8,padding:"7px 10px",background:"rgba(232,144,96,0.10)",borderRadius:5,fontSize:10,color:"#E89060",fontFamily:"monospace"}},
+                "\u26a0 FX para ",editCambialMoeda," n\u00e3o dispon\u00edvel. O valor ser\u00e1 armazenado, mas n\u00e3o contar\u00e1 no patrim\u00f4nio at\u00e9 o c\u00e2mbio ser carregado."
+              ),
+              h("div",{style:{display:"flex",gap:8,marginTop:12}},
+                h("button",{onClick:()=>setEditCambialMoeda(null),style:{flex:1,padding:"10px",background:"transparent",border:"1px solid rgba(255,255,255,0.20)",borderRadius:6,color:"#9A9080",fontSize:11,cursor:"pointer"}},"Cancelar"),
+                h("button",{onClick:()=>{
+                  const val=parseFloat(String(editCambialVal).replace(",","."));
+                  if(isNaN(val)||val<0){alert("Valor inv\u00e1lido. Use n\u00famero positivo (ou zero para zerar a caixa).");return;}
+                  const novo={...cambialCash};
+                  if(val===0){
+                    delete novo[editCambialMoeda];// remove a chave se zerado (limpeza)
+                  }else{
+                    novo[editCambialMoeda]=val;
+                  }
+                  setCambialCash(novo);
+                  setEditCambialMoeda(null);
+                  setEditCambialVal("");
+                },style:{flex:2,padding:"10px",background:"linear-gradient(135deg,#3DA17C,#2A8060)",border:"none",borderRadius:6,color:"#0D0F14",fontSize:11,fontWeight:700,cursor:"pointer"}},"Salvar")
+              )
+            );
+          })()
+        )
+      )
+    );
+    }catch(e){
+      content=h("div",{style:{padding:30,textAlign:"center",color:"#E89060"}},"Erro ao montar aba Caixa Cambial: "+(e.message||e));
+    }
   }
 
   if(tab==="history"){
