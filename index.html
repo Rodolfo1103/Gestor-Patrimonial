@@ -15163,8 +15163,10 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
       // Header
       h("div",{style:{fontSize:9,letterSpacing:3,color:"#3DA17C",fontFamily:"monospace",textTransform:"uppercase",marginBottom:6}},"Caixa Cambial"),
       h("p",{style:{color:"#8A8070",fontSize:11,lineHeight:1.6,marginBottom:14,fontStyle:"italic"}},
-        "Capital alocado em moedas estrangeiras em corretora americana, aguardando pre\u00e7os justos dos ativos finais. ",
-        "An\u00e1logo cambial do Tesouro Selic 2031 - cumpre fun\u00e7\u00e3o de blindagem cambial enquanto a disciplina de pre\u00e7o e respeitada. ",
+        "Capital em moedas estrangeiras em corretora americana, com ",h("strong",{style:{color:"#C8C0B0"}},"dupla fun\u00e7\u00e3o"),": ",
+        "(a) ",h("strong",{},"aguardar pre\u00e7o justo")," dos ativos finais para aloca\u00e7\u00e3o disciplinada (capital BRL convertido via aporte mensal), e ",
+        "(b) ",h("strong",{},"acumular dividendos")," pagos em moeda nativa entre os aportes mensais. ",
+        "Ambas fun\u00e7\u00f5es consolidam no mesmo saldo (fung\u00edvel - capital \u00e9 capital, independente da origem). ",
         "Faz parte do patrim\u00f4nio total e contribui para a Blindagem Cambial do \u00cdndice de Tranquilidade. ",
         "As moedas listadas s\u00e3o detectadas automaticamente do seu portf\u00f3lio."
       ),
@@ -15187,10 +15189,30 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
       h("div",{style:{padding:"11px 13px",background:"rgba(232,196,74,0.06)",border:"1px solid rgba(232,196,74,0.25)",borderRadius:8,marginBottom:14,fontSize:10,lineHeight:1.6,color:"#C8C0B0"}},
         h("div",{style:{fontSize:8,letterSpacing:1.5,color:"#E8C44A",fontFamily:"monospace",fontWeight:700,marginBottom:5}},"\u{1F4A1} COMO FUNCIONA"),
         h("ul",{style:{margin:0,paddingLeft:18}},
-          h("li",{style:{marginBottom:4}},"O capital fica ",h("strong",{},"de fato em corretora americana")," (Interactive Brokers, Avenue, Inter Internacional, etc.) em sua moeda nativa - exposi\u00e7\u00e3o cambial real."),
-          h("li",{style:{marginBottom:4}},"Quando o aporte mensal indicar caixa cambial em alguma moeda, voc\u00ea ",h("strong",{},"executa a opera\u00e7\u00e3o externamente")," (envia BRL, converte na corretora) e ",h("strong",{},"registra o valor aqui manualmente"),"."),
-          h("li",{style:{marginBottom:4}},"Quando uma oportunidade de pre\u00e7o justo aparecer em algum ativo (EXT, REIT, Treasury) ",h("strong",{},"na moeda correspondente"),", voc\u00ea ",h("strong",{},"consome o caixa")," comprando o ativo - reduza o valor aqui correspondentemente."),
-          h("li",{},"Rendimento ",h("strong",{},"zero")," por default (cash em corretora). Se voc\u00ea usar SGOV/BIL/Money Market, ainda assim registre como caixa cambial pelo valor atualizado.")
+          h("li",{style:{marginBottom:4}},
+            h("strong",{style:{color:"#E8C44A"}},"Onde fica: "),
+            "O capital fica ",h("strong",{},"de fato em corretora americana")," (Interactive Brokers, Avenue, Inter Internacional, etc.) em sua moeda nativa - exposi\u00e7\u00e3o cambial real."
+          ),
+          h("li",{style:{marginBottom:4}},
+            h("strong",{style:{color:"#E8C44A"}},"Fonte 1 - Aporte mensal: "),
+            "Quando o aporte mensal indicar caixa cambial em alguma moeda, voc\u00ea ",h("strong",{},"executa a opera\u00e7\u00e3o externamente")," (envia BRL, converte na corretora) e ",h("strong",{},"atualiza o saldo aqui manualmente"),"."
+          ),
+          h("li",{style:{marginBottom:4}},
+            h("strong",{style:{color:"#E8C44A"}},"Fonte 2 - Dividendos: "),
+            "Ativos estrangeiros (REITs, EXT EUA, EXT Europa, EXT \u00c1sia, etc.) pagam dividendos em ",h("strong",{},"moeda nativa")," ao longo do m\u00eas. Esses proventos ",h("strong",{},"ficam estacionados na corretora")," entre os aportes - voc\u00ea atualiza o saldo aqui para que o app capture essa exposi\u00e7\u00e3o cambial real."
+          ),
+          h("li",{style:{marginBottom:4}},
+            h("strong",{style:{color:"#E8C44A"}},"Saldo fung\u00edvel: "),
+            "Capital convertido e dividendos consolidam no ",h("strong",{},"mesmo saldo")," por moeda. Para o app, capital \u00e9 capital - n\u00e3o h\u00e1 distin\u00e7\u00e3o entre origens. Voc\u00ea atualiza o ",h("strong",{},"saldo total")," de cada moeda quando achar conveniente (geralmente perto do aporte mensal)."
+          ),
+          h("li",{style:{marginBottom:4}},
+            h("strong",{style:{color:"#E8C44A"}},"Consumo do caixa: "),
+            "Quando uma oportunidade de pre\u00e7o justo aparecer em algum ativo (EXT, REIT, Treasury) ",h("strong",{},"na moeda correspondente"),", voc\u00ea ",h("strong",{},"consome o caixa")," comprando o ativo - reduza o saldo aqui correspondentemente."
+          ),
+          h("li",{},
+            h("strong",{style:{color:"#E8C44A"}},"Rendimento: "),
+            h("strong",{},"Zero")," por default (cash em corretora). Se voc\u00ea usar SGOV/BIL/Money Market para fazer o caixa render, registre o valor atualizado periodicamente."
+          )
         )
       ),
 
