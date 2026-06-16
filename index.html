@@ -4274,7 +4274,7 @@ function App(){
   const [infINCC,setInfINCC]=useState(null);
   const [infCPI,setInfCPI]=useState(null);
   const [infHICP,setInfHICP]=useState(null);  // HICP Zona do Euro (FRED: CP0000EZ19M086NEST)
-  const [infCPIJP,setInfCPIJP]=useState(null);// CPI Japao (FRED: JPNCPIALLMINMEI)
+  const [infCPIJP,setInfCPIJP]=useState(null);// CPI Japao (Tradingeconomics - Statistics Bureau Japan)
   const [juroFed,setJuroFed]=useState(null);  // Fed Funds Effective Rate (FRED: FEDFUNDS)
   const [juroECB,setJuroECB]=useState(null);  // ECB Deposit Facility Rate (FRED: ECBDFR)
   const [juroBoJ,setJuroBoJ]=useState(null);  // BoJ Call Money Rate (FRED: IRSTCI01JPM156N)
@@ -4820,10 +4820,12 @@ function App(){
           setInfINCC({valor:calcAcum12(d),mensal,ref:formatRef(d[d.length-1].data)});
         }
       }catch(e){}
-      // CPI EUA + HICP Eurozona + CPI Japao + juros (Fed/ECB/BoJ) via FRED
-      // Series: CPIAUCSL (CPI EUA SA), CP0000EZ19M086NEST (HICP Euro 19), JPNCPIALLMINMEI (CPI Japao)
+      // CPI EUA + HICP Eurozona + juros (Fed/ECB/BoJ) via FRED
+      // Series: CPIAUCSL (CPI EUA SA), CP0000EZ19M086NEST (HICP Euro 19)
       // FEDFUNDS (Fed Effective Rate), ECBDFR (ECB Deposit Facility), IRSTCI01JPM156N (BoJ Call Money)
       // Atualizada mensalmente via FRED. Requer API key gratuita (botao FRED no topo).
+      // CPI Japao: FRED descontinuou series Japao em mai/2024 (paradas em jun/2021).
+      // Migrado para Tradingeconomics API (guest token, sem chave) - fonte: Statistics Bureau Japan.
       if(fredKey){
         try{
           const proxiesCPI=[
@@ -4890,8 +4892,48 @@ function App(){
           const hicp=await fetchInflacao("CP0000EZ19M086NEST");
           if(cancelado)return;
           if(hicp)setInfHICP(hicp);
-          // CPI Japao (OECD - All Items, NSA)
-          const cpijp=await fetchInflacao("JPNCPIALLMINMEI");
+          // CPI Japao via Tradingeconomics (FRED descontinuou series Japao em mai/2024)
+          // Endpoint publico com guest token, fonte: Statistics Bureau of Japan
+          const fetchInflacaoJapao=async()=>{
+            const url="https://api.tradingeconomics.com/historical/country/japan/indicator/inflation%20rate?c=guest:guest&f=json";
+            // Tenta direto + 3 proxies CORS
+            const proxies=[
+              u=>u,
+              u=>"https://corsproxy.io/?url="+encodeURIComponent(u),
+              u=>"https://api.allorigins.win/raw?url="+encodeURIComponent(u),
+              u=>"https://api.codetabs.com/v1/proxy/?quest="+encodeURIComponent(u)
+            ];
+            let arr=null;
+            for(const mk of proxies){
+              if(cancelado)return null;
+              try{
+                const ctrl=new AbortController();
+                const tid=setTimeout(()=>ctrl.abort(),8000);
+                const r=await fetch(mk(url),{signal:ctrl.signal});
+                clearTimeout(tid);
+                if(!r.ok)continue;
+                const text=await r.text();
+                if(!text||text.toLowerCase().includes("host not in allowlist"))continue;
+                const j=JSON.parse(text);
+                if(j&&Array.isArray(j)&&j.length>0){arr=j;break;}
+              }catch(e){continue;}
+            }
+            if(!arr||arr.length===0)return null;
+            // Ordena descendente por data e pega ultimo (YoY ja vem calculado)
+            arr.sort((a,b)=>new Date(b.DateTime||b.Date||0)-new Date(a.DateTime||a.Date||0));
+            const last=arr[0];
+            const valor=parseFloat(last.Value||last.Close);
+            if(isNaN(valor))return null;
+            const refDate=new Date(last.DateTime||last.Date);
+            // Tenta calcular MoM como diff dos 2 ultimos YoYs (aproximacao)
+            let vMes=null;
+            if(arr.length>=2){
+              const prev=parseFloat(arr[1].Value||arr[1].Close);
+              if(!isNaN(prev))vMes=valor-prev;
+            }
+            return{valor,mensal:vMes,ref:meses[refDate.getMonth()]+"/"+String(refDate.getFullYear()).slice(2)};
+          };
+          const cpijp=await fetchInflacaoJapao();
           if(cancelado)return;
           if(cpijp)setInfCPIJP(cpijp);
           // ===== Juros dos bancos centrais =====
@@ -7247,8 +7289,8 @@ Responda APENAS com o texto do insight, sem prefacio ou comentarios meta.`;
       infCPI&&h("span",{style:{color:"#5A5550",marginLeft:3}},"("+(typeof infCPI.mensal==="number"?fN(infCPI.mensal,2)+"% "+infCPI.ref:infCPI.ref)+")"),
       infHICP&&h("span",{title:"HICP Eurozona (CP0000EZ19M086NEST - 19 paises, NSA) - 12 meses",style:{marginLeft:8,color:"#5B8FD4",fontWeight:700}},"HICP Euro "+fN(infHICP.valor,2)+"%"),
       infHICP&&h("span",{style:{color:"#5A5550",marginLeft:3}},"("+(typeof infHICP.mensal==="number"?fN(infHICP.mensal,2)+"% "+infHICP.ref:infHICP.ref)+")"),
-      infCPIJP&&h("span",{title:"CPI Japao (JPNCPIALLMINMEI - All Items, NSA) - 12 meses",style:{marginLeft:8,color:"#E89060",fontWeight:700}},"CPI JPN "+fN(infCPIJP.valor,2)+"%"),
-      infCPIJP&&h("span",{style:{color:"#5A5550",marginLeft:3}},"("+(typeof infCPIJP.mensal==="number"?fN(infCPIJP.mensal,2)+"% "+infCPIJP.ref:infCPIJP.ref)+")")
+      infCPIJP&&h("span",{title:"CPI Japao (Statistics Bureau Japan via Tradingeconomics) - YoY. Numero entre parenteses = delta vs mes anterior (mudanca do proprio YoY)",style:{marginLeft:8,color:"#E89060",fontWeight:700}},"CPI JPN "+fN(infCPIJP.valor,2)+"%"),
+      infCPIJP&&h("span",{style:{color:"#5A5550",marginLeft:3}},"("+(typeof infCPIJP.mensal==="number"?(infCPIJP.mensal>=0?"+":"")+fN(infCPIJP.mensal,2)+"pp "+infCPIJP.ref:infCPIJP.ref)+")")
     ),
     // Linha de juros dos bancos centrais: Selic BR + Fed EUA + ECB Euro + BoJ Japao
     (typeof selicAtual==="number"||juroFed||juroECB||juroBoJ)&&h("div",{style:{fontSize:9,color:"#5A5550",marginTop:2,fontFamily:"monospace"}},
