@@ -4273,6 +4273,11 @@ function App(){
   const [infIGPM,setInfIGPM]=useState(null);
   const [infINCC,setInfINCC]=useState(null);
   const [infCPI,setInfCPI]=useState(null);
+  const [infHICP,setInfHICP]=useState(null);  // HICP Zona do Euro (FRED: CP0000EZ19M086NEST)
+  const [infCPIJP,setInfCPIJP]=useState(null);// CPI Japao (FRED: JPNCPIALLMINMEI)
+  const [juroFed,setJuroFed]=useState(null);  // Fed Funds Effective Rate (FRED: FEDFUNDS)
+  const [juroECB,setJuroECB]=useState(null);  // ECB Deposit Facility Rate (FRED: ECBDFR)
+  const [juroBoJ,setJuroBoJ]=useState(null);  // BoJ Call Money Rate (FRED: IRSTCI01JPM156N)
   const [aErr,setAErr]=useState("");
   const [chatM,setChatM]=useState([]);
   const [chatIn,setChatIn]=useState("");
@@ -4552,6 +4557,12 @@ function App(){
         if(dd.infIGPM&&typeof dd.infIGPM==="object")setInfIGPM(dd.infIGPM);
         if(dd.infINCC&&typeof dd.infINCC==="object")setInfINCC(dd.infINCC);
         if(dd.infCPI&&typeof dd.infCPI==="object")setInfCPI(dd.infCPI);
+        if(dd.infHICP&&typeof dd.infHICP==="object")setInfHICP(dd.infHICP);
+        if(dd.infCPIJP&&typeof dd.infCPIJP==="object")setInfCPIJP(dd.infCPIJP);
+        // Juros dos bancos centrais (Fed/ECB/BoJ via FRED)
+        if(dd.juroFed&&typeof dd.juroFed==="object")setJuroFed(dd.juroFed);
+        if(dd.juroECB&&typeof dd.juroECB==="object")setJuroECB(dd.juroECB);
+        if(dd.juroBoJ&&typeof dd.juroBoJ==="object")setJuroBoJ(dd.juroBoJ);
         // NTN-B taxas e VNA
         if(dd.ntnbTaxas&&typeof dd.ntnbTaxas==="object")setNtnbTaxas(dd.ntnbTaxas);
         if(typeof dd.ntnbVNA==="number"&&dd.ntnbVNA>0)setNtnbVNA(dd.ntnbVNA);
@@ -4583,12 +4594,12 @@ function App(){
     if(!inited||!aesKey)return;
     (async()=>{
       try{
-        const obj={port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,selicAtual,metaMensalIF,cenarioIPCA,dataNascimento,insightRenda,insightRendaTs,insightRendaSnap,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,piCycle,nupl,goldSilver,goldSP500,realGoldZ,fx:{...FX},btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,insightSnap,infIPCA,infIGPM,infINCC,infCPI,ntnbTaxas,ntnbVNA,ntnbUpdTs,ntnbDataCotacao,ntnbDiasDefasagem,ntnbVencimentos:{...NTNB_VENCIMENTOS},cambialCash};
+        const obj={port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,selicAtual,metaMensalIF,cenarioIPCA,dataNascimento,insightRenda,insightRendaTs,insightRendaSnap,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,piCycle,nupl,goldSilver,goldSP500,realGoldZ,fx:{...FX},btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,insightSnap,infIPCA,infIGPM,infINCC,infCPI,infHICP,infCPIJP,juroFed,juroECB,juroBoJ,ntnbTaxas,ntnbVNA,ntnbUpdTs,ntnbDataCotacao,ntnbDiasDefasagem,ntnbVencimentos:{...NTNB_VENCIMENTOS},cambialCash};
         const enc=await aesEncrypt(aesKey,obj);
         localStorage.setItem(SK_ENC,enc);
       }catch(e){}
     })();
-  },[port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,selicAtual,metaMensalIF,cenarioIPCA,dataNascimento,insightRenda,insightRendaTs,insightRendaSnap,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,piCycle,nupl,goldSilver,goldSP500,realGoldZ,btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,insightSnap,infIPCA,infIGPM,infINCC,infCPI,ntnbTaxas,ntnbVNA,ntnbUpdTs,cambialCash,inited,aesKey]);
+  },[port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,selicAtual,metaMensalIF,cenarioIPCA,dataNascimento,insightRenda,insightRendaTs,insightRendaSnap,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,piCycle,nupl,goldSilver,goldSP500,realGoldZ,btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,insightSnap,infIPCA,infIGPM,infINCC,infCPI,infHICP,infCPIJP,juroFed,juroECB,juroBoJ,ntnbTaxas,ntnbVNA,ntnbUpdTs,cambialCash,inited,aesKey]);
 
   // Auto-lock por inatividade (15 min)
   useEffect(()=>{
@@ -4809,10 +4820,10 @@ function App(){
           setInfINCC({valor:calcAcum12(d),mensal,ref:formatRef(d[d.length-1].data)});
         }
       }catch(e){}
-      // CPI EUA via FRED (Federal Reserve Bank of St. Louis) - serie CPIAUCSL
-      // Serie: Consumer Price Index for All Urban Consumers: All Items (Seasonally Adjusted)
-      // Atualizada mensalmente pelo BLS via FRED. Requer API key gratuita (botao FRED no topo).
-      // Estrategia: faz 2 chamadas - units=pc1 (YoY %) e units=pch (MoM %) - retornam % prontos
+      // CPI EUA + HICP Eurozona + CPI Japao + juros (Fed/ECB/BoJ) via FRED
+      // Series: CPIAUCSL (CPI EUA SA), CP0000EZ19M086NEST (HICP Euro 19), JPNCPIALLMINMEI (CPI Japao)
+      // FEDFUNDS (Fed Effective Rate), ECBDFR (ECB Deposit Facility), IRSTCI01JPM156N (BoJ Call Money)
+      // Atualizada mensalmente via FRED. Requer API key gratuita (botao FRED no topo).
       if(fredKey){
         try{
           const proxiesCPI=[
@@ -4839,29 +4850,64 @@ function App(){
             return null;
           };
           const baseUrl="https://api.stlouisfed.org/fred/series/observations";
-          // YoY (year-over-year %): pega as 2 ultimas observacoes mensais
-          const urlYoY=baseUrl+"?series_id=CPIAUCSL&units=pc1&sort_order=desc&limit=2&api_key="+encodeURIComponent(fredKey)+"&file_type=json";
-          const jYoY=await fetchFred(urlYoY);
-          if(cancelado)return;
-          // MoM (month-over-month %): pega a ultima observacao mensal
-          const urlMoM=baseUrl+"?series_id=CPIAUCSL&units=pch&sort_order=desc&limit=1&api_key="+encodeURIComponent(fredKey)+"&file_type=json";
-          const jMoM=await fetchFred(urlMoM);
-          if(cancelado)return;
-          if(jYoY&&jYoY.observations&&jYoY.observations.length>0){
+          const meses=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+          // Helper: busca YoY (pc1) e MoM (pch) de uma serie de CPI e retorna {valor,mensal,ref}
+          const fetchInflacao=async(seriesId)=>{
+            const urlYoY=baseUrl+"?series_id="+seriesId+"&units=pc1&sort_order=desc&limit=1&api_key="+encodeURIComponent(fredKey)+"&file_type=json";
+            const jYoY=await fetchFred(urlYoY);
+            if(cancelado||!jYoY||!jYoY.observations||jYoY.observations.length===0)return null;
+            const urlMoM=baseUrl+"?series_id="+seriesId+"&units=pch&sort_order=desc&limit=1&api_key="+encodeURIComponent(fredKey)+"&file_type=json";
+            const jMoM=await fetchFred(urlMoM);
+            if(cancelado)return null;
             const obs=jYoY.observations[0];
             const v12=parseFloat(obs.value);
+            if(isNaN(v12))return null;
             const refDate=new Date(obs.date+"T00:00:00");
-            const meses=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
             let vMes=null;
             if(jMoM&&jMoM.observations&&jMoM.observations.length>0){
               const vm=parseFloat(jMoM.observations[0].value);
               if(!isNaN(vm))vMes=vm;
             }
-            if(!isNaN(v12)&&!cancelado){
-              setInfCPI({valor:v12,mensal:vMes,ref:meses[refDate.getMonth()]+"/"+String(refDate.getFullYear()).slice(2)});
-            }
-          }
-        }catch(e){console.warn("Erro buscando CPI EUA via FRED:",e&&e.message);}
+            return{valor:v12,mensal:vMes,ref:meses[refDate.getMonth()]+"/"+String(refDate.getFullYear()).slice(2)};
+          };
+          // Helper: busca taxa de juros (valor absoluto - units=lin/default) - retorna {valor,ref}
+          const fetchJuro=async(seriesId)=>{
+            const url=baseUrl+"?series_id="+seriesId+"&sort_order=desc&limit=1&api_key="+encodeURIComponent(fredKey)+"&file_type=json";
+            const j=await fetchFred(url);
+            if(cancelado||!j||!j.observations||j.observations.length===0)return null;
+            const obs=j.observations[0];
+            const v=parseFloat(obs.value);
+            if(isNaN(v))return null;
+            const refDate=new Date(obs.date+"T00:00:00");
+            return{valor:v,ref:meses[refDate.getMonth()]+"/"+String(refDate.getFullYear()).slice(2)};
+          };
+          // ===== Inflacoes internacionais =====
+          // CPI EUA (CPIAUCSL - All Items, Seasonally Adjusted)
+          const cpi=await fetchInflacao("CPIAUCSL");
+          if(cancelado)return;
+          if(cpi)setInfCPI(cpi);
+          // HICP Zona do Euro 19 paises (Eurostat - NSA)
+          const hicp=await fetchInflacao("CP0000EZ19M086NEST");
+          if(cancelado)return;
+          if(hicp)setInfHICP(hicp);
+          // CPI Japao (OECD - All Items, NSA)
+          const cpijp=await fetchInflacao("JPNCPIALLMINMEI");
+          if(cancelado)return;
+          if(cpijp)setInfCPIJP(cpijp);
+          // ===== Juros dos bancos centrais =====
+          // Fed Funds Effective Rate (mensal)
+          const fed=await fetchJuro("FEDFUNDS");
+          if(cancelado)return;
+          if(fed)setJuroFed(fed);
+          // ECB Deposit Facility Rate (diario - pega ultima leitura)
+          const ecb=await fetchJuro("ECBDFR");
+          if(cancelado)return;
+          if(ecb)setJuroECB(ecb);
+          // BoJ Call Money / Interbank Rate (mensal - proxy para policy rate)
+          const boj=await fetchJuro("IRSTCI01JPM156N");
+          if(cancelado)return;
+          if(boj)setJuroBoJ(boj);
+        }catch(e){console.warn("Erro buscando inflacoes/juros via FRED:",e&&e.message);}
       }
     })();
     // Busca Selic atual (meta - serie 432) e recalibra RR
@@ -7179,65 +7225,41 @@ Responda APENAS com o texto do insight, sem prefacio ou comentarios meta.`;
       btcUsd&&h("span",{style:{marginLeft:lastPU?8:0}},(lastPU?" - ":"")),
       btcUsd&&h("span",{style:{color:"#F7931A",fontWeight:700}},"BTC USD "+fN(btcUsd,0)),
       btcUsd&&typeof btcVar==="number"&&h("span",{style:{marginLeft:4,color:btcVar>=0?"#4CAF82":"#E05252",fontWeight:700}},(btcVar>=0?"▲":"▼")+fN(Math.abs(btcVar),2)+"%"),
-      // MVRV-Z Score (ciclo BTC): mostra so se ja temos valor
-      typeof mvrvZ==="number"&&h("span",{
-        title:"MVRV-Z Score (ciclo Bitcoin). >7 topo de ciclo / 2-7 expansao / 0-2 neutro / <0 fundo. Atualizado diariamente via BGeometrics."+(mvrvZTs?" Ultima leitura: "+new Date(mvrvZTs).toLocaleDateString("pt-BR"):""),
-        style:{
-          marginLeft:8,
-          padding:"1px 6px",
-          borderRadius:3,
-          fontWeight:700,
-          fontSize:10,
-          fontFamily:"monospace",
-          letterSpacing:0.5,
-          color:mvrvZ>=7?"#E05252":mvrvZ>=2?"#E89060":mvrvZ>=0?"#E8C44A":"#4CAF82",
-          background:mvrvZ>=7?"rgba(224,82,82,0.10)":mvrvZ>=2?"rgba(232,144,96,0.10)":mvrvZ>=0?"rgba(232,196,74,0.10)":"rgba(76,175,130,0.10)",
-          border:"1px solid "+(mvrvZ>=7?"rgba(224,82,82,0.30)":mvrvZ>=2?"rgba(232,144,96,0.30)":mvrvZ>=0?"rgba(232,196,74,0.30)":"rgba(76,175,130,0.30)")
-        }
-      },"MVRV-Z "+mvrvZ.toFixed(2)),
       xauBrl&&h("span",{style:{marginLeft:(lastPU||btcUsd)?8:0}},((lastPU||btcUsd)?" - ":"")),
       xauBrl&&h("span",{style:{color:"#E8C44A",fontWeight:700}},"Ouro R$ "+fN(xauBrl,2)+"/g"),
       xauBrl&&typeof xauVar==="number"&&h("span",{style:{marginLeft:4,color:xauVar>=0?"#4CAF82":"#E05252",fontWeight:700}},(xauVar>=0?"▲":"▼")+fN(Math.abs(xauVar),2)+"%"),
       pErr&&h("span",{style:{color:"#E05252",marginLeft:8}},"Erro: "+pErr)
     ),
-    // Segunda linha: indices de inflacao acumulada 12 meses + variacao do mes
-    (infIPCA||infIGPM||infINCC||infCPI)&&h("div",{style:{fontSize:9,color:"#5A5550",marginTop:2,fontFamily:"monospace"}},
+    // Linha de inflacao BR: IPCA + IGP-M + INCC (acumulado 12m + variacao do mes)
+    (infIPCA||infIGPM||infINCC)&&h("div",{style:{fontSize:9,color:"#5A5550",marginTop:3,fontFamily:"monospace"}},
+      h("span",{style:{color:"#7A7570",letterSpacing:1,marginRight:6,fontSize:8.5}},"BR:"),
       infIPCA&&h("span",{style:{color:"#C8A96E",fontWeight:700}},"IPCA "+fN(infIPCA.valor,2)+"%"),
       infIPCA&&h("span",{style:{color:"#5A5550",marginLeft:3}},"("+(typeof infIPCA.mensal==="number"?fN(infIPCA.mensal,2)+"% "+infIPCA.ref:infIPCA.ref)+")"),
       infIGPM&&h("span",{style:{marginLeft:8,color:"#5B8FD4",fontWeight:700}},"IGP-M "+fN(infIGPM.valor,2)+"%"),
       infIGPM&&h("span",{style:{color:"#5A5550",marginLeft:3}},"("+(typeof infIGPM.mensal==="number"?fN(infIGPM.mensal,2)+"% "+infIGPM.ref:infIGPM.ref)+")"),
       infINCC&&h("span",{style:{marginLeft:8,color:"#A56FD4",fontWeight:700}},"INCC "+fN(infINCC.valor,2)+"%"),
-      infINCC&&h("span",{style:{color:"#5A5550",marginLeft:3}},"("+(typeof infINCC.mensal==="number"?fN(infINCC.mensal,2)+"% "+infINCC.ref:infINCC.ref)+")"),
-      infCPI&&h("span",{style:{marginLeft:8,color:"#4CAF82",fontWeight:700}},"CPI "+fN(infCPI.valor,2)+"%"),
-      infCPI&&h("span",{style:{color:"#5A5550",marginLeft:3}},"("+(typeof infCPI.mensal==="number"?fN(infCPI.mensal,2)+"% "+infCPI.ref:infCPI.ref)+")")
+      infINCC&&h("span",{style:{color:"#5A5550",marginLeft:3}},"("+(typeof infINCC.mensal==="number"?fN(infINCC.mensal,2)+"% "+infINCC.ref:infINCC.ref)+")")
     ),
-    // Terceira linha: interpretacao do MVRV-Z (so aparece se temos o valor)
-    typeof mvrvZ==="number"&&h("div",{style:{fontSize:9,color:"#5A5550",marginTop:3,fontFamily:"monospace",display:"flex",flexWrap:"wrap",gap:"2px 7px",alignItems:"center"}},
-      h("span",{style:{fontSize:9,color:"#C8A96E",letterSpacing:1.5,marginRight:2,fontWeight:700}},"MVRV-Z "+mvrvZ.toFixed(2)+":"),
-      ...[
-        {tag:"<0",nome:"FUNDO",desc:"compra",cor:"#4CAF82",ativa:mvrvZ<0},
-        {tag:"0-2",nome:"NEUTRO",desc:"equilibrio",cor:"#E8C44A",ativa:mvrvZ>=0&&mvrvZ<2},
-        {tag:"2-7",nome:"EXPANSAO",desc:"bull em curso",cor:"#E89060",ativa:mvrvZ>=2&&mvrvZ<7},
-        {tag:">7",nome:"TOPO",desc:"venda",cor:"#E05252",ativa:mvrvZ>=7}
-      ].map((z,i)=>h("span",{key:i,style:{
-        display:"inline-flex",
-        alignItems:"center",
-        gap:3,
-        padding:z.ativa?"1px 5px":"0",
-        borderRadius:3,
-        background:z.ativa?z.cor+"15":"transparent",
-        border:z.ativa?"1px solid "+z.cor+"55":"1px solid transparent",
-        opacity:z.ativa?1:0.55
-      }},
-        h("span",{style:{width:z.ativa?6:4,height:z.ativa?6:4,borderRadius:"50%",background:z.cor}}),
-        h("span",{style:{color:z.cor,fontWeight:z.ativa?700:500,fontSize:8.5,letterSpacing:0.5}},z.nome),
-        h("span",{style:{color:"#6A6050",fontSize:7.5}},z.tag),
-        h("span",{style:{color:"#6A6050",fontSize:7.5,fontStyle:"italic"}},"\u00b7 "+z.desc)
-      ))
+    // Linha de inflacao internacional: CPI EUA + HICP Eurozona + CPI Japao (via FRED)
+    (infCPI||infHICP||infCPIJP)&&h("div",{style:{fontSize:9,color:"#5A5550",marginTop:2,fontFamily:"monospace"}},
+      h("span",{style:{color:"#7A7570",letterSpacing:1,marginRight:6,fontSize:8.5}},"INT:"),
+      infCPI&&h("span",{title:"CPI EUA (CPIAUCSL - All Items, Seasonally Adjusted) - 12 meses",style:{color:"#4CAF82",fontWeight:700}},"CPI EUA "+fN(infCPI.valor,2)+"%"),
+      infCPI&&h("span",{style:{color:"#5A5550",marginLeft:3}},"("+(typeof infCPI.mensal==="number"?fN(infCPI.mensal,2)+"% "+infCPI.ref:infCPI.ref)+")"),
+      infHICP&&h("span",{title:"HICP Eurozona (CP0000EZ19M086NEST - 19 paises, NSA) - 12 meses",style:{marginLeft:8,color:"#5B8FD4",fontWeight:700}},"HICP Euro "+fN(infHICP.valor,2)+"%"),
+      infHICP&&h("span",{style:{color:"#5A5550",marginLeft:3}},"("+(typeof infHICP.mensal==="number"?fN(infHICP.mensal,2)+"% "+infHICP.ref:infHICP.ref)+")"),
+      infCPIJP&&h("span",{title:"CPI Japao (JPNCPIALLMINMEI - All Items, NSA) - 12 meses",style:{marginLeft:8,color:"#E89060",fontWeight:700}},"CPI JPN "+fN(infCPIJP.valor,2)+"%"),
+      infCPIJP&&h("span",{style:{color:"#5A5550",marginLeft:3}},"("+(typeof infCPIJP.mensal==="number"?fN(infCPIJP.mensal,2)+"% "+infCPIJP.ref:infCPIJP.ref)+")")
     ),
-    // Linha de erro/debug do MVRV-Z (so quando ha chave BG cadastrada mas falhou)
-    bgKey&&typeof mvrvZ!=="number"&&mvrvZErr&&h("div",{style:{fontSize:8,color:"#E89060",marginTop:3,fontFamily:"monospace",fontStyle:"italic"}},
-      "MVRV-Z: chave BG cadastrada mas API nao respondeu - ",mvrvZErr
+    // Linha de juros dos bancos centrais: Selic BR + Fed EUA + ECB Euro + BoJ Japao
+    (typeof selicAtual==="number"||juroFed||juroECB||juroBoJ)&&h("div",{style:{fontSize:9,color:"#5A5550",marginTop:2,fontFamily:"monospace"}},
+      h("span",{style:{color:"#7A7570",letterSpacing:1,marginRight:6,fontSize:8.5}},"JUROS:"),
+      typeof selicAtual==="number"&&h("span",{title:"Selic Brasil (meta - serie BCB 432) - taxa basica anual",style:{color:"#C8A96E",fontWeight:700}},"Selic BR "+fN(selicAtual,2)+"%"),
+      juroFed&&h("span",{title:"Fed Funds Effective Rate (FRED: FEDFUNDS) - taxa basica EUA",style:{marginLeft:8,color:"#4CAF82",fontWeight:700}},"Fed "+fN(juroFed.valor,2)+"%"),
+      juroFed&&h("span",{style:{color:"#5A5550",marginLeft:3}},"("+juroFed.ref+")"),
+      juroECB&&h("span",{title:"ECB Deposit Facility Rate (FRED: ECBDFR) - taxa basica Eurozona",style:{marginLeft:8,color:"#5B8FD4",fontWeight:700}},"ECB "+fN(juroECB.valor,2)+"%"),
+      juroECB&&h("span",{style:{color:"#5A5550",marginLeft:3}},"("+juroECB.ref+")"),
+      juroBoJ&&h("span",{title:"BoJ Call Money Rate (FRED: IRSTCI01JPM156N) - taxa basica Japao",style:{marginLeft:8,color:"#E89060",fontWeight:700}},"BoJ "+fN(juroBoJ.valor,2)+"%"),
+      juroBoJ&&h("span",{style:{color:"#5A5550",marginLeft:3}},"("+juroBoJ.ref+")")
     )
   );
 
