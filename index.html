@@ -418,7 +418,7 @@ const SWR=0.04;// LEGADO - sera substituido por swrAjustado(idade) onde aplicave
 // - 2020 (COVID): -35%
 //
 // Inflacao acumulada 2000-2024:
-// - IPCA BR: ~280% (5.5%/a) | CPI EUA: ~75% (2.3%/a) | HICP EUR: ~65% (2.1%/a) | CPI JPN: ~5% (0.2%/a)
+// - IPCA BR: ~280% (5.5%/a) | CPI EUA: ~75% (2.3%/a) | HICP EUR: ~65% (2.1%/a)
 // - Em 51a a 5.7% a.a., R$ perde ~17x poder de compra; USD ~3x (5.7x mais erosao em BRL)
 //
 // CALIBRACAO POR IDADE (alvo cambial cai gradualmente com horizonte mais curto):
@@ -4274,7 +4274,6 @@ function App(){
   const [infINCC,setInfINCC]=useState(null);
   const [infCPI,setInfCPI]=useState(null);
   const [infHICP,setInfHICP]=useState(null);  // HICP Zona do Euro (FRED: CP0000EZ19M086NEST)
-  const [infCPIJP,setInfCPIJP]=useState(null);// CPI Japao (rateinflation.com - Statistics Bureau Japan)
   const [juroFed,setJuroFed]=useState(null);  // Fed Funds Effective Rate (FRED: FEDFUNDS)
   const [juroECB,setJuroECB]=useState(null);  // ECB Deposit Facility Rate (FRED: ECBDFR)
   const [juroBoJ,setJuroBoJ]=useState(null);  // BoJ Call Money Rate (FRED: IRSTCI01JPM156N)
@@ -4558,7 +4557,6 @@ function App(){
         if(dd.infINCC&&typeof dd.infINCC==="object")setInfINCC(dd.infINCC);
         if(dd.infCPI&&typeof dd.infCPI==="object")setInfCPI(dd.infCPI);
         if(dd.infHICP&&typeof dd.infHICP==="object")setInfHICP(dd.infHICP);
-        if(dd.infCPIJP&&typeof dd.infCPIJP==="object")setInfCPIJP(dd.infCPIJP);
         // Juros dos bancos centrais (Fed/ECB/BoJ via FRED)
         if(dd.juroFed&&typeof dd.juroFed==="object")setJuroFed(dd.juroFed);
         if(dd.juroECB&&typeof dd.juroECB==="object")setJuroECB(dd.juroECB);
@@ -4594,12 +4592,12 @@ function App(){
     if(!inited||!aesKey)return;
     (async()=>{
       try{
-        const obj={port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,selicAtual,metaMensalIF,cenarioIPCA,dataNascimento,insightRenda,insightRendaTs,insightRendaSnap,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,piCycle,nupl,goldSilver,goldSP500,realGoldZ,fx:{...FX},btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,insightSnap,infIPCA,infIGPM,infINCC,infCPI,infHICP,infCPIJP,juroFed,juroECB,juroBoJ,ntnbTaxas,ntnbVNA,ntnbUpdTs,ntnbDataCotacao,ntnbDiasDefasagem,ntnbVencimentos:{...NTNB_VENCIMENTOS},cambialCash};
+        const obj={port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,selicAtual,metaMensalIF,cenarioIPCA,dataNascimento,insightRenda,insightRendaTs,insightRendaSnap,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,piCycle,nupl,goldSilver,goldSP500,realGoldZ,fx:{...FX},btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,insightSnap,infIPCA,infIGPM,infINCC,infCPI,infHICP,juroFed,juroECB,juroBoJ,ntnbTaxas,ntnbVNA,ntnbUpdTs,ntnbDataCotacao,ntnbDiasDefasagem,ntnbVencimentos:{...NTNB_VENCIMENTOS},cambialCash};
         const enc=await aesEncrypt(aesKey,obj);
         localStorage.setItem(SK_ENC,enc);
       }catch(e){}
     })();
-  },[port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,selicAtual,metaMensalIF,cenarioIPCA,dataNascimento,insightRenda,insightRendaTs,insightRendaSnap,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,piCycle,nupl,goldSilver,goldSP500,realGoldZ,btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,insightSnap,infIPCA,infIGPM,infINCC,infCPI,infHICP,infCPIJP,juroFed,juroECB,juroBoJ,ntnbTaxas,ntnbVNA,ntnbUpdTs,cambialCash,inited,aesKey]);
+  },[port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,selicAtual,metaMensalIF,cenarioIPCA,dataNascimento,insightRenda,insightRendaTs,insightRendaSnap,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,piCycle,nupl,goldSilver,goldSP500,realGoldZ,btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,insightSnap,infIPCA,infIGPM,infINCC,infCPI,infHICP,juroFed,juroECB,juroBoJ,ntnbTaxas,ntnbVNA,ntnbUpdTs,cambialCash,inited,aesKey]);
 
   // Auto-lock por inatividade (15 min)
   useEffect(()=>{
@@ -4892,61 +4890,6 @@ function App(){
           const hicp=await fetchInflacao("CP0000EZ19M086NEST");
           if(cancelado)return;
           if(hicp)setInfHICP(hicp);
-          // CPI Japao via rateinflation.com (FRED descontinuou em mai/2024)
-          // HTML estavel, fonte: Statistics Bureau of Japan. Scraping via 3 proxies CORS.
-          const fetchInflacaoJapao=async()=>{
-            const url="https://www.rateinflation.com/inflation-rate/japan-inflation-rate/";
-            const proxies=[
-              u=>"https://corsproxy.io/?url="+encodeURIComponent(u),
-              u=>"https://api.allorigins.win/raw?url="+encodeURIComponent(u),
-              u=>"https://api.codetabs.com/v1/proxy/?quest="+encodeURIComponent(u)
-            ];
-            let html=null;
-            for(const mk of proxies){
-              if(cancelado)return null;
-              try{
-                const ctrl=new AbortController();
-                const tid=setTimeout(()=>ctrl.abort(),10000);
-                const r=await fetch(mk(url),{signal:ctrl.signal});
-                clearTimeout(tid);
-                if(!r.ok)continue;
-                const text=await r.text();
-                if(!text||text.length<500)continue;
-                if(text.toLowerCase().includes("host not in allowlist"))continue;
-                html=text;break;
-              }catch(e){continue;}
-            }
-            if(!html)return null;
-            // Regex 1: YoY atual. Frase: "The inflation rate year over year is 1.3%"
-            const mYoY=html.match(/inflation\s+rate\s+year\s+over\s+year\s+is\s+(-?[\d.]+)\s*%/i);
-            if(!mYoY)return null;
-            const valor=parseFloat(mYoY[1]);
-            if(isNaN(valor))return null;
-            // Regex 2: MoM real. Frase: "Inflation from March 2026 to April 2026 was 0.3%"
-            const mMoM=html.match(/Inflation\s+from\s+\w+\s+\d{4}\s+to\s+(\w+)\s+(\d{4})\s+was\s+(-?[\d.]+)\s*%/i);
-            let vMes=null,refStr=null;
-            if(mMoM){
-              const vm=parseFloat(mMoM[3]);
-              if(!isNaN(vm))vMes=vm;
-              // mes ref: mMoM[1]=mes destino (ex "April"), mMoM[2]=ano (ex "2026")
-              const mesMap={january:0,february:1,march:2,april:3,may:4,june:5,july:6,august:7,september:8,october:9,november:10,december:11};
-              const mIdx=mesMap[mMoM[1].toLowerCase()];
-              if(typeof mIdx==="number")refStr=meses[mIdx]+"/"+mMoM[2].slice(2);
-            }
-            // Fallback ref: tenta "summary for April 2026"
-            if(!refStr){
-              const mRef=html.match(/summary\s+for\s+(\w+)\s+(\d{4})/i);
-              if(mRef){
-                const mesMap={january:0,february:1,march:2,april:3,may:4,june:5,july:6,august:7,september:8,october:9,november:10,december:11};
-                const mIdx=mesMap[mRef[1].toLowerCase()];
-                if(typeof mIdx==="number")refStr=meses[mIdx]+"/"+mRef[2].slice(2);
-              }
-            }
-            return{valor,mensal:vMes,ref:refStr||"--"};
-          };
-          const cpijp=await fetchInflacaoJapao();
-          if(cancelado)return;
-          if(cpijp)setInfCPIJP(cpijp);
           // ===== Juros dos bancos centrais =====
           // Fed Funds Effective Rate (mensal)
           const fed=await fetchJuro("FEDFUNDS");
@@ -4962,6 +4905,12 @@ function App(){
           if(boj)setJuroBoJ(boj);
         }catch(e){console.warn("Erro buscando inflacoes/juros via FRED:",e&&e.message);}
       }
+      // CPI Japao: removido em 16/jun/2026 apos 6 tentativas falhas.
+      // FRED descontinuou series Japao em mai/2024 (paradas em jun/2021).
+      // Tentativas: Tradingeconomics guest (token limitado MX/SE), scraping rateinflation
+      // via fetch (postMessage err), XHR (xhr.onerror), JSONP (script.onerror) - todas
+      // bloqueadas pelo ambiente do tablet S7 FE (Samsung Internet/Chrome wrapper).
+      // Voltar a esse problema so com fonte JSON+CORS aberto nativo (tipo BCB).
     })();
     // Busca Selic atual (meta - serie 432) e recalibra RR
     (async()=>{
@@ -7293,15 +7242,13 @@ Responda APENAS com o texto do insight, sem prefacio ou comentarios meta.`;
       infINCC&&h("span",{style:{marginLeft:8,color:"#A56FD4",fontWeight:700}},"INCC "+fN(infINCC.valor,2)+"%"),
       infINCC&&h("span",{style:{color:"#5A5550",marginLeft:3}},"("+(typeof infINCC.mensal==="number"?fN(infINCC.mensal,2)+"% "+infINCC.ref:infINCC.ref)+")")
     ),
-    // Linha de inflacao internacional: CPI EUA + HICP Eurozona + CPI Japao (via FRED)
-    (infCPI||infHICP||infCPIJP)&&h("div",{style:{fontSize:9,color:"#5A5550",marginTop:2,fontFamily:"monospace"}},
+    // Linha de inflacao internacional: CPI EUA + HICP Eurozona (via FRED)
+    (infCPI||infHICP)&&h("div",{style:{fontSize:9,color:"#5A5550",marginTop:2,fontFamily:"monospace"}},
       h("span",{style:{color:"#7A7570",letterSpacing:1,marginRight:6,fontSize:8.5}},"INT:"),
       infCPI&&h("span",{title:"CPI EUA (CPIAUCSL - All Items, Seasonally Adjusted) - 12 meses",style:{color:"#4CAF82",fontWeight:700}},"CPI EUA "+fN(infCPI.valor,2)+"%"),
       infCPI&&h("span",{style:{color:"#5A5550",marginLeft:3}},"("+(typeof infCPI.mensal==="number"?fN(infCPI.mensal,2)+"% "+infCPI.ref:infCPI.ref)+")"),
       infHICP&&h("span",{title:"HICP Eurozona (CP0000EZ19M086NEST - 19 paises, NSA) - 12 meses",style:{marginLeft:8,color:"#5B8FD4",fontWeight:700}},"HICP Euro "+fN(infHICP.valor,2)+"%"),
-      infHICP&&h("span",{style:{color:"#5A5550",marginLeft:3}},"("+(typeof infHICP.mensal==="number"?fN(infHICP.mensal,2)+"% "+infHICP.ref:infHICP.ref)+")"),
-      infCPIJP&&h("span",{title:"CPI Japao (Statistics Bureau Japan via rateinflation.com) - 12 meses",style:{marginLeft:8,color:"#E89060",fontWeight:700}},"CPI JPN "+fN(infCPIJP.valor,2)+"%"),
-      infCPIJP&&h("span",{style:{color:"#5A5550",marginLeft:3}},"("+(typeof infCPIJP.mensal==="number"?fN(infCPIJP.mensal,2)+"% "+infCPIJP.ref:infCPIJP.ref)+")")
+      infHICP&&h("span",{style:{color:"#5A5550",marginLeft:3}},"("+(typeof infHICP.mensal==="number"?fN(infHICP.mensal,2)+"% "+infHICP.ref:infHICP.ref)+")")
     ),
     // Linha de juros dos bancos centrais: Selic BR + Fed EUA + ECB Euro + BoJ Japao
     (typeof selicAtual==="number"||juroFed||juroECB||juroBoJ)&&h("div",{style:{fontSize:9,color:"#5A5550",marginTop:2,fontFamily:"monospace"}},
