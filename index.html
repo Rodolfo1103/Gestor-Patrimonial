@@ -4277,10 +4277,6 @@ function App(){
   const [juroFed,setJuroFed]=useState(null);  // Fed Funds Effective Rate (FRED: FEDFUNDS)
   const [juroECB,setJuroECB]=useState(null);  // ECB Deposit Facility Rate (FRED: ECBDFR)
   const [juroBoJ,setJuroBoJ]=useState(null);  // BoJ Call Money Rate (FRED: IRSTCI01JPM156N)
-  const [diJ27,setDiJ27]=useState(null);      // DI1F27 - DI futuro jan/2027 (curto - via brapi.dev)
-  const [diJ29,setDiJ29]=useState(null);      // DI1F29 - DI futuro jan/2029 (medio - via brapi.dev)
-  const [diJ35,setDiJ35]=useState(null);      // DI1F35 - DI futuro jan/2035 (longo - via brapi.dev)
-  const [diDebug,setDiDebug]=useState("");    // Debug temporario do fetch DI
   const [aErr,setAErr]=useState("");
   const [chatM,setChatM]=useState([]);
   const [chatIn,setChatIn]=useState("");
@@ -4565,10 +4561,6 @@ function App(){
         if(dd.juroFed&&typeof dd.juroFed==="object")setJuroFed(dd.juroFed);
         if(dd.juroECB&&typeof dd.juroECB==="object")setJuroECB(dd.juroECB);
         if(dd.juroBoJ&&typeof dd.juroBoJ==="object")setJuroBoJ(dd.juroBoJ);
-        // DI futuros (brapi.dev v2/futures)
-        if(dd.diJ27&&typeof dd.diJ27==="object")setDiJ27(dd.diJ27);
-        if(dd.diJ29&&typeof dd.diJ29==="object")setDiJ29(dd.diJ29);
-        if(dd.diJ35&&typeof dd.diJ35==="object")setDiJ35(dd.diJ35);
         // NTN-B taxas e VNA
         if(dd.ntnbTaxas&&typeof dd.ntnbTaxas==="object")setNtnbTaxas(dd.ntnbTaxas);
         if(typeof dd.ntnbVNA==="number"&&dd.ntnbVNA>0)setNtnbVNA(dd.ntnbVNA);
@@ -4600,12 +4592,12 @@ function App(){
     if(!inited||!aesKey)return;
     (async()=>{
       try{
-        const obj={port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,selicAtual,metaMensalIF,cenarioIPCA,dataNascimento,insightRenda,insightRendaTs,insightRendaSnap,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,piCycle,nupl,goldSilver,goldSP500,realGoldZ,fx:{...FX},btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,insightSnap,infIPCA,infIGPM,infINCC,infCPI,infHICP,juroFed,juroECB,juroBoJ,diJ27,diJ29,diJ35,ntnbTaxas,ntnbVNA,ntnbUpdTs,ntnbDataCotacao,ntnbDiasDefasagem,ntnbVencimentos:{...NTNB_VENCIMENTOS},cambialCash};
+        const obj={port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,selicAtual,metaMensalIF,cenarioIPCA,dataNascimento,insightRenda,insightRendaTs,insightRendaSnap,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,piCycle,nupl,goldSilver,goldSP500,realGoldZ,fx:{...FX},btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,insightSnap,infIPCA,infIGPM,infINCC,infCPI,infHICP,juroFed,juroECB,juroBoJ,ntnbTaxas,ntnbVNA,ntnbUpdTs,ntnbDataCotacao,ntnbDiasDefasagem,ntnbVencimentos:{...NTNB_VENCIMENTOS},cambialCash};
         const enc=await aesEncrypt(aesKey,obj);
         localStorage.setItem(SK_ENC,enc);
       }catch(e){}
     })();
-  },[port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,selicAtual,metaMensalIF,cenarioIPCA,dataNascimento,insightRenda,insightRendaTs,insightRendaSnap,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,piCycle,nupl,goldSilver,goldSP500,realGoldZ,btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,insightSnap,infIPCA,infIGPM,infINCC,infCPI,infHICP,juroFed,juroECB,juroBoJ,diJ27,diJ29,diJ35,ntnbTaxas,ntnbVNA,ntnbUpdTs,cambialCash,inited,aesKey]);
+  },[port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,selicAtual,metaMensalIF,cenarioIPCA,dataNascimento,insightRenda,insightRendaTs,insightRendaSnap,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,piCycle,nupl,goldSilver,goldSP500,realGoldZ,btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,insightSnap,infIPCA,infIGPM,infINCC,infCPI,infHICP,juroFed,juroECB,juroBoJ,ntnbTaxas,ntnbVNA,ntnbUpdTs,cambialCash,inited,aesKey]);
 
   // Auto-lock por inatividade (15 min)
   useEffect(()=>{
@@ -4920,74 +4912,13 @@ function App(){
       // bloqueadas pelo ambiente do tablet S7 FE (Samsung Internet/Chrome wrapper).
       // Voltar a esse problema so com fonte JSON+CORS aberto nativo (tipo BCB).
 
-      // ===== DI Futuros via brapi.dev (curva de juros pre BRL) =====
-      // 3 contratos: jan/27 (curto), jan/29 (medio), jan/35 (longo)
-      // brapi.dev tem CORS aberto nativo (igual BCB). Requer token gratuito.
-      // settlementRate = taxa oficial do dia (%a.a.). close = ultima taxa negociada.
-      // Se plano Free nao cobrir Futuros, retorna 403 - falha graciosamente.
-      if(cancelado)return;
-      if(!brapiKey){
-        setDiDebug("DI: brapiKey vazio (clique no botao BRAPI no topo)");
-      }else{
-        const dlogs=[];
-        const dlog=(m)=>{dlogs.push(m);setDiDebug("DI: "+dlogs.join(" / "));};
-        dlog("start");
-        try{
-          const proxiesDI=[
-            {name:"direto",mk:u=>u},
-            {name:"cpx",mk:u=>"https://corsproxy.io/?url="+encodeURIComponent(u)},
-            {name:"ao",mk:u=>"https://api.allorigins.win/raw?url="+encodeURIComponent(u)},
-            {name:"ct",mk:u=>"https://api.codetabs.com/v1/proxy/?quest="+encodeURIComponent(u)}
-          ];
-          const url="https://brapi.dev/api/v2/futures/quote?symbols=DI1F27,DI1F29,DI1F35&token="+encodeURIComponent(brapiKey);
-          let jResp=null,respText=null,proxyOk=null;
-          for(const p of proxiesDI){
-            if(cancelado)return;
-            try{
-              const ctrl=new AbortController();
-              const tid=setTimeout(()=>ctrl.abort(),8000);
-              const r=await fetch(p.mk(url),{signal:ctrl.signal});
-              clearTimeout(tid);
-              dlog(p.name+"="+r.status);
-              if(!r.ok){
-                // Captura texto pra ver mensagem de erro mesmo em status nao-2xx
-                try{respText=await r.text();}catch(e){}
-                continue;
-              }
-              const text=await r.text();
-              dlog(p.name+"L="+(text?text.length:0));
-              if(!text||text.toLowerCase().includes("host not in allowlist"))continue;
-              const j=JSON.parse(text);
-              if(j&&Array.isArray(j.quotes)&&j.quotes.length>0){jResp=j;proxyOk=p.name;break;}
-              if(j&&j.error){respText=text;jResp=j;break;}
-            }catch(e){dlog(p.name+"err="+(e&&e.message||"?").slice(0,25));continue;}
-          }
-          if(!jResp){
-            // Mostra trecho do ultimo respText pra debug
-            const sample=respText?respText.slice(0,120):"sem resposta";
-            dlog("FALHA: "+sample);
-            return;
-          }
-          if(jResp.error){
-            dlog("API erro: "+(jResp.message||jResp.code||"?").slice(0,80));
-            return;
-          }
-          if(!Array.isArray(jResp.quotes)||jResp.quotes.length===0){
-            dlog("quotes vazio");
-            return;
-          }
-          dlog("OK quotes="+jResp.quotes.length+" via "+proxyOk);
-          const setMap={"DI1F27":setDiJ27,"DI1F29":setDiJ29,"DI1F35":setDiJ35};
-          for(const q of jResp.quotes){
-            const fn=setMap[q&&q.symbol];
-            if(!fn)continue;
-            const taxa=typeof q.settlementRate==="number"?q.settlementRate:(typeof q.close==="number"?q.close:null);
-            if(taxa===null||isNaN(taxa))continue;
-            const osc=typeof q.oscillationPct==="number"?q.oscillationPct:null;
-            fn({valor:taxa,osc,exp:q.expirationDate||null,ts:Date.now()});
-          }
-        }catch(e){dlog("erro fatal: "+(e&&e.message||"?").slice(0,60));}
-      }
+      // DI Futuros: removido em 16/jun/2026 apos descoberta do bloqueio do plano.
+      // brapi.dev v2/futures/quote requer plano Pro (pago) - free retorna 403 com mensagem
+      // "Seu plano nao tem acesso a este recurso". Outras fontes alternativas:
+      // - B3 oficial: API paga (B3 Developers)
+      // - HG Brasil: tem CORS aberto mas nao cobre DI futuro
+      // - Pagina HTML publica B3: desativada em mar/2025, dados migrados pra PDF (Boletim Diario)
+      // Voltar a esse problema so com upgrade pra brapi.dev Pro OU fonte JSON+CORS aberto nativa.
     })();
     // Busca Selic atual (meta - serie 432) e recalibra RR
     (async()=>{
@@ -5464,7 +5395,7 @@ function App(){
       }
     })();
     return()=>{cancelado=true;};
-  },[inited,bgKey,fredKey,brapiKey,mvrvRefetchTick]);
+  },[inited,bgKey,fredKey,mvrvRefetchTick]);
 
   // Recalibra RR (premissas de risco/retorno) sempre que Selic ou ajustes IA mudam
   // Forca re-render via rrTick (RR eh global mutavel)
@@ -7337,19 +7268,7 @@ Responda APENAS com o texto do insight, sem prefacio ou comentarios meta.`;
       juroECB&&h("span",{style:{color:"#5A5550",marginLeft:3}},"("+juroECB.ref+")"),
       juroBoJ&&h("span",{title:"BoJ Call Money Rate (FRED: IRSTCI01JPM156N) - taxa basica Japao",style:{marginLeft:8,color:"#E89060",fontWeight:700}},"BoJ "+fN(juroBoJ.valor,2)+"%"),
       juroBoJ&&h("span",{style:{color:"#5A5550",marginLeft:3}},"("+juroBoJ.ref+")")
-    ),
-    // Linha DI futuros: jan/27 (curto) + jan/29 (medio) + jan/35 (longo) - via brapi.dev
-    (diJ27||diJ29||diJ35)&&h("div",{style:{fontSize:9,color:"#5A5550",marginTop:2,fontFamily:"monospace"}},
-      h("span",{style:{color:"#7A7570",letterSpacing:1,marginRight:6,fontSize:8.5}},"DI:"),
-      diJ27&&h("span",{title:"DI1 jan/2027 (curto prazo) - settlementRate B3 via brapi.dev",style:{color:"#D4A574",fontWeight:700}},"jan/27 "+fN(diJ27.valor,2)+"%"),
-      diJ27&&typeof diJ27.osc==="number"&&h("span",{style:{color:diJ27.osc>=0?"#4CAF82":"#E05252",marginLeft:3}},"("+(diJ27.osc>=0?"+":"")+fN(diJ27.osc,2)+"%)"),
-      diJ29&&h("span",{title:"DI1 jan/2029 (medio prazo) - settlementRate B3 via brapi.dev",style:{marginLeft:8,color:"#D4A574",fontWeight:700}},"jan/29 "+fN(diJ29.valor,2)+"%"),
-      diJ29&&typeof diJ29.osc==="number"&&h("span",{style:{color:diJ29.osc>=0?"#4CAF82":"#E05252",marginLeft:3}},"("+(diJ29.osc>=0?"+":"")+fN(diJ29.osc,2)+"%)"),
-      diJ35&&h("span",{title:"DI1 jan/2035 (longo prazo) - settlementRate B3 via brapi.dev",style:{marginLeft:8,color:"#D4A574",fontWeight:700}},"jan/35 "+fN(diJ35.valor,2)+"%"),
-      diJ35&&typeof diJ35.osc==="number"&&h("span",{style:{color:diJ35.osc>=0?"#4CAF82":"#E05252",marginLeft:3}},"("+(diJ35.osc>=0?"+":"")+fN(diJ35.osc,2)+"%)")
-    ),
-    // Banner debug temporario do CPI DI - some quando os 3 DI aparecerem
-    diDebug&&!(diJ27&&diJ29&&diJ35)&&h("div",{style:{fontSize:8,color:"#E05252",marginTop:2,fontFamily:"monospace",wordBreak:"break-all",padding:"2px 4px",background:"rgba(224,82,82,0.08)",borderRadius:2}},"DBG: "+diDebug)
+    )
   );
 
   // TABS
@@ -7395,7 +7314,7 @@ h("button",{onClick:()=>{
     };
     inp.click();
   },style:{background:"none",border:"none",color:"#3A3830",fontSize:10,cursor:"pointer",padding:"6px 4px",fontFamily:"monospace",flexShrink:0}},"IMP"),
-h("button",{onClick:()=>{const k=window.prompt("Cole o token Brapi.dev (para cotacoes B3, Fiagros e DI futuros). Cadastre gratis em brapi.dev/dashboard:",brapiKey||"");if(k===null)return;const lim=k.trim();if(!lim){if(aesKey)saveBrapiKey(aesKey,"");setBrapiKeyS("");setDiJ27(null);setDiJ29(null);setDiJ35(null);alert("Token Brapi removido. DI futuros deixarao de ser exibidos.");return;}if(lim.length<10){alert("Token muito curto. Verifique se copiou inteiro.");return;}setBrapiKeyS(lim);if(aesKey)saveBrapiKey(aesKey,lim);alert("Token Brapi salvo! Cotacoes B3 + DI futuros serao buscados em background.");},title:brapiKey?"Token Brapi cadastrado (cotacoes B3 + DI futuros)":"Cadastre token Brapi gratis para cotacoes B3 e DI futuros",style:{marginLeft:"auto",background:"none",border:"none",color:brapiKey?"#C8A96E":"#3A3830",fontSize:10,cursor:"pointer",padding:"6px 4px",fontFamily:"monospace",flexShrink:0}},"BRAPI"),
+h("button",{onClick:()=>{const k=window.prompt("Cole o token Brapi.dev (para cotacoes B3 / Fiagros). Cadastre gratis em brapi.dev/dashboard:",brapiKey||"");if(k===null)return;const lim=k.trim();if(!lim){if(aesKey)saveBrapiKey(aesKey,"");setBrapiKeyS("");alert("Token Brapi removido.");return;}if(lim.length<10){alert("Token muito curto. Verifique se copiou inteiro.");return;}setBrapiKeyS(lim);if(aesKey)saveBrapiKey(aesKey,lim);alert("Token Brapi salvo!");},style:{marginLeft:"auto",background:"none",border:"none",color:brapiKey?"#C8A96E":"#3A3830",fontSize:10,cursor:"pointer",padding:"6px 4px",fontFamily:"monospace",flexShrink:0}},"BRAPI"),
 h("button",{onClick:()=>{
   // Se ja tem chave, abre menu de diagnostico/acoes
   if(bgKey){
