@@ -4280,6 +4280,7 @@ function App(){
   const [diJ27,setDiJ27]=useState(null);      // DI1F27 - DI futuro jan/2027 (curto - via brapi.dev)
   const [diJ29,setDiJ29]=useState(null);      // DI1F29 - DI futuro jan/2029 (medio - via brapi.dev)
   const [diJ35,setDiJ35]=useState(null);      // DI1F35 - DI futuro jan/2035 (longo - via brapi.dev)
+  const [diDebug,setDiDebug]=useState("");    // Debug temporario do fetch DI
   const [aErr,setAErr]=useState("");
   const [chatM,setChatM]=useState([]);
   const [chatIn,setChatIn]=useState("");
@@ -4925,46 +4926,67 @@ function App(){
       // settlementRate = taxa oficial do dia (%a.a.). close = ultima taxa negociada.
       // Se plano Free nao cobrir Futuros, retorna 403 - falha graciosamente.
       if(cancelado)return;
-      if(brapiKey){
+      if(!brapiKey){
+        setDiDebug("DI: brapiKey vazio (clique no botao BRAPI no topo)");
+      }else{
+        const dlogs=[];
+        const dlog=(m)=>{dlogs.push(m);setDiDebug("DI: "+dlogs.join(" / "));};
+        dlog("start");
         try{
           const proxiesDI=[
-            u=>u,// brapi.dev tem CORS aberto, direto primeiro
-            u=>"https://corsproxy.io/?url="+encodeURIComponent(u),
-            u=>"https://api.allorigins.win/raw?url="+encodeURIComponent(u),
-            u=>"https://api.codetabs.com/v1/proxy/?quest="+encodeURIComponent(u)
+            {name:"direto",mk:u=>u},
+            {name:"cpx",mk:u=>"https://corsproxy.io/?url="+encodeURIComponent(u)},
+            {name:"ao",mk:u=>"https://api.allorigins.win/raw?url="+encodeURIComponent(u)},
+            {name:"ct",mk:u=>"https://api.codetabs.com/v1/proxy/?quest="+encodeURIComponent(u)}
           ];
           const url="https://brapi.dev/api/v2/futures/quote?symbols=DI1F27,DI1F29,DI1F35&token="+encodeURIComponent(brapiKey);
-          let jResp=null;
-          for(const mk of proxiesDI){
+          let jResp=null,respText=null,proxyOk=null;
+          for(const p of proxiesDI){
             if(cancelado)return;
             try{
               const ctrl=new AbortController();
               const tid=setTimeout(()=>ctrl.abort(),8000);
-              const r=await fetch(mk(url),{signal:ctrl.signal});
+              const r=await fetch(p.mk(url),{signal:ctrl.signal});
               clearTimeout(tid);
-              if(!r.ok)continue;
+              dlog(p.name+"="+r.status);
+              if(!r.ok){
+                // Captura texto pra ver mensagem de erro mesmo em status nao-2xx
+                try{respText=await r.text();}catch(e){}
+                continue;
+              }
               const text=await r.text();
+              dlog(p.name+"L="+(text?text.length:0));
               if(!text||text.toLowerCase().includes("host not in allowlist"))continue;
               const j=JSON.parse(text);
-              if(j&&Array.isArray(j.quotes)&&j.quotes.length>0){jResp=j;break;}
-              // se vier erro estruturado, ja sai
-              if(j&&j.error){jResp=j;break;}
-            }catch(e){continue;}
+              if(j&&Array.isArray(j.quotes)&&j.quotes.length>0){jResp=j;proxyOk=p.name;break;}
+              if(j&&j.error){respText=text;jResp=j;break;}
+            }catch(e){dlog(p.name+"err="+(e&&e.message||"?").slice(0,25));continue;}
           }
-          if(jResp&&Array.isArray(jResp.quotes)){
-            // Mapeia cada simbolo retornado pro state correspondente
-            const setMap={"DI1F27":setDiJ27,"DI1F29":setDiJ29,"DI1F35":setDiJ35};
-            for(const q of jResp.quotes){
-              const fn=setMap[q&&q.symbol];
-              if(!fn)continue;
-              // taxa oficial (settlementRate) ou close como fallback
-              const taxa=typeof q.settlementRate==="number"?q.settlementRate:(typeof q.close==="number"?q.close:null);
-              if(taxa===null||isNaN(taxa))continue;
-              const osc=typeof q.oscillationPct==="number"?q.oscillationPct:null;
-              fn({valor:taxa,osc,exp:q.expirationDate||null,ts:Date.now()});
-            }
+          if(!jResp){
+            // Mostra trecho do ultimo respText pra debug
+            const sample=respText?respText.slice(0,120):"sem resposta";
+            dlog("FALHA: "+sample);
+            return;
           }
-        }catch(e){console.warn("Erro buscando DI futuros via brapi:",e&&e.message);}
+          if(jResp.error){
+            dlog("API erro: "+(jResp.message||jResp.code||"?").slice(0,80));
+            return;
+          }
+          if(!Array.isArray(jResp.quotes)||jResp.quotes.length===0){
+            dlog("quotes vazio");
+            return;
+          }
+          dlog("OK quotes="+jResp.quotes.length+" via "+proxyOk);
+          const setMap={"DI1F27":setDiJ27,"DI1F29":setDiJ29,"DI1F35":setDiJ35};
+          for(const q of jResp.quotes){
+            const fn=setMap[q&&q.symbol];
+            if(!fn)continue;
+            const taxa=typeof q.settlementRate==="number"?q.settlementRate:(typeof q.close==="number"?q.close:null);
+            if(taxa===null||isNaN(taxa))continue;
+            const osc=typeof q.oscillationPct==="number"?q.oscillationPct:null;
+            fn({valor:taxa,osc,exp:q.expirationDate||null,ts:Date.now()});
+          }
+        }catch(e){dlog("erro fatal: "+(e&&e.message||"?").slice(0,60));}
       }
     })();
     // Busca Selic atual (meta - serie 432) e recalibra RR
@@ -5442,7 +5464,7 @@ function App(){
       }
     })();
     return()=>{cancelado=true;};
-  },[inited,bgKey,fredKey,mvrvRefetchTick]);
+  },[inited,bgKey,fredKey,brapiKey,mvrvRefetchTick]);
 
   // Recalibra RR (premissas de risco/retorno) sempre que Selic ou ajustes IA mudam
   // Forca re-render via rrTick (RR eh global mutavel)
@@ -7325,7 +7347,9 @@ Responda APENAS com o texto do insight, sem prefacio ou comentarios meta.`;
       diJ29&&typeof diJ29.osc==="number"&&h("span",{style:{color:diJ29.osc>=0?"#4CAF82":"#E05252",marginLeft:3}},"("+(diJ29.osc>=0?"+":"")+fN(diJ29.osc,2)+"%)"),
       diJ35&&h("span",{title:"DI1 jan/2035 (longo prazo) - settlementRate B3 via brapi.dev",style:{marginLeft:8,color:"#D4A574",fontWeight:700}},"jan/35 "+fN(diJ35.valor,2)+"%"),
       diJ35&&typeof diJ35.osc==="number"&&h("span",{style:{color:diJ35.osc>=0?"#4CAF82":"#E05252",marginLeft:3}},"("+(diJ35.osc>=0?"+":"")+fN(diJ35.osc,2)+"%)")
-    )
+    ),
+    // Banner debug temporario do CPI DI - some quando os 3 DI aparecerem
+    diDebug&&!(diJ27&&diJ29&&diJ35)&&h("div",{style:{fontSize:8,color:"#E05252",marginTop:2,fontFamily:"monospace",wordBreak:"break-all",padding:"2px 4px",background:"rgba(224,82,82,0.08)",borderRadius:2}},"DBG: "+diDebug)
   );
 
   // TABS
