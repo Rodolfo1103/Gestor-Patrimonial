@@ -955,6 +955,7 @@ const SK_ATT="pat-v10-att";   // tentativas erradas {n, lockUntil}
 const SK_KEY="pat-key-enc";   // API key Anthropic criptografada
 const SK_BRAPI="pat-brapi-enc";// token Brapi criptografado
 const SK_BG="pat-bg-enc";// API key BGeometrics (MVRV-Z) criptografada
+const SK_FRED="pat-fred-enc";// API key FRED (CPI EUA) criptografada
 
 // === Web Crypto helpers ===
 const _enc=new TextEncoder();
@@ -1044,6 +1045,22 @@ async function saveBgKey(aesKey,plainKey){
     if(!plainKey){localStorage.removeItem(SK_BG);return;}
     const enc=await aesEncrypt(aesKey,plainKey);
     localStorage.setItem(SK_BG,enc);
+  }catch{}
+}
+
+// Carrega/Salva API key FRED St. Louis Fed (CPI EUA) criptografada
+async function loadFredKey(aesKey){
+  try{
+    const enc=localStorage.getItem(SK_FRED);
+    if(!enc)return "";
+    return await aesDecrypt(aesKey,enc);
+  }catch{return "";}
+}
+async function saveFredKey(aesKey,plainKey){
+  try{
+    if(!plainKey){localStorage.removeItem(SK_FRED);return;}
+    const enc=await aesEncrypt(aesKey,plainKey);
+    localStorage.setItem(SK_FRED,enc);
   }catch{}
 }
 
@@ -4152,6 +4169,7 @@ function App(){
   const [apiKey,setApiKeyS]=useState("");
   const [brapiKey,setBrapiKeyS]=useState("");
   const [bgKey,setBgKeyS]=useState("");
+  const [fredKey,setFredKeyS]=useState("");
   // Diagnostico de variacao (modal interno)
   const [dbgInfo,setDbgInfo]=useState("");
   // MVRV-Z Score (atualizacao diaria via BGeometrics)
@@ -4554,6 +4572,9 @@ function App(){
       // Carrega API key BGeometrics criptografada
       const bgk=await loadBgKey(aesKey);
       if(bgk)setBgKeyS(bgk);
+      // Carrega API key FRED St. Louis Fed (CPI EUA) criptografada
+      const fk=await loadFredKey(aesKey);
+      if(fk)setFredKeyS(fk);
       setInited(true);
     })();
   },[aesKey,inited]);
@@ -4581,7 +4602,7 @@ function App(){
         setAutenticado(false);
         setAesKey(null);
         setInited(false);
-        setPort({});setCustom({});setHidden([]);setHist([]);setApiKeyS("");setBrapiKeyS("");setBgKeyS("");setMvrvZ(null);setMvrvZTs(null);
+        setPort({});setCustom({});setHidden([]);setHist([]);setApiKeyS("");setBrapiKeyS("");setBgKeyS("");setFredKeyS("");setMvrvZ(null);setMvrvZTs(null);
         setBtcUsd(null);setXauBrl(null);
       }
     },10000);
@@ -4788,28 +4809,60 @@ function App(){
           setInfINCC({valor:calcAcum12(d),mensal,ref:formatRef(d[d.length-1].data)});
         }
       }catch(e){}
-      // CPI EUA via statbureau.org (sem chave, CORS aberto)
-      try{
-        const hoje=new Date();
-        const ha13=new Date(hoje);ha13.setMonth(ha13.getMonth()-13);
-        const ha1=new Date(hoje);ha1.setMonth(ha1.getMonth()-2);
-        const fmtData=(d)=>d.getFullYear()+"/"+String(d.getMonth()+1).padStart(2,"0")+"/01";
-        const fetchPct=async(url)=>{
-          const ctrl=new AbortController();const tid=setTimeout(()=>ctrl.abort(),8000);
-          const r=await fetch(url,{signal:ctrl.signal});clearTimeout(tid);
-          if(!r.ok)return NaN;
-          const text=await r.text();
-          return parseFloat(text.replace(/"/g,"").replace(",",".").replace(/[^\d.\-]/g,""));
-        };
-        const v12=await fetchPct("https://www.statbureau.org/calculate-inflation-rate-json?country=united-states&start="+fmtData(ha13)+"&end="+fmtData(hoje));
-        if(cancelado)return;
-        const vMes=await fetchPct("https://www.statbureau.org/calculate-inflation-rate-json?country=united-states&start="+fmtData(ha1)+"&end="+fmtData(hoje));
-        if(!isNaN(v12)&&!cancelado){
-          const meses=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-          const refMes=new Date(hoje);refMes.setMonth(refMes.getMonth()-1);
-          setInfCPI({valor:v12,mensal:isNaN(vMes)?null:vMes,ref:meses[refMes.getMonth()]+"/"+String(refMes.getFullYear()).slice(2)});
-        }
-      }catch(e){}
+      // CPI EUA via FRED (Federal Reserve Bank of St. Louis) - serie CPIAUCSL
+      // Serie: Consumer Price Index for All Urban Consumers: All Items (Seasonally Adjusted)
+      // Atualizada mensalmente pelo BLS via FRED. Requer API key gratuita (botao FRED no topo).
+      // Estrategia: faz 2 chamadas - units=pc1 (YoY %) e units=pch (MoM %) - retornam % prontos
+      if(fredKey){
+        try{
+          const proxiesCPI=[
+            u=>u,// direto primeiro (FRED tem CORS aberto)
+            u=>"https://corsproxy.io/?url="+encodeURIComponent(u),
+            u=>"https://api.allorigins.win/raw?url="+encodeURIComponent(u),
+            u=>"https://api.codetabs.com/v1/proxy/?quest="+encodeURIComponent(u)
+          ];
+          const fetchFred=async(url)=>{
+            for(const mk of proxiesCPI){
+              if(cancelado)return null;
+              try{
+                const ctrl=new AbortController();
+                const tid=setTimeout(()=>ctrl.abort(),8000);
+                const r=await fetch(mk(url),{signal:ctrl.signal});
+                clearTimeout(tid);
+                if(!r.ok)continue;
+                const text=await r.text();
+                if(!text||text.toLowerCase().includes("host not in allowlist"))continue;
+                const j=JSON.parse(text);
+                if(j&&Array.isArray(j.observations)&&j.observations.length>0)return j;
+              }catch(e){continue;}
+            }
+            return null;
+          };
+          const baseUrl="https://api.stlouisfed.org/fred/series/observations";
+          // YoY (year-over-year %): pega as 2 ultimas observacoes mensais
+          const urlYoY=baseUrl+"?series_id=CPIAUCSL&units=pc1&sort_order=desc&limit=2&api_key="+encodeURIComponent(fredKey)+"&file_type=json";
+          const jYoY=await fetchFred(urlYoY);
+          if(cancelado)return;
+          // MoM (month-over-month %): pega a ultima observacao mensal
+          const urlMoM=baseUrl+"?series_id=CPIAUCSL&units=pch&sort_order=desc&limit=1&api_key="+encodeURIComponent(fredKey)+"&file_type=json";
+          const jMoM=await fetchFred(urlMoM);
+          if(cancelado)return;
+          if(jYoY&&jYoY.observations&&jYoY.observations.length>0){
+            const obs=jYoY.observations[0];
+            const v12=parseFloat(obs.value);
+            const refDate=new Date(obs.date+"T00:00:00");
+            const meses=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+            let vMes=null;
+            if(jMoM&&jMoM.observations&&jMoM.observations.length>0){
+              const vm=parseFloat(jMoM.observations[0].value);
+              if(!isNaN(vm))vMes=vm;
+            }
+            if(!isNaN(v12)&&!cancelado){
+              setInfCPI({valor:v12,mensal:vMes,ref:meses[refDate.getMonth()]+"/"+String(refDate.getFullYear()).slice(2)});
+            }
+          }
+        }catch(e){console.warn("Erro buscando CPI EUA via FRED:",e&&e.message);}
+      }
     })();
     // Busca Selic atual (meta - serie 432) e recalibra RR
     (async()=>{
@@ -5286,7 +5339,7 @@ function App(){
       }
     })();
     return()=>{cancelado=true;};
-  },[inited,bgKey,mvrvRefetchTick]);
+  },[inited,bgKey,fredKey,mvrvRefetchTick]);
 
   // Recalibra RR (premissas de risco/retorno) sempre que Selic ou ajustes IA mudam
   // Forca re-render via rrTick (RR eh global mutavel)
@@ -7399,6 +7452,7 @@ h("button",{onClick:()=>{
   if(aesKey)saveBgKey(aesKey,lim);
   alert("Chave BGeometrics salva! O MVRV-Z sera buscado em background.");
 },style:{background:"none",border:"none",color:bgKey?"#C8A96E":"#3A3830",fontSize:10,cursor:"pointer",padding:"6px 4px",fontFamily:"monospace",flexShrink:0}},"BG"),
+h("button",{onClick:()=>{const k=window.prompt("Cole sua API key FRED St. Louis Fed (para CPI EUA). Cadastre gratis em fred.stlouisfed.org/docs/api/api_key.html (chave de 32 caracteres):",fredKey||"");if(k===null)return;const lim=k.trim();if(!lim){if(aesKey)saveFredKey(aesKey,"");setFredKeyS("");setInfCPI(null);alert("Chave FRED removida. CPI EUA deixara de ser exibido.");return;}if(lim.length<20){alert("Chave muito curta. A chave FRED tem ~32 caracteres alfanumericos.");return;}setFredKeyS(lim);if(aesKey)saveFredKey(aesKey,lim);alert("Chave FRED salva! O CPI EUA sera buscado em background.");},title:fredKey?"Chave FRED cadastrada (CPI EUA via Federal Reserve)":"Cadastre chave FRED gratis para mostrar CPI EUA",style:{background:"none",border:"none",color:fredKey?"#C8A96E":"#3A3830",fontSize:10,cursor:"pointer",padding:"6px 4px",fontFamily:"monospace",flexShrink:0}},"FRED"),
 h("button",{onClick:async()=>{
   if(!confirm("Limpar cache do app? Isso vai desregistrar service workers e limpar caches do browser. Voce vai precisar recarregar a pagina."))return;
   try{
