@@ -13911,6 +13911,8 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
       // Calcula valor atual dos motores (denominador para yield retroativo)
       const valorMotoresAtual=MOTORES_RENDA.reduce((s,id)=>s+(valorClasse[id]||0),0);
       // Yield observado projetivo (media dos ultimos 12 meses)
+      // Helper de legenda: quando n>=12 mostra "ultimos 12 meses (UDM)", senao "ult. N mes(es)"
+      const labelMediaUDM=(n)=>n>=12?"\u00faltimos 12 meses (UDM)":"ult. "+n+" m\u00ea"+(n>1?"ses":"s");
       const yObsMotor=yieldObservadoMotor(rendaMotoraHist);
       // Mes anterior ao atual (formato YYYY-MM)
       const _hojeRM=new Date();
@@ -14338,7 +14340,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             ),
             // Mensagem contextual
             deficitMensal>0?h("div",{style:{fontSize:9.5,color:"#9A9080",lineHeight:1.5,padding:"6px 9px",background:"rgba(0,0,0,0.15)",borderRadius:4,fontFamily:"monospace"}},
-              "Faltam ",h("strong",{style:{color:"#E89060"}},fB(deficitMensal)+"/m\u00eas")," para atingir 100% da meta com renda observada (m\u00e9dia ult. ",nMesesObs," m\u00eas",nMesesObs>1?"es":"",")."
+              "Faltam ",h("strong",{style:{color:"#E89060"}},fB(deficitMensal)+"/m\u00eas")," para atingir 100% da meta com renda observada (m\u00e9dia "+labelMediaUDM(nMesesObs)+")."
             ):h("div",{style:{fontSize:9.5,color:"#9A9080",lineHeight:1.5,padding:"6px 9px",background:"rgba(76,175,130,0.10)",borderRadius:4,fontFamily:"monospace"}},
               h("strong",{style:{color:"#4CAF82"}},"\u2713 Meta coberta")," pela renda realizada com folga de ",fB(rTotalMensal-metaMensalIF),"/m\u00eas (",((rTotalMensal-metaMensalIF)/metaMensalIF*100).toFixed(0),"% acima)."
             )
@@ -14360,7 +14362,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             h("div",{style:{background:"rgba(76,175,130,0.10)",borderLeft:"3px solid #4CAF82",padding:"8px 10px",borderRadius:"0 4px 4px 0"}},
               h("div",{style:{fontSize:7,color:"#4CAF82",fontFamily:"monospace",fontWeight:700,letterSpacing:1.2,marginBottom:3}},"YIELD PROJETIVO LIQ"),
               h("div",{style:{fontSize:14,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700}},(yObsMotor.valor*100).toFixed(2)+"%"),
-              h("div",{style:{fontSize:7.5,color:"#7A7060",fontFamily:"monospace",marginTop:2}},"media ult. ",yObsMotor.n," mes",yObsMotor.n>1?"es":"")
+              h("div",{style:{fontSize:7.5,color:"#7A7060",fontFamily:"monospace",marginTop:2}},labelMediaUDM(yObsMotor.n))
             ),
             // Ultimo registro
             ultRegistro?h("div",{style:{background:"rgba(200,169,110,0.08)",borderLeft:"3px solid #C8A96E",padding:"8px 10px",borderRadius:"0 4px 4px 0"}},
@@ -14460,7 +14462,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                   h("div",{style:{background:"rgba(76,175,130,0.10)",borderLeft:"2px solid #4CAF82",padding:"7px 9px",borderRadius:"0 4px 4px 0"}},
                     h("div",{style:{fontSize:7,color:"#4CAF82",fontFamily:"monospace",fontWeight:700,letterSpacing:1.2,marginBottom:2}},"MEDIA MENSAL"),
                     h("div",{style:{fontSize:12,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700}},fB(auxObs.brMedio)),
-                    h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",marginTop:2}},"ult. ",auxObs.n," mes",auxObs.n>1?"es":"")
+                    h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",marginTop:2}},labelMediaUDM(auxObs.n))
                   ),
                   // Ultimo mes BR
                   h("div",{style:{background:"rgba(200,169,110,0.08)",borderLeft:"2px solid #C8A96E",padding:"7px 9px",borderRadius:"0 4px 4px 0"}},
@@ -14481,7 +14483,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                   h("div",{style:{background:"rgba(91,143,212,0.10)",borderLeft:"2px solid #5B8FD4",padding:"7px 9px",borderRadius:"0 4px 4px 0"}},
                     h("div",{style:{fontSize:7,color:"#5B8FD4",fontFamily:"monospace",fontWeight:700,letterSpacing:1.2,marginBottom:2}},"MEDIA MENSAL"),
                     h("div",{style:{fontSize:12,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700}},fB(auxObs.totalExteriorBrlMedio)),
-                    h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",marginTop:2}},"ult. ",auxObs.n," mes",auxObs.n>1?"es":"")
+                    h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",marginTop:2}},labelMediaUDM(auxObs.n))
                   ),
                   // Ultimo mes EXTERIOR (BRL)
                   h("div",{style:{background:"rgba(200,169,110,0.08)",borderLeft:"2px solid #C8A96E",padding:"7px 9px",borderRadius:"0 4px 4px 0"}},
@@ -14560,8 +14562,9 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             const rendaMotMensalBrl=yObsMotor?(yObsMotor.valor*valorMotoresAtual)/12:0;
             const rendaAuxMensalBrl=auxObs?auxObs.totalBrlMedio:0;
             const rendaTotalMensalBrl=rendaMotMensalBrl+rendaAuxMensalBrl;
+            const nMaxObs=Math.max(yObsMotor?yObsMotor.n:0,auxObs?auxObs.n:0);
             return h("div",{style:{marginTop:12,padding:"10px 12px",background:"linear-gradient(135deg,rgba(76,175,130,0.10),rgba(91,143,212,0.10))",border:"1px dashed rgba(200,169,110,0.30)",borderRadius:5}},
-              h("div",{style:{fontSize:8,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,letterSpacing:1.5,marginBottom:5}},"\u2696 CAPACIDADE TOTAL OBSERVADA (mensal, BRL, media ult. 12m)"),
+              h("div",{style:{fontSize:8,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,letterSpacing:1.5,marginBottom:5}},"\u2696 CAPACIDADE TOTAL OBSERVADA (mensal, BRL, m\u00e9dia "+labelMediaUDM(nMaxObs)+")"),
               h("div",{style:{display:"flex",flexDirection:"column",gap:3,fontSize:10,fontFamily:"monospace"}},
                 h("div",{style:{display:"flex",justifyContent:"space-between"}},
                   h("span",{style:{color:"#4CAF82"}},"Motora (FII+Infra+Agro)"),
@@ -14620,7 +14623,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             // Header
             h("div",{style:{display:"flex",alignItems:"baseline",justifyContent:"space-between",flexWrap:"wrap",gap:6,marginBottom:8}},
               h("div",{style:{fontSize:10,letterSpacing:2,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,textTransform:"uppercase"}},"\u{1F4CA} Evolu\u00e7\u00e3o da Renda Realizada"),
-              h("div",{style:{fontSize:8,color:"#7A7060",fontFamily:"monospace"}},"\u00falt. "+serie.length+" m\u00ea"+(serie.length>1?"ses":"s")+" \u2022 motora + auxiliar consolidada")
+              h("div",{style:{fontSize:8,color:"#7A7060",fontFamily:"monospace"}},labelMediaUDM(serie.length)+" \u2022 motora + auxiliar consolidada")
             ),
             // Legenda
             h("div",{style:{display:"flex",flexWrap:"wrap",gap:10,marginBottom:10,fontSize:8.5,fontFamily:"monospace"}},
