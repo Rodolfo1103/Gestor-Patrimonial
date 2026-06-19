@@ -3922,18 +3922,23 @@ function ComparativoChart({histMensal,idxMensal,hideVal}){
 
 function HeatmapChart({hist,histMensal}){
   // Fallback amigável - mostra mensagem em vez de retornar null silenciosamente
-  const semDados=(motivo)=>h("div",{style:{marginBottom:20,paddingTop:14,borderTop:"1px solid rgba(255,255,255,0.05)"}},
+  const semDados=(motivo,detalhes)=>h("div",{style:{marginBottom:20,paddingTop:14,borderTop:"1px solid rgba(255,255,255,0.05)"}},
     h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:4}},"Heatmap Mensal"),
     h("div",{style:{fontSize:9,color:"#5A5550",marginBottom:10,fontStyle:"italic"}},"Rentabilidade mensal descontando aportes"),
     h("div",{style:{padding:"18px 14px",background:"rgba(0,0,0,0.18)",border:"1px dashed rgba(200,169,110,0.25)",borderRadius:8,textAlign:"center"}},
       h("div",{style:{fontSize:11,color:"#9A9080",fontFamily:"Georgia,serif",fontStyle:"italic",marginBottom:4}},"Sem dados suficientes"),
-      h("div",{style:{fontSize:9,color:"#7A7060",fontFamily:"monospace",letterSpacing:0.5}},motivo)
+      h("div",{style:{fontSize:9,color:"#7A7060",fontFamily:"monospace",letterSpacing:0.5,marginBottom:detalhes?8:0}},motivo),
+      detalhes?h("div",{style:{fontSize:8,color:"#6A6055",fontFamily:"monospace",lineHeight:1.5,padding:"6px 8px",background:"rgba(0,0,0,0.20)",borderRadius:4,marginTop:6}},detalhes):null,
+      h("div",{style:{fontSize:8,color:"#5A5550",marginTop:8,fontStyle:"italic"}},"O heatmap ser\u00e1 populado automaticamente ap\u00f3s 2 atualiza\u00e7\u00f5es de pre\u00e7os em meses diferentes.")
     )
   );
 
   // PRIORIDADE: usa histMensal (1 snap por mês, sem limite) em vez de hist (max 24 snaps)
   // Isso permite mostrar oscilação do mês corrente em tempo real e preserva meses antigos
   let fonte=null,fonteTipo="";
+  const histMensalLen=Array.isArray(histMensal)?histMensal.length:0;
+  const histLen=Array.isArray(hist)?hist.length:0;
+  const detalheGeral="histMensal: "+histMensalLen+" registro(s) | hist: "+histLen+" registro(s)";
   if(Array.isArray(histMensal)&&histMensal.length>0){
     fonte=histMensal.filter(r=>r.totalPatrimBRL>0);
     fonteTipo="histMensal";
@@ -3943,9 +3948,9 @@ function HeatmapChart({hist,histMensal}){
     fonte=hist.filter(r=>r.totalPatrimBRL>0).slice().reverse();
     fonteTipo="hist (fallback)";
   }
-  if(!fonte||!Array.isArray(fonte))return semDados("nenhum historico disponivel");
+  if(!fonte||!Array.isArray(fonte))return semDados("nenhum historico disponivel",detalheGeral);
   const data=fonte;
-  if(data.length<2)return semDados("registros validos: "+data.length+" / minimo: 2 ("+fonteTipo+")");
+  if(data.length<2)return semDados("registros validos: "+data.length+" / minimo: 2 ("+fonteTipo+")",detalheGeral);
 
   // Agrupa por mes (YYYY-MM), pega ultimo valor de cada mes
   const byMonth={};
@@ -3955,7 +3960,7 @@ function HeatmapChart({hist,histMensal}){
     byMonth[k]={v:r.totalPatrimBRL,ap:r.totalExecuted||r.apValue||0,date:d};
   });
   const keys=Object.keys(byMonth).sort();
-  if(keys.length<2)return semDados("meses distintos: "+keys.length+" / minimo: 2 ("+fonteTipo+")");
+  if(keys.length<2)return semDados("meses distintos: "+keys.length+" / minimo: 2 ("+fonteTipo+")","Meses encontrados: "+keys.join(", "));
   // Calcular variacao mes a mes descontando aportes (rentabilidade mensal aproximada)
   const variacoes=[];
   for(let i=1;i<keys.length;i++){
@@ -3965,7 +3970,7 @@ function HeatmapChart({hist,histMensal}){
     const varPct=prev.v>0?((cur.v-aporteMes-prev.v)/prev.v)*100:0;
     variacoes.push({mes:keys[i],date:cur.date,pct:varPct});
   }
-  if(!variacoes.length)return semDados("variacoes calculadas: 0");
+  if(!variacoes.length)return semDados("variacoes calculadas: 0",detalheGeral);
   // Agrupa por ano para grade
   const byYear={};
   variacoes.forEach(v=>{
