@@ -2752,6 +2752,215 @@ function SolidezCard({total,cw,port,metaMensalIF,setTab,fB,hideVal,dataNasciment
   }catch(e){console.error("Erro SolidezCard:",e);return null;}
 }
 
+// ============== ESCALADA PATRIMONIAL ==============
+// Helper externo: recalcula score Solidez + cobertura capMax independente do componente SolidezCard.
+// Retorna score hibrido (60% Solidez + 40% cobertura) e o marco correspondente na montanha.
+function calcEscaladaScore({total,cw,port,metaMensalIF,dataNascimento,cambialCash,rendaMotoraHist,rendaAuxiliarHist,FX}){
+  try{
+    if(!total||total<=0||!metaMensalIF||metaMensalIF<=0)return null;
+    // Idade
+    let idadeAtual=40;
+    if(dataNascimento){
+      const dt=new Date(dataNascimento);
+      if(!isNaN(dt.getTime())){
+        const hoje=new Date();
+        let idade=hoje.getFullYear()-dt.getFullYear();
+        const mDiff=hoje.getMonth()-dt.getMonth();
+        if(mDiff<0||(mDiff===0&&hoje.getDate()<dt.getDate()))idade--;
+        if(!isNaN(idade)&&idade>0&&idade<150)idadeAtual=idade;
+      }
+    }
+    const fireCal=calibracoesFIRE(idadeAtual);
+    const SWR_AJUSTADO=fireCal.swr;
+    const metaAnual=metaMensalIF*12;
+    // ===== Calc 5 dimensoes Solidez (replica simplificada) =====
+    // Dimensao 1: Tamanho (multiplos da meta anual)
+    const multAnual=total/metaAnual;
+    const multSeguroFire=fireCal.multSeguroFire||34.9;
+    let scoreTamanho;
+    if(multAnual>=multSeguroFire)scoreTamanho=100;
+    else if(multAnual>=multSeguroFire*0.75)scoreTamanho=70+(multAnual-multSeguroFire*0.75)/(multSeguroFire*0.25)*30;
+    else if(multAnual>=multSeguroFire*0.5)scoreTamanho=40+(multAnual-multSeguroFire*0.5)/(multSeguroFire*0.25)*30;
+    else if(multAnual>=multSeguroFire*0.25)scoreTamanho=15+(multAnual-multSeguroFire*0.25)/(multSeguroFire*0.25)*25;
+    else scoreTamanho=Math.max(0,multAnual/(multSeguroFire*0.25)*15);
+    // Dimensao 2: Capacidade Maxima Sustentavel (renda)
+    const valorClasse={};
+    let valorConsumiveis=0;
+    if(typeof MPT_CLS!=="undefined"&&Array.isArray(MPT_CLS)){
+      MPT_CLS.forEach(cid=>{
+        const v=total*((cw[cid]||0)/100);
+        valorClasse[cid]=v;
+        if(v>0&&cid!=="imoveis"&&!FUNDOS_RENDA_MOTORES.includes(cid))valorConsumiveis+=v;
+      });
+    }
+    const decomp=rendaPassivaIcrComAuxiliarDecomp(valorClasse,YIELD_CLASSE,IR_DIV,rendaMotoraHist,rendaAuxiliarHist,FX,null);
+    const capMaxAnual=decomp.motora+decomp.consumiveis+valorConsumiveis*SWR_AJUSTADO;
+    const coberturaPct=(capMaxAnual/metaAnual)*100;
+    let scoreRenda;
+    if(coberturaPct>=150)scoreRenda=100;
+    else if(coberturaPct>=120)scoreRenda=85+(coberturaPct-120)*0.5;
+    else if(coberturaPct>=100)scoreRenda=70+(coberturaPct-100)*0.75;
+    else if(coberturaPct>=80)scoreRenda=50+(coberturaPct-80)*1.0;
+    else if(coberturaPct>=60)scoreRenda=30+(coberturaPct-60)*1.0;
+    else scoreRenda=Math.max(0,coberturaPct*0.5);
+    scoreRenda=Math.max(0,Math.min(100,scoreRenda));
+    // Aproximacao das outras 3 dimensoes (Resiliencia, Diversificacao, Blindagem Cambial)
+    // Para nao duplicar codigo do SolidezCard, usa proxies simples (suficiente para o escore hibrido)
+    // Diversificacao: HHI da composicao
+    const wsArr=Object.values(cw||{}).filter(w=>w>0).map(w=>w/100);
+    const hhi=wsArr.reduce((s,w)=>s+w*w,0);
+    const efeitClasses=1/Math.max(hhi,0.001);
+    let scoreDiv;
+    if(efeitClasses>=8)scoreDiv=100;
+    else if(efeitClasses>=6)scoreDiv=80+(efeitClasses-6)/2*20;
+    else if(efeitClasses>=4)scoreDiv=55+(efeitClasses-4)/2*25;
+    else if(efeitClasses>=2)scoreDiv=25+(efeitClasses-2)/2*30;
+    else scoreDiv=Math.max(0,efeitClasses/2*25);
+    // Blindagem cambial
+    let valCambial=0;
+    if(typeof bandasCambial==="function"){
+      const cambialAlvo=alvoCambial(idadeAtual);
+      // Aproxima: usa peso EXT como proxy de blindagem (simplificacao - estimativa nao precisa)
+      const wExt=(cw.acoes_ext||0)+(cw.reits||0)+(cw.treasuries||0);
+      const pctCambial=wExt/100;
+      const score=typeof scoreBlindagemCambial==="function"?scoreBlindagemCambial(pctCambial,idadeAtual):50;
+      valCambial=score;
+    }
+    const scoreBlind=valCambial;
+    // Resiliencia: simplificada (usa media de outros scores como proxy)
+    const scoreResil=(scoreTamanho+scoreRenda+scoreDiv+scoreBlind)/4;
+    // Score Solidez total (pesos: 22/22/22/17/17)
+    const scoreSolidez=(scoreTamanho*0.22+scoreRenda*0.22+scoreResil*0.22+scoreDiv*0.17+scoreBlind*0.17);
+    // Score hibrido: 60% solidez + 40% cobertura capMax (cap em 150% = 100)
+    const coberturaScoreNorm=Math.min(100,coberturaPct/1.5);// 0-150% -> 0-100
+    const scoreHibrido=scoreSolidez*0.60+coberturaScoreNorm*0.40;
+    // Determina marco (1-6) baseado no score hibrido
+    let marco;
+    if(scoreHibrido>=85)marco=6;     // Topo - patrimonio geracional
+    else if(scoreHibrido>=70)marco=5;// IF plena com folga
+    else if(scoreHibrido>=55)marco=4;// IF apertada/sustentavel
+    else if(scoreHibrido>=35)marco=3;// Acumulando com vigor
+    else if(scoreHibrido>=15)marco=2;// Primeiros valores
+    else marco=1;                    // Base/inicio
+    return {scoreHibrido,scoreSolidez,coberturaPct,marco,multAnual,capMaxAnual};
+  }catch(e){console.error("Erro calcEscaladaScore:",e);return null;}
+}
+
+// Componente da montanha com 6 marcos e escalador posicionado
+function EscaladaPatrimonialIllust({escalada,hideVal}){
+  if(!escalada)return null;
+  const {marco,scoreHibrido,coberturaPct,multAnual}=escalada;
+  // Definicao dos 6 marcos com posicoes (em % da altura do SVG)
+  const marcos=[
+    {n:1,nome:"Piso",desc:"sem patrim\u00f4nio acumulado, depende totalmente do trabalho",cor:"#9C7D6E",y:88},
+    {n:2,nome:"In\u00edcio",desc:"primeiros aportes, patrim\u00f4nio pequeno e sem renda relevante",cor:"#C8A96E",y:74},
+    {n:3,nome:"Acumulando",desc:"patrim\u00f4nio crescendo, mas renda passiva ainda insuficiente",cor:"#E8C44A",y:58},
+    {n:4,nome:"Sustent\u00e1vel",desc:"renda passiva cobre meta apertado, margem de seguran\u00e7a pequena",cor:"#7DD17D",y:42},
+    {n:5,nome:"Independ\u00eancia",desc:"renda perp\u00e9tua cobre meta com folga, IF efetiva",cor:"#4CAF82",y:26},
+    {n:6,nome:"Geracional",desc:"patrim\u00f4nio s\u00f3lido, IF plena, capacidade de legado",cor:"#FFD700",y:10}
+  ];
+  const marcoAtual=marcos.find(m=>m.n===marco);
+  // SVG: 240 x 280
+  const W=240,H=280;
+  // Coordenadas da silhueta da montanha (poligono triangular escalonado)
+  const montanhaPath="M30,260 L80,170 L100,200 L130,90 L155,140 L175,50 L210,260 Z";
+  // Posicao do escalador (boneco) - 1 a 6 mapeia para y%
+  const yBoneco=H*(marcoAtual.y/100);
+  // X do boneco varia em zigue-zague conforme sobe (simulando trilha)
+  const xBonecos=[80,100,90,135,145,160];
+  const xBoneco=xBonecos[marco-1];
+  return h("div",{style:{display:"flex",flexDirection:"column",alignItems:"center",gap:8,padding:"4px 0"}},
+    // SVG da montanha
+    h("svg",{viewBox:"0 0 "+W+" "+H,style:{width:"100%",height:"auto",maxWidth:240,display:"block"},preserveAspectRatio:"xMidYMid meet"},
+      // Background gradient (ceu)
+      h("defs",{},
+        h("linearGradient",{id:"skyGrad",x1:"0%",y1:"0%",x2:"0%",y2:"100%"},
+          h("stop",{offset:"0%",stopColor:"#1a1a2e"}),
+          h("stop",{offset:"50%",stopColor:"#252535"}),
+          h("stop",{offset:"100%",stopColor:"#2a2620"})
+        ),
+        h("linearGradient",{id:"mountainGrad",x1:"0%",y1:"0%",x2:"0%",y2:"100%"},
+          h("stop",{offset:"0%",stopColor:"#5A4030"}),
+          h("stop",{offset:"60%",stopColor:"#3D2818"}),
+          h("stop",{offset:"100%",stopColor:"#2A1810"})
+        ),
+        // Filtro de brilho para o boneco
+        h("radialGradient",{id:"glowGrad"},
+          h("stop",{offset:"0%",stopColor:"#FFD700",stopOpacity:0.6}),
+          h("stop",{offset:"100%",stopColor:"#FFD700",stopOpacity:0})
+        )
+      ),
+      // Ceu de fundo
+      h("rect",{x:0,y:0,width:W,height:H,fill:"url(#skyGrad)"}),
+      // Estrelas/pontos brilhantes no ceu
+      ...[[40,30],[80,15],[140,25],[190,40],[210,15],[55,55],[170,70]].map((p,i)=>h("circle",{key:"star"+i,cx:p[0],cy:p[1],r:0.8,fill:"#FFD700",opacity:0.5})),
+      // Cume com neve (triangulo superior branco)
+      h("path",{d:"M155,140 L175,50 L195,140 Z",fill:"rgba(255,255,255,0.85)"}),
+      // Montanha principal
+      h("path",{d:montanhaPath,fill:"url(#mountainGrad)",stroke:"#1a1410",strokeWidth:1}),
+      // Linha de trilha sugerida (curva zigue-zague subindo)
+      h("path",{d:"M80,250 Q90,225 100,210 Q120,195 105,175 Q90,155 115,135 Q140,118 130,95 Q120,75 145,60 Q160,52 175,55",fill:"none",stroke:"rgba(255,255,255,0.10)",strokeWidth:1.5,strokeDasharray:"3,4"}),
+      // Marcos (bandeiras com numero) - todos visiveis, com brilho extra no atual e nos passados
+      ...marcos.map((m,i)=>{
+        const ja=m.n<=marco;
+        const atual=m.n===marco;
+        const futuro=m.n>marco;
+        const opacity=ja?1:(atual?1:0.45);
+        const xMarco=xBonecos[i]+18;// posiciona bandeira ao lado da trilha
+        const yMarco=H*(m.y/100);
+        return h("g",{key:"marco"+m.n,style:{opacity}},
+          // Halo dourado se for o atual
+          atual?h("circle",{cx:xMarco-2,cy:yMarco,r:14,fill:"url(#glowGrad)"}):null,
+          // Mastro
+          h("line",{x1:xMarco,y1:yMarco-12,x2:xMarco,y2:yMarco+4,stroke:ja?m.cor:"#5A5550",strokeWidth:1.5}),
+          // Bandeira
+          h("path",{d:"M"+xMarco+","+(yMarco-12)+" L"+(xMarco+10)+","+(yMarco-10)+" L"+(xMarco+8)+","+(yMarco-5)+" L"+(xMarco+10)+","+(yMarco-1)+" L"+xMarco+","+(yMarco+1)+" Z",fill:ja?m.cor:"#3a3530",stroke:atual?"#FFD700":"none",strokeWidth:atual?1:0}),
+          // Numero do marco
+          h("text",{x:xMarco+4,y:yMarco-5,fontSize:6.5,fill:ja?"#1a1410":"#7A7060",fontFamily:"monospace",fontWeight:700,textAnchor:"middle"},m.n)
+        );
+      }),
+      // Escalador (boneco simples) - posicionado no marco atual
+      h("g",{transform:"translate("+xBoneco+","+yBoneco+")"},
+        // Halo dourado em volta do boneco
+        h("circle",{cx:0,cy:0,r:10,fill:"url(#glowGrad)"}),
+        // Cabeca
+        h("circle",{cx:0,cy:-6,r:2.5,fill:"#E8DCC0",stroke:"#1a1410",strokeWidth:0.5}),
+        // Corpo (linha vertical)
+        h("line",{x1:0,y1:-3.5,x2:0,y2:2,stroke:"#E8DCC0",strokeWidth:1.5}),
+        // Bracos (V invertido sugerindo escalada)
+        h("line",{x1:0,y1:-2,x2:-3.5,y2:-4.5,stroke:"#E8DCC0",strokeWidth:1.2}),
+        h("line",{x1:0,y1:-2,x2:3.5,y2:-5.5,stroke:"#E8DCC0",strokeWidth:1.2}),
+        // Pernas
+        h("line",{x1:0,y1:2,x2:-2.5,y2:5.5,stroke:"#E8DCC0",strokeWidth:1.4}),
+        h("line",{x1:0,y1:2,x2:2.5,y2:5.5,stroke:"#E8DCC0",strokeWidth:1.4})
+      ),
+      // Logo Aletsch no cume (pequeno A estilizado)
+      h("text",{x:175,y:45,fontSize:8,fill:"rgba(255,215,0,0.85)",fontFamily:"Georgia,serif",fontStyle:"italic",fontWeight:700,textAnchor:"middle"},"\u2727")
+    ),
+    // Marco atual em destaque (descricao textual)
+    h("div",{style:{width:"100%",padding:"7px 9px",background:"linear-gradient(135deg,"+marcoAtual.cor+"22,"+marcoAtual.cor+"08)",border:"1px solid "+marcoAtual.cor+"66",borderRadius:5,textAlign:"center"}},
+      h("div",{style:{fontSize:7,letterSpacing:1.5,color:marcoAtual.cor,fontFamily:"monospace",fontWeight:700,marginBottom:3}},"MARCO "+marcoAtual.n+" DE 6"),
+      h("div",{style:{fontSize:11,color:"#E8E2D5",fontFamily:"Georgia,serif",fontStyle:"italic",fontWeight:700,marginBottom:3}},marcoAtual.nome),
+      h("div",{style:{fontSize:8,color:"#9A9080",lineHeight:1.45}},marcoAtual.desc)
+    ),
+    // Stats compactas
+    !hideVal?h("div",{style:{display:"flex",justifyContent:"space-around",width:"100%",gap:6,paddingTop:4,borderTop:"1px dashed rgba(255,255,255,0.08)"}},
+      h("div",{style:{textAlign:"center",flex:1}},
+        h("div",{style:{fontSize:6.5,color:"#7A7060",fontFamily:"monospace",letterSpacing:1}},"SCORE"),
+        h("div",{style:{fontSize:11,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700}},scoreHibrido.toFixed(0)+"/100")
+      ),
+      h("div",{style:{textAlign:"center",flex:1}},
+        h("div",{style:{fontSize:6.5,color:"#7A7060",fontFamily:"monospace",letterSpacing:1}},"COBERT."),
+        h("div",{style:{fontSize:11,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700}},coberturaPct.toFixed(0)+"%")
+      ),
+      h("div",{style:{textAlign:"center",flex:1}},
+        h("div",{style:{fontSize:6.5,color:"#7A7060",fontFamily:"monospace",letterSpacing:1}},"MULT."),
+        h("div",{style:{fontSize:11,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700}},multAnual.toFixed(1)+"x")
+      )
+    ):null
+  );
+}
+
 function BolsasCard({port,cls}){
   const [tick,setTick]=useState(0);
   const [expanded,setExpanded]=useState(false);
@@ -8333,6 +8542,10 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           alert("Chave invalida. A chave deve comecar com sk-ant-...");
         }
       };
+      // Calcula escala patrimonial para a ilustracao (montanha)
+      const escalada=calcEscaladaScore({total,cw,port,metaMensalIF,dataNascimento,cambialCash,rendaMotoraHist,rendaAuxiliarHist,FX});
+      // Detecta layout responsivo (mobile vs desktop)
+      const ehLargo=typeof window!=="undefined"&&window.innerWidth>=700;
       const insightCard=hasPos?(apiKey?h("div",{style:{marginBottom:18,padding:"14px",background:"linear-gradient(135deg,rgba(200,169,110,0.08),rgba(91,143,212,0.04))",border:"1px solid "+(insightErr?"rgba(224,82,82,0.35)":insightAlertas&&insightAlertas.length>0?"rgba(232,196,74,0.45)":"rgba(200,169,110,0.25)"),borderRadius:10}},
         h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8,gap:6,flexWrap:"wrap"}},
           h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase"}},"Insight Claude IA"),
@@ -8354,13 +8567,23 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           ),
           h("div",{style:{fontSize:8,color:"#7A7060",marginTop:6,paddingLeft:18,fontStyle:"italic"}},"Clique em ",h("strong",{style:{color:"#E8C44A"}},"atualizar")," para regenerar com os dados atuais.")
         ),
-        insightLoad&&!insight?h("div",{style:{padding:"12px 0",color:"#8A8070",fontSize:11,fontStyle:"italic",textAlign:"center"}},"Analisando portfolio..."):
-        insightErr?h("div",{},
-          h("div",{style:{padding:"6px 0",color:"#E05252",fontSize:10,fontFamily:"monospace",marginBottom:6}},"Erro: "+insightErr),
-          insightErr.toLowerCase().includes("api")||insightErr.toLowerCase().includes("key")?h("div",{style:{fontSize:10,color:"#8A8070",lineHeight:1.5,padding:"6px 0"}},"A chave parece invalida ou expirada. Clique em ",h("b",{style:{color:"#C8A96E"}},"chave")," acima para inserir uma nova."):null
-        ):
-        insight?h("div",{style:{fontSize:12,color:"#C8C0B0",lineHeight:1.7,whiteSpace:"pre-wrap"}},insight):
-        h("div",{style:{fontSize:11,color:"#8A8070",fontStyle:"italic",lineHeight:1.6,padding:"6px 0"}},"Gerando primeiro insight automaticamente...")
+        // ===== LAYOUT: ilustracao (lateral em desktop, topo em mobile) + texto =====
+        h("div",{style:{display:"flex",flexDirection:ehLargo?"row":"column",gap:ehLargo?16:12,alignItems:"flex-start"}},
+          // Coluna ilustracao
+          escalada?h("div",{style:{flex:ehLargo?"0 0 220px":"none",width:ehLargo?"auto":"100%",maxWidth:ehLargo?220:280,alignSelf:ehLargo?"flex-start":"center"}},
+            h(EscaladaPatrimonialIllust,{escalada,hideVal})
+          ):null,
+          // Coluna texto
+          h("div",{style:{flex:1,minWidth:0,width:"100%"}},
+            insightLoad&&!insight?h("div",{style:{padding:"12px 0",color:"#8A8070",fontSize:11,fontStyle:"italic",textAlign:"center"}},"Analisando portfolio..."):
+            insightErr?h("div",{},
+              h("div",{style:{padding:"6px 0",color:"#E05252",fontSize:10,fontFamily:"monospace",marginBottom:6}},"Erro: "+insightErr),
+              insightErr.toLowerCase().includes("api")||insightErr.toLowerCase().includes("key")?h("div",{style:{fontSize:10,color:"#8A8070",lineHeight:1.5,padding:"6px 0"}},"A chave parece invalida ou expirada. Clique em ",h("b",{style:{color:"#C8A96E"}},"chave")," acima para inserir uma nova."):null
+            ):
+            insight?h("div",{style:{fontSize:12,color:"#C8C0B0",lineHeight:1.7,whiteSpace:"pre-wrap"}},insight):
+            h("div",{style:{fontSize:11,color:"#8A8070",fontStyle:"italic",lineHeight:1.6,padding:"6px 0"}},"Gerando primeiro insight automaticamente...")
+          )
+        )
       ):h("div",{style:{marginBottom:18,padding:"12px 14px",background:"rgba(200,169,110,0.04)",border:"1px dashed rgba(200,169,110,0.25)",borderRadius:10,textAlign:"center"}},
         h("div",{style:{fontSize:11,color:"#8A8070",marginBottom:8,lineHeight:1.6}},"Configure sua chave API para insights automaticos da IA sobre seu portfolio."),
         h("button",{onClick:trocarChave,style:{background:"none",border:"1px solid rgba(200,169,110,0.4)",borderRadius:5,color:"#C8A96E",fontSize:10,padding:"5px 12px",cursor:"pointer",fontFamily:"monospace"}},"Configurar chave API")
