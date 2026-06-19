@@ -2065,7 +2065,7 @@ function SolidezCard({total,cw,port,metaMensalIF,setTab,fB,hideVal,dataNasciment
         // Contribuicao real = score * (peso/100). Penalizacao = peso - contribuicao.
         const dims=[
           {id:"tam",label:"\u{1F4B0} TAMANHO",cor:"#C8A96E",score:scoreTamanho,peso:22,detail:hideVal?"\u2022\u2022\u2022":multFIRE.toFixed(1)+"x meta anual",alvo:"alvo: "+fireCal.seguro.toFixed(0)+"x (FIRE seguro, "+fireCal.horizonte+"a horizonte)"},
-          {id:"ren",label:"\u{1F525} CAPACIDADE MAXIMA",cor:"#F7931A",score:scoreRenda,peso:22,detail:coberturaPct.toFixed(0)+"% da meta ("+fB(rendaRTE/12)+"/m\u00eas)",alvo:"alvo: \u2265150% (SWR "+(SWR_AJUSTADO*100).toFixed(2)+"% / horizonte "+fireCal.horizonte+"a)"},
+          {id:"ren",label:"\u{1F525} CAPACIDADE MAXIMA DE RENDA SUSTENTAVEL",cor:"#F7931A",score:scoreRenda,peso:22,detail:coberturaPct.toFixed(0)+"% da meta ("+fB(rendaRTE/12)+"/m\u00eas)",alvo:"alvo: \u2265150% (SWR "+(SWR_AJUSTADO*100).toFixed(2)+"% / horizonte "+fireCal.horizonte+"a)"},
           {id:"res",label:"\u{1F6E1} RESILI\u00caNCIA",cor:"#5B8FD4",score:scoreResi,peso:22,detail:"dd "+ddPiorPct.toFixed(1)+"% (70%) + camb "+(pctCambialAtual*100).toFixed(0)+"% (30%)",alvo:"alvo: dd \u2265-5% E camb \u2265"+(bandasCamb.alvo*100).toFixed(0)+"%"},
           {id:"div",label:"\u{1F517} DIVERSIF.",cor:"#9C7DC2",score:scoreDiv,peso:17,detail:"corr m\u00e9dia "+corrMediaPond.toFixed(2),alvo:"alvo: corr \u22640.0 (descorrel.)"},
           {id:"camb",label:"\u{1F4B5} BLINDAGEM CAMBIAL",cor:"#3DA17C",score:scoreBlindagem,peso:17,detail:hideVal?"\u2022\u2022\u2022":(pctCambialAtual*100).toFixed(1)+"% em moedas fortes",alvo:"alvo: "+(bandasCamb.alvo*100).toFixed(0)+"% ("+(bandasCamb.min*100).toFixed(0)+"-"+(bandasCamb.max*100).toFixed(0)+"%), idade "+idadeAtual+"a"}
@@ -2254,7 +2254,7 @@ function SolidezCard({total,cw,port,metaMensalIF,setTab,fB,hideVal,dataNasciment
 
           // ===== DIMENSAO 2: CAPACIDADE MAXIMA SUSTENTAVEL =====
           h("div",{style:{marginBottom:9,padding:"9px 11px",background:"rgba(247,147,26,0.08)",borderLeft:"3px solid #F7931A",borderRadius:"0 4px 4px 0"}},
-            h("div",{style:{fontSize:9,letterSpacing:1.2,color:"#F7931A",fontFamily:"monospace",fontWeight:700,marginBottom:6}},"\u{1F525} 2. CAPACIDADE MAXIMA SUSTENTAVEL (22%)"),
+            h("div",{style:{fontSize:9,letterSpacing:1.2,color:"#F7931A",fontFamily:"monospace",fontWeight:700,marginBottom:6}},"\u{1F525} 2. CAPACIDADE MAXIMA DE RENDA SUSTENTAVEL (22%)"),
 
             // O conceito
             h("p",{style:{margin:"0 0 7px"}},
@@ -7181,7 +7181,7 @@ function App(){
         "INDICE COMPOSTO ATUAL: "+indiceTQ.toFixed(0)+"/100 (banda: "+bandaTQ+")\\n"+
         "Esta e a metrica MACRO que sintetiza a qualidade do portfolio em 5 DIMENSOES com pesos DIFERENCIADOS:\\n"+
         "  - TAMANHO (22%): "+scoreTamanho_TQ.toFixed(0)+"/100 ("+dimsTQ[0].valor+", alvo "+dimsTQ[0].alvo+")\\n"+
-        "  - CAPACIDADE MAXIMA SUSTENTAVEL (22%): "+scoreRenda_TQ.toFixed(0)+"/100 ("+dimsTQ[1].valor+", alvo "+dimsTQ[1].alvo+")\\n"+
+        "  - CAPACIDADE MAXIMA DE RENDA SUSTENTAVEL (22%): "+scoreRenda_TQ.toFixed(0)+"/100 ("+dimsTQ[1].valor+", alvo "+dimsTQ[1].alvo+")\\n"+
         "  - RESILIENCIA (22%): "+scoreResi_TQ.toFixed(0)+"/100 - HIBRIDA: 70% drawdown ("+scoreResiDD_TQ.toFixed(0)+"/100) + 30% cambial ("+scoreResiCambial_TQ.toFixed(0)+"/100). "+dimsTQ[2].valor+"\\n"+
         "  - DIVERSIFICACAO (17%): "+scoreDiv_TQ.toFixed(0)+"/100 ("+dimsTQ[3].valor+", alvo "+dimsTQ[3].alvo+")\\n"+
         "  - BLINDAGEM CAMBIAL (17%): "+scoreBlindagem_TQ.toFixed(0)+"/100 ("+dimsTQ[4].valor+", alvo "+dimsTQ[4].alvo+")\\n"+
