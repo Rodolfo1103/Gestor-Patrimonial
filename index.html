@@ -7411,49 +7411,48 @@ function App(){
     if(insightRendaLoad)return;
     setInsightRendaLoad(true);setInsightRendaErr(null);
     try{
-      const prompt=`Voce e um conselheiro financeiro experiente com forte expertise em FIRE (Financial Independence Retire Early) e renda perpetua. Sua tarefa e escrever um insight estrategico em portugues brasileiro EXCLUSIVAMENTE sobre a CAPACIDADE DE GERACAO DE RENDA do portfolio do investidor e a COBERTURA dessa renda sobre a meta mensal.
+      const prompt=`Voce e um conselheiro financeiro experiente em FIRE e renda perpetua. Sua tarefa: escrever um insight unico em portugues brasileiro que integre a RENDA REALIZADA (observada nos ultimos meses) com a CAPACIDADE FUTURA do portfolio, sempre comparando contra a meta corrigida pela inflacao.
 
-ESCOPO RIGIDO - SOBRE O QUE FALAR:
-- Capacidade do portfolio de gerar renda passiva (dividendos liquidos, alugueis, juros)
-- Cobertura da renda gerada vs meta mensal alvo
-- Sustentabilidade da renda no longo prazo (perpetuidade)
-- Motores de renda (FIIs + Infra + Agro) e por quantos anos resistem em cada cenario inflacionario
-- Capacidade maxima sustentavel (quanto o portfolio poderia pagar perpetuamente sem se autodestruir)
-- Relacao entre meta atual, renda gerada hoje, e horizonte ate independencia plena
-- Sensibilidade da capacidade de renda aos cenarios IPCA (otimista 3%, base 5.5%, pessimista 8.5%)
-- Liberdade de escolha sobre o tempo que essa renda proporciona
+CONTEXTO ESTRUTURAL (importante para o tom):
+- A RENDA REALIZADA e a renda que o investidor REALMENTE recebeu mes a mes nos ultimos meses, registrada manualmente: dividendos liquidos de motores (FII+Infra+Agro) + proventos de acoes BR + dividendos do exterior (multimoeda nativa, convertidos pelo PTAX BCB do fechamento do mes).
+- A CAPACIDADE MAXIMA SUSTENTAVEL e o quanto o portfolio poderia gerar perpetuamente preservando os motores (FII+Infra+Agro) e consumindo gradualmente as nao-motoras via SWR ajustado por horizonte.
+- O SWR ajustado por horizonte JA EMBUTE a protecao inflacionaria de longo prazo - portanto a comparacao com a meta ATUAL e tecnicamente correta. A meta inflada para o horizonte e mostrada apenas para contexto nominal.
 
-ESCOPO PROIBIDO - NAO FALAR SOBRE:
-- Alocacao de classes (FII vs EXT vs BR vs NTN-B etc.) - existem outras abas para isso
-- Diversificacao, correlacao entre classes, concentracao em classes especificas
-- Bandas patrimoniais alvo por classe
-- Fronteira eficiente, Sharpe, MPT/Markowitz
-- All Weather, Yale Endowment, Swensen, real assets vs equity bias
-- Sugerir mudancas de alocacao ou movimentos taticos
-- Comentar sobre exposicao cambial, blindagem cambial, exposicao USD
-- Discutir classes individuais (BTC esta caro, NTN-B esta atraente, etc.)
-- Vetores macro, sensibilidade liquida, regimes economicos
-- Qualquer asset allocation ou estrategia de rebalanceamento
-
-DADOS DO PORTFOLIO (junho de 2026):
+DADOS (junho de 2026):
 ${JSON.stringify(contexto,null,2)}
 
+ESTRUTURA DO INSIGHT (adaptar conforme a riqueza dos dados):
+1. RENDA REALIZADA - o que o portfolio JA esta gerando hoje (com base nos meses registrados). Cite o valor mensal medio realizado, compare com a meta atual, e contextualize se ja existe historico suficiente (3+ meses observados).
+2. CAPACIDADE FUTURA - quanto o portfolio pode sustentar perpetuamente (capMax) e como isso se compara com a meta atual e com a meta inflada para o horizonte do investidor (apenas para contexto nominal de longo prazo).
+3. SUSTENTABILIDADE - quantos anos os motores aguentam nos cenarios IPCA, e o que isso significa para a liberdade do investidor.
+
+FOCO RIGIDO:
+- Renda realizada (observada) vs meta atual
+- Capacidade maxima sustentavel vs meta atual (deflacionada via SWR ajustado)
+- Cenarios IPCA e horizonte ate consumir motores
+- Liberdade que essa renda proporciona (tempo, escolha, tranquilidade)
+
+NAO FALAR SOBRE:
+- Alocacao de classes, diversificacao, concentracao
+- All Weather, Yale, Swensen, asset allocation
+- Exposicao cambial, blindagem cambial
+- Sugerir movimentos taticos ou rebalanceamentos
+- Classes individuais (BTC caro, NTN-B atraente, etc.)
+
 DIRETRIZES DE ESCRITA:
-- Tom: filosofico, sereno e pragmaticamente otimista quando justificado. Use prosa fluida, nao listas.
-- Comprimento: 3 a 4 paragrafos, cada um com 3-5 frases.
-- Linguagem: portugues claro e cuidadoso. Sem jargao excessivo. Como um conselheiro velho conversando ao redor de uma mesa.
-- Foco unico: capacidade de renda do portfolio, cobertura da meta, perpetuidade da renda, liberdade que essa renda proporciona.
-- Evite: numeros excessivos no texto (eles ja estao nos cards). Foque em interpretacao e perspectiva.
-- Comece o primeiro paragrafo com uma reflexao sobre o que os dados de RENDA revelam.
-- Termine o ultimo paragrafo com um pensamento sobre liberdade, tempo, ou sobre a relacao entre renda perpetua e qualidade de vida.
+- Tom: filosofico, sereno, pragmatico. Prosa fluida (sem listas, sem bullets).
+- Comprimento: adapte conforme a riqueza dos dados (2 a 4 paragrafos de 3-5 frases cada).
+- Linguagem: portugues claro, sem jargao. Como conselheiro velho conversando ao redor de uma mesa.
+- Numeros: cite os valores-chave (renda realizada mensal, capacidade maxima, cobertura, idade-limite dos motores) mas evite saturacao numerica.
+- Se nao houver dados de renda realizada ainda (n_meses=0), reconheca isso e foque na capacidade projetada.
+- Comece com uma observacao concreta sobre o estado atual da renda (realizada ou projetada).
+- Termine com um pensamento sobre liberdade, tempo, ou a relacao entre renda perpetua e qualidade de vida.
 
 RESTRICOES:
 - NAO use markdown (sem **, sem ##, sem -)
 - NAO comece com "Olha", "Bom", "Bem"
-- NAO cite Bengen, Trinity Study, ou outros autores diretamente - apenas use as ideias deles
-- NAO mencione a sigla ICR-RTE no texto - use "renda passiva + saques sustentaveis" ou linguagem equivalente
+- NAO cite Bengen, Trinity Study ou autores diretamente
 - Use paragrafos separados por linha em branco (\\n\\n)
-- Se voce se pegar mencionando qualquer item do "ESCOPO PROIBIDO", reescreva a frase para que ela fale apenas sobre o impacto na geracao de renda ou na cobertura da meta.
 
 Responda APENAS com o texto do insight, sem prefacio ou comentarios meta.`;
       const messages=[{role:"user",content:prompt}];
@@ -7466,8 +7465,9 @@ Responda APENAS com o texto do insight, sem prefacio ou comentarios meta.`;
       // pois esta fora do escopo desta aba.
       setInsightRendaSnap({
         patrimonio_total:contexto.patrimonio_total_brl,
-        meta_mensal:contexto.meta_mensal_brl,
-        cobertura_rte_hoje:contexto.cobertura_rte_hoje
+        meta_mensal:contexto.meta_mensal_atual_brl,
+        cobertura_capmax:contexto.cobertura_capmax_vs_meta_atual,
+        renda_realizada_mensal:contexto.renda_realizada_total_mensal_brl
       });
     }catch(e){
       setInsightRendaErr(e.message||"Erro ao gerar insight");
@@ -15180,125 +15180,84 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           )
         ),
 
-        // ===== INSIGHT FINAL GLOBAL: SAUDE DO PORTFOLIO =====
-        (()=>{
-          // Calcula metricas-chave para o resumo
-          const cobHoje=rendaRTEHoje/(metaMensalIF*12);// cobertura atual ICR-RTE
-          // Idade ate quando os motores aguentam no cenario base
-          const idadeMotoresBase=rteBase.horizonteAteFII==="indefinido"?"100+":(idadeAtual+rteBase.horizonteAteFII);
-          const idadeMotoresPes=rtePes.horizonteAteFII==="indefinido"?"100+":(idadeAtual+rtePes.horizonteAteFII);
-          // Margem capacidade maxima vs meta
-          const margemCapMax=((capMax.mensalMax-metaMensalIF)/metaMensalIF)*100;
-          // Classificacao geral
-          let saude="forte",cor="#4CAF82",emoji="\u{1F7E2}";
-          if(cobHoje>=1.5&&capMax.mensalMax>=metaMensalIF*1.2&&rtePes.horizonteAteFII!=="indefinido"&&rtePes.horizonteAteFII<20){
-            saude="boa com atencao a inflacao";cor="#E8C44A";emoji="\u{1F7E1}";
-          }
-          if(cobHoje<1.0){saude="moderada";cor="#E8C44A";emoji="\u{1F7E1}";}
-          if(cobHoje<0.7){saude="atencao";cor="#E89060";emoji="\u{1F7E0}";}
-          if(cobHoje>=2.0&&margemCapMax>=30){saude="excelente";cor="#4CAF82";emoji="\u{1F7E2}";}
-          return h("div",{style:{background:"linear-gradient(135deg,rgba(76,175,130,0.08),rgba(91,143,212,0.04))",border:"2px solid rgba(76,175,130,0.35)",borderRadius:9,padding:"16px 18px",marginBottom:14,boxShadow:"0 0 0 1px rgba(76,175,130,0.08)"}},
-            // Header
-            h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,marginBottom:12,flexWrap:"wrap"}},
-              h("div",{},
-                h("div",{style:{fontSize:11,letterSpacing:2.5,color:"#4CAF82",fontFamily:"monospace",fontWeight:700,textTransform:"uppercase"}},"\u{1F3DB}\u{FE0F} INSIGHT FINAL: SAUDE DO PORTFOLIO"),
-                h("div",{style:{fontSize:8.5,color:"#7A7060",marginTop:3,fontStyle:"italic"}},"Sumario estrategico sobre sua capacidade de gerar renda e tranquilidade financeira")
-              ),
-              h("div",{style:{display:"flex",alignItems:"center",gap:6,padding:"5px 10px",background:cor+"20",border:"1px solid "+cor+"66",borderRadius:5}},
-                h("span",{style:{fontSize:13}},emoji),
-                h("span",{style:{fontSize:9,color:cor,fontFamily:"monospace",fontWeight:700,letterSpacing:1.5,textTransform:"uppercase"}},saude)
-              )
-            ),
-            // Diagnostico principal em prosa
-            h("div",{style:{background:"rgba(0,0,0,0.20)",borderRadius:7,padding:"12px 14px",marginBottom:10,fontFamily:"Georgia,serif",fontStyle:"italic",fontSize:12,color:"#E8E2D5",lineHeight:1.75}},
-              h("div",{style:{fontSize:9,letterSpacing:1.5,color:"#4CAF82",fontFamily:"monospace",fontStyle:"normal",fontWeight:700,marginBottom:8}},"\u{1F4DC} DIAGNOSTICO"),
-              h("p",{style:{margin:"0 0 10px"}},
-                "Hoje, sua renda passiva potencial (ICR-RTE) cobre ",h("strong",{style:{color:cor}},(cobHoje*100).toFixed(0)+"% da sua meta")," de ",fB(metaMensalIF),"/mes. ",
-                cobHoje>=1.0?
-                  h("span",{},"Voce ja atingiu a ",h("strong",{style:{color:"#4CAF82"}},"independencia financeira de fato"),", podendo viver do portfolio caso necessario, sem depender da sua atividade profissional."):
-                  h("span",{},"Voce ainda nao atingiu plenamente a independencia financeira, mas esta no caminho - faltam aproximadamente ",h("strong",{style:{color:"#E89060"}},fB((metaMensalIF*12-rendaRTEHoje)/12)+"/mes")," para cobrir 100% da meta.")
-              ),
-              h("p",{style:{margin:"0 0 10px"}},
-                "Sua ",h("strong",{},"capacidade maxima sustentavel")," (renda perpetua que voce poderia gastar para sempre preservando os motores FII+Infra+Agro) e de ",h("strong",{style:{color:"#9C7DC2"}},fB(capMax.mensalMax)+"/mes")," em poder de compra de hoje. ",
-                margemCapMax>=0?
-                  h("span",{},"Isso representa uma ",h("strong",{style:{color:"#4CAF82"}},"margem de "+margemCapMax.toFixed(0)+"% acima da sua meta atual")," - voce tem folga real para enfrentar imprevistos ou para um padrao de vida ainda mais confortavel."):
-                  h("span",{},"Isso e ",h("strong",{style:{color:"#E89060"}},Math.abs(margemCapMax).toFixed(0)+"% abaixo da sua meta")," - revise: voce precisaria reduzir o gasto ou ampliar o patrimonio.")
-              ),
-              h("p",{style:{margin:0}},
-                "Mesmo em ",h("strong",{style:{color:"#E89060"}},"cenario pessimista")," (IPCA crise tipo 2015-16, 8.5% a.a.), seu portfolio sustenta a renda alvo sem precisar tocar nos motores ate seus ",h("strong",{},(typeof idadeMotoresPes==="number"?idadeMotoresPes+" anos":idadeMotoresPes)),". ",
-                "No ",h("strong",{style:{color:"#E8C44A"}},"cenario base")," (5.5%), os motores resistem ate seus ",h("strong",{},(typeof idadeMotoresBase==="number"?idadeMotoresBase+" anos":idadeMotoresBase)),". ",
-                "Isso representa, fundamentalmente, ",h("strong",{style:{color:"#5B8FD4"}},"uma grande fonte de tranquilidade financeira"),"."
-              )
-            ),
-            // 4 destaques numericos
-            h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:6,marginBottom:10}},
-              h("div",{style:{background:"rgba(76,175,130,0.08)",borderLeft:"2px solid #4CAF82",borderRadius:4,padding:"7px 8px"}},
-                h("div",{style:{fontSize:6.5,color:"#4CAF82",fontFamily:"monospace",fontWeight:700,letterSpacing:0.8,marginBottom:2}},"COBERTURA HOJE"),
-                h("div",{style:{fontSize:13,color:"#E8E2D5",fontFamily:"Georgia,serif",fontWeight:700,fontStyle:"italic"}},(cobHoje*100).toFixed(0)+"%"),
-                h("div",{style:{fontSize:6.5,color:"#7A7060",fontFamily:"monospace",marginTop:2}},"da meta")
-              ),
-              h("div",{style:{background:"rgba(156,125,194,0.08)",borderLeft:"2px solid #9C7DC2",borderRadius:4,padding:"7px 8px"}},
-                h("div",{style:{fontSize:6.5,color:"#9C7DC2",fontFamily:"monospace",fontWeight:700,letterSpacing:0.8,marginBottom:2}},"CAP. MAXIMA"),
-                h("div",{style:{fontSize:11,color:"#E8E2D5",fontFamily:"Georgia,serif",fontWeight:700,fontStyle:"italic"}},fB(capMax.mensalMax).replace("R$ ","")),
-                h("div",{style:{fontSize:6.5,color:"#7A7060",fontFamily:"monospace",marginTop:2}},"/m perpetuo")
-              ),
-              h("div",{style:{background:"rgba(91,143,212,0.08)",borderLeft:"2px solid #5B8FD4",borderRadius:4,padding:"7px 8px"}},
-                h("div",{style:{fontSize:6.5,color:"#5B8FD4",fontFamily:"monospace",fontWeight:700,letterSpacing:0.8,marginBottom:2}},"MOTORES BASE"),
-                h("div",{style:{fontSize:11,color:"#E8E2D5",fontFamily:"Georgia,serif",fontWeight:700,fontStyle:"italic"}},typeof idadeMotoresBase==="number"?idadeMotoresBase:"\u221E"),
-                h("div",{style:{fontSize:6.5,color:"#7A7060",fontFamily:"monospace",marginTop:2}},"anos")
-              ),
-              h("div",{style:{background:"rgba(232,144,96,0.08)",borderLeft:"2px solid #E89060",borderRadius:4,padding:"7px 8px"}},
-                h("div",{style:{fontSize:6.5,color:"#E89060",fontFamily:"monospace",fontWeight:700,letterSpacing:0.8,marginBottom:2}},"MOTORES PES."),
-                h("div",{style:{fontSize:11,color:"#E8E2D5",fontFamily:"Georgia,serif",fontWeight:700,fontStyle:"italic"}},typeof idadeMotoresPes==="number"?idadeMotoresPes:"\u221E"),
-                h("div",{style:{fontSize:6.5,color:"#7A7060",fontFamily:"monospace",marginTop:2}},"anos")
-              )
-            ),
-            // Mensagem final fechando
-            h("div",{style:{background:"rgba(0,0,0,0.15)",borderRadius:5,padding:"9px 11px",fontSize:9.5,color:"#9A9080",lineHeight:1.6,fontFamily:"Georgia,serif",fontStyle:"italic",borderLeft:"3px solid "+cor}},
-              "\u{1F381} ",
-              cobHoje>=1.5&&margemCapMax>=15?
-                h("span",{},"Voce construiu um patrimonio que ",h("strong",{style:{color:"#4CAF82"}},"liberta voce de ter que trabalhar para viver"),". A renda do portfolio cobre confortavelmente seu estilo de vida desejado, e os motores de renda asseguram a perpetuidade da capacidade financeira mesmo em horizontes de muito longo prazo. Voce conquistou a maior das liberdades modernas: o tempo."):
-              cobHoje>=1.0?
-                h("span",{},"Voce ja cobre 100% da meta com a renda do portfolio. A independencia financeira ja e ",h("strong",{style:{color:"#4CAF82"}},"realidade matematica"),". Continue acompanhando a evolucao da capacidade maxima e da Banda de Tranquilidade para ajustes finos da estrategia ao longo do tempo."):
-                h("span",{},"O caminho esta tracado e os fundamentos do portfolio sao solidos. Continue aportando com a disciplina Swensen/Yale aplicada nas outras abas. A cada aporte, a Banda de Tranquilidade avanca, e voce caminha para o momento em que o portfolio sustentara plenamente seu estilo de vida.")
-            )
-          );
-        })(),
-
         // ===== INSIGHT IA ESTRATEGICO (FIRE / SWENSEN) =====
         (()=>{
-          // Contexto rico passado para a IA - APENAS DADOS DE RENDA E COBERTURA
+          // Contexto rico passado para a IA - DADOS DE RENDA E COBERTURA (realizada + projetada)
+          // Foco: renda realmente AUFERIDA (motora observada + auxiliar BR/exterior) +
+          // capacidade FUTURA do portfolio (capMax, motores) vs meta corrigida pela inflacao.
           // (alocacao de classes, exposicao cambial, diversificacao etc. NAO entram aqui -
-          // existem outras abas para essas analises e o foco rigido aqui e capacidade de renda)
+          // existem outras abas para essas analises)
+          const yObsMotor_IA=yieldObservadoMotor(rendaMotoraHist);
+          const auxObs_IA=rendaAuxiliarObservada(rendaAuxiliarHist,FX);
+          // Renda motora observada mensal media (BRL)
+          const rendaMotMensalRealizada=yObsMotor_IA?(yObsMotor_IA.valor*MOTORES_RENDA.reduce((s,id)=>s+(valorClasse[id]||0),0))/12:0;
+          // Renda auxiliar observada mensal media (BRL convertido)
+          const rendaAuxMensalRealizada=auxObs_IA?auxObs_IA.totalBrlMedio:0;
+          const rendaAuxBRMensal=auxObs_IA?auxObs_IA.brMedio:0;
+          const rendaAuxExteriorMensal=auxObs_IA?auxObs_IA.totalExteriorBrlMedio:0;
+          // Total realizado
+          const rendaRealizadaMensal=rendaMotMensalRealizada+rendaAuxMensalRealizada;
+          const rendaRealizadaAnual=rendaRealizadaMensal*12;
+          // Cobertura da renda REALIZADA sobre a meta atual
+          const coberturaRealizada=metaMensalIF>0?rendaRealizadaMensal/metaMensalIF:0;
+          // META INFLADA (poder de compra futuro, projetado para horizonte do investidor)
+          // Usa horizonte estimado de aposentadoria/independencia plena (50 anos para 39a)
+          // IPCA cenarios para horizonte longo
+          const horizonteAnos=fireCal&&fireCal.horizonte?fireCal.horizonte:50;
+          const metaInflBase=metaMensalIF*Math.pow(1.055,horizonteAnos);// IPCA base 5,5%
+          const metaInflOti=metaMensalIF*Math.pow(1.03,horizonteAnos);// IPCA otimista 3%
+          const metaInflPes=metaMensalIF*Math.pow(1.085,horizonteAnos);// IPCA pessimista 8,5%
           const contextoIA={
             // Identidade
             idade_atual:idadeAtual,
             data_nascimento:dataNascimento,
+            horizonte_anos:horizonteAnos,
             // Meta
-            meta_mensal_brl:metaMensalIF,
-            meta_anual_brl:metaMensalIF*12,
+            meta_mensal_atual_brl:metaMensalIF,
+            meta_anual_atual_brl:metaMensalIF*12,
+            meta_mensal_inflada_base_brl:Math.round(metaInflBase),
+            meta_mensal_inflada_otimista_brl:Math.round(metaInflOti),
+            meta_mensal_inflada_pessimista_brl:Math.round(metaInflPes),
             // Patrimonio
             patrimonio_total_brl:totalPortfolio,
-            // Cobertura RTE hoje (renda passiva + 4% sobre nao-motoras)
-            renda_rte_hoje_mensal_brl:Math.round(rendaRTEHoje/12),
-            cobertura_rte_hoje:Number((rendaRTEHoje/(metaMensalIF*12)).toFixed(3)),
-            // Capacidade Maxima (perpetua, preservando motores)
+            // ===== RENDA REALIZADA (observada pelo investidor mes a mes) =====
+            // Motora: dividendos liquidos de FII+Infra+Agro (input mensal real)
+            renda_motora_realizada_mensal_brl:Math.round(rendaMotMensalRealizada),
+            renda_motora_observada_n_meses:yObsMotor_IA?yObsMotor_IA.n:0,
+            renda_motora_yield_anual_liq_pct:yObsMotor_IA?Number((yObsMotor_IA.valor*100).toFixed(2)):null,
+            // Auxiliar: proventos de acoes BR + dividendos exterior (multimoeda nativa via PTAX)
+            renda_auxiliar_realizada_mensal_brl:Math.round(rendaAuxMensalRealizada),
+            renda_auxiliar_br_mensal_brl:Math.round(rendaAuxBRMensal),
+            renda_auxiliar_exterior_mensal_brl:Math.round(rendaAuxExteriorMensal),
+            renda_auxiliar_observada_n_meses:auxObs_IA?auxObs_IA.n:0,
+            // Total realizado (motora + auxiliar)
+            renda_realizada_total_mensal_brl:Math.round(rendaRealizadaMensal),
+            renda_realizada_total_anual_brl:Math.round(rendaRealizadaAnual),
+            cobertura_realizada_vs_meta_atual:Number(coberturaRealizada.toFixed(3)),
+            // ===== CAPACIDADE FUTURA DE GERACAO DE RENDA =====
+            // Capacidade Maxima sustentavel (motora + dividendos consumiveis + SWR sobre consumiveis)
+            // Inclui Modelo B refinado: max(aux observada, SWR teorico) sobre nao-motoras
             capacidade_maxima_mensal_brl:Math.round(capMax.mensalMax),
-            renda_motores_anual_brl:Math.round(capMax.rendaMotores),
+            capacidade_maxima_anual_brl:Math.round(capMax.totalAnual),
+            renda_motores_dividendos_anual_brl:Math.round(capMax.rendaMotores),
             patrim_motores_brl:Math.round(capMax.patrimMotores),
-            // ICR-RTE em 20 anos por cenario
-            cobertura_20a_cenario_oti:Number(rteOti.dadosAno20?rteOti.dadosAno20.cobertura.toFixed(3):0),
+            // Cobertura capMax vs meta atual (NAO inflada - SWR ajustado por horizonte ja embute inflacao)
+            cobertura_capmax_vs_meta_atual:Number((capMax.mensalMax/metaMensalIF).toFixed(3)),
+            // Cobertura capMax vs meta INFLADA por cenario (visao nominal de longo prazo)
+            cobertura_capmax_vs_meta_inflada_base:Number((capMax.mensalMax/metaInflBase).toFixed(3)),
+            cobertura_capmax_vs_meta_inflada_otimista:Number((capMax.mensalMax/metaInflOti).toFixed(3)),
+            cobertura_capmax_vs_meta_inflada_pessimista:Number((capMax.mensalMax/metaInflPes).toFixed(3)),
+            // ICR-RTE projetado em 20 anos por cenario (cobertura ja deflacionada)
+            cobertura_20a_cenario_otimista:Number(rteOti.dadosAno20?rteOti.dadosAno20.cobertura.toFixed(3):0),
             cobertura_20a_cenario_base:Number(rteBase.dadosAno20?rteBase.dadosAno20.cobertura.toFixed(3):0),
-            cobertura_20a_cenario_pes:Number(rtePes.dadosAno20?rtePes.dadosAno20.cobertura.toFixed(3):0),
+            cobertura_20a_cenario_pessimista:Number(rtePes.dadosAno20?rtePes.dadosAno20.cobertura.toFixed(3):0),
             // Horizonte ate consumir motores (idade)
             idade_motores_intocados_otimista:rteOti.horizonteAteFII==="indefinido"?"perpetuidade":idadeAtual+rteOti.horizonteAteFII,
             idade_motores_intocados_base:rteBase.horizonteAteFII==="indefinido"?"perpetuidade":idadeAtual+rteBase.horizonteAteFII,
             idade_motores_intocados_pessimista:rtePes.horizonteAteFII==="indefinido"?"perpetuidade":idadeAtual+rtePes.horizonteAteFII,
-            // Premissas (cenarios IPCA - afetam diretamente o poder de compra da renda)
-            ipca_cenarios:{otimista:0.03,base:0.055,pessimista:0.085}
-            // INTENCIONALMENTE OMITIDO: composicao_pct, patrim_usd_pct, cambio_usd_brl
-            // (esses dados convidam a IA a discutir alocacao/diversificacao/cambio,
-            // que estao fora do escopo de renda - outras abas tratam disso)
+            // Premissas
+            ipca_cenarios:{otimista:0.03,base:0.055,pessimista:0.085},
+            swr_ajustado_por_horizonte_pct:Number((fireCal.swr*100).toFixed(2))
           };
           // Quando IA gerou texto
           const tsFormatado=insightRendaTs?(()=>{
@@ -15318,14 +15277,17 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             const variacaoPatrim=insightRendaSnap.patrimonio_total>0?
               ((contextoIA.patrimonio_total_brl-insightRendaSnap.patrimonio_total)/insightRendaSnap.patrimonio_total)*100:0;
             const variacaoMeta=insightRendaSnap.meta_mensal>0?
-              ((contextoIA.meta_mensal_brl-insightRendaSnap.meta_mensal)/insightRendaSnap.meta_mensal)*100:0;
-            // Variacao da cobertura RTE (renda/meta) - mais direto que composicao
-            const coberturaAntes=insightRendaSnap.cobertura_rte_hoje||0;
-            const coberturaAgora=contextoIA.cobertura_rte_hoje||0;
-            const variacaoCobertura=Math.abs(coberturaAgora-coberturaAntes)*100;// em pp
-            // Define se eh significativa
-            const limPatrim=10,limMeta=10,limCobertura=10;// 10pp na cobertura
-            if(Math.abs(variacaoPatrim)>=limPatrim||Math.abs(variacaoMeta)>=limMeta||variacaoCobertura>=limCobertura){
+              ((contextoIA.meta_mensal_atual_brl-insightRendaSnap.meta_mensal)/insightRendaSnap.meta_mensal)*100:0;
+            // Variacao da cobertura capMax (capacidade futura vs meta) - mais robusto que ICR-RTE
+            const coberturaAntes=insightRendaSnap.cobertura_capmax||insightRendaSnap.cobertura_rte_hoje||0;
+            const coberturaAgora=contextoIA.cobertura_capmax_vs_meta_atual||0;
+            const variacaoCobertura=Math.abs(coberturaAgora-coberturaAntes)*100;
+            // Variacao da renda REALIZADA mensal (novo - reflete acumulo de historico observado)
+            const rendaAntes=insightRendaSnap.renda_realizada_mensal||0;
+            const rendaAgora=contextoIA.renda_realizada_total_mensal_brl||0;
+            const variacaoRendaReal=rendaAntes>0?((rendaAgora-rendaAntes)/rendaAntes)*100:(rendaAgora>0?100:0);
+            const limPatrim=10,limMeta=10,limCobertura=10,limRendaReal=15;
+            if(Math.abs(variacaoPatrim)>=limPatrim||Math.abs(variacaoMeta)>=limMeta||variacaoCobertura>=limCobertura||Math.abs(variacaoRendaReal)>=limRendaReal){
               const motivos=[];
               if(Math.abs(variacaoPatrim)>=limPatrim){
                 motivos.push("Patrimonio "+(variacaoPatrim>0?"subiu":"caiu")+" "+Math.abs(variacaoPatrim).toFixed(1)+"%");
@@ -15335,6 +15297,9 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
               }
               if(variacaoCobertura>=limCobertura){
                 motivos.push("Cobertura da meta variou "+variacaoCobertura.toFixed(1)+"pp");
+              }
+              if(Math.abs(variacaoRendaReal)>=limRendaReal){
+                motivos.push("Renda realizada "+(variacaoRendaReal>0?"subiu":"caiu")+" "+Math.abs(variacaoRendaReal).toFixed(1)+"%");
               }
               mudancaSignif={
                 motivos:motivos,
@@ -15361,7 +15326,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,marginBottom:10,flexWrap:"wrap"}},
               h("div",{},
                 h("div",{style:{fontSize:11,letterSpacing:2.5,color:"#9C7DC2",fontFamily:"monospace",fontWeight:700,textTransform:"uppercase"}},"\u{1F3F0} INSIGHT ESTRATEGICO (IA)"),
-                h("div",{style:{fontSize:8.5,color:"#7A7060",marginTop:3,fontStyle:"italic"}},"Reflexao filosofica sobre sua capacidade de gerar renda perpetua e cobrir a meta mensal alvo")
+                h("div",{style:{fontSize:8.5,color:"#7A7060",marginTop:3,fontStyle:"italic"}},"Renda realizada (observada) + capacidade futura vs meta - sintese estrategica")
               ),
               h("button",{
                 onClick:()=>gerarInsightRenda(contextoIA),
@@ -15382,6 +15347,37 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                 }
               },insightRendaLoad?"\u{1F914} refletindo...":(insightRenda?"\u21BB ATUALIZAR INSIGHT":"\u2728 GERAR INSIGHT IA"))
             ),
+            // 4 destaques numericos (visiveis sempre - resumo fatual)
+            (()=>{
+              const cobRealizada=contextoIA.cobertura_realizada_vs_meta_atual;
+              const cobCapMax=contextoIA.cobertura_capmax_vs_meta_atual;
+              const idadeMotBase=contextoIA.idade_motores_intocados_base;
+              const idadeMotPes=contextoIA.idade_motores_intocados_pessimista;
+              const corRealizada=cobRealizada>=1?"#4CAF82":(cobRealizada>=0.7?"#E8C44A":"#E89060");
+              const corCapMax=cobCapMax>=1.5?"#4CAF82":(cobCapMax>=1?"#7DD17D":(cobCapMax>=0.7?"#E8C44A":"#E89060"));
+              return h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:6,marginBottom:10}},
+                h("div",{style:{background:"rgba(76,175,130,0.08)",borderLeft:"2px solid "+corRealizada,borderRadius:4,padding:"7px 8px"}},
+                  h("div",{style:{fontSize:6.5,color:corRealizada,fontFamily:"monospace",fontWeight:700,letterSpacing:0.8,marginBottom:2}},"RENDA REALIZADA"),
+                  h("div",{style:{fontSize:13,color:"#E8E2D5",fontFamily:"Georgia,serif",fontWeight:700,fontStyle:"italic"}},(cobRealizada*100).toFixed(0)+"%"),
+                  h("div",{style:{fontSize:6.5,color:"#7A7060",fontFamily:"monospace",marginTop:2}},contextoIA.renda_motora_observada_n_meses+contextoIA.renda_auxiliar_observada_n_meses>0?"da meta atual":"sem historico")
+                ),
+                h("div",{style:{background:"rgba(156,125,194,0.08)",borderLeft:"2px solid "+corCapMax,borderRadius:4,padding:"7px 8px"}},
+                  h("div",{style:{fontSize:6.5,color:corCapMax,fontFamily:"monospace",fontWeight:700,letterSpacing:0.8,marginBottom:2}},"CAP. MAXIMA"),
+                  h("div",{style:{fontSize:13,color:"#E8E2D5",fontFamily:"Georgia,serif",fontWeight:700,fontStyle:"italic"}},(cobCapMax*100).toFixed(0)+"%"),
+                  h("div",{style:{fontSize:6.5,color:"#7A7060",fontFamily:"monospace",marginTop:2}},"da meta atual")
+                ),
+                h("div",{style:{background:"rgba(91,143,212,0.08)",borderLeft:"2px solid #5B8FD4",borderRadius:4,padding:"7px 8px"}},
+                  h("div",{style:{fontSize:6.5,color:"#5B8FD4",fontFamily:"monospace",fontWeight:700,letterSpacing:0.8,marginBottom:2}},"MOTORES BASE"),
+                  h("div",{style:{fontSize:11,color:"#E8E2D5",fontFamily:"Georgia,serif",fontWeight:700,fontStyle:"italic"}},typeof idadeMotBase==="number"?idadeMotBase:"\u221E"),
+                  h("div",{style:{fontSize:6.5,color:"#7A7060",fontFamily:"monospace",marginTop:2}},"anos")
+                ),
+                h("div",{style:{background:"rgba(232,144,96,0.08)",borderLeft:"2px solid #E89060",borderRadius:4,padding:"7px 8px"}},
+                  h("div",{style:{fontSize:6.5,color:"#E89060",fontFamily:"monospace",fontWeight:700,letterSpacing:0.8,marginBottom:2}},"MOTORES PES."),
+                  h("div",{style:{fontSize:11,color:"#E8E2D5",fontFamily:"Georgia,serif",fontWeight:700,fontStyle:"italic"}},typeof idadeMotPes==="number"?idadeMotPes:"\u221E"),
+                  h("div",{style:{fontSize:6.5,color:"#7A7060",fontFamily:"monospace",marginTop:2}},"anos")
+                )
+              );
+            })(),
             // Erro (se houver)
             insightRendaErr&&h("div",{style:{background:"rgba(224,82,82,0.08)",border:"1px solid rgba(224,82,82,0.30)",borderRadius:5,padding:"8px 11px",marginBottom:10,fontSize:9,color:"#E89060",lineHeight:1.5}},"\u26A0 ",insightRendaErr),
             // Banner de mudanca significativa (insight presente + mudou >limites)
