@@ -1322,6 +1322,77 @@ function DiversificationCard({cw,setTab}){
 
 // Card de Solidez Patrimonial - indice composto agregando 5 dimensoes com pesos diferenciados (mede solidez estrutural do patrimonio)
 // (1) Tamanho do patrimonio, (2) Renda perpetua vs meta, (3) Resiliencia a drawdowns, (4) Diversificacao
+// =====================================================================
+// MODAL: Backfill de Renda Motora (input com campo por mes lado a lado)
+// =====================================================================
+function BackfillModal({meses,valorMotoresAtual,onSave,onClose,fB}){
+  // Estado: valores digitados em cada mes (string crua, parseada no save)
+  const [valores,setValores]=useState({});
+  const setVal=(mes,v)=>setValores(prev=>({...prev,[mes]:v}));
+  // Preview de yield em tempo real (so para campos preenchidos)
+  const preview=(v)=>{
+    const s=String(v||"").trim();
+    if(!s)return null;
+    const lim=s.replace(/\s/g,"").replace(/\./g,"").replace(",",".");
+    const num=parseFloat(lim);
+    if(isNaN(num)||num<=0||valorMotoresAtual<=0)return null;
+    const yMes=num/valorMotoresAtual;
+    const yAnual=Math.pow(1+yMes,12)-1;
+    return {num,yAnual};
+  };
+  const totalPreenchidos=Object.values(valores).filter(v=>String(v||"").trim()!=="").length;
+  const handleSave=()=>{
+    const ok=onSave(valores);
+    if(ok)onClose();
+  };
+  return h("div",{style:{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.85)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:12,overflowY:"auto"},onClick:(e)=>{if(e.target===e.currentTarget)onClose();}},
+    h("div",{style:{background:"#1A1612",border:"1px solid rgba(76,175,130,0.40)",borderRadius:10,padding:16,maxWidth:480,width:"100%",maxHeight:"90vh",overflowY:"auto",boxShadow:"0 8px 32px rgba(0,0,0,0.6)"}},
+      // Header
+      h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10,paddingBottom:10,borderBottom:"1px solid rgba(255,255,255,0.08)"}},
+        h("div",{},
+          h("div",{style:{fontSize:11,letterSpacing:2,color:"#4CAF82",fontFamily:"monospace",fontWeight:700,textTransform:"uppercase"}},"\u{1F4DA} Backfill de Renda Motora"),
+          h("div",{style:{fontSize:9,color:"#7A7060",fontFamily:"monospace",marginTop:3}},"Denominador: R$ "+valorMotoresAtual.toLocaleString("pt-BR",{maximumFractionDigits:0}))
+        ),
+        h("button",{onClick:onClose,style:{background:"none",border:"none",color:"#9A9080",fontSize:20,cursor:"pointer",padding:"0 6px",lineHeight:1}},"\u00D7")
+      ),
+      // Instrucoes
+      h("p",{style:{fontSize:9.5,color:"#9A9080",lineHeight:1.5,margin:"0 0 12px"}},
+        "Preencha apenas os meses que voce tem dados. Use ponto OU virgula como separador decimal. Yield calculado em tempo real."
+      ),
+      // Lista de meses (campos lado a lado)
+      h("div",{style:{display:"flex",flexDirection:"column",gap:7,marginBottom:12}},
+        meses.map(m=>{
+          const v=valores[m.key]||"";
+          const pv=preview(v);
+          return h("div",{key:m.key,style:{display:"flex",alignItems:"center",gap:8,padding:"6px 8px",background:"rgba(255,255,255,0.025)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:5}},
+            // Label do mes
+            h("div",{style:{minWidth:78,fontSize:10,color:"#C8A96E",fontFamily:"monospace",fontWeight:700}},m.label),
+            // Prefixo R$
+            h("span",{style:{fontSize:9.5,color:"#7A7060",fontFamily:"monospace"}},"R$"),
+            // Input numerico
+            h("input",{
+              type:"text",
+              inputMode:"decimal",
+              value:v,
+              onChange:(e)=>setVal(m.key,e.target.value),
+              placeholder:"0,00",
+              style:{flex:1,background:"rgba(0,0,0,0.40)",border:"1px solid rgba(76,175,130,0.30)",borderRadius:4,padding:"6px 8px",color:"#E8E2D5",fontSize:11,fontFamily:"monospace",fontWeight:700,minWidth:0}
+            }),
+            // Yield preview
+            pv?h("div",{style:{minWidth:62,textAlign:"right",fontSize:9,color:"#4CAF82",fontFamily:"monospace",fontWeight:700}},(pv.yAnual*100).toFixed(1)+"%"):h("div",{style:{minWidth:62,textAlign:"right",fontSize:9,color:"#3A3830",fontFamily:"monospace"}},"\u2014")
+          );
+        })
+      ),
+      // Footer
+      h("div",{style:{display:"flex",gap:8,paddingTop:10,borderTop:"1px solid rgba(255,255,255,0.08)",alignItems:"center"}},
+        h("div",{style:{fontSize:9,color:"#7A7060",fontFamily:"monospace",flex:1}},totalPreenchidos>0?totalPreenchidos+" preenchido(s)":"nenhum preenchido"),
+        h("button",{onClick:onClose,style:{padding:"7px 12px",background:"rgba(122,112,96,0.15)",color:"#9A9080",border:"1px solid rgba(122,112,96,0.30)",borderRadius:4,fontSize:10,fontFamily:"monospace",fontWeight:700,letterSpacing:1,cursor:"pointer"}},"Cancelar"),
+        h("button",{onClick:handleSave,disabled:totalPreenchidos===0,style:{padding:"7px 14px",background:totalPreenchidos===0?"rgba(76,175,130,0.20)":"linear-gradient(135deg,#4CAF82,#3a8b66)",color:totalPreenchidos===0?"#7A7060":"#FFFFFF",border:"none",borderRadius:4,fontSize:10,fontFamily:"monospace",fontWeight:700,letterSpacing:1,cursor:totalPreenchidos===0?"not-allowed":"pointer"}},"\u2713 Salvar")
+      )
+    )
+  );
+}
+
 function SolidezCard({total,cw,port,metaMensalIF,setTab,fB,hideVal,dataNascimento,cambialCash,rendaMotoraHist}){
   try{
     if(!total||total<=0)return null;
@@ -4265,6 +4336,8 @@ function App(){
   // Historico de renda observada nos motores (FII+Infra+Agro). Atualizado uma vez por mes.
   // Cada entrada: {mes:"YYYY-MM", renda:R$, valorMotores:R$, yieldMensal:dec, yieldAnualLiq:dec, ts:ms}
   const [rendaMotoraHist,setRendaMotoraHist]=useState([]);
+  // UI: modal de backfill aberto/fechado
+  const [backfillOpen,setBackfillOpen]=useState(false);
   const [editCambialMoeda,setEditCambialMoeda]=useState(null);// moeda em edicao
   const [editCambialVal,setEditCambialVal]=useState("");// valor sendo editado na UI
   // ====== NTN-B / Tesouro IPCA+ ======
@@ -13375,36 +13448,36 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         filtrado.sort((a,b)=>a.mes.localeCompare(b.mes));
         setRendaMotoraHist(filtrado);
       };
-      // Handler: backfill em massa (preenche varios meses passados de uma vez)
-      const backfillRendaMotora=()=>{
-        if(valorMotoresAtual<=0){alert("Valor dos motores (FII+Infra+Agro) e zero.");return;}
-        // Gera lista dos ultimos 12 meses (do mes anterior pra tras), excluindo ja registrados
-        const meses=[];
+      // Calcula lista de meses disponiveis (ult. 12 nao registrados)
+      const mesesDisponiveisBackfill=(()=>{
+        const lst=[];
         for(let i=1;i<=12;i++){
           const dt=new Date(_hojeRM.getFullYear(),_hojeRM.getMonth()-i,1);
           const mesKey=dt.getFullYear()+"-"+String(dt.getMonth()+1).padStart(2,"0");
-          if(rendaMotoraHist.some(r=>r.mes===mesKey))continue;// ja registrado
+          if(rendaMotoraHist.some(r=>r.mes===mesKey))continue;
           const labelMes=dt.toLocaleDateString("pt-BR",{month:"short",year:"numeric"}).replace(".","");
-          meses.push({key:mesKey,label:labelMes});
+          lst.push({key:mesKey,label:labelMes});
         }
-        if(meses.length===0){alert("Todos os 12 meses anteriores ja estao registrados.");return;}
-        // Prompt unico com formato livre (uma linha por mes)
-        const exemplo=meses.slice(0,5).map(m=>m.key+"=4500").join("\n");
-        const instrucoes="BACKFILL DE RENDA MOTORA\n\nDigite uma linha por mes no formato YYYY-MM=valor\nUse ponto ou virgula decimal. Pule meses que nao quer registrar.\n\nDenominador (valor atual dos motores): R$ "+valorMotoresAtual.toLocaleString("pt-BR",{maximumFractionDigits:0})+"\n\nMeses disponiveis (ult. 12 nao registrados):\n"+meses.map(m=>"  "+m.key+" ("+m.label+")").join("\n")+"\n\nExemplo:\n"+exemplo;
-        const txt=window.prompt(instrucoes,"");
-        if(!txt)return;
-        // Parse linhas
-        const linhas=txt.split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
+        return lst;
+      })();
+      // Handler: backfill apenas abre o modal (a logica de salvar fica no proprio modal)
+      const backfillRendaMotora=()=>{
+        if(valorMotoresAtual<=0){alert("Valor dos motores (FII+Infra+Agro) e zero.");return;}
+        if(mesesDisponiveisBackfill.length===0){alert("Todos os 12 meses anteriores ja estao registrados.");return;}
+        setBackfillOpen(true);
+      };
+      // Handler: salvar backfill a partir dos valores digitados no modal
+      const salvarBackfill=(valores)=>{
+        // valores: objeto {mesKey:string=>valorStr}
         const novos=[];
         const erros=[];
-        linhas.forEach(linha=>{
-          const m=linha.match(/^(\d{4}-\d{2})\s*=\s*(.+)$/);
-          if(!m){erros.push("Formato invalido: "+linha);return;}
-          const mes=m[1];
-          const valStr=m[2].trim().replace(/\./g,"").replace(",",".");
-          const num=parseFloat(valStr);
-          if(isNaN(num)||num<0){erros.push(mes+": valor invalido");return;}
-          if(!meses.some(x=>x.key===mes)){erros.push(mes+": fora da lista de meses disponiveis (ja registrado ou >12m atras)");return;}
+        Object.entries(valores).forEach(([mes,valStr])=>{
+          const s=String(valStr||"").trim();
+          if(!s)return;// ignora campos vazios
+          const lim=s.replace(/\s/g,"").replace(/\./g,"").replace(",",".");
+          const num=parseFloat(lim);
+          if(isNaN(num)||num<0){erros.push(mes+": valor invalido ("+s+")");return;}
+          if(!mesesDisponiveisBackfill.some(x=>x.key===mes)){erros.push(mes+": fora da lista");return;}
           const yMes=valorMotoresAtual>0?num/valorMotoresAtual:0;
           const yAnual=Math.pow(1+yMes,12)-1;
           novos.push({
@@ -13416,17 +13489,16 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             ts:Date.now()
           });
         });
-        if(novos.length===0){alert("Nenhuma entrada valida.\n\n"+(erros.length?"Erros:\n"+erros.join("\n"):""));return;}
-        // Confirma
+        if(novos.length===0){alert("Nenhum valor preenchido."+(erros.length?"\n\nErros:\n"+erros.join("\n"):""));return false;}
         const resumo=novos.map(n=>n.mes+": R$ "+n.renda.toFixed(2)+" \u2192 yield anual "+(n.yieldAnualLiq*100).toFixed(1)+"%").join("\n");
-        const msg="Voce esta prestes a registrar "+novos.length+" mes(es):\n\n"+resumo+(erros.length?"\n\nErros ignorados:\n"+erros.join("\n"):"")+"\n\nConfirma?";
-        if(!confirm(msg))return;
-        // Merge: substitui meses que ja existirem (defensivo), adiciona novos, ordena
+        const msg="Registrar "+novos.length+" mes(es)?\n\n"+resumo+(erros.length?"\n\nErros ignorados:\n"+erros.join("\n"):"");
+        if(!confirm(msg))return false;
         const mesesNovos=new Set(novos.map(n=>n.mes));
         const filtrado=rendaMotoraHist.filter(r=>!mesesNovos.has(r.mes));
         const combinado=filtrado.concat(novos);
         combinado.sort((a,b)=>a.mes.localeCompare(b.mes));
         setRendaMotoraHist(combinado);
+        return true;
       };
       // Handler: editar entrada existente
       const editarRendaMotora=(mes)=>{
@@ -13499,6 +13571,15 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             );
           })()
         ),
+
+        // Modal de backfill (renderizado condicionalmente)
+        backfillOpen?h(BackfillModal,{
+          meses:mesesDisponiveisBackfill,
+          valorMotoresAtual,
+          onSave:salvarBackfill,
+          onClose:()=>setBackfillOpen(false),
+          fB
+        }):null,
 
         // ===== CARD: RENDA MOTORA OBSERVADA (input manual mensal) =====
         h("div",{style:{background:"linear-gradient(135deg,rgba(76,175,130,0.10),rgba(76,175,130,0.04))",border:"1px solid rgba(76,175,130,0.35)",borderRadius:8,padding:"12px 14px",marginBottom:14}},
