@@ -14428,71 +14428,106 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             h("b",{style:{color:"#5B8FD4"}},"Modelo B refinado granular"),
             ": para acoes BR usa MAX(aux_BR_observada, teorico BR); para o bloco exterior (acoes EXT + REITs + Treasuries) usa MAX(aux_Exterior_observada, soma dos teoricos exterior). Quando dividendos reais superam teoricos no bloco, a realidade prevalece - aplicado em todas as metricas de renda do app."
           ),
-          // Display do estado
-          auxObs?h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:8,marginBottom:10}},
-            // Media mensal BRL
-            h("div",{style:{background:"rgba(91,143,212,0.10)",borderLeft:"3px solid #5B8FD4",padding:"8px 10px",borderRadius:"0 4px 4px 0"}},
-              h("div",{style:{fontSize:7,color:"#5B8FD4",fontFamily:"monospace",fontWeight:700,letterSpacing:1.2,marginBottom:3}},"MEDIA MENSAL (BRL)"),
-              h("div",{style:{fontSize:13,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700}},fB(auxObs.totalBrlMedio)),
-              h("div",{style:{fontSize:7.5,color:"#7A7060",fontFamily:"monospace",marginTop:2}},"media ult. ",auxObs.n," mes",auxObs.n>1?"es":"")
-            ),
-            // Ultimo registro
-            ultRegistroAux?h("div",{style:{background:"rgba(200,169,110,0.08)",borderLeft:"3px solid #C8A96E",padding:"8px 10px",borderRadius:"0 4px 4px 0"}},
-              h("div",{style:{fontSize:7,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,letterSpacing:1.2,marginBottom:3}},"ULTIMO REGISTRO"),
-              h("div",{style:{fontSize:11,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700}},fB(auxObs.totalBrlMes)),
-              h("div",{style:{fontSize:7.5,color:"#7A7060",fontFamily:"monospace",marginTop:2}},ultRegistroAux.mes)
-            ):null,
-            // Total de registros
-            h("div",{style:{background:"rgba(76,175,130,0.08)",borderLeft:"3px solid #4CAF82",padding:"8px 10px",borderRadius:"0 4px 4px 0"}},
-              h("div",{style:{fontSize:7,color:"#4CAF82",fontFamily:"monospace",fontWeight:700,letterSpacing:1.2,marginBottom:3}},"HISTORICO"),
-              h("div",{style:{fontSize:13,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700}},rendaAuxiliarHist.length),
-              h("div",{style:{fontSize:7.5,color:"#7A7060",fontFamily:"monospace",marginTop:2}},rendaAuxiliarHist.length===1?"mes registrado":"meses registrados")
-            )
-          ):h("div",{style:{padding:"10px 12px",background:"rgba(232,196,74,0.08)",border:"1px dashed rgba(232,196,74,0.35)",borderRadius:5,fontSize:9.5,color:"#E8C44A",fontFamily:"monospace",marginBottom:10,lineHeight:1.5}},
-            "\u26A0 Nenhuma renda auxiliar registrada. Use \"+ Registrar\" ou \"\u{1F4DA} Backfill\" para preencher proventos de acoes BR e dividendos do exterior."
+          // Display do estado: 2 secoes (Acoes BR + Exterior), cada uma com Media e Ultimo Mes
+          auxObs?(()=>{
+            // Valores do ultimo mes registrado
+            const ultMes=auxObs.ultMes;
+            const ultBR=auxObs.brMes||0;
+            const ultEXT=auxObs.totalExteriorBrlMes||0;
+            const ultExteriorPorMoeda=auxObs.exteriorMes||{};
+            const temBR=auxObs.brMedio>0||ultBR>0;
+            const temEXT=Object.keys(auxObs.exteriorMedio||{}).length>0||ultEXT>0;
+            // Indicador PTAX para o bloco exterior
+            const fontes={ptax_bcb:0,hibrido:0,atual:0,legado:0};
+            rendaAuxiliarHist.slice(-12).forEach(r=>{
+              if(!r.exterior||Object.keys(r.exterior).length===0)return;
+              if(!r.fxSnapshot)fontes.legado++;
+              else if(r.fxSource==="ptax_bcb")fontes.ptax_bcb++;
+              else if(r.fxSource==="hibrido")fontes.hibrido++;
+              else fontes.atual++;
+            });
+            const totalFontes=fontes.ptax_bcb+fontes.hibrido+fontes.atual+fontes.legado;
+            const todasPtax=fontes.ptax_bcb>0&&fontes.hibrido===0&&fontes.atual===0&&fontes.legado===0;
+            return h("div",{style:{display:"flex",flexDirection:"column",gap:10,marginBottom:10}},
+              // ============ SECAO 1: ACOES BR ============
+              temBR?h("div",{style:{background:"rgba(76,175,130,0.05)",border:"1px solid rgba(76,175,130,0.30)",borderRadius:6,padding:"9px 11px"}},
+                h("div",{style:{display:"flex",alignItems:"baseline",justifyContent:"space-between",marginBottom:6}},
+                  h("div",{style:{fontSize:9,color:"#4CAF82",fontFamily:"monospace",fontWeight:700,letterSpacing:1.5}},"\u{1F1E7}\u{1F1F7} ACOES BR \u2022 Proventos liquidos"),
+                  h("div",{style:{fontSize:7.5,color:"#7A7060",fontFamily:"monospace"}},"em R$")
+                ),
+                h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}},
+                  // Media mensal BR
+                  h("div",{style:{background:"rgba(76,175,130,0.10)",borderLeft:"2px solid #4CAF82",padding:"7px 9px",borderRadius:"0 4px 4px 0"}},
+                    h("div",{style:{fontSize:7,color:"#4CAF82",fontFamily:"monospace",fontWeight:700,letterSpacing:1.2,marginBottom:2}},"MEDIA MENSAL"),
+                    h("div",{style:{fontSize:12,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700}},fB(auxObs.brMedio)),
+                    h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",marginTop:2}},"ult. ",auxObs.n," mes",auxObs.n>1?"es":"")
+                  ),
+                  // Ultimo mes BR
+                  h("div",{style:{background:"rgba(200,169,110,0.08)",borderLeft:"2px solid #C8A96E",padding:"7px 9px",borderRadius:"0 4px 4px 0"}},
+                    h("div",{style:{fontSize:7,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,letterSpacing:1.2,marginBottom:2}},"ULTIMO MES"),
+                    h("div",{style:{fontSize:12,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700}},fB(ultBR)),
+                    h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",marginTop:2}},ultMes||"-")
+                  )
+                )
+              ):null,
+              // ============ SECAO 2: EXTERIOR ============
+              temEXT?h("div",{style:{background:"rgba(91,143,212,0.05)",border:"1px solid rgba(91,143,212,0.30)",borderRadius:6,padding:"9px 11px"}},
+                h("div",{style:{display:"flex",alignItems:"baseline",justifyContent:"space-between",marginBottom:6}},
+                  h("div",{style:{fontSize:9,color:"#5B8FD4",fontFamily:"monospace",fontWeight:700,letterSpacing:1.5}},"\u{1F30D} EXTERIOR \u2022 Dividendos liquidos (BRL convertido)"),
+                  totalFontes>0?h("div",{title:"PTAX="+fontes.ptax_bcb+" / Hibrido="+fontes.hibrido+" / Atual="+fontes.atual+" / Legado="+fontes.legado,style:{fontSize:7,color:todasPtax?"#4CAF82":"#E89060",fontFamily:"monospace",letterSpacing:1}},todasPtax?"\u2713 PTAX BCB":"\u26A0 fontes mistas"):null
+                ),
+                h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:Object.keys(auxObs.exteriorMedio).length>0?7:0}},
+                  // Media mensal EXTERIOR (BRL)
+                  h("div",{style:{background:"rgba(91,143,212,0.10)",borderLeft:"2px solid #5B8FD4",padding:"7px 9px",borderRadius:"0 4px 4px 0"}},
+                    h("div",{style:{fontSize:7,color:"#5B8FD4",fontFamily:"monospace",fontWeight:700,letterSpacing:1.2,marginBottom:2}},"MEDIA MENSAL"),
+                    h("div",{style:{fontSize:12,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700}},fB(auxObs.totalExteriorBrlMedio)),
+                    h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",marginTop:2}},"ult. ",auxObs.n," mes",auxObs.n>1?"es":"")
+                  ),
+                  // Ultimo mes EXTERIOR (BRL)
+                  h("div",{style:{background:"rgba(200,169,110,0.08)",borderLeft:"2px solid #C8A96E",padding:"7px 9px",borderRadius:"0 4px 4px 0"}},
+                    h("div",{style:{fontSize:7,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,letterSpacing:1.2,marginBottom:2}},"ULTIMO MES"),
+                    h("div",{style:{fontSize:12,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700}},fB(ultEXT)),
+                    h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",marginTop:2}},ultMes||"-")
+                  )
+                ),
+                // Detalhamento por moeda nativa
+                Object.keys(auxObs.exteriorMedio).length>0?h("div",{style:{paddingTop:5,borderTop:"1px dashed rgba(91,143,212,0.20)"}},
+                  h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",fontWeight:700,letterSpacing:1.2,marginBottom:4}},"POR MOEDA NATIVA (media / ult. mes)"),
+                  h("div",{style:{display:"flex",flexWrap:"wrap",gap:10,fontSize:8.5,fontFamily:"monospace"}},
+                    Object.entries(auxObs.exteriorMedio).filter(([_,v])=>v>0||(ultExteriorPorMoeda[_]||0)>0).sort((a,b)=>{
+                      const aBrl=a[1]*(FX[a[0]]||0);
+                      const bBrl=b[1]*(FX[b[0]]||0);
+                      return bBrl-aBrl;
+                    }).map(([mo,vlMedio])=>{
+                      const vlUlt=ultExteriorPorMoeda[mo]||0;
+                      return h("div",{key:mo,style:{display:"flex",alignItems:"center",gap:5,padding:"2px 6px",background:"rgba(0,0,0,0.15)",borderRadius:3}},
+                        h("span",{style:{color:"#5B8FD4",fontWeight:700,letterSpacing:0.8}},mo),
+                        h("span",{style:{color:"#C8C0B0"}},vlMedio.toFixed(2)),
+                        h("span",{style:{color:"#7A7060",fontSize:7.5}},"/"),
+                        h("span",{style:{color:"#C8A96E",fontWeight:700}},vlUlt.toFixed(2))
+                      );
+                    })
+                  )
+                ):null
+              ):null,
+              // ============ SECAO 3: TOTAIS AGREGADOS ============
+              h("div",{style:{background:"rgba(200,169,110,0.06)",border:"1px solid rgba(200,169,110,0.30)",borderRadius:6,padding:"8px 11px"}},
+                h("div",{style:{fontSize:8,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,letterSpacing:1.5,marginBottom:6}},"\u{1F4CA} TOTAL AUXILIAR (BR + EXTERIOR) - "+rendaAuxiliarHist.length+(rendaAuxiliarHist.length===1?" mes registrado":" meses registrados")),
+                h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}},
+                  h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"baseline",padding:"4px 0"}},
+                    h("span",{style:{fontSize:8,color:"#9A9080",fontFamily:"monospace"}},"Media mensal:"),
+                    h("span",{style:{fontSize:12,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700}},fB(auxObs.totalBrlMedio))
+                  ),
+                  h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"baseline",padding:"4px 0"}},
+                    h("span",{style:{fontSize:8,color:"#9A9080",fontFamily:"monospace"}},"\u00daltimo m\u00eas:"),
+                    h("span",{style:{fontSize:12,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700}},fB(auxObs.totalBrlMes))
+                  )
+                )
+              )
+            );
+          })():h("div",{style:{padding:"10px 12px",background:"rgba(232,196,74,0.08)",border:"1px dashed rgba(232,196,74,0.35)",borderRadius:5,fontSize:9.5,color:"#E8C44A",fontFamily:"monospace",marginBottom:10,lineHeight:1.5}},
+            "\u26A0 Nenhuma renda auxiliar registrada. Use \"+ Acoes BR\" ou \"+ Exterior\" ou \"\u{1F4DA} Backfill\" para preencher proventos."
           ),
-          // Breakdown: BR em destaque + Exterior por moeda
-          auxObs&&(auxObs.brMedio>0||Object.keys(auxObs.exteriorMedio).length>0)?h("div",{style:{marginTop:8,padding:"8px 10px",background:"rgba(0,0,0,0.15)",borderRadius:4}},
-            h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:5}},
-              h("div",{style:{fontSize:7.5,color:"#7A7060",fontFamily:"monospace",fontWeight:700,letterSpacing:1.5}},"BREAKDOWN BR + EXTERIOR (media mensal ult. "+auxObs.n+"m)"),
-              (()=>{
-                const fontes={ptax_bcb:0,hibrido:0,atual:0,legado:0};
-                rendaAuxiliarHist.slice(-12).forEach(r=>{
-                  // So conta fonte se houve exterior naquele mes (se so BR, fonte e irrelevante)
-                  if(!r.exterior||Object.keys(r.exterior).length===0)return;
-                  if(!r.fxSnapshot)fontes.legado++;
-                  else if(r.fxSource==="ptax_bcb")fontes.ptax_bcb++;
-                  else if(r.fxSource==="hibrido")fontes.hibrido++;
-                  else fontes.atual++;
-                });
-                const totalFontes=fontes.ptax_bcb+fontes.hibrido+fontes.atual+fontes.legado;
-                if(totalFontes===0)return null;// sem exterior, sem indicador
-                const todasPtax=fontes.ptax_bcb>0&&fontes.hibrido===0&&fontes.atual===0&&fontes.legado===0;
-                return h("div",{title:"PTAX="+fontes.ptax_bcb+" / Hibrido="+fontes.hibrido+" / Atual="+fontes.atual+" / Legado="+fontes.legado,style:{fontSize:7,color:todasPtax?"#4CAF82":"#E89060",fontFamily:"monospace",letterSpacing:1}},todasPtax?"\u2713 PTAX BCB":"\u26A0 fontes mistas");
-              })()
-            ),
-            // Linha BR (sempre primeiro, com cor verde - acoes BR sao motoras-secundarias)
-            auxObs.brMedio>0?h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"4px 0",borderBottom:Object.keys(auxObs.exteriorMedio).length>0?"1px dashed rgba(255,255,255,0.06)":"none",marginBottom:Object.keys(auxObs.exteriorMedio).length>0?4:0}},
-              h("div",{style:{fontSize:9,color:"#4CAF82",fontFamily:"monospace",fontWeight:700,letterSpacing:1}},"\u{1F1E7}\u{1F1F7} Acoes BR"),
-              h("div",{style:{fontSize:10.5,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700}},fB(auxObs.brMedio))
-            ):null,
-            // Linha "Exterior" agregado (BRL convertido)
-            Object.keys(auxObs.exteriorMedio).length>0?h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"4px 0",borderBottom:"1px dashed rgba(255,255,255,0.06)",marginBottom:4}},
-              h("div",{style:{fontSize:9,color:"#5B8FD4",fontFamily:"monospace",fontWeight:700,letterSpacing:1}},"\u{1F30D} Exterior (convertido BRL)"),
-              h("div",{style:{fontSize:10.5,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700}},fB(auxObs.totalExteriorBrlMedio))
-            ):null,
-            // Detalhamento por moeda nativa (so as do exterior)
-            Object.keys(auxObs.exteriorMedio).length>0?h("div",{style:{display:"flex",flexWrap:"wrap",gap:8,fontSize:9,fontFamily:"monospace",paddingLeft:12,paddingTop:2}},
-              Object.entries(auxObs.exteriorMedio).filter(([_,v])=>v>0).sort((a,b)=>{
-                const aBrl=a[1]*(FX[a[0]]||0);
-                const bBrl=b[1]*(FX[b[0]]||0);
-                return bBrl-aBrl;
-              }).map(([mo,vl])=>h("div",{key:mo,style:{display:"flex",alignItems:"center",gap:4}},
-                h("span",{style:{color:"#7A7060",fontWeight:700}},mo),
-                h("span",{style:{color:"#9A9080"}},vl.toFixed(2))
-              ))
-            ):null
-          ):null,
           // Botoes (BR + Exterior separados + Historico + Backfill)
           h("div",{style:{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center",marginTop:10}},
             // Botao BR
