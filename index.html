@@ -6843,7 +6843,7 @@ function App(){
       // Replica EXATAMENTE a logica do SolidezCard do dashboard.
       // 5 dimensoes com pesos diferenciados (22/22/22/17/17):
       //   - Tamanho (22%) - calibrado por horizonte de vida
-      //   - Capacidade Maxima Sustentavel (22%) - motora + dividendos consumiveis + SWR_EF
+      //   - Capacidade Maxima Sustentavel (22%) - motora + dividendos consumiveis (Modelo B granular) + SWR teorico
       //   - Resiliencia (22%) - hibrida: 70% drawdown stress + 30% blindagem cambial
       //   - Diversificacao (17%) - correlacao media ponderada
       //   - Blindagem Cambial (17%) - hedge estrutural contra crises BR
@@ -7126,23 +7126,24 @@ function App(){
         ("\\n\\n=== RENDA MOTORA OBSERVADA (AINDA SEM HISTORICO) ===\\n"+
          "O investidor ainda nao registrou nenhum mes de renda observada dos motores. Os calculos usam o YIELD_CLASSE teorico (FII 10%, Infra 10%, Agro 10.5% liq).\\n");
       const blocoRendaAuxiliar=auxObs_TQ?
-        ("\\n\\n=== RENDA AUXILIAR OBSERVADA (MODELO B REFINADO - ENTRA NO ICR-RTE VIA MAX) ===\\n"+
-         "O investidor registra mensalmente a renda LIQUIDA de proventos de classes NAO-MOTORAS: dividendos de acoes BR e dividendos de ativos do exterior (multimoeda nativa, convertida via PTAX BCB do fechamento de cada mes).\\n"+
-         "- RENDA AUXILIAR MEDIA MENSAL (BRL convertida pelo cambio de fechamento de cada mes): R$ "+auxObs_TQ.totalBrlMedio.toLocaleString("pt-BR",{maximumFractionDigits:0})+"\\n"+
+        ("\\n\\n=== RENDA AUXILIAR OBSERVADA (MODELO B REFINADO GRANULAR - ENTRA EM TODAS METRICAS DE RENDA) ===\\n"+
+         "O investidor registra mensalmente a renda LIQUIDA de proventos de classes NAO-MOTORAS: dividendos de acoes BR e dividendos do exterior (multimoeda nativa, convertida via PTAX BCB do fechamento de cada mes).\\n"+
+         "- RENDA AUXILIAR MEDIA MENSAL (BRL): R$ "+auxObs_TQ.totalBrlMedio.toLocaleString("pt-BR",{maximumFractionDigits:0})+"\\n"+
          "- Calibracao: media simples dos ultimos "+auxObs_TQ.n+" mes(es), ultimo mes "+auxObs_TQ.ultMes+"\\n"+
          "- Breakdown medio mensal: Acoes BR R$ "+auxObs_TQ.brMedio.toFixed(2)+" + Exterior R$ "+auxObs_TQ.totalExteriorBrlMedio.toFixed(2)+" (convertido). Exterior por moeda nativa: "+(Object.keys(auxObs_TQ.exteriorMedio).length>0?Object.entries(auxObs_TQ.exteriorMedio).filter(([_,v])=>v>0).map(([m,v])=>m+" "+v.toFixed(2)).join(", "):"(nenhuma)")+"\\n"+
-         "- LOGICA APLICADA (Modelo B refinado - evita double-count):\\n"+
-         "  * Para classes NAO-MOTORAS (acoes BR, exterior, REITs, BTC, ouro): renda efetiva = MAX(renda auxiliar observada, SWR 3,31% sobre capital nao-motor)\\n"+
-         "  * Se aux > SWR teorico: usa a renda auxiliar OBSERVADA (dividendos reais superam o saque seguro teorico)\\n"+
-         "  * Se SWR > aux: usa SWR teorico (saque viavel sacando principal)\\n"+
-         "  * NUNCA soma os dois (seria double-count)\\n"+
-         "  * Esta logica ja foi aplicada nos calculos do ICR-RTE, score de Solidez Renda, capacidade maxima sustentavel, projecoes da aba Renda, e insight IA do dashboard.\\n"+
+         "- LOGICA APLICADA (Modelo B GRANULAR - max separado por bloco BR e Exterior, evita double-count):\\n"+
+         "  * Bloco BR (acoes_br): renda efetiva = MAX(aux_BR_observada_anualizada, yield_teorico_acoes_br * v_acoes_br)\\n"+
+         "  * Bloco Exterior (acoes_ext + reits + treasuries): renda efetiva = MAX(aux_Exterior_observada_anualizada_BRL, soma_yields_teoricos_exterior * valores)\\n"+
+         "  * Quando aux_observada > teorico no bloco: usa a renda OBSERVADA daquele bloco (dividendos reais superam o teorico)\\n"+
+         "  * SWR aplicado APENAS sobre principal como saque sustentavel (taxa teorica pura, sem aux - evita double-count com dividendos do bloco)\\n"+
+         "  * NUNCA soma aux + teorico ou aux + SWR no mesmo bloco (seria double-count)\\n"+
+         "  * Esta logica granular ja esta aplicada CONSISTENTEMENTE em TODOS os calculos: ICR/ICR-RTE da aba Renda, Score Solidez Renda, Capacidade Maxima Sustentavel, projecoes 20 anos por cenario, simulacao ano-a-ano ate 100 anos, e card de cobertura realizada.\\n"+
          "- IMPLICACOES PARA SUAS DECISOES:\\n"+
-         "  * O score de Solidez Renda fica MAIS REALISTA quando aux > SWR (caso comum para portfolios com forte alocacao em dividend-payers).\\n"+
-         "  * Voce pode citar essa logica ao explicar a capacidade de renda do portfolio: 'pela regra max(aux, SWR), o portfolio gera R$ X/mes em renda nao-motora efetiva'.\\n"+
-         "  * Quando recomendar aumentar exposicao a classes que pagam dividendos consistentes, e correto destacar que essa renda ENTRA no calculo via max - portanto reforca a Solidez se elevar o aux acima do SWR.\\n"):
+         "  * Score de Solidez Renda incorpora o realismo das aux observadas - se voce reforcar classes BR ou Exterior que paguem dividendos consistentes, o bloco respectivo sobe a renda efetiva e o score melhora.\\n"+
+         "  * Voce pode citar valores observados ao analisar capacidade de renda: 'aux_BR observada R$ X/m + aux_Exterior R$ Y/m, ja captados pelo helper granular'.\\n"+
+         "  * Lembre que a granularidade e POR BLOCO: aumentar acoes_br nao afeta o bloco Exterior, e vice-versa.\\n"):
         ("\\n\\n=== RENDA AUXILIAR (AINDA SEM HISTORICO) ===\\n"+
-         "O investidor ainda nao registrou nenhum mes de renda auxiliar. Os calculos de ICR-RTE usam SWR puro de 3,31% sobre nao-motoras como fallback.\\n");
+         "O investidor ainda nao registrou nenhum mes de renda auxiliar. Os calculos usam yields teoricos do YIELD_CLASSE (acoes_br 3.5%, acoes_ext 2%, reits 5%, treasuries variavel) + SWR teorico "+(SWR*100).toFixed(2)+"% sobre nao-motoras como fallback.\\n");
 
       const blocoTranquilidade=
         blocoRendaMotora+
@@ -7410,7 +7411,12 @@ function App(){
     const auxObsDash=rendaAuxiliarObservada(rendaAuxiliarHist,FX);
     const rendaAuxMensalEst=auxObsDash?auxObsDash.totalBrlMedio:0;
     const rendaAuxAnualEst=rendaAuxMensalEst*12;
-    const rendaMensalTotalObs=rendaMensalEst+rendaAuxMensalEst;
+    // CAPACIDADE TOTAL com Modelo B granular (max aux/teor por bloco BR e Exterior)
+    // Constroi valorClasse a partir dos pesos atuais para chamar helper
+    const valorClasseDash={};
+    CL.forEach(c=>{valorClasseDash[c.id]=((cw[c.id]||0)/100)*total;});
+    const rendaPassivaGranularAnualDash=rendaPassivaIcrComAuxiliar(valorClasseDash,YIELD_CLASSE,IR_DIV,rendaMotoraHist,rendaAuxiliarHist,FX,null);
+    const rendaMensalTotalObs=rendaPassivaGranularAnualDash/12;
     const swrAnual=total*0.04;// 4% Bengen
     const swrMensal=swrAnual/12;
     // ===== Macro =====
@@ -7446,8 +7452,8 @@ function App(){
       "Patrimonio total: R$ "+total.toLocaleString("pt-BR",{maximumFractionDigits:0})+"\\n"+
       "Capital nos motores de renda (FII+Infra+Agro): R$ "+valorMotores.toLocaleString("pt-BR",{maximumFractionDigits:0})+" ("+((valorMotores/total)*100).toFixed(1)+"% do total)\\n"+
       "Renda passiva estimada motora (liquida IR): R$ "+rendaAnualEstimada.toLocaleString("pt-BR",{maximumFractionDigits:0})+"/ano = R$ "+rendaMensalEst.toLocaleString("pt-BR",{maximumFractionDigits:0})+"/mes\\n"+
-      (auxObsDash?"Renda auxiliar observada (acoes BR + exterior, multimoeda convertida BRL via PTAX fechamento mes, media ult. "+auxObsDash.n+"m): R$ "+rendaAuxAnualEst.toLocaleString("pt-BR",{maximumFractionDigits:0})+"/ano = R$ "+rendaAuxMensalEst.toLocaleString("pt-BR",{maximumFractionDigits:0})+"/mes [ENTRA no ICR-RTE via max(aux, SWR) sobre nao-motoras]\\n":"")+
-      (auxObsDash?"CAPACIDADE TOTAL OBSERVADA (motora + max(auxiliar, SWR)): R$ "+rendaMensalTotalObs.toLocaleString("pt-BR",{maximumFractionDigits:0})+"/mes [aproximacao se aux > SWR]\\n":"")+
+      (auxObsDash?"Renda auxiliar observada (acoes BR + exterior, multimoeda convertida BRL via PTAX fechamento mes, media ult. "+auxObsDash.n+"m): R$ "+rendaAuxAnualEst.toLocaleString("pt-BR",{maximumFractionDigits:0})+"/ano = R$ "+rendaAuxMensalEst.toLocaleString("pt-BR",{maximumFractionDigits:0})+"/mes [Modelo B GRANULAR: max(aux_BR,teor_BR) + max(aux_EXT,teor_EXT+REITs+Treasuries) aplicado em ICR/ICR-RTE/Solidez/CapMax/Projecoes]\\n":"")+
+      (auxObsDash?"CAPACIDADE TOTAL OBSERVADA (motora + auxiliar granular): R$ "+rendaMensalTotalObs.toLocaleString("pt-BR",{maximumFractionDigits:0})+"/mes\\n":"")+
       "Safe Withdrawal Rate 4% (Bengen): R$ "+swrAnual.toLocaleString("pt-BR",{maximumFractionDigits:0})+"/ano = R$ "+swrMensal.toLocaleString("pt-BR",{maximumFractionDigits:0})+"/mes (saque perpetuo seguro)\\n"+
       "Inflacao IPCA anual: "+ipcaAnual.toFixed(2)+"%\\n\\n"+
       "=== ALINHAMENTO COM MODELOS CIENTIFICOS ===\\n"+
@@ -13443,43 +13449,41 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         if(v<=0||c.id==="imoveis"||FUNDOS_RENDA_MOTORES.includes(c.id))return s;
         return s+v;
       },0);
-      const SWR_EF=swrEfetivoNaoMotor(rendaAuxiliarHist,FX,capNaoMotorHoje,SWR);// efetivo (>= SWR)
+      const SWR_EF=swrEfetivoNaoMotor(rendaAuxiliarHist,FX,capNaoMotorHoje,SWR);// DEPRECATED: substituido pelo helper granular rendaPassivaIcrComAuxiliar - mantido apenas como referencia matematica
       const proj=[];// [{ano, valorTotal, rendaLiqNominalBase, rendaLiqRealBase, ...}]
       for(let ano=1;ano<=20;ano++){
+        // Constroi valorClasse projetado e cresRendaPow para os 3 cenarios
+        const valClasseBase={},valClassePes={},valClasseOti={};
+        const cresRendaPowBase={},cresRendaPowPes={},cresRendaPowOti={};
         let valorPortAnoBase=0,valorPortAnoPes=0,valorPortAnoOti=0;
-        let rendaBaseLiq=0,rendaBaseSwr=0;
-        let rendaPesLiq=0,rendaPesSwr=0;
-        let rendaOtiLiq=0,rendaOtiSwr=0;
+        let rendaBaseSwr=0,rendaPesSwr=0,rendaOtiSwr=0;
         CL.forEach(c=>{
           const v0=valorClasse[c.id]||0;
-          if(v0<=0)return;
+          if(v0<=0){valClasseBase[c.id]=0;valClassePes[c.id]=0;valClasseOti[c.id]=0;cresRendaPowBase[c.id]=1;cresRendaPowPes[c.id]=1;cresRendaPowOti[c.id]=1;return;}
           const cresValor=VALORIZA_REAL[c.id]||0;
           const cresRenda=CRESC_REAL_RENDA[c.id]||0;
-          // Valor cresce em termos REAIS (deflacionado), depois aplicamos IPCA do cenario
-          const valBase=v0*Math.pow(1+cresValor,ano)*Math.pow(1+ipcaSel,ano);// nominal
+          const valBase=v0*Math.pow(1+cresValor,ano)*Math.pow(1+ipcaSel,ano);
           const valPes=v0*Math.pow(1+Math.max(0,cresValor-0.01),ano)*Math.pow(1+ipcaSel,ano);
           const valOti=v0*Math.pow(1+cresValor+0.01,ano)*Math.pow(1+ipcaSel,ano);
+          valClasseBase[c.id]=valBase;valClassePes[c.id]=valPes;valClasseOti[c.id]=valOti;
+          cresRendaPowBase[c.id]=Math.pow(1+cresRenda,ano);
+          cresRendaPowPes[c.id]=Math.pow(1+Math.max(0,cresRenda-0.005),ano);
+          cresRendaPowOti[c.id]=Math.pow(1+cresRenda+0.005,ano);
           valorPortAnoBase+=valBase;valorPortAnoPes+=valPes;valorPortAnoOti+=valOti;
-          // Renda cresce DY_liq x (1+cresRenda)^N x (1+IPCA)^N (renda nominal liquida)
-          // yieldEfetivoLiq retorna ja liquido, sem precisar aplicar (1-ir)
-          const yBaseLiq=yieldEfetivoLiq(c.id,"base",rendaMotoraHist);
-          const yPesLiq=yieldEfetivoLiq(c.id,"pes",rendaMotoraHist);
-          const yOtiLiq=yieldEfetivoLiq(c.id,"oti",rendaMotoraHist);
-          if(yBaseLiq>0){
-            rendaBaseLiq+=valBase*yBaseLiq*Math.pow(1+cresRenda,ano);
-            rendaPesLiq+=valPes*yPesLiq*Math.pow(1+Math.max(0,cresRenda-0.005),ano);
-            rendaOtiLiq+=valOti*yOtiLiq*Math.pow(1+cresRenda+0.005,ano);
-          }else if(c.id!=="imoveis"){
-            // SWR sobre ativos sem dividendo (BTC, Ouro, etc) - usa SWR EFETIVO (>= SWR base)
-            // O efetivo incorpora a renda auxiliar observada via max(aux, SWR)
-            rendaBaseSwr+=valBase*SWR_EF;
-            rendaPesSwr+=valPes*SWR_EF;
-            rendaOtiSwr+=valOti*SWR_EF;
+          // SWR teorico puro sobre todas nao-motoras (incluindo BTC/Ouro/etc.)
+          // aux ja embutida nos dividendos via helper granular
+          if(!FUNDOS_RENDA_MOTORES.includes(c.id)&&c.id!=="imoveis"){
+            rendaBaseSwr+=valBase*SWR;
+            rendaPesSwr+=valPes*SWR;
+            rendaOtiSwr+=valOti*SWR;
           }
         });
+        // Renda passiva com Modelo B granular para cada cenario
+        const rendaBaseLiq=rendaPassivaIcrComAuxiliar(valClasseBase,YIELD_CLASSE,IR_DIV,rendaMotoraHist,rendaAuxiliarHist,FX,cresRendaPowBase);
+        const rendaPesLiq=rendaPassivaIcrComAuxiliar(valClassePes,YIELD_CLASSE,IR_DIV,rendaMotoraHist,rendaAuxiliarHist,FX,cresRendaPowPes);
+        const rendaOtiLiq=rendaPassivaIcrComAuxiliar(valClasseOti,YIELD_CLASSE,IR_DIV,rendaMotoraHist,rendaAuxiliarHist,FX,cresRendaPowOti);
         // Deflaciona para poder de compra atual usando IPCA do cenario
         const deflator=Math.pow(1+ipcaSel,ano);
-        // Meta corrigida pela inflacao do cenario (em valor NOMINAL futuro)
         const metaCorrigidaNominal=metaMensalIF*deflator;
         proj.push({
           ano,
@@ -13489,8 +13493,8 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           rendaLiqReal:{pes:rendaPesLiq/deflator,base:rendaBaseLiq/deflator,oti:rendaOtiLiq/deflator},
           rendaTotalNominal:{pes:rendaPesLiq+rendaPesSwr,base:rendaBaseLiq+rendaBaseSwr,oti:rendaOtiLiq+rendaOtiSwr},
           rendaTotalReal:{pes:(rendaPesLiq+rendaPesSwr)/deflator,base:(rendaBaseLiq+rendaBaseSwr)/deflator,oti:(rendaOtiLiq+rendaOtiSwr)/deflator},
-          metaNominalCorrigida:metaCorrigidaNominal,// meta mensal corrigida pela inflacao
-          metaRealConstante:metaMensalIF// meta em poder de compra atual (constante)
+          metaNominalCorrigida:metaCorrigidaNominal,
+          metaRealConstante:metaMensalIF
         });
       }
 
@@ -13505,31 +13509,34 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
       // Aplica o ajuste de cresc real conforme cenario (igual ao ICR-RTE)
       const calcRTERendaAno=(ano,ipcaRate)=>{
         const cresAjuste=IPCA_CENARIOS.base-ipcaRate;
-        let rendaDivLiq=0,swrNaoMotor=0;
+        // Modelo B granular: constroi valorClasse ano e cresRendaPow
+        const valClasseAno={};
+        const cresRendaPow={};
+        let swrNaoMotor=0;
         CL.forEach(c=>{
           const v0=valorClasse[c.id]||0;
-          if(v0<=0||c.id==="imoveis")return;
+          if(v0<=0||c.id==="imoveis"){valClasseAno[c.id]=0;cresRendaPow[c.id]=1;return;}
           const cresValor=VALORIZA_REAL[c.id]||0;
           const cresRenda=Math.max(0,(CRESC_REAL_RENDA[c.id]||0)+cresAjuste);
           const val=v0*Math.pow(1+cresValor,ano)*Math.pow(1+ipcaRate,ano);
-          const yLiq=yieldEfetivoLiq(c.id,"base",rendaMotoraHist);
-          if(yLiq>0){
-            rendaDivLiq+=val*yLiq*Math.pow(1+cresRenda,ano);
-          }
-          if(!FUNDOS_RENDA_MOTORES.includes(c.id)){
-            swrNaoMotor+=val*SWR_EF;// SWR efetivo (incorpora max com renda aux)
-          }
+          valClasseAno[c.id]=val;
+          cresRendaPow[c.id]=Math.pow(1+cresRenda,ano);
+          if(!FUNDOS_RENDA_MOTORES.includes(c.id))swrNaoMotor+=val*SWR;// SWR teorico puro
         });
+        const rendaDivLiq=rendaPassivaIcrComAuxiliar(valClasseAno,YIELD_CLASSE,IR_DIV,rendaMotoraHist,rendaAuxiliarHist,FX,cresRendaPow);
         return rendaDivLiq+swrNaoMotor;
       };
 
-      // Cobertura ICR-RTE HOJE (ano 0, sem inflacao)
-      const rendaRTEHoje=rBase.rendaLiqAnual+(function(){
+      // Cobertura ICR-RTE HOJE (ano 0, sem inflacao) - Modelo B granular consistente
+      // Renda passiva = max(aux_BR, teor_BR) + max(aux_EXT, teor_EXT+REITs+Treasuries) + outras teorica
+      // SWR teorico puro sobre nao-motoras (aux ja embutida nos dividendos via max)
+      const rendaPassivaHojeICR=rendaPassivaIcrComAuxiliar(valorClasse,YIELD_CLASSE,IR_DIV,rendaMotoraHist,rendaAuxiliarHist,FX,null);
+      const rendaRTEHoje=rendaPassivaHojeICR+(function(){
         let swr=0;
         CL.forEach(c=>{
           const v=valorClasse[c.id]||0;
           if(v<=0||c.id==="imoveis")return;
-          if(!FUNDOS_RENDA_MOTORES.includes(c.id))swr+=v*SWR_EF;// SWR efetivo incorpora aux
+          if(!FUNDOS_RENDA_MOTORES.includes(c.id))swr+=v*SWR;// SWR teorico puro - aux ja em dividendos
         });
         return swr;
       })();
@@ -13551,9 +13558,10 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
       // (2) Horizonte de cobertura: por quantos anos a renda passiva cobre 100% da meta corrigida
       // (3) Horizonte de sustentabilidade total: quantos anos o patrimonio sustenta (considerando consumo do principal apos quebra da renda)
       const calcICR=(ipcaRate)=>{
-        // Cobertura HOJE: APENAS renda passiva (dividendos liquidos), SEM SWR
+        // Cobertura HOJE: APENAS renda passiva com Modelo B granular (max aux/teor por bloco)
         // ICR classico = visao mais conservadora: voce vive APENAS de dividendos, nao vende nada
-        const cobAtual=rBase.rendaLiqAnual/(metaMensalIF*12);
+        const rendaPassivaHojeICR_C=rendaPassivaIcrComAuxiliar(valorClasse,YIELD_CLASSE,IR_DIV,rendaMotoraHist,rendaAuxiliarHist,FX,null);
+        const cobAtual=rendaPassivaHojeICR_C/(metaMensalIF*12);
         // SIMULACAO ANO A ANO ate 50 anos
         let horizonteCobertura=null;// ano em que a renda nao cobre mais
         let horizonteTotal=null;// ano em que o patrimonio acaba
@@ -13563,22 +13571,21 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         // Ajuste de cresc_renda real conforme cenario (base eh referencia)
         const cresAjusteLoop=IPCA_CENARIOS.base-ipcaRate;
         for(let n=1;n<=50;n++){
-          // ICR CLASSICO: usa APENAS dividendos liquidos (sem SWR)
-          let rendaAnoLiq=0;
+          // ICR CLASSICO: usa APENAS dividendos liquidos com Modelo B granular (sem SWR)
+          const valClasseN={};
+          const cresRendaPowN={};
           let valorAnoTotal=0;
           CL.forEach(c=>{
             const v0=valorClasse[c.id]||0;
-            if(v0<=0)return;
+            if(v0<=0){valClasseN[c.id]=0;cresRendaPowN[c.id]=1;return;}
             const cresValor=VALORIZA_REAL[c.id]||0;
             const cresRenda=Math.max(0,(CRESC_REAL_RENDA[c.id]||0)+cresAjusteLoop);
             const val=v0*Math.pow(1+cresValor,n)*Math.pow(1+ipcaRate,n);
+            valClasseN[c.id]=val;
+            cresRendaPowN[c.id]=Math.pow(1+cresRenda,n);
             valorAnoTotal+=val;
-            const yLiq=yieldEfetivoLiq(c.id,"base",rendaMotoraHist);
-            if(yLiq>0){
-              rendaAnoLiq+=val*yLiq*Math.pow(1+cresRenda,n);
-            }
-            // SEM SWR no ICR classico
           });
+          const rendaAnoLiq=rendaPassivaIcrComAuxiliar(valClasseN,YIELD_CLASSE,IR_DIV,rendaMotoraHist,rendaAuxiliarHist,FX,cresRendaPowN);
           const rendaTotalAno=rendaAnoLiq;// SO dividendos
           const metaAno=metaMensalIF*12*Math.pow(1+ipcaRate,n);
           // Verifica cobertura
@@ -13650,19 +13657,17 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         // Em pessimista (IPCA 8.5%), e MENOR (a inflacao alta corroi mais).
         // Ajuste: cresRendaAjustado = cresRenda + (IPCA_base - ipcaRate)
         const cresAjuste=IPCA_CENARIOS.base-ipcaRate;
-        let rendaAno20=0;
+        const valClasse20={};
+        const cresRendaPow20={};
         CL.forEach(c=>{
           const v0=valorClasse[c.id]||0;
-          if(v0<=0)return;
+          if(v0<=0){valClasse20[c.id]=0;cresRendaPow20[c.id]=1;return;}
           const cresValor=VALORIZA_REAL[c.id]||0;
           const cresRenda=Math.max(0,(CRESC_REAL_RENDA[c.id]||0)+cresAjuste);
-          // Valor cresce REAL + IPCA (nominal)
-          const val=v0*Math.pow(1+cresValor,20)*Math.pow(1+ipcaRate,20);
-          const yLiq=yieldEfetivoLiq(c.id,"base",rendaMotoraHist);
-          if(yLiq>0){
-            rendaAno20+=val*yLiq*Math.pow(1+cresRenda,20);
-          }
+          valClasse20[c.id]=v0*Math.pow(1+cresValor,20)*Math.pow(1+ipcaRate,20);
+          cresRendaPow20[c.id]=Math.pow(1+cresRenda,20);
         });
+        const rendaAno20=rendaPassivaIcrComAuxiliar(valClasse20,YIELD_CLASSE,IR_DIV,rendaMotoraHist,rendaAuxiliarHist,FX,cresRendaPow20);
         const metaAno20=metaMensalIF*12*Math.pow(1+ipcaRate,20);
         const cob20=rendaAno20/metaAno20;
         return{cobAtual,cob20,horizonteCobertura,horizonteTotal,ipcaRate};
@@ -13691,7 +13696,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           if(v<=0)return;
           if(c.id==="imoveis")return;// imoveis fisicos excluidos
           if(!isMotor(c.id)){
-            swrSobreNaoMotoresHoje+=v*SWR_EF;// SWR efetivo (incorpora renda auxiliar observada via max)
+            swrSobreNaoMotoresHoje+=v*SWR;// SWR teorico puro - aux ja embutida no helper granular (evita double-count)
           }
         });
         // Renda passiva HOJE com Modelo B granular (aux observada substitui teorica via max por bloco)
@@ -13731,9 +13736,9 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             const v=valClasse[c.id]||0;
             if(v<=0)return;
             // SWR sobre TODAS as classes EXCETO motores (FII/Infra/Agro) e imoveis
-            // Aqui usamos SWR_EF (incorpora renda auxiliar via max) para a RENDA PRIMARIA
+            // SWR teorico puro - aux ja embutida no helper granular (evita double-count)
             if(!isMotor(c.id)&&c.id!=="imoveis"){
-              swrNaoMotor+=v*SWR_EF;
+              swrNaoMotor+=v*SWR;
             }
           });
           const rendaPrimaria=rendaDivLiq+swrNaoMotor;
@@ -14420,8 +14425,8 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           ),
           h("p",{style:{fontSize:10,color:"#9A9080",lineHeight:1.55,margin:"0 0 10px"}},
             "Registre proventos LIQUIDOS de classes NAO-MOTORAS: dividendos de acoes BR e dividendos de ativos do exterior (em cada moeda nativa). Cambio do fechamento do mes via PTAX BCB. ",
-            h("b",{style:{color:"#5B8FD4"}},"Modelo B refinado"),
-            ": ENTRA no ICR-RTE via max(aux, SWR sobre nao-motoras) - se sua renda auxiliar observada supera o SWR teorico, ela substitui o SWR nos calculos (evita double-count)."
+            h("b",{style:{color:"#5B8FD4"}},"Modelo B refinado granular"),
+            ": para acoes BR usa MAX(aux_BR_observada, teorico BR); para o bloco exterior (acoes EXT + REITs + Treasuries) usa MAX(aux_Exterior_observada, soma dos teoricos exterior). Quando dividendos reais superam teoricos no bloco, a realidade prevalece - aplicado em todas as metricas de renda do app."
           ),
           // Display do estado
           auxObs?h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:8,marginBottom:10}},
@@ -15237,19 +15242,20 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           ),
           // Breakdown: renda passiva vs SWR
           h("div",{style:{background:"rgba(0,0,0,0.20)",borderRadius:6,padding:"10px 12px"}},
-            h("div",{style:{fontSize:7,letterSpacing:1.2,color:"#7A7060",fontFamily:"monospace",fontWeight:700,marginBottom:6}},"DECOMPOSICAO (CENARIO BASE)"),
+            h("div",{style:{fontSize:7,letterSpacing:1.2,color:"#7A7060",fontFamily:"monospace",fontWeight:700,marginBottom:6}},"DECOMPOSICAO (CENARIO BASE - MODELO B GRANULAR)"),
             h("div",{style:{display:"flex",justifyContent:"space-between",padding:"4px 0",fontSize:10,color:"#E8E2D5",fontFamily:"monospace"}},
-              h("span",{},"Renda passiva pura (sem vender):"),
-              h("span",{style:{color:"#4CAF82",fontWeight:700}},fB(rBase.rendaLiqAnual/12)+"/mes")
+              h("span",{},"Renda passiva real (sem vender):"),
+              h("span",{style:{color:"#4CAF82",fontWeight:700}},fB(rendaPassivaHojeICR/12)+"/mes")
             ),
             h("div",{style:{display:"flex",justifyContent:"space-between",padding:"4px 0",fontSize:10,color:"#E8E2D5",fontFamily:"monospace"}},
-              h("span",{},"SWR 4% em BTC/Ouro:"),
+              h("span",{},"SWR "+(SWR*100).toFixed(2)+"% em BTC/Ouro:"),
               h("span",{style:{color:"#C8A96E",fontWeight:700}},fB(rBase.swrLiqAnual/12)+"/mes")
             ),
             h("div",{style:{display:"flex",justifyContent:"space-between",padding:"6px 0 0",fontSize:11,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700,borderTop:"1px solid rgba(255,255,255,0.10)",marginTop:4}},
               h("span",{},"TOTAL liquido:"),
-              h("span",{style:{color:"#4CAF82"}},fB(rBase.totalLiqAnual/12)+"/mes")
-            )
+              h("span",{style:{color:"#4CAF82"}},fB((rendaPassivaHojeICR+rBase.swrLiqAnual)/12)+"/mes")
+            ),
+            h("div",{style:{fontSize:8,color:"#7A7060",fontFamily:"monospace",fontStyle:"italic",marginTop:6,paddingTop:6,borderTop:"1px dashed rgba(255,255,255,0.06)"}},"Renda passiva incorpora max(aux_BR_observada, teorico_BR) + max(aux_Exterior_observada, teorico_EXT+REITs+Treasuries) - quando dividendos reais superam teoricos, a realidade prevalece.")
           )
         ),
 
