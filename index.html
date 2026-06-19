@@ -14089,6 +14089,75 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           fB
         }):null,
 
+        // ===== SEPARADOR DE SECAO: RENDA REALIZADA =====
+        h("div",{style:{display:"flex",alignItems:"center",gap:10,marginTop:6,marginBottom:14,padding:"0 2px"}},
+          h("div",{style:{flex:1,height:1,background:"linear-gradient(90deg,transparent,rgba(76,175,130,0.45),rgba(76,175,130,0.45))"}}),
+          h("div",{style:{fontSize:11,letterSpacing:3,color:"#4CAF82",fontFamily:"monospace",fontWeight:700,textTransform:"uppercase",padding:"4px 10px",background:"rgba(76,175,130,0.10)",border:"1px solid rgba(76,175,130,0.30)",borderRadius:4}},"\u{1F4CA} 1. Renda Realizada"),
+          h("div",{style:{flex:1,height:1,background:"linear-gradient(90deg,rgba(76,175,130,0.45),rgba(76,175,130,0.45),transparent)"}})
+        ),
+
+        // ===== CARD: COBERTURA DA RENDA REALIZADA vs META =====
+        (()=>{
+          const yObsM=yieldObservadoMotor(rendaMotoraHist);
+          const auxObsR=rendaAuxiliarObservada(rendaAuxiliarHist,FX);
+          const rMotMensal=yObsM?(yObsM.valor*MOTORES_RENDA.reduce((s,id)=>s+(valorClasse[id]||0),0))/12:0;
+          const rAuxMensal=auxObsR?auxObsR.totalBrlMedio:0;
+          const rTotalMensal=rMotMensal+rAuxMensal;
+          const nMesesObs=Math.max(yObsM?yObsM.n:0,auxObsR?auxObsR.n:0);
+          // Se nao ha nenhum registro observado, mostra placeholder
+          if(nMesesObs===0){
+            return h("div",{style:{padding:"12px 14px",background:"rgba(232,196,74,0.06)",border:"1px dashed rgba(232,196,74,0.30)",borderRadius:6,marginBottom:14,fontSize:10,color:"#E8C44A",lineHeight:1.55,fontFamily:"monospace"}},
+              "\u26A0 Cobertura da renda realizada ficar\u00e1 dispon\u00edvel ap\u00f3s o primeiro registro mensal de Renda Motora ou Renda Auxiliar (cards abaixo)."
+            );
+          }
+          const coberturaPct=metaMensalIF>0?(rTotalMensal/metaMensalIF)*100:0;
+          let cor,nivel;
+          if(coberturaPct>=150){cor="#4CAF82";nivel="folga plena";}
+          else if(coberturaPct>=120){cor="#7DD17D";nivel="folga modesta";}
+          else if(coberturaPct>=100){cor="#E8C44A";nivel="cobertura apertada";}
+          else if(coberturaPct>=60){cor="#E89060";nivel="d\u00e9ficit moderado";}
+          else{cor="#E05252";nivel="d\u00e9ficit severo";}
+          const deficitMensal=Math.max(0,metaMensalIF-rTotalMensal);
+          return h("div",{style:{background:"linear-gradient(135deg,rgba(76,175,130,0.10),rgba(91,143,212,0.04))",border:"2px solid "+cor+"66",borderRadius:8,padding:"14px 16px",marginBottom:14,boxShadow:"0 0 0 1px "+cor+"22"}},
+            h("div",{style:{display:"flex",alignItems:"baseline",justifyContent:"space-between",flexWrap:"wrap",gap:8,marginBottom:10}},
+              h("div",{},
+                h("div",{style:{fontSize:10,letterSpacing:2,color:cor,fontFamily:"monospace",fontWeight:700,textTransform:"uppercase"}},"\u{1F3AF} Cobertura da Renda Realizada"),
+                h("div",{style:{fontSize:8.5,color:"#7A7060",fontFamily:"monospace",marginTop:3}},"renda observada (motora + aux) vs meta atual de R$ "+(metaMensalIF/1000).toFixed(1)+"k/m\u00eas")
+              ),
+              h("div",{style:{padding:"4px 9px",background:cor+"22",border:"1px solid "+cor+"66",borderRadius:5,fontSize:9,color:cor,fontFamily:"monospace",fontWeight:700,letterSpacing:1.2,textTransform:"uppercase"}},nivel)
+            ),
+            // Numero gigante de cobertura
+            h("div",{style:{textAlign:"center",margin:"8px 0",padding:"10px 0",background:"rgba(0,0,0,0.20)",borderRadius:6}},
+              h("div",{style:{fontSize:36,fontFamily:"Georgia,serif",fontStyle:"italic",fontWeight:700,color:cor,lineHeight:1}},coberturaPct.toFixed(0)+"%"),
+              h("div",{style:{fontSize:9,color:"#9A9080",marginTop:4,fontFamily:"monospace",letterSpacing:1}},"DA META "+(metaMensalIF/1000).toFixed(1)+"K/M\u00caS")
+            ),
+            // Decomposicao
+            h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginBottom:8}},
+              h("div",{style:{background:"rgba(76,175,130,0.10)",borderLeft:"2px solid #4CAF82",borderRadius:4,padding:"7px 9px"}},
+                h("div",{style:{fontSize:7,color:"#4CAF82",fontFamily:"monospace",fontWeight:700,letterSpacing:1.2}},"MOTORA"),
+                h("div",{style:{fontSize:12,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700,marginTop:2}},fB(rMotMensal)),
+                h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",marginTop:1}},"/m\u00eas m\u00e9dio")
+              ),
+              h("div",{style:{background:"rgba(91,143,212,0.10)",borderLeft:"2px solid #5B8FD4",borderRadius:4,padding:"7px 9px"}},
+                h("div",{style:{fontSize:7,color:"#5B8FD4",fontFamily:"monospace",fontWeight:700,letterSpacing:1.2}},"AUXILIAR"),
+                h("div",{style:{fontSize:12,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700,marginTop:2}},fB(rAuxMensal)),
+                h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",marginTop:1}},"/m\u00eas m\u00e9dio")
+              ),
+              h("div",{style:{background:"rgba(200,169,110,0.10)",borderLeft:"2px solid #C8A96E",borderRadius:4,padding:"7px 9px"}},
+                h("div",{style:{fontSize:7,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,letterSpacing:1.2}},"TOTAL"),
+                h("div",{style:{fontSize:12,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700,marginTop:2}},fB(rTotalMensal)),
+                h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",marginTop:1}},"/m\u00eas m\u00e9dio")
+              )
+            ),
+            // Mensagem contextual
+            deficitMensal>0?h("div",{style:{fontSize:9.5,color:"#9A9080",lineHeight:1.5,padding:"6px 9px",background:"rgba(0,0,0,0.15)",borderRadius:4,fontFamily:"monospace"}},
+              "Faltam ",h("strong",{style:{color:"#E89060"}},fB(deficitMensal)+"/m\u00eas")," para atingir 100% da meta com renda observada (m\u00e9dia ult. ",nMesesObs," m\u00eas",nMesesObs>1?"es":"",")."
+            ):h("div",{style:{fontSize:9.5,color:"#9A9080",lineHeight:1.5,padding:"6px 9px",background:"rgba(76,175,130,0.10)",borderRadius:4,fontFamily:"monospace"}},
+              h("strong",{style:{color:"#4CAF82"}},"\u2713 Meta coberta")," pela renda realizada com folga de ",fB(rTotalMensal-metaMensalIF),"/m\u00eas (",((rTotalMensal-metaMensalIF)/metaMensalIF*100).toFixed(0),"% acima)."
+            )
+          );
+        })(),
+
         // ===== CARD: RENDA MOTORA OBSERVADA (input manual mensal) =====
         h("div",{style:{background:"linear-gradient(135deg,rgba(76,175,130,0.10),rgba(76,175,130,0.04))",border:"1px solid rgba(76,175,130,0.35)",borderRadius:8,padding:"12px 14px",marginBottom:14}},
           h("div",{style:{display:"flex",alignItems:"baseline",justifyContent:"space-between",flexWrap:"wrap",gap:6,marginBottom:8}},
@@ -14147,34 +14216,8 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
               if(mesesDisponiveis<=0)return null;// todos ja registrados
               return h("button",{onClick:backfillRendaMotora,style:{padding:"7px 12px",background:"rgba(200,169,110,0.15)",color:"#C8A96E",border:"1px solid rgba(200,169,110,0.40)",borderRadius:5,fontSize:10,fontFamily:"monospace",fontWeight:700,letterSpacing:1,cursor:"pointer"}},"\u{1F4DA} Backfill ("+mesesDisponiveis+" meses)");
             })()
-          ),
-          // Mini-grafico evolucao (apenas se >=2 registros)
-          rendaMotoraHist.length>=2?(()=>{
-            const ult12=rendaMotoraHist.slice(-12);
-            const maxRenda=Math.max(...ult12.map(r=>r.renda));
-            const minRenda=Math.min(...ult12.map(r=>r.renda));
-            const rangeR=maxRenda-minRenda;
-            const altura=80;
-            return h("div",{style:{marginTop:12,padding:"10px 12px",background:"rgba(0,0,0,0.20)",borderRadius:5}},
-              h("div",{style:{fontSize:8,color:"#7A7060",fontFamily:"monospace",fontWeight:700,letterSpacing:1.5,marginBottom:6}},"\u{1F4C8} EVOLUCAO RENDA MENSAL (ULT. 12 MESES)"),
-              h("div",{style:{display:"flex",alignItems:"flex-end",gap:3,height:altura,paddingTop:14,position:"relative"}},
-                ult12.map((r,i)=>{
-                  const hPct=rangeR>0?(r.renda-minRenda)/rangeR:0.5;
-                  const barH=Math.max(6,hPct*(altura-20)+10);
-                  return h("div",{key:r.mes,style:{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:2,position:"relative"}},
-                    h("div",{style:{fontSize:6.5,color:"#4CAF82",fontFamily:"monospace",fontWeight:700,whiteSpace:"nowrap"}},(r.renda/1000).toFixed(1)+"k"),
-                    h("div",{style:{width:"85%",height:barH,background:"linear-gradient(180deg,#4CAF82,#3a8b66)",borderRadius:"2px 2px 0 0",minHeight:4}}),
-                    h("div",{style:{fontSize:6,color:"#7A7060",fontFamily:"monospace",marginTop:1,transform:"rotate(-45deg)",transformOrigin:"center"}},r.mes.slice(5))
-                  );
-                })
-              ),
-              h("div",{style:{display:"flex",justifyContent:"space-between",fontSize:7,color:"#7A7060",fontFamily:"monospace",marginTop:8,paddingTop:6,borderTop:"1px dashed rgba(255,255,255,0.08)"}},
-                h("span",{},"min: ",fB(minRenda)),
-                h("span",{},"max: ",fB(maxRenda)),
-                h("span",{},"media: ",fB(ult12.reduce((s,r)=>s+r.renda,0)/ult12.length))
-              )
-            );
-          })():null
+          )
+          // Mini-grafico removido - substituido pelo grafico consolidado abaixo (renda motora + aux empilhada)
         ),
 
         // Modal de backfill auxiliar (renderizado condicionalmente)
@@ -14314,6 +14357,127 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
               h("div",{style:{fontSize:8,color:"#7A7060",fontFamily:"monospace",marginTop:6,fontStyle:"italic"}},"Motora entra direto no ICR-RTE. Auxiliar entra via max(aux, SWR) sobre nao-motoras - se aux>SWR teorico, substitui o SWR no calculo da Solidez.")
             );
           })():null
+        ),
+
+        // ===== GRAFICO CONSOLIDADO: EVOLUCAO MENSAL DA RENDA REALIZADA =====
+        // Linha total + areas empilhadas (Motora / Aux BR / Aux Exterior)
+        (()=>{
+          // Coleta uniao dos meses registrados em motora e auxiliar (ult. 12m)
+          const motoraMap={};
+          rendaMotoraHist.forEach(r=>{motoraMap[r.mes]=r.renda;});
+          const auxMap={};
+          rendaAuxiliarHist.forEach(r=>{
+            const brl_br=r.br||0;
+            // Converte exterior pelo fxSnapshot da entrada (consistente com renda observada armazenada)
+            const fxEntrada=r.fxSnapshot||FX||{};
+            let brl_ext=0;
+            Object.entries(r.exterior||{}).forEach(([mo,vl])=>{
+              if(typeof fxEntrada[mo]==="number"&&fxEntrada[mo]>0)brl_ext+=vl*fxEntrada[mo];
+              else if(typeof FX[mo]==="number"&&FX[mo]>0)brl_ext+=vl*FX[mo];
+            });
+            auxMap[r.mes]={br:brl_br,ext:brl_ext};
+          });
+          // Uniao de meses (ordenada cronologicamente)
+          const todosMeses=Array.from(new Set([...Object.keys(motoraMap),...Object.keys(auxMap)])).sort();
+          if(todosMeses.length===0)return null;// nada para plotar
+          // Limita a ult. 12m
+          const meses=todosMeses.slice(-12);
+          // Monta serie {mes, motora, br, ext, total}
+          const serie=meses.map(m=>{
+            const mot=motoraMap[m]||0;
+            const aux=auxMap[m]||{br:0,ext:0};
+            return {mes:m,motora:mot,br:aux.br,ext:aux.ext,total:mot+aux.br+aux.ext};
+          });
+          // Calcula maximos para escala (considera meta como referencia tambem)
+          const maxValor=Math.max(metaMensalIF,...serie.map(s=>s.total))*1.05;
+          // Dimensoes SVG
+          const W=320,H=180,padL=42,padR=10,padT=14,padB=28;
+          const innerW=W-padL-padR;
+          const innerH=H-padT-padB;
+          const n=serie.length;
+          // Escala X (igual espacamento)
+          const xPos=(i)=>padL+(n>1?(innerW*i/(n-1)):innerW/2);
+          const yPos=(v)=>padT+innerH-(v/maxValor)*innerH;
+          // Path generators
+          const pathStr=(pontos)=>pontos.map((p,i)=>(i===0?"M":"L")+p[0].toFixed(1)+","+p[1].toFixed(1)).join(" ");
+          // Pontos de cada camada (empilhamento bottom-up: motora, br sobre motora, ext sobre br+motora)
+          const ptsMotora=serie.map((s,i)=>[xPos(i),yPos(s.motora)]);
+          const ptsBR=serie.map((s,i)=>[xPos(i),yPos(s.motora+s.br)]);
+          const ptsEXT=serie.map((s,i)=>[xPos(i),yPos(s.motora+s.br+s.ext)]);
+          // Areas empilhadas (path fechado com baseline)
+          const areaMotora=pathStr(ptsMotora)+" L"+xPos(n-1).toFixed(1)+","+yPos(0).toFixed(1)+" L"+xPos(0).toFixed(1)+","+yPos(0).toFixed(1)+" Z";
+          const areaBR=pathStr(ptsBR)+" "+ptsMotora.slice().reverse().map(p=>"L"+p[0].toFixed(1)+","+p[1].toFixed(1)).join(" ")+" Z";
+          const areaEXT=pathStr(ptsEXT)+" "+ptsBR.slice().reverse().map(p=>"L"+p[0].toFixed(1)+","+p[1].toFixed(1)).join(" ")+" Z";
+          // Linha de meta horizontal
+          const yMeta=yPos(metaMensalIF);
+          // Ticks Y (4 niveis)
+          const ticks=[0,0.25,0.5,0.75,1.0].map(f=>({v:maxValor*f,y:yPos(maxValor*f)}));
+          // Formato dos labels
+          const fmtK=(v)=>v>=1000?(v/1000).toFixed(v>=10000?0:1)+"k":v.toFixed(0);
+          return h("div",{style:{background:"linear-gradient(135deg,rgba(0,0,0,0.25),rgba(0,0,0,0.10))",border:"1px solid rgba(200,169,110,0.30)",borderRadius:8,padding:"12px 14px",marginBottom:14}},
+            // Header
+            h("div",{style:{display:"flex",alignItems:"baseline",justifyContent:"space-between",flexWrap:"wrap",gap:6,marginBottom:8}},
+              h("div",{style:{fontSize:10,letterSpacing:2,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,textTransform:"uppercase"}},"\u{1F4C8} Evolu\u00e7\u00e3o da Renda Realizada"),
+              h("div",{style:{fontSize:8,color:"#7A7060",fontFamily:"monospace"}},"\u00falt. "+n+" m\u00ea"+(n>1?"ses":"s")+" \u2022 motora + auxiliar consolidada")
+            ),
+            // Legenda
+            h("div",{style:{display:"flex",flexWrap:"wrap",gap:10,marginBottom:8,fontSize:8.5,fontFamily:"monospace"}},
+              h("div",{style:{display:"flex",alignItems:"center",gap:4}},
+                h("div",{style:{width:10,height:10,background:"#4CAF82",borderRadius:2}}),
+                h("span",{style:{color:"#C8C0B0"}},"Motora (FII+Infra+Agro)")
+              ),
+              h("div",{style:{display:"flex",alignItems:"center",gap:4}},
+                h("div",{style:{width:10,height:10,background:"#C8A96E",borderRadius:2}}),
+                h("span",{style:{color:"#C8C0B0"}},"Aux. BR")
+              ),
+              h("div",{style:{display:"flex",alignItems:"center",gap:4}},
+                h("div",{style:{width:10,height:10,background:"#5B8FD4",borderRadius:2}}),
+                h("span",{style:{color:"#C8C0B0"}},"Aux. Exterior (BRL)")
+              ),
+              h("div",{style:{display:"flex",alignItems:"center",gap:4}},
+                h("div",{style:{width:12,height:2,background:"#E05252"}}),
+                h("span",{style:{color:"#C8C0B0"}},"Meta")
+              )
+            ),
+            // SVG do grafico
+            h("div",{style:{overflowX:"auto",width:"100%"}},
+              h("svg",{viewBox:"0 0 "+W+" "+H,style:{width:"100%",height:"auto",maxWidth:"100%",display:"block"},preserveAspectRatio:"xMidYMid meet"},
+                // Grid horizontal
+                ...ticks.map((t,i)=>h("g",{key:"tick"+i},
+                  h("line",{x1:padL,y1:t.y,x2:W-padR,y2:t.y,stroke:i===0?"rgba(255,255,255,0.15)":"rgba(255,255,255,0.05)",strokeWidth:1,strokeDasharray:i===0?"none":"2,3"}),
+                  h("text",{x:padL-4,y:t.y+3,fontSize:8,fill:"#7A7060",textAnchor:"end",fontFamily:"monospace"},"R$ "+fmtK(t.v))
+                )),
+                // Areas empilhadas
+                h("path",{d:areaMotora,fill:"rgba(76,175,130,0.55)",stroke:"none"}),
+                h("path",{d:areaBR,fill:"rgba(200,169,110,0.55)",stroke:"none"}),
+                h("path",{d:areaEXT,fill:"rgba(91,143,212,0.55)",stroke:"none"}),
+                // Linha total (topo da pilha)
+                h("path",{d:pathStr(ptsEXT),fill:"none",stroke:"#E8DCC0",strokeWidth:1.5}),
+                // Pontos da linha total
+                ...ptsEXT.map((p,i)=>h("circle",{key:"dot"+i,cx:p[0],cy:p[1],r:2.5,fill:"#E8DCC0",stroke:"#1A1612",strokeWidth:1})),
+                // Linha de meta horizontal
+                h("line",{x1:padL,y1:yMeta,x2:W-padR,y2:yMeta,stroke:"#E05252",strokeWidth:1.5,strokeDasharray:"4,3"}),
+                h("text",{x:W-padR-2,y:yMeta-3,fontSize:7.5,fill:"#E05252",textAnchor:"end",fontFamily:"monospace",fontWeight:700},"meta "+fmtK(metaMensalIF)),
+                // Labels X (meses)
+                ...serie.map((s,i)=>h("text",{key:"xl"+i,x:xPos(i),y:H-padB+12,fontSize:7,fill:"#7A7060",textAnchor:"middle",fontFamily:"monospace"},s.mes.slice(5)+"/"+s.mes.slice(2,4))),
+                // Labels valor total acima de cada ponto (so se tiver poucos meses pra nao poluir)
+                ...(n<=6?serie.map((s,i)=>h("text",{key:"vl"+i,x:xPos(i),y:yPos(s.total)-6,fontSize:7,fill:"#E8DCC0",textAnchor:"middle",fontFamily:"monospace",fontWeight:700},fmtK(s.total))):[])
+              )
+            ),
+            // Rodape com stats
+            h("div",{style:{display:"flex",justifyContent:"space-between",fontSize:8,color:"#7A7060",fontFamily:"monospace",marginTop:6,paddingTop:6,borderTop:"1px dashed rgba(255,255,255,0.08)"}},
+              h("span",{},"min: ",fB(Math.min(...serie.map(s=>s.total)))),
+              h("span",{},"max: ",fB(Math.max(...serie.map(s=>s.total)))),
+              h("span",{},"m\u00e9dia: ",fB(serie.reduce((s,r)=>s+r.total,0)/serie.length))
+            )
+          );
+        })(),
+
+        // ===== SEPARADOR DE SECAO: RENDA PROJETADA =====
+        h("div",{style:{display:"flex",alignItems:"center",gap:10,marginTop:18,marginBottom:14,padding:"0 2px"}},
+          h("div",{style:{flex:1,height:1,background:"linear-gradient(90deg,transparent,rgba(156,125,194,0.45),rgba(156,125,194,0.45))"}}),
+          h("div",{style:{fontSize:11,letterSpacing:3,color:"#9C7DC2",fontFamily:"monospace",fontWeight:700,textTransform:"uppercase",padding:"4px 10px",background:"rgba(156,125,194,0.10)",border:"1px solid rgba(156,125,194,0.30)",borderRadius:4}},"\u{1F52E} 2. Renda Projetada"),
+          h("div",{style:{flex:1,height:1,background:"linear-gradient(90deg,rgba(156,125,194,0.45),rgba(156,125,194,0.45),transparent)"}})
         ),
 
         // ===== GLOSSARIO: RENDA LIQUIDA vs RENDA TOTAL =====
