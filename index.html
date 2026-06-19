@@ -448,6 +448,86 @@ function swrEfetivoNaoMotor(rendaAuxHist,fxAtual,capitalNaoMotor,swrRate){
 }
 
 // =====================================================================
+// RENDA PASSIVA ICR COM AUXILIAR GRANULAR (Modelo B refinado nas projecoes)
+// =====================================================================
+// Para o ICR (renda passiva SEM venda), aplica:
+//   - Motoras: yieldEfetivoLiq (ja incorpora obs motora)
+//   - Bloco BR: max(aux_BR_observada, yLiq teorico * v_acoes_br)
+//   - Bloco Exterior: max(aux_EXT_observada, soma yLiq teorico * valores_exterior)
+//   - Outras nao-motoras (Selic, NTN-B, BTC, Ouro): yields teoricos
+//
+// Parametros:
+//   - valorClasse: {cid: valor_brl} no ano da projecao (ja deflacionado/inflacionado)
+//   - YIELD_CLASSE: tabela canonica de yields
+//   - rendaMotoraHist, rendaAuxiliarHist, fxAtual: historicos observados
+//   - cresRendaPow: {cid: Math.pow(1+cresRenda, n)} fator de crescimento da renda real
+//     (passar {} ou {cid:1} para ano 0/hoje)
+//   - YieldClasseLocal: tabela YIELD_CLASSE (passada como parametro pra evitar dep global)
+//
+// Retorna: renda anual liquida total (BRL)
+function rendaPassivaIcrComAuxiliar(valorClasse,YieldClasseLocal,IR_DIV_LOCAL,rendaMotoraHist,rendaAuxiliarHist,fxAtual,cresRendaPow){
+  let total=0;
+  // Yields observados auxiliares (anualizados em BRL)
+  const auxObs=rendaAuxiliarObservada(rendaAuxiliarHist,fxAtual);
+  const auxBrAnual=auxObs?auxObs.brMedio*12:0;
+  const auxExtAnual=auxObs?auxObs.totalExteriorBrlMedio*12:0;
+  // Soma yields teoricos do bloco BR (apenas acoes_br)
+  let teoricoBrAnual=0;
+  CLASSES_AUX_BR.forEach(cid=>{
+    const v=valorClasse[cid]||0;
+    if(v<=0)return;
+    const yc=YieldClasseLocal[cid];
+    if(!yc)return;
+    const ir=IR_DIV_LOCAL[cid]||0;
+    const yBrutoBase=yc.base||0;
+    const fator=cresRendaPow&&cresRendaPow[cid]?cresRendaPow[cid]:1;
+    teoricoBrAnual+=v*yBrutoBase*(1-ir)*fator;
+  });
+  // Soma yields teoricos do bloco Exterior (acoes_ext + reits + treasuries)
+  let teoricoExtAnual=0;
+  CLASSES_AUX_EXT.forEach(cid=>{
+    const v=valorClasse[cid]||0;
+    if(v<=0)return;
+    const yc=YieldClasseLocal[cid];
+    if(!yc)return;
+    const ir=IR_DIV_LOCAL[cid]||0;
+    const yBrutoBase=yc.base||0;
+    const fator=cresRendaPow&&cresRendaPow[cid]?cresRendaPow[cid]:1;
+    teoricoExtAnual+=v*yBrutoBase*(1-ir)*fator;
+  });
+  // max() aplicado por bloco (Modelo B granular)
+  // Cresimento da renda observada projetado: usa media do cresRenda das classes do bloco
+  const fatorMedioBR=cresRendaPow&&CLASSES_AUX_BR.length>0?
+    CLASSES_AUX_BR.reduce((s,cid)=>s+(cresRendaPow[cid]||1),0)/CLASSES_AUX_BR.length:1;
+  const fatorMedioEXT=cresRendaPow&&CLASSES_AUX_EXT.length>0?
+    CLASSES_AUX_EXT.reduce((s,cid)=>s+(cresRendaPow[cid]||1),0)/CLASSES_AUX_EXT.length:1;
+  const rendaBR=Math.max(auxBrAnual*fatorMedioBR,teoricoBrAnual);
+  const rendaEXT=Math.max(auxExtAnual*fatorMedioEXT,teoricoExtAnual);
+  total+=rendaBR+rendaEXT;
+  // Demais classes (motoras + outras nao-motoras: selic, rfipca, bitcoin, ouro, imoveis)
+  Object.keys(valorClasse).forEach(cid=>{
+    if(CLASSES_AUX_BR.includes(cid)||CLASSES_AUX_EXT.includes(cid))return;// ja contado nos blocos
+    const v=valorClasse[cid]||0;
+    if(v<=0)return;
+    // Motoras usam yieldEfetivoLiq (observado se houver)
+    if(FUNDOS_RENDA_MOTORES.includes(cid)){
+      const yLiq=yieldEfetivoLiq(cid,"base",rendaMotoraHist);
+      const fator=cresRendaPow&&cresRendaPow[cid]?cresRendaPow[cid]:1;
+      total+=v*yLiq*fator;
+      return;
+    }
+    // Outras (Selic, NTN-B, BTC, Ouro, imoveis): teorico puro
+    const yc=YieldClasseLocal[cid];
+    if(!yc)return;
+    const ir=IR_DIV_LOCAL[cid]||0;
+    const yBruto=yc.base||0;
+    const fator=cresRendaPow&&cresRendaPow[cid]?cresRendaPow[cid]:1;
+    total+=v*yBruto*(1-ir)*fator;
+  });
+  return total;
+}
+
+// =====================================================================
 // PTAX BCB - cotacoes oficiais de fechamento por moeda
 // =====================================================================
 // Endpoint: olinda.bcb.gov.br/olinda/servico/PTAX
@@ -710,6 +790,11 @@ const IPCA_CENARIOS={
 const IDADE_TRANQUILIDADE_PLENA=100;
 // Fundos de Renda Preservados (motores de renda nao consumidos na estrategia FIRE conservadora)
 const FUNDOS_RENDA_MOTORES=["fii","infra","agro"];
+// Blocos auxiliares observados (modelo B refinado granular):
+//  - CLASSES_AUX_BR: dividendos de acoes BR observados substituem yield teorico via max(aux_BR, teorico_BR)
+//  - CLASSES_AUX_EXT: dividendos do exterior observados substituem yield teorico do agregado exterior
+const CLASSES_AUX_BR=["acoes_br"];
+const CLASSES_AUX_EXT=["acoes_ext","reits","treasuries"];
 
 // ===== STRESS TEST - Cenarios historicos curados =====
 // dd: drawdown peak-to-trough estimado por classe (em decimal, negativo = perda)
@@ -13437,23 +13522,21 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           let n=horizonteCobertura;
           while(n<200){// limite de seguranca de 200 anos
             n++;
-            // Renda passiva neste ano (continua crescendo)
-            let rendaAnoLiq=0;
-            CL.forEach(c=>{
-              const v0=valorClasse[c.id]||0;
-              if(v0<=0)return;
-              const cresValor=VALORIZA_REAL[c.id]||0;
-              const cresRenda=CRESC_REAL_RENDA[c.id]||0;
-              const yLiq=yieldEfetivoLiq(c.id,"base",rendaMotoraHist);
-              if(yLiq>0){
-                // Renda do ano e proporcional ao patrim atual vs original
-                const fracPatrim=patrim/totalPortfolio;
-                if(fracPatrim>0){
-                  const valEstim=v0*Math.pow(1+cresValor,n)*Math.pow(1+ipcaRate,n)*fracPatrim;
-                  rendaAnoLiq+=valEstim*yLiq*Math.pow(1+cresRenda,n);
-                }
-              }
-            });
+            // Renda passiva neste ano (continua crescendo) - Modelo B granular
+            const fracPatrim=patrim/totalPortfolio;
+            const valClasseAno={};
+            const cresRendaPowAno={};
+            if(fracPatrim>0){
+              CL.forEach(c=>{
+                const v0=valorClasse[c.id]||0;
+                if(v0<=0){valClasseAno[c.id]=0;cresRendaPowAno[c.id]=1;return;}
+                const cresValor=VALORIZA_REAL[c.id]||0;
+                const cresRenda=CRESC_REAL_RENDA[c.id]||0;
+                valClasseAno[c.id]=v0*Math.pow(1+cresValor,n)*Math.pow(1+ipcaRate,n)*fracPatrim;
+                cresRendaPowAno[c.id]=Math.pow(1+cresRenda,n);
+              });
+            }
+            const rendaAnoLiq=fracPatrim>0?rendaPassivaIcrComAuxiliar(valClasseAno,YIELD_CLASSE,IR_DIV,rendaMotoraHist,rendaAuxiliarHist,FX,cresRendaPowAno):0;
             // Meta deste ano
             const metaAno=metaMensalIF*12*Math.pow(1+ipcaRate,n);
             // Deficit
@@ -13509,6 +13592,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         //          + SWR 4% sobre TODAS as classes EXCETO motores (FII+Infra+Agro)
         // Motores: preservados (so dividendos, sem saque do principal)
         // Demais: voce saca 4%/ano alem dos dividendos que ela ja paga
+        // MODELO B REFINADO: renda passiva usa max(aux_observada, teorica) por bloco BR/Exterior
         const isMotor=(cid)=>FUNDOS_RENDA_MOTORES.includes(cid);
         let swrSobreNaoMotoresHoje=0;
         CL.forEach(c=>{
@@ -13519,7 +13603,8 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             swrSobreNaoMotoresHoje+=v*SWR_EF;// SWR efetivo (incorpora renda auxiliar observada via max)
           }
         });
-        const rendaPassivaHoje=rBase.rendaLiqAnual;// todos os dividendos liquidos
+        // Renda passiva HOJE com Modelo B granular (aux observada substitui teorica via max por bloco)
+        const rendaPassivaHoje=rendaPassivaIcrComAuxiliar(valorClasse,YIELD_CLASSE,IR_DIV,rendaMotoraHist,rendaAuxiliarHist,FX,null);
         const rendaPrimariaHoje=rendaPassivaHoje+swrSobreNaoMotoresHoje;
         const cobAtual=rendaPrimariaHoje/(metaMensalIF*12);
 
@@ -13542,17 +13627,18 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             const cresValor=VALORIZA_REAL[c.id]||0;
             valClasse[c.id]*=(1+cresValor)*(1+ipcaRate);
           });
-          // 2. Renda passiva (dividendos liq de TODAS) + SWR sobre nao-motoras
-          let rendaDivLiq=0,swrNaoMotor=0;
+          // 2. Renda passiva (Modelo B granular: aux observada substitui teorica via max por bloco)
+          //    Constroi fator de crescimento da renda por classe para projecao do ano n
+          let swrNaoMotor=0;
+          const cresRendaPow={};
+          CL.forEach(c=>{
+            const cresRenda=Math.max(0,(CRESC_REAL_RENDA[c.id]||0)+cresAjusteRTE);
+            cresRendaPow[c.id]=Math.pow(1+cresRenda,n);
+          });
+          const rendaDivLiq=rendaPassivaIcrComAuxiliar(valClasse,YIELD_CLASSE,IR_DIV,rendaMotoraHist,rendaAuxiliarHist,FX,cresRendaPow);
           CL.forEach(c=>{
             const v=valClasse[c.id]||0;
             if(v<=0)return;
-            const yLiq=yieldEfetivoLiq(c.id,"base",rendaMotoraHist);
-            const cresRenda=Math.max(0,(CRESC_REAL_RENDA[c.id]||0)+cresAjusteRTE);
-            // Dividendos de TODAS as classes que pagam
-            if(yLiq>0){
-              rendaDivLiq+=v*yLiq*Math.pow(1+cresRenda,n);
-            }
             // SWR sobre TODAS as classes EXCETO motores (FII/Infra/Agro) e imoveis
             // Aqui usamos SWR_EF (incorpora renda auxiliar via max) para a RENDA PRIMARIA
             if(!isMotor(c.id)&&c.id!=="imoveis"){
@@ -14359,16 +14445,16 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           })():null
         ),
 
-        // ===== GRAFICO CONSOLIDADO: EVOLUCAO MENSAL DA RENDA REALIZADA =====
-        // Linha total + areas empilhadas (Motora / Aux BR / Aux Exterior)
+        // ===== GRAFICO CONSOLIDADO: BARRAS VERTICAIS EMPILHADAS POR MES =====
+        // Cada mes = 1 barra vertical dividida em 3 cores (motora / aux BR / aux exterior)
         (()=>{
-          // Coleta uniao dos meses registrados em motora e auxiliar (ult. 12m)
+          // Coleta uniao dos meses registrados em motora e auxiliar
           const motoraMap={};
           rendaMotoraHist.forEach(r=>{motoraMap[r.mes]=r.renda;});
           const auxMap={};
           rendaAuxiliarHist.forEach(r=>{
             const brl_br=r.br||0;
-            // Converte exterior pelo fxSnapshot da entrada (consistente com renda observada armazenada)
+            // Converte exterior pelo fxSnapshot da entrada (PTAX do fechamento do mes)
             const fxEntrada=r.fxSnapshot||FX||{};
             let brl_ext=0;
             Object.entries(r.exterior||{}).forEach(([mo,vl])=>{
@@ -14377,51 +14463,31 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             });
             auxMap[r.mes]={br:brl_br,ext:brl_ext};
           });
-          // Uniao de meses (ordenada cronologicamente)
+          // Uniao de meses (cronologicamente) - ult. 12m
           const todosMeses=Array.from(new Set([...Object.keys(motoraMap),...Object.keys(auxMap)])).sort();
-          if(todosMeses.length===0)return null;// nada para plotar
-          // Limita a ult. 12m
+          if(todosMeses.length===0)return null;
           const meses=todosMeses.slice(-12);
-          // Monta serie {mes, motora, br, ext, total}
+          // Serie {mes, motora, br, ext, total}
           const serie=meses.map(m=>{
             const mot=motoraMap[m]||0;
             const aux=auxMap[m]||{br:0,ext:0};
             return {mes:m,motora:mot,br:aux.br,ext:aux.ext,total:mot+aux.br+aux.ext};
           });
-          // Calcula maximos para escala (considera meta como referencia tambem)
-          const maxValor=Math.max(metaMensalIF,...serie.map(s=>s.total))*1.05;
-          // Dimensoes SVG
-          const W=320,H=180,padL=42,padR=10,padT=14,padB=28;
-          const innerW=W-padL-padR;
-          const innerH=H-padT-padB;
-          const n=serie.length;
-          // Escala X (igual espacamento)
-          const xPos=(i)=>padL+(n>1?(innerW*i/(n-1)):innerW/2);
-          const yPos=(v)=>padT+innerH-(v/maxValor)*innerH;
-          // Path generators
-          const pathStr=(pontos)=>pontos.map((p,i)=>(i===0?"M":"L")+p[0].toFixed(1)+","+p[1].toFixed(1)).join(" ");
-          // Pontos de cada camada (empilhamento bottom-up: motora, br sobre motora, ext sobre br+motora)
-          const ptsMotora=serie.map((s,i)=>[xPos(i),yPos(s.motora)]);
-          const ptsBR=serie.map((s,i)=>[xPos(i),yPos(s.motora+s.br)]);
-          const ptsEXT=serie.map((s,i)=>[xPos(i),yPos(s.motora+s.br+s.ext)]);
-          // Areas empilhadas (path fechado com baseline)
-          const areaMotora=pathStr(ptsMotora)+" L"+xPos(n-1).toFixed(1)+","+yPos(0).toFixed(1)+" L"+xPos(0).toFixed(1)+","+yPos(0).toFixed(1)+" Z";
-          const areaBR=pathStr(ptsBR)+" "+ptsMotora.slice().reverse().map(p=>"L"+p[0].toFixed(1)+","+p[1].toFixed(1)).join(" ")+" Z";
-          const areaEXT=pathStr(ptsEXT)+" "+ptsBR.slice().reverse().map(p=>"L"+p[0].toFixed(1)+","+p[1].toFixed(1)).join(" ")+" Z";
-          // Linha de meta horizontal
-          const yMeta=yPos(metaMensalIF);
-          // Ticks Y (4 niveis)
-          const ticks=[0,0.25,0.5,0.75,1.0].map(f=>({v:maxValor*f,y:yPos(maxValor*f)}));
-          // Formato dos labels
-          const fmtK=(v)=>v>=1000?(v/1000).toFixed(v>=10000?0:1)+"k":v.toFixed(0);
+          // Escala: max entre meta e maior total mensal (margem 10% para respiro)
+          const maxValor=Math.max(metaMensalIF,...serie.map(s=>s.total))*1.10;
+          const alturaPx=160;// altura util da area do grafico
+          // Helper de formato
+          const fmtK=(v)=>v>=1000?"R$ "+(v/1000).toFixed(v>=10000?0:1)+"k":"R$ "+v.toFixed(0);
+          // Posicao da meta como % do max (para linha tracejada horizontal)
+          const metaTopPct=(1-metaMensalIF/maxValor)*100;
           return h("div",{style:{background:"linear-gradient(135deg,rgba(0,0,0,0.25),rgba(0,0,0,0.10))",border:"1px solid rgba(200,169,110,0.30)",borderRadius:8,padding:"12px 14px",marginBottom:14}},
             // Header
             h("div",{style:{display:"flex",alignItems:"baseline",justifyContent:"space-between",flexWrap:"wrap",gap:6,marginBottom:8}},
-              h("div",{style:{fontSize:10,letterSpacing:2,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,textTransform:"uppercase"}},"\u{1F4C8} Evolu\u00e7\u00e3o da Renda Realizada"),
-              h("div",{style:{fontSize:8,color:"#7A7060",fontFamily:"monospace"}},"\u00falt. "+n+" m\u00ea"+(n>1?"ses":"s")+" \u2022 motora + auxiliar consolidada")
+              h("div",{style:{fontSize:10,letterSpacing:2,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,textTransform:"uppercase"}},"\u{1F4CA} Evolu\u00e7\u00e3o da Renda Realizada"),
+              h("div",{style:{fontSize:8,color:"#7A7060",fontFamily:"monospace"}},"\u00falt. "+serie.length+" m\u00ea"+(serie.length>1?"ses":"s")+" \u2022 motora + auxiliar consolidada")
             ),
             // Legenda
-            h("div",{style:{display:"flex",flexWrap:"wrap",gap:10,marginBottom:8,fontSize:8.5,fontFamily:"monospace"}},
+            h("div",{style:{display:"flex",flexWrap:"wrap",gap:10,marginBottom:10,fontSize:8.5,fontFamily:"monospace"}},
               h("div",{style:{display:"flex",alignItems:"center",gap:4}},
                 h("div",{style:{width:10,height:10,background:"#4CAF82",borderRadius:2}}),
                 h("span",{style:{color:"#C8C0B0"}},"Motora (FII+Infra+Agro)")
@@ -14432,40 +14498,65 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
               ),
               h("div",{style:{display:"flex",alignItems:"center",gap:4}},
                 h("div",{style:{width:10,height:10,background:"#5B8FD4",borderRadius:2}}),
-                h("span",{style:{color:"#C8C0B0"}},"Aux. Exterior (BRL)")
+                h("span",{style:{color:"#C8C0B0"}},"Aux. Exterior")
               ),
               h("div",{style:{display:"flex",alignItems:"center",gap:4}},
                 h("div",{style:{width:12,height:2,background:"#E05252"}}),
-                h("span",{style:{color:"#C8C0B0"}},"Meta")
+                h("span",{style:{color:"#C8C0B0"}},"Meta "+fmtK(metaMensalIF))
               )
             ),
-            // SVG do grafico
-            h("div",{style:{overflowX:"auto",width:"100%"}},
-              h("svg",{viewBox:"0 0 "+W+" "+H,style:{width:"100%",height:"auto",maxWidth:"100%",display:"block"},preserveAspectRatio:"xMidYMid meet"},
-                // Grid horizontal
-                ...ticks.map((t,i)=>h("g",{key:"tick"+i},
-                  h("line",{x1:padL,y1:t.y,x2:W-padR,y2:t.y,stroke:i===0?"rgba(255,255,255,0.15)":"rgba(255,255,255,0.05)",strokeWidth:1,strokeDasharray:i===0?"none":"2,3"}),
-                  h("text",{x:padL-4,y:t.y+3,fontSize:8,fill:"#7A7060",textAnchor:"end",fontFamily:"monospace"},"R$ "+fmtK(t.v))
-                )),
-                // Areas empilhadas
-                h("path",{d:areaMotora,fill:"rgba(76,175,130,0.55)",stroke:"none"}),
-                h("path",{d:areaBR,fill:"rgba(200,169,110,0.55)",stroke:"none"}),
-                h("path",{d:areaEXT,fill:"rgba(91,143,212,0.55)",stroke:"none"}),
-                // Linha total (topo da pilha)
-                h("path",{d:pathStr(ptsEXT),fill:"none",stroke:"#E8DCC0",strokeWidth:1.5}),
-                // Pontos da linha total
-                ...ptsEXT.map((p,i)=>h("circle",{key:"dot"+i,cx:p[0],cy:p[1],r:2.5,fill:"#E8DCC0",stroke:"#1A1612",strokeWidth:1})),
-                // Linha de meta horizontal
-                h("line",{x1:padL,y1:yMeta,x2:W-padR,y2:yMeta,stroke:"#E05252",strokeWidth:1.5,strokeDasharray:"4,3"}),
-                h("text",{x:W-padR-2,y:yMeta-3,fontSize:7.5,fill:"#E05252",textAnchor:"end",fontFamily:"monospace",fontWeight:700},"meta "+fmtK(metaMensalIF)),
-                // Labels X (meses)
-                ...serie.map((s,i)=>h("text",{key:"xl"+i,x:xPos(i),y:H-padB+12,fontSize:7,fill:"#7A7060",textAnchor:"middle",fontFamily:"monospace"},s.mes.slice(5)+"/"+s.mes.slice(2,4))),
-                // Labels valor total acima de cada ponto (so se tiver poucos meses pra nao poluir)
-                ...(n<=6?serie.map((s,i)=>h("text",{key:"vl"+i,x:xPos(i),y:yPos(s.total)-6,fontSize:7,fill:"#E8DCC0",textAnchor:"middle",fontFamily:"monospace",fontWeight:700},fmtK(s.total))):[])
+            // Area do grafico (eixo Y + barras + linha de meta)
+            h("div",{style:{display:"flex",gap:6,marginBottom:6}},
+              // Eixo Y (labels esquerda)
+              h("div",{style:{display:"flex",flexDirection:"column",justifyContent:"space-between",alignItems:"flex-end",fontSize:7.5,color:"#7A7060",fontFamily:"monospace",height:alturaPx,paddingTop:1,paddingBottom:1}},
+                h("span",{},fmtK(maxValor)),
+                h("span",{},fmtK(maxValor*0.75)),
+                h("span",{},fmtK(maxValor*0.50)),
+                h("span",{},fmtK(maxValor*0.25)),
+                h("span",{},"R$ 0")
+              ),
+              // Container das barras (com linha de meta absoluta + grid)
+              h("div",{style:{flex:1,position:"relative",height:alturaPx,borderLeft:"1px solid rgba(255,255,255,0.15)",borderBottom:"1px solid rgba(255,255,255,0.15)"}},
+                // Linhas de grid horizontais (25%, 50%, 75%)
+                ...[0.25,0.5,0.75].map((f,i)=>h("div",{key:"grid"+i,style:{position:"absolute",left:0,right:0,top:((1-f)*100)+"%",height:1,background:"rgba(255,255,255,0.04)",pointerEvents:"none"}})),
+                // Linha de meta horizontal (vermelha tracejada)
+                metaMensalIF>0&&metaMensalIF<maxValor?h("div",{style:{position:"absolute",left:0,right:0,top:metaTopPct+"%",height:0,borderTop:"2px dashed #E05252",pointerEvents:"none",zIndex:2}}):null,
+                // Label da meta (alinhado direita, em cima da linha)
+                metaMensalIF>0&&metaMensalIF<maxValor?h("div",{style:{position:"absolute",right:2,top:"calc("+metaTopPct+"% - 12px)",fontSize:7.5,color:"#E05252",fontFamily:"monospace",fontWeight:700,zIndex:3}},"meta"):null,
+                // Barras (uma coluna por mes)
+                h("div",{style:{display:"flex",alignItems:"flex-end",justifyContent:"space-around",gap:3,height:"100%",padding:"0 4px"}},
+                  ...serie.map(s=>{
+                    const totalPct=s.total>0?(s.total/maxValor)*100:0;
+                    // Frations dentro da barra (proporcional ao total daquele mes)
+                    const fracMot=s.total>0?(s.motora/s.total)*100:0;
+                    const fracBR=s.total>0?(s.br/s.total)*100:0;
+                    const fracEXT=s.total>0?(s.ext/s.total)*100:0;
+                    return h("div",{key:s.mes,style:{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end",height:"100%",position:"relative",maxWidth:36}},
+                      // Valor total acima da barra
+                      h("div",{style:{position:"absolute",bottom:totalPct+"%",left:"50%",transform:"translateX(-50%) translateY(-2px)",fontSize:7,color:"#E8DCC0",fontFamily:"monospace",fontWeight:700,whiteSpace:"nowrap",pointerEvents:"none"}},(s.total/1000).toFixed(s.total>=10000?0:1)+"k"),
+                      // Barra empilhada
+                      h("div",{title:s.mes+": Motora "+fB(s.motora)+" + BR "+fB(s.br)+" + Ext "+fB(s.ext)+" = "+fB(s.total),style:{width:"80%",height:totalPct+"%",display:"flex",flexDirection:"column",borderRadius:"3px 3px 0 0",overflow:"hidden",boxShadow:"0 -1px 2px rgba(0,0,0,0.3)"}},
+                        // Aux Exterior (topo)
+                        fracEXT>0?h("div",{style:{height:fracEXT+"%",background:"linear-gradient(180deg,#7DAEEB,#5B8FD4)",borderBottom:fracBR>0||fracMot>0?"1px solid rgba(0,0,0,0.25)":"none"}}):null,
+                        // Aux BR (meio)
+                        fracBR>0?h("div",{style:{height:fracBR+"%",background:"linear-gradient(180deg,#E0C088,#C8A96E)",borderBottom:fracMot>0?"1px solid rgba(0,0,0,0.25)":"none"}}):null,
+                        // Motora (base)
+                        fracMot>0?h("div",{style:{height:fracMot+"%",background:"linear-gradient(180deg,#5FC498,#4CAF82)"}}):null
+                      )
+                    );
+                  })
+                )
+              )
+            ),
+            // Labels X (meses) - alinhados sob as barras
+            h("div",{style:{display:"flex",gap:6}},
+              h("div",{style:{width:46}}),// espacador para alinhar com eixo Y
+              h("div",{style:{flex:1,display:"flex",justifyContent:"space-around",gap:3,padding:"0 4px"}},
+                ...serie.map(s=>h("div",{key:"x"+s.mes,style:{flex:1,fontSize:7.5,color:"#9A9080",fontFamily:"monospace",textAlign:"center",maxWidth:36}},s.mes.slice(5)+"/"+s.mes.slice(2,4)))
               )
             ),
             // Rodape com stats
-            h("div",{style:{display:"flex",justifyContent:"space-between",fontSize:8,color:"#7A7060",fontFamily:"monospace",marginTop:6,paddingTop:6,borderTop:"1px dashed rgba(255,255,255,0.08)"}},
+            h("div",{style:{display:"flex",justifyContent:"space-between",fontSize:8,color:"#7A7060",fontFamily:"monospace",marginTop:8,paddingTop:6,borderTop:"1px dashed rgba(255,255,255,0.08)"}},
               h("span",{},"min: ",fB(Math.min(...serie.map(s=>s.total)))),
               h("span",{},"max: ",fB(Math.max(...serie.map(s=>s.total)))),
               h("span",{},"m\u00e9dia: ",fB(serie.reduce((s,r)=>s+r.total,0)/serie.length))
@@ -14554,7 +14645,8 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           // BLOCO COMO LER
           h("div",{style:{background:"rgba(0,0,0,0.20)",borderRadius:5,padding:"8px 10px",marginBottom:10,fontSize:8.5,color:"#9A9080",lineHeight:1.55,borderLeft:"3px solid #4CAF82"}},
             h("div",{style:{fontSize:8,color:"#4CAF82",fontFamily:"monospace",fontWeight:700,letterSpacing:1.2,marginBottom:4}},"\u{1F4D6} COMO LER ESTE INDICADOR"),
-            h("div",{style:{marginBottom:3}},h("strong",{},"Fonte"),": ",h("em",{},"apenas")," dividendos liquidos das classes pagadoras (FIIs, Infra, Agro, Acoes BR/EXT, REITs, Selic, Treasuries, Imoveis) - ",h("strong",{style:{color:"#E89060"}},"SEM vender nada"),"."),
+            h("div",{style:{marginBottom:3}},h("strong",{},"Fonte"),": dividendos liquidos das classes pagadoras (FIIs, Infra, Agro, Acoes BR/EXT, REITs, Selic, Treasuries) - ",h("strong",{style:{color:"#E89060"}},"SEM vender nada"),"."),
+            h("div",{style:{marginBottom:3}},h("strong",{style:{color:"#5B8FD4"}},"Modelo B refinado"),": para Acoes BR e Exterior, usa o MAX entre yield teorico e a renda auxiliar OBSERVADA (registro mensal). Quando voce ja recebe mais dividendos do que o teorico, a realidade prevalece."),
             h("div",{style:{marginBottom:3}},h("strong",{},"Valor 1.0x")," = renda cobre exatamente a meta. ",h("strong",{},">1.0x")," = sobra. ",h("strong",{},"<1.0x")," = falta complementar."),
             h("div",{},h("strong",{},"Diferenca para os cenarios"),": OTIMISTA (IPCA 3%) deixa a renda crescer mais que a inflacao - cobertura sobe. PESSIMISTA (IPCA 8.5%) corroi a renda real - cobertura cai.")
           ),
@@ -14633,7 +14725,8 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           // ===== BLOCO COMO LER =====
           h("div",{style:{background:"rgba(0,0,0,0.20)",borderRadius:5,padding:"8px 10px",marginBottom:10,fontSize:8.5,color:"#9A9080",lineHeight:1.55,borderLeft:"3px solid #F7931A"}},
             h("div",{style:{fontSize:8,color:"#F7931A",fontFamily:"monospace",fontWeight:700,letterSpacing:1.2,marginBottom:4}},"\u{1F4D6} COMO LER ESTE INDICADOR"),
-            h("div",{style:{marginBottom:3}},h("strong",{},"Fonte"),": dividendos liquidos de TODAS as classes ",h("strong",{},"+ saque sustentavel de 4%/ano")," sobre classes nao-motoras (Selic, Treasuries, BTC, Ouro, REITs, Acoes BR e EXT)."),
+            h("div",{style:{marginBottom:3}},h("strong",{},"Fonte"),": dividendos liquidos de TODAS as classes ",h("strong",{},"+ saque sustentavel de "+(SWR*100).toFixed(2)+"%/ano")," sobre classes nao-motoras (Selic, Treasuries, BTC, Ouro, REITs, Acoes BR e EXT)."),
+            h("div",{style:{marginBottom:3}},h("strong",{style:{color:"#5B8FD4"}},"Modelo B refinado granular"),": Acoes BR usa MAX(aux_BR_observada, yield teorico BR); Bloco Exterior (acoes EXT + REITs + Treasuries) usa MAX(aux_Exterior_observada, soma yields teoricos exterior). Quando dividendos reais superam teoricos, a realidade prevalece - sem double-count com SWR."),
             h("div",{style:{marginBottom:3}},h("strong",{},"Motores preservados"),": FIIs, Infra e Agro entram ",h("em",{},"apenas")," com seus dividendos - voce nunca os toca. Sao a maquina de renda permanente."),
             h("div",{},h("strong",{},"Diferenca para ICR"),": ICR-RTE incorpora a estrategia FIRE moderada - voce ",h("strong",{style:{color:"#F7931A"}},"saca")," das classes nao-motoras alem dos dividendos delas. Sempre tera ICR-RTE > ICR.")
           ),
@@ -14641,7 +14734,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           // ===== EXPLICACAO RAPIDA DA ESTRATEGIA =====
           h("div",{style:{background:"rgba(0,0,0,0.20)",borderRadius:5,padding:"8px 10px",marginBottom:10,fontSize:8.5,color:"#9A9080",lineHeight:1.55}},
             h("div",{style:{fontSize:8,letterSpacing:1.5,color:"#F7931A",fontFamily:"monospace",fontWeight:700,marginBottom:5}},"\u{1F4D6} REGRAS DA SIMULACAO"),
-            h("div",{style:{marginBottom:3}},"\u2022 Renda primaria = dividendos liquidos de TODAS + SWR 4% sobre nao-motoras"),
+            h("div",{style:{marginBottom:3}},"\u2022 Renda primaria = dividendos liquidos com Modelo B granular (aux observada substitui teorica via max por bloco BR/Exterior) + SWR "+(SWR*100).toFixed(2)+"% sobre nao-motoras"),
             h("div",{style:{marginBottom:3}},"\u2022 Se a renda primaria nao cobrir a meta, deficit e coberto consumindo o principal nesta ordem:"),
             h("div",{style:{marginBottom:3,paddingLeft:14,fontFamily:"monospace",fontSize:8}},"Selic \u2192 Treasuries \u2192 Ouro \u2192 BTC \u2192 REITs \u2192 Acoes EXT \u2192 Acoes BR \u2192 ",h("strong",{style:{color:"#F7931A"}},"Agro \u2192 Infra \u2192 FIIs (motores - so no fim)")),
             h("div",{style:{marginBottom:3}},"\u2022 Imoveis fisicos: excluidos (iliquidos, nao consumiveis)"),
