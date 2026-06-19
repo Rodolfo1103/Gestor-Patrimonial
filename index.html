@@ -364,6 +364,128 @@ function yieldEfetivoLiq(classeId,cenario,hist){
   // Default: YIELD_CLASSE liquido de IR
   return yCenBruto*(1-ir);
 }
+
+// =====================================================================
+// RENDA AUXILIAR OBSERVADA (acoes BR + dividendos exterior multimoeda)
+// CAMADA INFORMACIONAL: nao entra em ICR-RTE/Solidez (evita double-count com SWR)
+// =====================================================================
+// Retorna {totalBrlMes, totalBrlMedio, porMoedaMes, porMoedaMedio, ult12, n, ultMes}
+// fxAtual: objeto {USD, EUR, JPY, ...} com taxa BRL/moeda atual. BRL=1.
+// Cada entrada PODE ter fxSnapshot (cambio do fechamento do mes); se nao tiver, usa fxAtual.
+function rendaAuxiliarObservada(hist,fxAtual){
+  if(!Array.isArray(hist)||hist.length===0)return null;
+  const ult12=hist.slice(-12);
+  const ultimo=ult12[ult12.length-1];
+  const porMoedaMes={...ultimo.moedas};
+  // Conversao BRL: usa fxSnapshot DA ENTRADA se presente, senao fxAtual
+  const convBRL=(moedas,fxEntrada)=>{
+    const fx=fxEntrada||fxAtual||{};
+    let total=0;
+    Object.entries(moedas||{}).forEach(([mo,vl])=>{
+      if(mo==="BRL")total+=vl;
+      else if(typeof fx[mo]==="number"&&fx[mo]>0)total+=vl*fx[mo];
+      // fallback: se snapshot nao tem essa moeda, tenta fxAtual
+      else if(fxEntrada&&fxAtual&&typeof fxAtual[mo]==="number"&&fxAtual[mo]>0)total+=vl*fxAtual[mo];
+    });
+    return total;
+  };
+  const totalBrlMes=convBRL(porMoedaMes,ultimo.fxSnapshot);
+  // Media dos ultimos 12: cada mes convertido pelo SEU snapshot proprio
+  const totalBrlMedio=ult12.reduce((s,r)=>s+convBRL(r.moedas,r.fxSnapshot),0)/ult12.length;
+  // Media por moeda (em nativa) dos ultimos 12
+  const porMoedaMedio={};
+  ult12.forEach(r=>{
+    Object.entries(r.moedas||{}).forEach(([mo,vl])=>{
+      porMoedaMedio[mo]=(porMoedaMedio[mo]||0)+vl;
+    });
+  });
+  Object.keys(porMoedaMedio).forEach(mo=>{porMoedaMedio[mo]/=ult12.length;});
+  return {totalBrlMes,totalBrlMedio,porMoedaMes,porMoedaMedio,ult12,n:ult12.length,ultMes:ultimo.mes};
+}
+
+// =====================================================================
+// MAX(RENDA AUXILIAR, SWR) - Modelo B refinado para nao-motoras
+// =====================================================================
+// Em vez de somar dividendos observados ao SWR (double-count), pega o MAX:
+//   - Se dividendos observados > SWR teorico: usa dividendos (ativos pagam mais que saque seguro)
+//   - Se SWR > dividendos observados: usa SWR (saque viavel sacando principal)
+//
+// Retorna a renda ANUAL efetiva LIQUIDA das classes nao-motoras + nao-imoveis.
+// Compara renda auxiliar (media anualizada ult.12m) vs SWR sobre o capital nao-motor.
+//
+// Parametros:
+//   - rendaAuxHist: historico de renda auxiliar (com fxSnapshot por mes)
+//   - fxAtual: FX corrente (fallback se entrada nao tem snapshot)
+//   - capitalNaoMotor: BRL total das classes !FUNDOS_RENDA_MOTORES && !imoveis
+//   - swrRate: SWR ajustado (ex: 0.0331 para 39a)
+//
+// Retorna: {rendaAnual, fonte:"aux"|"swr"|"swr_default", auxAnual, swrAnual, n}
+function rendaNaoMotoraEfetiva(rendaAuxHist,fxAtual,capitalNaoMotor,swrRate){
+  const swrAnual=Math.max(0,capitalNaoMotor*swrRate);
+  const aux=rendaAuxiliarObservada(rendaAuxHist,fxAtual);
+  if(!aux)return {rendaAnual:swrAnual,fonte:"swr_default",auxAnual:0,swrAnual,n:0};
+  const auxAnual=aux.totalBrlMedio*12;
+  if(auxAnual>=swrAnual)return {rendaAnual:auxAnual,fonte:"aux",auxAnual,swrAnual,n:aux.n};
+  return {rendaAnual:swrAnual,fonte:"swr",auxAnual,swrAnual,n:aux.n};
+}
+
+// Multiplicador efetivo do SWR base. Se aux > SWR sobre capital nao-motor,
+// usa o aux como "SWR escalado" - mantem a aritmetica das projecoes temporais
+// (crescimento real, deflator IPCA, etc) intacta.
+//
+// Retorna o SWR rate efetivo a aplicar sobre o capital nao-motor.
+// Ex: SWR base=3.31%, aux/SWR=1.5 -> retorna 4.965% (mesmo valor que aux/capital)
+function swrEfetivoNaoMotor(rendaAuxHist,fxAtual,capitalNaoMotor,swrRate){
+  if(capitalNaoMotor<=0)return swrRate;
+  const ef=rendaNaoMotoraEfetiva(rendaAuxHist,fxAtual,capitalNaoMotor,swrRate);
+  // Retorna taxa efetiva (ef.rendaAnual/capitalNaoMotor)
+  return ef.rendaAnual/capitalNaoMotor;
+}
+
+// =====================================================================
+// PTAX BCB - cotacoes oficiais de fechamento por moeda
+// =====================================================================
+// Endpoint: olinda.bcb.gov.br/olinda/servico/PTAX
+// Cobertura: USD, EUR, GBP, JPY, CHF, CAD, AUD, NZD, NOK, SEK, DKK, ARS, CNY, MXN, ZAR
+// BCB tem CORS aberto nativo (igual ao api.bcb.gov.br - sempre funciona em browser)
+// Retorna a cotacao de VENDA do ultimo dia util do mes informado (YYYY-MM)
+// para a moeda informada (USD, EUR, etc). null se nao houver dado.
+async function fetchPtaxMes(moeda,mes){
+  // mes = "YYYY-MM"
+  const [ano,mm]=mes.split("-").map(Number);
+  // Pega 5 dias ao redor do ultimo dia do mes (para garantir capturar o ultimo dia util)
+  // Ultimo dia do mes = dia 0 do mes seguinte
+  const ultDia=new Date(ano,mm,0);// JS: month e 0-indexed, day=0 retorna ult dia mes anterior
+  const dtInicial=new Date(ultDia.getFullYear(),ultDia.getMonth(),ultDia.getDate()-7);
+  const dtFinal=ultDia;
+  // Formato MM-DD-YYYY (exigido pelo endpoint)
+  const fmt=(d)=>String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0")+"-"+d.getFullYear();
+  const url="https://olinda.bcb.gov.br/olinda/servico/PTAX/versao/v1/odata/CotacaoMoedaPeriodo(moeda=@moeda,dataInicial=@dataInicial,dataFinalCotacao=@dataFinalCotacao)?@moeda=%27"+moeda+"%27&@dataInicial=%27"+fmt(dtInicial)+"%27&@dataFinalCotacao=%27"+fmt(dtFinal)+"%27&$format=json&$select=cotacaoVenda,dataHoraCotacao";
+  try{
+    const ctrl=new AbortController();
+    const tid=setTimeout(()=>ctrl.abort(),8000);
+    const r=await fetch(url,{signal:ctrl.signal});
+    clearTimeout(tid);
+    if(!r.ok)return null;
+    const j=await r.json();
+    if(!j||!Array.isArray(j.value)||j.value.length===0)return null;
+    // Ordena por data (mais recente primeiro) e pega a primeira
+    j.value.sort((a,b)=>(b.dataHoraCotacao||"").localeCompare(a.dataHoraCotacao||""));
+    const venda=j.value[0].cotacaoVenda;
+    if(typeof venda!=="number"||venda<=0)return null;
+    return venda;
+  }catch(e){return null;}
+}
+
+// Busca PTAX para varias moedas em paralelo (1 mes). Retorna objeto {USD:5.47, EUR:6.12, ...}
+// Inclui BRL:1 fixo. Para moedas sem cobertura BCB, NAO inclui (fallback eh feito no consumer).
+async function fetchPtaxMultiMoeda(moedas,mes){
+  const fx={BRL:1};
+  const moedasReais=moedas.filter(m=>m!=="BRL");
+  const results=await Promise.all(moedasReais.map(m=>fetchPtaxMes(m,mes)));
+  moedasReais.forEach((m,i)=>{if(results[i]!==null)fx[m]=results[i];});
+  return fx;
+}
 // =====================================================================
 // CALIBRACAO DINAMICA POR HORIZONTE DE VIDA (FUNDAMENTACAO CIENTIFICA)
 // =====================================================================
@@ -1393,7 +1515,101 @@ function BackfillModal({meses,valorMotoresAtual,onSave,onClose,fB}){
   );
 }
 
-function SolidezCard({total,cw,port,metaMensalIF,setTab,fB,hideVal,dataNascimento,cambialCash,rendaMotoraHist}){
+// =====================================================================
+// MODAL: Backfill de Renda Auxiliar (multimoeda - varios meses, varias moedas)
+// =====================================================================
+function BackfillModalAuxiliar({meses,moedasAtivas,fx,onSave,onClose,fB}){
+  // Estado: valores[mesKey][moeda] = string crua
+  const [valores,setValores]=useState({});
+  const setVal=(mes,moeda,v)=>setValores(prev=>({
+    ...prev,
+    [mes]:{...(prev[mes]||{}),[moeda]:v}
+  }));
+  // Parse defensivo (aceita BR e US)
+  const parseNum=(v)=>{
+    const s=String(v||"").trim();
+    if(!s)return null;
+    const lim=s.replace(/\s/g,"").replace(/\./g,"").replace(",",".");
+    const num=parseFloat(lim);
+    if(isNaN(num)||num<0)return null;
+    return num;
+  };
+  // Conta meses com pelo menos um valor preenchido
+  const totalPreenchidos=Object.values(valores).filter(m=>{
+    return Object.values(m||{}).some(v=>String(v||"").trim()!=="");
+  }).length;
+  // Preview de total BRL convertido por mes
+  const previewBrl=(mesVals)=>{
+    let tot=0;
+    Object.entries(mesVals||{}).forEach(([mo,v])=>{
+      const num=parseNum(v);
+      if(num===null)return;
+      if(mo==="BRL")tot+=num;
+      else if(fx&&typeof fx[mo]==="number"&&fx[mo]>0)tot+=num*fx[mo];
+    });
+    return tot;
+  };
+  const [salvando,setSalvando]=useState(false);
+  const handleSave=async ()=>{
+    setSalvando(true);
+    try{
+      const ok=await onSave(valores);
+      if(ok)onClose();
+    }finally{
+      setSalvando(false);
+    }
+  };
+  return h("div",{style:{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.85)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:12,overflowY:"auto"},onClick:(e)=>{if(e.target===e.currentTarget)onClose();}},
+    h("div",{style:{background:"#1A1612",border:"1px solid rgba(91,143,212,0.40)",borderRadius:10,padding:16,maxWidth:560,width:"100%",maxHeight:"90vh",overflowY:"auto",boxShadow:"0 8px 32px rgba(0,0,0,0.6)"}},
+      h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10,paddingBottom:10,borderBottom:"1px solid rgba(255,255,255,0.08)"}},
+        h("div",{},
+          h("div",{style:{fontSize:11,letterSpacing:2,color:"#5B8FD4",fontFamily:"monospace",fontWeight:700,textTransform:"uppercase"}},"\u{1F4DA} Backfill Renda Auxiliar"),
+          h("div",{style:{fontSize:9,color:"#7A7060",fontFamily:"monospace",marginTop:3}},"Acoes BR + dividendos exterior \u2022 moedas: "+moedasAtivas.join(", "))
+        ),
+        h("button",{onClick:onClose,style:{background:"none",border:"none",color:"#9A9080",fontSize:20,cursor:"pointer",padding:"0 6px",lineHeight:1}},"\u00D7")
+      ),
+      h("p",{style:{fontSize:9.5,color:"#9A9080",lineHeight:1.5,margin:"0 0 12px"}},
+        "Preencha em cada moeda nativa (valores liquidos pos-IR). Use ponto OU virgula. Preview em BRL convertido pelo cambio atual."
+      ),
+      h("div",{style:{display:"flex",flexDirection:"column",gap:8,marginBottom:12}},
+        meses.map(m=>{
+          const mesVals=valores[m.key]||{};
+          const pvBrl=previewBrl(mesVals);
+          return h("div",{key:m.key,style:{padding:"8px 10px",background:"rgba(255,255,255,0.025)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:5}},
+            h("div",{style:{display:"flex",alignItems:"baseline",justifyContent:"space-between",marginBottom:6}},
+              h("div",{style:{fontSize:10.5,color:"#C8A96E",fontFamily:"monospace",fontWeight:700}},m.label),
+              pvBrl>0?h("div",{style:{fontSize:9,color:"#5B8FD4",fontFamily:"monospace",fontWeight:700}},"\u2261 "+fB(pvBrl)):h("div",{style:{fontSize:9,color:"#3A3830",fontFamily:"monospace"}},"\u2014")
+            ),
+            // Grid de inputs por moeda
+            h("div",{style:{display:"grid",gridTemplateColumns:moedasAtivas.length>2?"repeat(2,1fr)":"1fr",gap:5}},
+              moedasAtivas.map(mo=>{
+                const v=mesVals[mo]||"";
+                return h("div",{key:mo,style:{display:"flex",alignItems:"center",gap:5}},
+                  h("span",{style:{minWidth:32,fontSize:9,color:"#7A7060",fontFamily:"monospace",fontWeight:700}},mo),
+                  h("input",{
+                    type:"text",
+                    inputMode:"decimal",
+                    value:v,
+                    onChange:(e)=>setVal(m.key,mo,e.target.value),
+                    placeholder:"0,00",
+                    style:{flex:1,background:"rgba(0,0,0,0.40)",border:"1px solid rgba(91,143,212,0.30)",borderRadius:4,padding:"5px 7px",color:"#E8E2D5",fontSize:10.5,fontFamily:"monospace",fontWeight:700,minWidth:0}
+                  })
+                );
+              })
+            )
+          );
+        })
+      ),
+      h("div",{style:{display:"flex",gap:8,paddingTop:10,borderTop:"1px solid rgba(255,255,255,0.08)",alignItems:"center"}},
+        h("div",{style:{fontSize:9,color:salvando?"#5B8FD4":"#7A7060",fontFamily:"monospace",flex:1}},salvando?"\u23F3 buscando PTAX BCB...":(totalPreenchidos>0?totalPreenchidos+" mes(es) preenchido(s)":"nenhum preenchido")),
+        h("button",{onClick:onClose,disabled:salvando,style:{padding:"7px 12px",background:"rgba(122,112,96,0.15)",color:salvando?"#5A5550":"#9A9080",border:"1px solid rgba(122,112,96,0.30)",borderRadius:4,fontSize:10,fontFamily:"monospace",fontWeight:700,letterSpacing:1,cursor:salvando?"not-allowed":"pointer"}},"Cancelar"),
+        h("button",{onClick:handleSave,disabled:totalPreenchidos===0||salvando,style:{padding:"7px 14px",background:(totalPreenchidos===0||salvando)?"rgba(91,143,212,0.20)":"linear-gradient(135deg,#5B8FD4,#3f70b8)",color:(totalPreenchidos===0||salvando)?"#7A7060":"#FFFFFF",border:"none",borderRadius:4,fontSize:10,fontFamily:"monospace",fontWeight:700,letterSpacing:1,cursor:(totalPreenchidos===0||salvando)?"not-allowed":"pointer"}},salvando?"\u23F3 PTAX...":"\u2713 Salvar")
+      )
+    )
+  );
+}
+
+function SolidezCard({total,cw,port,metaMensalIF,setTab,fB,hideVal,dataNascimento,cambialCash,rendaMotoraHist,rendaAuxiliarHist,FX}){
   try{
     if(!total||total<=0)return null;
     // ============== CALIBRACAO POR IDADE/HORIZONTE (CIENTIFICO) ==============
@@ -1444,19 +1660,25 @@ function SolidezCard({total,cw,port,metaMensalIF,setTab,fB,hideVal,dataNasciment
     // Para horizonte 30 anos: SWR=4.0%; 50 anos: SWR=3.34%; 60 anos: SWR=3.0%
     const SWR_AJUSTADO=fireCal.swr;// SWR calibrado por horizonte
     let rendaPassivaLiq=0;
-    let swrLiq=0;
+    let capitalNaoMotor=0;
     MPT_CLS.forEach(cid=>{
       const v=total*((cw[cid]||0)/100);// valor da classe em BRL
       if(v<=0)return;
-      // yieldEfetivoLiq retorna ja liquido de IR (para motores: usa renda observada do investidor se houver)
-      const yLiq=yieldEfetivoLiq(cid,"base",rendaMotoraHist);
-      rendaPassivaLiq+=v*yLiq;
-      // SWR ajustado sobre classes nao-motoras e nao-imoveis (canonico ICR-RTE)
+      // Renda motora: usa yieldEfetivoLiq (observado ou YIELD_CLASSE base)
+      if(FUNDOS_RENDA_MOTORES.includes(cid)){
+        const yLiq=yieldEfetivoLiq(cid,"base",rendaMotoraHist);
+        rendaPassivaLiq+=v*yLiq;
+      }
+      // Capital nao-motor (exclui motores e imoveis fisicos)
       if(cid!=="imoveis"&&!FUNDOS_RENDA_MOTORES.includes(cid)){
-        swrLiq+=v*SWR_AJUSTADO;
+        capitalNaoMotor+=v;
       }
     });
-    const rendaRTE=rendaPassivaLiq+swrLiq;// = rendaRTEHoje canonico
+    // MODELO B REFINADO: max(renda auxiliar observada, SWR sobre nao-motoras)
+    // Evita double-count - se dividendos > SWR usa dividendos, senao SWR puro
+    const naoMotorEf=rendaNaoMotoraEfetiva(rendaAuxiliarHist,FX,capitalNaoMotor,SWR_AJUSTADO);
+    const swrLiq=naoMotorEf.rendaAnual;
+    const rendaRTE=rendaPassivaLiq+swrLiq;// = rendaRTEHoje canonico (motora + max(aux,SWR))
     const coberturaPct=metaAnual>0?(rendaRTE/metaAnual)*100:0;
     let scoreRenda;
     if(coberturaPct>=150)scoreRenda=100;
@@ -4336,8 +4558,14 @@ function App(){
   // Historico de renda observada nos motores (FII+Infra+Agro). Atualizado uma vez por mes.
   // Cada entrada: {mes:"YYYY-MM", renda:R$, valorMotores:R$, yieldMensal:dec, yieldAnualLiq:dec, ts:ms}
   const [rendaMotoraHist,setRendaMotoraHist]=useState([]);
+  // Historico de renda auxiliar (acoes BR + dividendos exterior por moeda nativa)
+  // Camada informacional SEPARADA - nao entra no ICR-RTE/Solidez (evita double-count com SWR)
+  // Cada entrada: {mes:"YYYY-MM", moedas:{BRL:n, USD:n, EUR:n, ...}, ts:ms}
+  const [rendaAuxiliarHist,setRendaAuxiliarHist]=useState([]);
   // UI: modal de backfill aberto/fechado
   const [backfillOpen,setBackfillOpen]=useState(false);
+  // UI: modal de backfill da renda auxiliar
+  const [backfillAuxOpen,setBackfillAuxOpen]=useState(false);
   const [editCambialMoeda,setEditCambialMoeda]=useState(null);// moeda em edicao
   const [editCambialVal,setEditCambialVal]=useState("");// valor sendo editado na UI
   // ====== NTN-B / Tesouro IPCA+ ======
@@ -4645,6 +4873,23 @@ function App(){
           const arr=Object.values(map).sort((a,b)=>a.mes.localeCompare(b.mes));
           setRendaMotoraHist(arr);
         }
+        // Historico de renda auxiliar (acoes BR + exterior multimoeda)
+        if(Array.isArray(dd.rendaAuxiliarHist)){
+          const valido=dd.rendaAuxiliarHist.filter(r=>r&&typeof r==="object"
+            &&typeof r.mes==="string"&&/^\d{4}-\d{2}$/.test(r.mes)
+            &&r.moedas&&typeof r.moedas==="object");
+          // Sanitiza moedas (3 letras maiusculas + valor numerico)
+          const sanitizado=valido.map(r=>{
+            const mNorm={};
+            Object.entries(r.moedas).forEach(([mo,vl])=>{
+              if(/^[A-Z]{3}$/.test(mo)&&typeof vl==="number"&&vl>=0&&isFinite(vl))mNorm[mo]=vl;
+            });
+            return {mes:r.mes,moedas:mNorm,ts:r.ts||Date.now()};
+          });
+          // Dedup por mes e ordena
+          const map2={};sanitizado.forEach(r=>{map2[r.mes]=r;});
+          setRendaAuxiliarHist(Object.values(map2).sort((a,b)=>a.mes.localeCompare(b.mes)));
+        }
         if(dd.idxMensal&&typeof dd.idxMensal==="object")setIdxMensal(dd.idxMensal);
         if(dd.insightMensal&&typeof dd.insightMensal==="object")setInsightMensal(dd.insightMensal);
         if(typeof dd.selicAtual==="number"&&dd.selicAtual>0)setSelicAtual(dd.selicAtual);
@@ -4726,12 +4971,12 @@ function App(){
     if(!inited||!aesKey)return;
     (async()=>{
       try{
-        const obj={port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,selicAtual,metaMensalIF,cenarioIPCA,dataNascimento,insightRenda,insightRendaTs,insightRendaSnap,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,piCycle,nupl,goldSilver,goldSP500,realGoldZ,fx:{...FX},btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,insightSnap,infIPCA,infIGPM,infINCC,infCPI,infHICP,juroFed,juroECB,juroBoJ,ntnbTaxas,ntnbVNA,ntnbUpdTs,ntnbDataCotacao,ntnbDiasDefasagem,ntnbVencimentos:{...NTNB_VENCIMENTOS},cambialCash,rendaMotoraHist};
+        const obj={port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,selicAtual,metaMensalIF,cenarioIPCA,dataNascimento,insightRenda,insightRendaTs,insightRendaSnap,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,piCycle,nupl,goldSilver,goldSP500,realGoldZ,fx:{...FX},btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,insightSnap,infIPCA,infIGPM,infINCC,infCPI,infHICP,juroFed,juroECB,juroBoJ,ntnbTaxas,ntnbVNA,ntnbUpdTs,ntnbDataCotacao,ntnbDiasDefasagem,ntnbVencimentos:{...NTNB_VENCIMENTOS},cambialCash,rendaMotoraHist,rendaAuxiliarHist};
         const enc=await aesEncrypt(aesKey,obj);
         localStorage.setItem(SK_ENC,enc);
       }catch(e){}
     })();
-  },[port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,selicAtual,metaMensalIF,cenarioIPCA,dataNascimento,insightRenda,insightRendaTs,insightRendaSnap,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,piCycle,nupl,goldSilver,goldSP500,realGoldZ,btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,insightSnap,infIPCA,infIGPM,infINCC,infCPI,infHICP,juroFed,juroECB,juroBoJ,ntnbTaxas,ntnbVNA,ntnbUpdTs,cambialCash,rendaMotoraHist,inited,aesKey]);
+  },[port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,selicAtual,metaMensalIF,cenarioIPCA,dataNascimento,insightRenda,insightRendaTs,insightRendaSnap,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,piCycle,nupl,goldSilver,goldSP500,realGoldZ,btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,insightSnap,infIPCA,infIGPM,infINCC,infCPI,infHICP,juroFed,juroECB,juroBoJ,ntnbTaxas,ntnbVNA,ntnbUpdTs,cambialCash,rendaMotoraHist,rendaAuxiliarHist,inited,aesKey]);
 
   // Auto-lock por inatividade (15 min)
   useEffect(()=>{
@@ -6424,15 +6669,19 @@ function App(){
       else if(multFIRE_TQ<=fireCal_TQ.fat)scoreTamanho_TQ=80+(multFIRE_TQ-fireCal_TQ.seguro)*(20/(fireCal_TQ.fat-fireCal_TQ.seguro));
       else scoreTamanho_TQ=100;
       scoreTamanho_TQ=Math.max(0,Math.min(100,scoreTamanho_TQ));
-      // DIMENSAO 2: Renda ICR-RTE (dividendos liq + SWR AJUSTADO sobre nao-motoras)
-      let rendaPassivaLiq_TQ=0,swrLiq_TQ=0;
+      // DIMENSAO 2: Renda ICR-RTE (motora + max(renda_auxiliar_observada, SWR sobre nao-motoras))
+      let rendaPassivaLiq_TQ=0,capitalNaoMotor_TQ=0;
       MPT_CLS.forEach(cid=>{
         const v=total*((cw[cid]||0)/100);
         if(v<=0)return;
-        const yLiq=yieldEfetivoLiq(cid,"base",rendaMotoraHist);
-        rendaPassivaLiq_TQ+=v*yLiq;
-        if(cid!=="imoveis"&&!FUNDOS_RENDA_MOTORES.includes(cid))swrLiq_TQ+=v*SWR_AJ_TQ;
+        if(FUNDOS_RENDA_MOTORES.includes(cid)){
+          const yLiq=yieldEfetivoLiq(cid,"base",rendaMotoraHist);
+          rendaPassivaLiq_TQ+=v*yLiq;
+        }
+        if(cid!=="imoveis"&&!FUNDOS_RENDA_MOTORES.includes(cid))capitalNaoMotor_TQ+=v;
       });
+      const naoMotorEf_TQ=rendaNaoMotoraEfetiva(rendaAuxiliarHist,FX,capitalNaoMotor_TQ,SWR_AJ_TQ);
+      const swrLiq_TQ=naoMotorEf_TQ.rendaAnual;
       const rendaRTE_TQ=rendaPassivaLiq_TQ+swrLiq_TQ;
       const coberturaPct_TQ=metaAnualTQ>0?(rendaRTE_TQ/metaAnualTQ)*100:0;
       let scoreRenda_TQ;
@@ -6652,6 +6901,8 @@ function App(){
       // ===== BLOCO DA SOLIDEZ PATRIMONIAL - 5O PILAR ESTRUTURAL =====
       // Pre-calculo: yield motora observado (override do YIELD_CLASSE para FII+Infra+Agro)
       const yObsMotor_TQ=yieldObservadoMotor(rendaMotoraHist);
+      // Pre-calculo: renda auxiliar observada (acoes BR + exterior - camada informacional)
+      const auxObs_TQ=rendaAuxiliarObservada(rendaAuxiliarHist,FX);
       const blocoRendaMotora=yObsMotor_TQ?
         ("\\n\\n=== RENDA MOTORA OBSERVADA (DADOS REAIS DO INVESTIDOR - SUBSTITUI YIELD_CLASSE TEORICO) ===\\n"+
          "O investidor registra mensalmente a renda LIQUIDA recebida nos motores (FII+Infra+Agro). Os calculos de renda (Solidez Patrimonial dimensao Renda, ICR-RTE, capacidade maxima, projecoes da aba Renda, insight IA do dashboard) usam esses dados observados em vez de yields teoricos.\\n"+
@@ -6664,9 +6915,28 @@ function App(){
          "  * Score de Renda da Solidez Patrimonial JA usa esse yield observado.\\n"):
         ("\\n\\n=== RENDA MOTORA OBSERVADA (AINDA SEM HISTORICO) ===\\n"+
          "O investidor ainda nao registrou nenhum mes de renda observada dos motores. Os calculos usam o YIELD_CLASSE teorico (FII 10%, Infra 10%, Agro 10.5% liq).\\n");
+      const blocoRendaAuxiliar=auxObs_TQ?
+        ("\\n\\n=== RENDA AUXILIAR OBSERVADA (MODELO B REFINADO - ENTRA NO ICR-RTE VIA MAX) ===\\n"+
+         "O investidor registra mensalmente a renda LIQUIDA de proventos de classes NAO-MOTORAS: dividendos de acoes BR e dividendos de ativos do exterior (multimoeda nativa, convertida via PTAX BCB do fechamento de cada mes).\\n"+
+         "- RENDA AUXILIAR MEDIA MENSAL (BRL convertida pelo cambio de fechamento de cada mes): R$ "+auxObs_TQ.totalBrlMedio.toLocaleString("pt-BR",{maximumFractionDigits:0})+"\\n"+
+         "- Calibracao: media simples dos ultimos "+auxObs_TQ.n+" mes(es), ultimo mes "+auxObs_TQ.ultMes+"\\n"+
+         "- Breakdown por moeda (media mensal nativa): "+Object.entries(auxObs_TQ.porMoedaMedio).filter(([_,v])=>v>0).map(([m,v])=>m+" "+v.toFixed(2)).join(", ")+"\\n"+
+         "- LOGICA APLICADA (Modelo B refinado - evita double-count):\\n"+
+         "  * Para classes NAO-MOTORAS (acoes BR, exterior, REITs, BTC, ouro): renda efetiva = MAX(renda auxiliar observada, SWR 3,31% sobre capital nao-motor)\\n"+
+         "  * Se aux > SWR teorico: usa a renda auxiliar OBSERVADA (dividendos reais superam o saque seguro teorico)\\n"+
+         "  * Se SWR > aux: usa SWR teorico (saque viavel sacando principal)\\n"+
+         "  * NUNCA soma os dois (seria double-count)\\n"+
+         "  * Esta logica ja foi aplicada nos calculos do ICR-RTE, score de Solidez Renda, capacidade maxima sustentavel, projecoes da aba Renda, e insight IA do dashboard.\\n"+
+         "- IMPLICACOES PARA SUAS DECISOES:\\n"+
+         "  * O score de Solidez Renda fica MAIS REALISTA quando aux > SWR (caso comum para portfolios com forte alocacao em dividend-payers).\\n"+
+         "  * Voce pode citar essa logica ao explicar a capacidade de renda do portfolio: 'pela regra max(aux, SWR), o portfolio gera R$ X/mes em renda nao-motora efetiva'.\\n"+
+         "  * Quando recomendar aumentar exposicao a classes que pagam dividendos consistentes, e correto destacar que essa renda ENTRA no calculo via max - portanto reforca a Solidez se elevar o aux acima do SWR.\\n"):
+        ("\\n\\n=== RENDA AUXILIAR (AINDA SEM HISTORICO) ===\\n"+
+         "O investidor ainda nao registrou nenhum mes de renda auxiliar. Os calculos de ICR-RTE usam SWR puro de 3,31% sobre nao-motoras como fallback.\\n");
 
       const blocoTranquilidade=
         blocoRendaMotora+
+        blocoRendaAuxiliar+
         "\\n\\n=== INDICE DE SOLIDEZ PATRIMONIAL - 5O PILAR DE REBALANCEAMENTO ESTRUTURAL ===\\n"+
         "PARAMETRIZACAO CIENTIFICA POR HORIZONTE DE VIDA + MARGENS BRASIL/SENILIDADE:\\n"+
         "  - Idade do investidor: "+idadeAtual_TQ+" anos (recalculada dinamicamente a cada render)\\n"+
@@ -6926,6 +7196,11 @@ function App(){
       return s+wPct*total*yLiq;
     },0);
     const rendaMensalEst=rendaAnualEstimada/12;
+    // Renda auxiliar (acoes BR + exterior - camada informacional)
+    const auxObsDash=rendaAuxiliarObservada(rendaAuxiliarHist,FX);
+    const rendaAuxMensalEst=auxObsDash?auxObsDash.totalBrlMedio:0;
+    const rendaAuxAnualEst=rendaAuxMensalEst*12;
+    const rendaMensalTotalObs=rendaMensalEst+rendaAuxMensalEst;
     const swrAnual=total*0.04;// 4% Bengen
     const swrMensal=swrAnual/12;
     // ===== Macro =====
@@ -6960,7 +7235,9 @@ function App(){
       "=== CAPACIDADE DE RENDA E PERPETUIDADE ===\\n"+
       "Patrimonio total: R$ "+total.toLocaleString("pt-BR",{maximumFractionDigits:0})+"\\n"+
       "Capital nos motores de renda (FII+Infra+Agro): R$ "+valorMotores.toLocaleString("pt-BR",{maximumFractionDigits:0})+" ("+((valorMotores/total)*100).toFixed(1)+"% do total)\\n"+
-      "Renda passiva estimada (liquida IR): R$ "+rendaAnualEstimada.toLocaleString("pt-BR",{maximumFractionDigits:0})+"/ano = R$ "+rendaMensalEst.toLocaleString("pt-BR",{maximumFractionDigits:0})+"/mes\\n"+
+      "Renda passiva estimada motora (liquida IR): R$ "+rendaAnualEstimada.toLocaleString("pt-BR",{maximumFractionDigits:0})+"/ano = R$ "+rendaMensalEst.toLocaleString("pt-BR",{maximumFractionDigits:0})+"/mes\\n"+
+      (auxObsDash?"Renda auxiliar observada (acoes BR + exterior, multimoeda convertida BRL via PTAX fechamento mes, media ult. "+auxObsDash.n+"m): R$ "+rendaAuxAnualEst.toLocaleString("pt-BR",{maximumFractionDigits:0})+"/ano = R$ "+rendaAuxMensalEst.toLocaleString("pt-BR",{maximumFractionDigits:0})+"/mes [ENTRA no ICR-RTE via max(aux, SWR) sobre nao-motoras]\\n":"")+
+      (auxObsDash?"CAPACIDADE TOTAL OBSERVADA (motora + max(auxiliar, SWR)): R$ "+rendaMensalTotalObs.toLocaleString("pt-BR",{maximumFractionDigits:0})+"/mes [aproximacao se aux > SWR]\\n":"")+
       "Safe Withdrawal Rate 4% (Bengen): R$ "+swrAnual.toLocaleString("pt-BR",{maximumFractionDigits:0})+"/ano = R$ "+swrMensal.toLocaleString("pt-BR",{maximumFractionDigits:0})+"/mes (saque perpetuo seguro)\\n"+
       "Inflacao IPCA anual: "+ipcaAnual.toFixed(2)+"%\\n\\n"+
       "=== ALINHAMENTO COM MODELOS CIENTIFICOS ===\\n"+
@@ -7876,7 +8153,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
       const dataHoje=diasSem[hojeData.getDay()]+", "+hojeData.getDate()+" de "+meses[hojeData.getMonth()]+" de "+hojeData.getFullYear();
       const dateHeader=h("div",{style:{fontSize:10,color:"#7A7060",fontFamily:"Georgia,serif",fontStyle:"italic",letterSpacing:0.5,marginBottom:14,paddingBottom:9,borderBottom:"1px solid rgba(200,169,110,0.12)",textAlign:"right"}},dataHoje);
 
-      content=h("div",{},dateHeader,h(BolsasCard,{port,cls}),h(SolidezCard,{total,cw,port,metaMensalIF,setTab,fB,hideVal,dataNascimento,cambialCash,rendaMotoraHist}),aporteCard,insightCard,h(AllocChart,{cw,ct,fB,MV,hideVal}),h(DiversificationCard,{cw,setTab}),h(RiskChart,{cw,selicAtual,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,recalibrarRR_viaIA,calibracaoLoad,calibracaoErr,hasAjustesIA:!!ajustesRR_IA,apiKey}),h(EvolChart,{histMensal,hist,showUSD,setShowUSD,hideVal}),h(ComparativoChart,{histMensal,idxMensal,hideVal}),insightMensalCard,h(HeatmapChart,{hist,histMensal}),h(CurrencyChart,{port,cls,hideVal,cambialCash}),topPos);
+      content=h("div",{},dateHeader,h(BolsasCard,{port,cls}),h(SolidezCard,{total,cw,port,metaMensalIF,setTab,fB,hideVal,dataNascimento,cambialCash,rendaMotoraHist,rendaAuxiliarHist,FX}),aporteCard,insightCard,h(AllocChart,{cw,ct,fB,MV,hideVal}),h(DiversificationCard,{cw,setTab}),h(RiskChart,{cw,selicAtual,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,recalibrarRR_viaIA,calibracaoLoad,calibracaoErr,hasAjustesIA:!!ajustesRR_IA,apiKey}),h(EvolChart,{histMensal,hist,showUSD,setShowUSD,hideVal}),h(ComparativoChart,{histMensal,idxMensal,hideVal}),insightMensalCard,h(HeatmapChart,{hist,histMensal}),h(CurrencyChart,{port,cls,hideVal,cambialCash}),topPos);
     }
   }  // POSITIONS
   if(tab==="positions"||tab==="correlacao"){
@@ -12950,6 +13227,13 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
       // IMPORTANTE: usa IPCA do cenario selecionado pelo usuario para deflacionar e corrigir meta
       // ATENCAO: usuario optou por NAO considerar aportes - apenas crescimento organico
       const ipcaSel=IPCA_CENARIOS[cenarioIPCA];// IPCA do cenario escolhido
+      // SWR efetivo do ano 0: max(aux, SWR_naoMotor) - usado tambem nos anos futuros (ratio constante)
+      const capNaoMotorHoje=CL.reduce((s,c)=>{
+        const v=valorClasse[c.id]||0;
+        if(v<=0||c.id==="imoveis"||FUNDOS_RENDA_MOTORES.includes(c.id))return s;
+        return s+v;
+      },0);
+      const SWR_EF=swrEfetivoNaoMotor(rendaAuxiliarHist,FX,capNaoMotorHoje,SWR);// efetivo (>= SWR)
       const proj=[];// [{ano, valorTotal, rendaLiqNominalBase, rendaLiqRealBase, ...}]
       for(let ano=1;ano<=20;ano++){
         let valorPortAnoBase=0,valorPortAnoPes=0,valorPortAnoOti=0;
@@ -12975,11 +13259,12 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             rendaBaseLiq+=valBase*yBaseLiq*Math.pow(1+cresRenda,ano);
             rendaPesLiq+=valPes*yPesLiq*Math.pow(1+Math.max(0,cresRenda-0.005),ano);
             rendaOtiLiq+=valOti*yOtiLiq*Math.pow(1+cresRenda+0.005,ano);
-          }else{
-            // SWR sobre ativos sem dividendo
-            rendaBaseSwr+=valBase*SWR;
-            rendaPesSwr+=valPes*SWR;
-            rendaOtiSwr+=valOti*SWR;
+          }else if(c.id!=="imoveis"){
+            // SWR sobre ativos sem dividendo (BTC, Ouro, etc) - usa SWR EFETIVO (>= SWR base)
+            // O efetivo incorpora a renda auxiliar observada via max(aux, SWR)
+            rendaBaseSwr+=valBase*SWR_EF;
+            rendaPesSwr+=valPes*SWR_EF;
+            rendaOtiSwr+=valOti*SWR_EF;
           }
         });
         // Deflaciona para poder de compra atual usando IPCA do cenario
@@ -13022,7 +13307,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             rendaDivLiq+=val*yLiq*Math.pow(1+cresRenda,ano);
           }
           if(!FUNDOS_RENDA_MOTORES.includes(c.id)){
-            swrNaoMotor+=val*SWR;
+            swrNaoMotor+=val*SWR_EF;// SWR efetivo (incorpora max com renda aux)
           }
         });
         return rendaDivLiq+swrNaoMotor;
@@ -13034,7 +13319,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         CL.forEach(c=>{
           const v=valorClasse[c.id]||0;
           if(v<=0||c.id==="imoveis")return;
-          if(!FUNDOS_RENDA_MOTORES.includes(c.id))swr+=v*SWR;
+          if(!FUNDOS_RENDA_MOTORES.includes(c.id))swr+=v*SWR_EF;// SWR efetivo incorpora aux
         });
         return swr;
       })();
@@ -13197,7 +13482,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           if(v<=0)return;
           if(c.id==="imoveis")return;// imoveis fisicos excluidos
           if(!isMotor(c.id)){
-            swrSobreNaoMotoresHoje+=v*SWR;// 4% sobre patrim de classes nao-motoras
+            swrSobreNaoMotoresHoje+=v*SWR_EF;// SWR efetivo (incorpora renda auxiliar observada via max)
           }
         });
         const rendaPassivaHoje=rBase.rendaLiqAnual;// todos os dividendos liquidos
@@ -13235,8 +13520,9 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
               rendaDivLiq+=v*yLiq*Math.pow(1+cresRenda,n);
             }
             // SWR sobre TODAS as classes EXCETO motores (FII/Infra/Agro) e imoveis
+            // Aqui usamos SWR_EF (incorpora renda auxiliar via max) para a RENDA PRIMARIA
             if(!isMotor(c.id)&&c.id!=="imoveis"){
-              swrNaoMotor+=v*SWR;
+              swrNaoMotor+=v*SWR_EF;
             }
           });
           const rendaPrimaria=rendaDivLiq+swrNaoMotor;
@@ -13377,8 +13663,8 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           }else{
             // Consumivel: renda passiva + SWR 4% sobre o principal
             rendaConsumiveis+=rendaLiq;
-            swrSobreConsumiveis+=v*SWR;
-            detalhes.consumiveis.push({id:c.id,name:c.name,color:c.color,valor:v,renda:rendaLiq,swr:v*SWR,total:rendaLiq+v*SWR});
+            swrSobreConsumiveis+=v*SWR_EF;// SWR efetivo incorpora renda auxiliar via max
+            detalhes.consumiveis.push({id:c.id,name:c.name,color:c.color,valor:v,renda:rendaLiq,swr:v*SWR_EF,total:rendaLiq+v*SWR_EF});
           }
         });
         const totalAnual=rendaMotores+rendaConsumiveis+swrSobreConsumiveis;
@@ -13500,6 +13786,150 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         setRendaMotoraHist(combinado);
         return true;
       };
+
+      // ===== RENDA AUXILIAR OBSERVADA (acoes BR + dividendos exterior) =====
+      // Moedas ativas no portfolio (sempre inclui BRL para acoes BR)
+      const moedasAuxiliares=(()=>{
+        const moedasPort=getMoedasDoPortfolio(port);
+        const set=new Set(["BRL"]);// BRL sempre presente (acoes BR)
+        moedasPort.forEach(m=>set.add(m));
+        return Array.from(set);
+      })();
+      // Lista de meses disponiveis para backfill auxiliar
+      const mesesDispAux=(()=>{
+        const lst=[];
+        for(let i=1;i<=12;i++){
+          const dt=new Date(_hojeRM.getFullYear(),_hojeRM.getMonth()-i,1);
+          const mesKey=dt.getFullYear()+"-"+String(dt.getMonth()+1).padStart(2,"0");
+          if(rendaAuxiliarHist.some(r=>r.mes===mesKey))continue;
+          const labelMes=dt.toLocaleDateString("pt-BR",{month:"short",year:"numeric"}).replace(".","");
+          lst.push({key:mesKey,label:labelMes});
+        }
+        return lst;
+      })();
+      // Stats observado
+      const auxObs=rendaAuxiliarObservada(rendaAuxiliarHist,FX);
+      // Ultimo registro
+      const ultRegistroAux=rendaAuxiliarHist.length>0?rendaAuxiliarHist[rendaAuxiliarHist.length-1]:null;
+      const jaRegistrouMesAntAux=rendaAuxiliarHist.some(r=>r.mes===mesAnterior);
+      // Handler: registrar 1 mes (prompt simples por moeda - usado fora do backfill)
+      const registrarRendaAux=async ()=>{
+        const labelMes=mesAnteriorLabel.replace(".","");
+        const moedasNovas={};
+        let cancelou=false;
+        for(const mo of moedasAuxiliares){
+          const v=window.prompt("Renda LIQUIDA em "+mo+" recebida em "+labelMes+":\n(deixe em branco se nao recebeu nessa moeda)","");
+          if(v===null){cancelou=true;break;}
+          const s=v.trim();
+          if(!s)continue;
+          const lim=s.replace(/\./g,"").replace(",",".");
+          const num=parseFloat(lim);
+          if(isNaN(num)||num<0){alert("Valor invalido em "+mo+". Cancelando.");return;}
+          if(num>0)moedasNovas[mo]=num;
+        }
+        if(cancelou)return;
+        if(Object.keys(moedasNovas).length===0){
+          if(!confirm("Nenhuma renda preenchida. Registrar mes "+mesAnterior+" como ZERO em todas as moedas?"))return;
+        }
+        // Snapshot do cambio do fechamento do mes (PTAX BCB)
+        const moedasNoSnapshot=Object.keys(moedasNovas).filter(m=>m!=="BRL");
+        let fxSnapshot={BRL:1};
+        let fxSource="ptax_bcb";
+        if(moedasNoSnapshot.length>0){
+          try{
+            const fxPtax=await fetchPtaxMultiMoeda(moedasNoSnapshot,mesAnterior);
+            // Para moedas que vieram do BCB: usa snapshot. Para as que falharam: fallback FX atual
+            const faltando=[];
+            moedasNoSnapshot.forEach(mo=>{
+              if(typeof fxPtax[mo]==="number"&&fxPtax[mo]>0)fxSnapshot[mo]=fxPtax[mo];
+              else if(typeof FX[mo]==="number"&&FX[mo]>0){fxSnapshot[mo]=FX[mo];faltando.push(mo);}
+            });
+            if(faltando.length>0){
+              fxSource="hibrido";
+              if(!confirm("PTAX nao disponivel via BCB para: "+faltando.join(", ")+"\nUsando cambio ATUAL como fallback para essas moedas.\nContinuar?"))return;
+            }
+          }catch(e){
+            if(!confirm("Erro buscando PTAX BCB. Usar cambio atual para todas as conversoes?"))return;
+            fxSource="atual";
+            moedasNoSnapshot.forEach(mo=>{if(typeof FX[mo]==="number"&&FX[mo]>0)fxSnapshot[mo]=FX[mo];});
+          }
+        }
+        const novaEntrada={mes:mesAnterior,moedas:moedasNovas,fxSnapshot,fxSource,ts:Date.now()};
+        const filtrado=rendaAuxiliarHist.filter(r=>r.mes!==mesAnterior);
+        filtrado.push(novaEntrada);
+        filtrado.sort((a,b)=>a.mes.localeCompare(b.mes));
+        setRendaAuxiliarHist(filtrado);
+      };
+      // Handler: abrir backfill auxiliar
+      const backfillRendaAux=()=>{
+        if(mesesDispAux.length===0){alert("Todos os 12 meses anteriores ja estao registrados.");return;}
+        setBackfillAuxOpen(true);
+      };
+      // Handler: salvar backfill auxiliar (assincrono - busca PTAX BCB para cada mes)
+      const salvarBackfillAux=async (valoresPorMes)=>{
+        const novosBase=[];
+        const erros=[];
+        Object.entries(valoresPorMes).forEach(([mes,moedasObj])=>{
+          if(!mesesDispAux.some(x=>x.key===mes))return;
+          const mNorm={};
+          let temAlgo=false;
+          Object.entries(moedasObj||{}).forEach(([mo,valStr])=>{
+            const s=String(valStr||"").trim();
+            if(!s)return;
+            const lim=s.replace(/\s/g,"").replace(/\./g,"").replace(",",".");
+            const num=parseFloat(lim);
+            if(isNaN(num)||num<0){erros.push(mes+"/"+mo+": valor invalido");return;}
+            if(num>0){mNorm[mo]=num;temAlgo=true;}
+          });
+          if(temAlgo)novosBase.push({mes,moedas:mNorm,ts:Date.now()});
+        });
+        if(novosBase.length===0){alert("Nenhum valor preenchido."+(erros.length?"\n\nErros:\n"+erros.join("\n"):""));return false;}
+        // Confirma antes de fetchar PTAX
+        const resumo=novosBase.map(n=>{
+          const partes=Object.entries(n.moedas).map(([mo,vl])=>mo+" "+vl.toFixed(2)).join(", ");
+          return n.mes+": "+partes;
+        }).join("\n");
+        if(!confirm("Registrar "+novosBase.length+" mes(es)?\nBuscando PTAX BCB para cambio de fechamento de cada mes...\n\n"+resumo+(erros.length?"\n\nErros ignorados:\n"+erros.join("\n"):"")))return false;
+        // Fetch PTAX em paralelo para todos os meses (cada mes precisa do seu cambio especifico)
+        const novosComFx=await Promise.all(novosBase.map(async (n)=>{
+          const moedasReais=Object.keys(n.moedas).filter(m=>m!=="BRL");
+          let fxSnapshot={BRL:1};
+          let fxSource="ptax_bcb";
+          if(moedasReais.length>0){
+            try{
+              const fxPtax=await fetchPtaxMultiMoeda(moedasReais,n.mes);
+              const faltando=[];
+              moedasReais.forEach(mo=>{
+                if(typeof fxPtax[mo]==="number"&&fxPtax[mo]>0)fxSnapshot[mo]=fxPtax[mo];
+                else if(typeof FX[mo]==="number"&&FX[mo]>0){fxSnapshot[mo]=FX[mo];faltando.push(mo);}
+              });
+              if(faltando.length===moedasReais.length)fxSource="atual";
+              else if(faltando.length>0)fxSource="hibrido";
+            }catch(e){
+              fxSource="atual";
+              moedasReais.forEach(mo=>{if(typeof FX[mo]==="number"&&FX[mo]>0)fxSnapshot[mo]=FX[mo];});
+            }
+          }
+          return {...n,fxSnapshot,fxSource};
+        }));
+        // Avisa se algum mes usou fallback
+        const fallbackMeses=novosComFx.filter(n=>n.fxSource!=="ptax_bcb").map(n=>n.mes+" ("+n.fxSource+")");
+        if(fallbackMeses.length>0){
+          alert("PTAX nao disponivel para os meses: "+fallbackMeses.join(", ")+"\nUsando cambio atual como fallback nessas conversoes.");
+        }
+        const mesesNovos=new Set(novosComFx.map(n=>n.mes));
+        const filtrado=rendaAuxiliarHist.filter(r=>!mesesNovos.has(r.mes));
+        const combinado=filtrado.concat(novosComFx);
+        combinado.sort((a,b)=>a.mes.localeCompare(b.mes));
+        setRendaAuxiliarHist(combinado);
+        return true;
+      };
+      // Handler: remover entrada auxiliar
+      const removerRendaAux=(mes)=>{
+        if(!confirm("Remover o registro de "+mes+" (renda auxiliar)?"))return;
+        setRendaAuxiliarHist(rendaAuxiliarHist.filter(r=>r.mes!==mes));
+      };
+
       // Handler: editar entrada existente
       const editarRendaMotora=(mes)=>{
         const r=rendaMotoraHist.find(x=>x.mes===mes);
@@ -13665,6 +14095,122 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                 h("span",{},"max: ",fB(maxRenda)),
                 h("span",{},"media: ",fB(ult12.reduce((s,r)=>s+r.renda,0)/ult12.length))
               )
+            );
+          })():null
+        ),
+
+        // Modal de backfill auxiliar (renderizado condicionalmente)
+        backfillAuxOpen?h(BackfillModalAuxiliar,{
+          meses:mesesDispAux,
+          moedasAtivas:moedasAuxiliares,
+          fx:FX,
+          onSave:salvarBackfillAux,
+          onClose:()=>setBackfillAuxOpen(false),
+          fB
+        }):null,
+
+        // ===== CARD: RENDA AUXILIAR OBSERVADA (acoes BR + exterior multimoeda) =====
+        h("div",{style:{background:"linear-gradient(135deg,rgba(91,143,212,0.10),rgba(91,143,212,0.04))",border:"1px solid rgba(91,143,212,0.35)",borderRadius:8,padding:"12px 14px",marginBottom:14}},
+          h("div",{style:{display:"flex",alignItems:"baseline",justifyContent:"space-between",flexWrap:"wrap",gap:6,marginBottom:8}},
+            h("div",{style:{fontSize:10,letterSpacing:2.5,color:"#5B8FD4",fontFamily:"monospace",fontWeight:700,textTransform:"uppercase"}},"\u{1F30D} Renda Auxiliar Observada"),
+            h("div",{style:{fontSize:8,color:"#7A7060",fontFamily:"monospace"}},"acoes BR + exterior \u2022 informativa")
+          ),
+          h("p",{style:{fontSize:10,color:"#9A9080",lineHeight:1.55,margin:"0 0 10px"}},
+            "Registre proventos LIQUIDOS de classes NAO-MOTORAS: dividendos de acoes BR e dividendos de ativos do exterior (em cada moeda nativa). Cambio do fechamento do mes via PTAX BCB. ",
+            h("b",{style:{color:"#5B8FD4"}},"Modelo B refinado"),
+            ": ENTRA no ICR-RTE via max(aux, SWR sobre nao-motoras) - se sua renda auxiliar observada supera o SWR teorico, ela substitui o SWR nos calculos (evita double-count)."
+          ),
+          // Display do estado
+          auxObs?h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:8,marginBottom:10}},
+            // Media mensal BRL
+            h("div",{style:{background:"rgba(91,143,212,0.10)",borderLeft:"3px solid #5B8FD4",padding:"8px 10px",borderRadius:"0 4px 4px 0"}},
+              h("div",{style:{fontSize:7,color:"#5B8FD4",fontFamily:"monospace",fontWeight:700,letterSpacing:1.2,marginBottom:3}},"MEDIA MENSAL (BRL)"),
+              h("div",{style:{fontSize:13,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700}},fB(auxObs.totalBrlMedio)),
+              h("div",{style:{fontSize:7.5,color:"#7A7060",fontFamily:"monospace",marginTop:2}},"media ult. ",auxObs.n," mes",auxObs.n>1?"es":"")
+            ),
+            // Ultimo registro
+            ultRegistroAux?h("div",{style:{background:"rgba(200,169,110,0.08)",borderLeft:"3px solid #C8A96E",padding:"8px 10px",borderRadius:"0 4px 4px 0"}},
+              h("div",{style:{fontSize:7,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,letterSpacing:1.2,marginBottom:3}},"ULTIMO REGISTRO"),
+              h("div",{style:{fontSize:11,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700}},fB(auxObs.totalBrlMes)),
+              h("div",{style:{fontSize:7.5,color:"#7A7060",fontFamily:"monospace",marginTop:2}},ultRegistroAux.mes)
+            ):null,
+            // Total de registros
+            h("div",{style:{background:"rgba(76,175,130,0.08)",borderLeft:"3px solid #4CAF82",padding:"8px 10px",borderRadius:"0 4px 4px 0"}},
+              h("div",{style:{fontSize:7,color:"#4CAF82",fontFamily:"monospace",fontWeight:700,letterSpacing:1.2,marginBottom:3}},"HISTORICO"),
+              h("div",{style:{fontSize:13,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700}},rendaAuxiliarHist.length),
+              h("div",{style:{fontSize:7.5,color:"#7A7060",fontFamily:"monospace",marginTop:2}},rendaAuxiliarHist.length===1?"mes registrado":"meses registrados")
+            )
+          ):h("div",{style:{padding:"10px 12px",background:"rgba(232,196,74,0.08)",border:"1px dashed rgba(232,196,74,0.35)",borderRadius:5,fontSize:9.5,color:"#E8C44A",fontFamily:"monospace",marginBottom:10,lineHeight:1.5}},
+            "\u26A0 Nenhuma renda auxiliar registrada. Use \"+ Registrar\" ou \"\u{1F4DA} Backfill\" para preencher proventos de acoes BR e dividendos do exterior."
+          ),
+          // Breakdown por moeda (se tiver dados)
+          auxObs&&Object.keys(auxObs.porMoedaMedio).length>0?h("div",{style:{marginTop:8,padding:"8px 10px",background:"rgba(0,0,0,0.15)",borderRadius:4}},
+            h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:5}},
+              h("div",{style:{fontSize:7.5,color:"#7A7060",fontFamily:"monospace",fontWeight:700,letterSpacing:1.5}},"BREAKDOWN POR MOEDA (media mensal)"),
+              (()=>{
+                // Conta fontes de FX no historico
+                const fontes={ptax_bcb:0,hibrido:0,atual:0,legado:0};
+                rendaAuxiliarHist.slice(-12).forEach(r=>{
+                  if(!r.fxSnapshot)fontes.legado++;
+                  else if(r.fxSource==="ptax_bcb")fontes.ptax_bcb++;
+                  else if(r.fxSource==="hibrido")fontes.hibrido++;
+                  else fontes.atual++;
+                });
+                const todasPtax=fontes.ptax_bcb>0&&fontes.hibrido===0&&fontes.atual===0&&fontes.legado===0;
+                return h("div",{title:"PTAX="+fontes.ptax_bcb+" / Hibrido="+fontes.hibrido+" / Atual="+fontes.atual+" / Legado(sem snapshot)="+fontes.legado,style:{fontSize:7,color:todasPtax?"#4CAF82":"#E89060",fontFamily:"monospace",letterSpacing:1}},todasPtax?"\u2713 PTAX BCB":"\u26A0 fontes mistas");
+              })()
+            ),
+            h("div",{style:{display:"flex",flexWrap:"wrap",gap:8,fontSize:9.5,fontFamily:"monospace"}},
+              Object.entries(auxObs.porMoedaMedio).filter(([_,v])=>v>0).sort((a,b)=>{
+                const aBrl=a[0]==="BRL"?a[1]:(a[1]*(FX[a[0]]||0));
+                const bBrl=b[0]==="BRL"?b[1]:(b[1]*(FX[b[0]]||0));
+                return bBrl-aBrl;
+              }).map(([mo,vl])=>h("div",{key:mo,style:{display:"flex",alignItems:"center",gap:4}},
+                h("span",{style:{color:"#5B8FD4",fontWeight:700}},mo),
+                h("span",{style:{color:"#E8E2D5"}},vl.toFixed(2))
+              ))
+            )
+          ):null,
+          // Botoes
+          h("div",{style:{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center",marginTop:10}},
+            h("button",{onClick:registrarRendaAux,disabled:jaRegistrouMesAntAux,style:{padding:"7px 12px",background:jaRegistrouMesAntAux?"rgba(122,112,96,0.20)":"linear-gradient(135deg,#5B8FD4,#3f70b8)",color:jaRegistrouMesAntAux?"#7A7060":"#FFFFFF",border:"none",borderRadius:5,fontSize:10,fontFamily:"monospace",fontWeight:700,letterSpacing:1,cursor:jaRegistrouMesAntAux?"not-allowed":"pointer"}},
+              jaRegistrouMesAntAux?"\u2713 "+mesAnteriorLabel+" JA REGISTRADO":"+ Registrar renda de "+mesAnteriorLabel
+            ),
+            rendaAuxiliarHist.length>0?h("button",{onClick:()=>{
+              const lines=rendaAuxiliarHist.slice().reverse().map(r=>{
+                const partes=Object.entries(r.moedas||{}).filter(([_,v])=>v>0).map(([m,v])=>m+" "+v.toFixed(2)).join(", ");
+                return r.mes+": "+(partes||"(zero)");
+              }).join("\n");
+              const escolha=window.prompt("Historico de renda auxiliar:\n\n"+lines+"\n\nDigite o mes (YYYY-MM) com 'rm ' para REMOVER (ex: 'rm 2026-04'). Cancele para sair.","");
+              if(!escolha)return;
+              if(escolha.startsWith("rm "))removerRendaAux(escolha.slice(3).trim());
+              else alert("Para editar, remova e adicione novamente com o backfill.");
+            },style:{padding:"7px 12px",background:"rgba(91,143,212,0.15)",color:"#5B8FD4",border:"1px solid rgba(91,143,212,0.35)",borderRadius:5,fontSize:10,fontFamily:"monospace",fontWeight:700,letterSpacing:1,cursor:"pointer"}},"\u270E Historico"):null,
+            mesesDispAux.length>0?h("button",{onClick:backfillRendaAux,style:{padding:"7px 12px",background:"rgba(200,169,110,0.15)",color:"#C8A96E",border:"1px solid rgba(200,169,110,0.40)",borderRadius:5,fontSize:10,fontFamily:"monospace",fontWeight:700,letterSpacing:1,cursor:"pointer"}},"\u{1F4DA} Backfill ("+mesesDispAux.length+" meses)"):null
+          ),
+          // Capacidade total observada (motora + auxiliar) - linha agregada informativa
+          (yObsMotor||auxObs)?(()=>{
+            // Renda motora mensal media: yieldAnualLiq media * valor motores atual / 12
+            const rendaMotMensalBrl=yObsMotor?(yObsMotor.valor*valorMotoresAtual)/12:0;
+            const rendaAuxMensalBrl=auxObs?auxObs.totalBrlMedio:0;
+            const rendaTotalMensalBrl=rendaMotMensalBrl+rendaAuxMensalBrl;
+            return h("div",{style:{marginTop:12,padding:"10px 12px",background:"linear-gradient(135deg,rgba(76,175,130,0.10),rgba(91,143,212,0.10))",border:"1px dashed rgba(200,169,110,0.30)",borderRadius:5}},
+              h("div",{style:{fontSize:8,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,letterSpacing:1.5,marginBottom:5}},"\u2696 CAPACIDADE TOTAL OBSERVADA (mensal, BRL, media ult. 12m)"),
+              h("div",{style:{display:"flex",flexDirection:"column",gap:3,fontSize:10,fontFamily:"monospace"}},
+                h("div",{style:{display:"flex",justifyContent:"space-between"}},
+                  h("span",{style:{color:"#4CAF82"}},"Motora (FII+Infra+Agro)"),
+                  h("span",{style:{color:"#E8E2D5",fontWeight:700}},fB(rendaMotMensalBrl))
+                ),
+                h("div",{style:{display:"flex",justifyContent:"space-between"}},
+                  h("span",{style:{color:"#5B8FD4"}},"Auxiliar (Acoes BR + Exterior)"),
+                  h("span",{style:{color:"#E8E2D5",fontWeight:700}},fB(rendaAuxMensalBrl))
+                ),
+                h("div",{style:{display:"flex",justifyContent:"space-between",paddingTop:5,marginTop:3,borderTop:"1px solid rgba(255,255,255,0.10)"}},
+                  h("span",{style:{color:"#C8A96E",fontWeight:700}},"TOTAL"),
+                  h("span",{style:{color:"#E8E2D5",fontWeight:700}},fB(rendaTotalMensalBrl))
+                )
+              ),
+              h("div",{style:{fontSize:8,color:"#7A7060",fontFamily:"monospace",marginTop:6,fontStyle:"italic"}},"Motora entra direto no ICR-RTE. Auxiliar entra via max(aux, SWR) sobre nao-motoras - se aux>SWR teorico, substitui o SWR no calculo da Solidez.")
             );
           })():null
         ),
