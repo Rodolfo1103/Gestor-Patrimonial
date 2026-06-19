@@ -4742,6 +4742,8 @@ function App(){
   const [execE,setExecE]=useState({});
   const [step,setStep]=useState("r");
   const [hist,setHist]=useState([]);
+  // Aportes simples: registros manuais [{id, date, valor, ts}] - registro independente dos snapshots automaticos
+  const [aportesSimples,setAportesSimples]=useState([]);
   const [histMensal,setHistMensal]=useState([]);// snapshots consolidados por mes (1 por mes, sem limite)
   // ====== CAIXA CAMBIAL - capital em moedas fortes aguardando preco justo dos ativos finais ======
   // Estrutura dinamica: { USD: valor_em_USD, EUR: valor_em_EUR, JPY: valor_em_JPY, ... }
@@ -5040,6 +5042,18 @@ function App(){
         if(migrouAlgum)console.log("Migrados tickers para nova estrutura de classes.");
         setPort(portMigrado);setCustom(dd.custom||{});setHidden(dd.hidden||[]);
         setLastPU(dd.lastPU||null);setHist(dd.hist||[]);
+        // Aportes simples (registro manual independente dos snapshots)
+        if(Array.isArray(dd.aportesSimples)){
+          const valido=dd.aportesSimples.filter(a=>a&&typeof a==="object"&&typeof a.valor==="number"&&a.valor>0&&typeof a.date==="string");
+          // Garante ordem cronologica e ID unico se faltando
+          const sanitizado=valido.map(a=>({
+            id:a.id||(String(a.date)+"-"+Math.random().toString(36).slice(2,8)),
+            date:a.date,
+            valor:a.valor,
+            ts:a.ts||Date.now()
+          }));
+          setAportesSimples(sanitizado.sort((a,b)=>a.date.localeCompare(b.date)));
+        }
         if(Array.isArray(dd.histMensal))setHistMensal(dd.histMensal);
         // Carrega caixa cambial (estrutura dinamica: aceita qualquer moeda ISO)
         // Migracao: o campo legado "OUT" (que armazenava em USD equivalente) NAO e mais usado;
@@ -5179,12 +5193,12 @@ function App(){
     if(!inited||!aesKey)return;
     (async()=>{
       try{
-        const obj={port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,selicAtual,metaMensalIF,cenarioIPCA,dataNascimento,insightRenda,insightRendaTs,insightRendaSnap,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,piCycle,nupl,goldSilver,goldSP500,realGoldZ,fx:{...FX},btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,insightSnap,infIPCA,infIGPM,infINCC,infCPI,infHICP,juroFed,juroECB,juroBoJ,ntnbTaxas,ntnbVNA,ntnbUpdTs,ntnbDataCotacao,ntnbDiasDefasagem,ntnbVencimentos:{...NTNB_VENCIMENTOS},cambialCash,rendaMotoraHist,rendaAuxiliarHist};
+        const obj={port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,selicAtual,metaMensalIF,cenarioIPCA,dataNascimento,insightRenda,insightRendaTs,insightRendaSnap,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,piCycle,nupl,goldSilver,goldSP500,realGoldZ,fx:{...FX},btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,insightSnap,infIPCA,infIGPM,infINCC,infCPI,infHICP,juroFed,juroECB,juroBoJ,ntnbTaxas,ntnbVNA,ntnbUpdTs,ntnbDataCotacao,ntnbDiasDefasagem,ntnbVencimentos:{...NTNB_VENCIMENTOS},cambialCash,rendaMotoraHist,rendaAuxiliarHist,aportesSimples};
         const enc=await aesEncrypt(aesKey,obj);
         localStorage.setItem(SK_ENC,enc);
       }catch(e){}
     })();
-  },[port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,selicAtual,metaMensalIF,cenarioIPCA,dataNascimento,insightRenda,insightRendaTs,insightRendaSnap,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,piCycle,nupl,goldSilver,goldSP500,realGoldZ,btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,insightSnap,infIPCA,infIGPM,infINCC,infCPI,infHICP,juroFed,juroECB,juroBoJ,ntnbTaxas,ntnbVNA,ntnbUpdTs,cambialCash,rendaMotoraHist,rendaAuxiliarHist,inited,aesKey]);
+  },[port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,selicAtual,metaMensalIF,cenarioIPCA,dataNascimento,insightRenda,insightRendaTs,insightRendaSnap,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,piCycle,nupl,goldSilver,goldSP500,realGoldZ,btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,insightSnap,infIPCA,infIGPM,infINCC,infCPI,infHICP,juroFed,juroECB,juroBoJ,ntnbTaxas,ntnbVNA,ntnbUpdTs,cambialCash,rendaMotoraHist,rendaAuxiliarHist,aportesSimples,inited,aesKey]);
 
   // Auto-lock por inatividade (15 min)
   useEffect(()=>{
@@ -16846,35 +16860,169 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
 
   if(tab==="history"){
     try{
+    // Handlers
+    const registrarAporte=()=>{
+      const hoje=new Date();
+      const isoHoje=hoje.toISOString().slice(0,10);// YYYY-MM-DD
+      const dataStr=window.prompt("Data do aporte (YYYY-MM-DD):",isoHoje);
+      if(dataStr===null)return;
+      const dataLimpa=String(dataStr).trim();
+      if(!/^\d{4}-\d{2}-\d{2}$/.test(dataLimpa)){alert("Formato invalido. Use YYYY-MM-DD (ex: 2026-06-15).");return;}
+      const partes=dataLimpa.split("-").map(Number);
+      const dtTest=new Date(partes[0],partes[1]-1,partes[2]);
+      if(isNaN(dtTest.getTime())||dtTest.getFullYear()!==partes[0]||dtTest.getMonth()!==partes[1]-1||dtTest.getDate()!==partes[2]){
+        alert("Data invalida.");return;
+      }
+      const valorStr=window.prompt("Valor total aportado (R$):","");
+      if(valorStr===null)return;
+      const limp=String(valorStr).trim().replace(/\s/g,"").replace(/\./g,"").replace(",",".");
+      const valor=parseFloat(limp);
+      if(isNaN(valor)||valor<=0){alert("Valor invalido.");return;}
+      const novo={
+        id:dataLimpa+"-"+Date.now().toString(36),
+        date:dataLimpa,
+        valor,
+        ts:Date.now()
+      };
+      const novaLista=[...aportesSimples,novo].sort((a,b)=>a.date.localeCompare(b.date));
+      setAportesSimples(novaLista);
+    };
+    const removerAporte=(id)=>{
+      if(!window.confirm("Remover este aporte do historico?"))return;
+      setAportesSimples(aportesSimples.filter(a=>a.id!==id));
+    };
+    // Listagem ordenada do mais recente ao mais antigo
+    const listaOrdenada=aportesSimples.slice().sort((a,b)=>b.date.localeCompare(a.date));
+    // ===== Grafico: agregado por mes-calendario, ult. 24 meses =====
+    // Constroi serie mensal: ult. 24 meses (incluindo zerados)
+    const construirSerieMensal=()=>{
+      const hoje=new Date();
+      const meses=[];
+      for(let i=23;i>=0;i--){
+        const dt=new Date(hoje.getFullYear(),hoje.getMonth()-i,1);
+        const key=dt.getFullYear()+"-"+String(dt.getMonth()+1).padStart(2,"0");
+        meses.push({key,label:dt.toLocaleDateString("pt-BR",{month:"short"}).replace(".","")+"/"+String(dt.getFullYear()).slice(2),mes:dt.getMonth(),ano:dt.getFullYear(),aportes:[]});
+      }
+      // Agrega aportes simples por mes
+      aportesSimples.forEach(a=>{
+        const mesKey=a.date.slice(0,7);
+        const bucket=meses.find(m=>m.key===mesKey);
+        if(bucket)bucket.aportes.push(a);
+      });
+      // Calcula total por mes
+      meses.forEach(m=>{m.total=m.aportes.reduce((s,a)=>s+a.valor,0);});
+      return meses;
+    };
+    const serie=construirSerieMensal();
+    const valoresPositivos=serie.filter(s=>s.total>0).map(s=>s.total);
+    const maxValor=valoresPositivos.length>0?Math.max(...valoresPositivos)*1.10:1000;
+    const totalAportado=aportesSimples.reduce((s,a)=>s+a.valor,0);
+    const mediaAportada=valoresPositivos.length>0?valoresPositivos.reduce((s,v)=>s+v,0)/valoresPositivos.length:0;
+    const alturaPx=160;
+    const fmtK=(v)=>v>=1000?"R$ "+(v/1000).toFixed(v>=10000?0:1)+"k":"R$ "+v.toFixed(0);
     content=h("div",{},
-      h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:12}},"Aportes executados"),
-      (!hist||hist.length===0)?h("div",{style:{textAlign:"center",padding:"40px 0",color:"#5A5550",fontStyle:"italic"}},"Nenhum aporte registrado."):
-      h("div",{},...hist.map((rec,i)=>{
-        // Defesa contra registros antigos/malformados
-        if(!rec)return null;
-        const dateStr=rec.date?(()=>{try{return new Date(rec.date).toLocaleDateString("pt-BR",{day:"2-digit",month:"short",year:"numeric"});}catch(e){return"sem data";}})():"sem data";
-        const total=typeof rec.totalExecuted==="number"?rec.totalExecuted:(typeof rec.total==="number"?rec.total:0);
-        const purchases=Array.isArray(rec.purchases)?rec.purchases:[];
-        return h("div",{key:i,style:{background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:8,padding:"11px 13px",marginBottom:7}},
-          h("div",{style:{display:"flex",justifyContent:"space-between",marginBottom:6}},
-            h("span",{style:{fontSize:9,color:"#8A8070",fontFamily:"monospace"}},dateStr),
-            h("span",{style:{fontFamily:"monospace",fontSize:12,color:"#C8A96E",fontWeight:700}},MV(fB(total)))
+      // Header com botao de registrar
+      h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,gap:10,flexWrap:"wrap"}},
+        h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase"}},"Hist\u00f3rico de Aportes"),
+        h("button",{onClick:registrarAporte,style:{padding:"9px 16px",background:"linear-gradient(135deg,#C8A96E,#a8895a)",color:"#1A1612",border:"none",borderRadius:6,fontSize:11,fontFamily:"monospace",fontWeight:700,letterSpacing:1.2,cursor:"pointer",textTransform:"uppercase",boxShadow:"0 2px 6px rgba(200,169,110,0.20)"}},"+ Registrar Aporte")
+      ),
+      // Estatisticas resumo (so se houver registros)
+      aportesSimples.length>0?h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(120px,1fr))",gap:8,marginBottom:14}},
+        h("div",{style:{background:"rgba(200,169,110,0.08)",borderLeft:"3px solid #C8A96E",padding:"8px 10px",borderRadius:"0 4px 4px 0"}},
+          h("div",{style:{fontSize:7,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,letterSpacing:1.2,marginBottom:2}},"TOTAL APORTADO"),
+          h("div",{style:{fontSize:13,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700}},MV(fB(totalAportado)))
+        ),
+        h("div",{style:{background:"rgba(76,175,130,0.08)",borderLeft:"3px solid #4CAF82",padding:"8px 10px",borderRadius:"0 4px 4px 0"}},
+          h("div",{style:{fontSize:7,color:"#4CAF82",fontFamily:"monospace",fontWeight:700,letterSpacing:1.2,marginBottom:2}},"MEDIA POR APORTE"),
+          h("div",{style:{fontSize:13,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700}},MV(fB(mediaAportada)))
+        ),
+        h("div",{style:{background:"rgba(91,143,212,0.08)",borderLeft:"3px solid #5B8FD4",padding:"8px 10px",borderRadius:"0 4px 4px 0"}},
+          h("div",{style:{fontSize:7,color:"#5B8FD4",fontFamily:"monospace",fontWeight:700,letterSpacing:1.2,marginBottom:2}},"REGISTROS"),
+          h("div",{style:{fontSize:13,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700}},aportesSimples.length)
+        )
+      ):null,
+      // Lista de aportes simples
+      aportesSimples.length===0?h("div",{style:{textAlign:"center",padding:"40px 16px",background:"rgba(232,196,74,0.06)",border:"1px dashed rgba(232,196,74,0.30)",borderRadius:8,color:"#E8C44A",fontFamily:"monospace",fontSize:11,lineHeight:1.6,marginBottom:14}},
+        h("div",{style:{fontSize:24,marginBottom:8}},"\u{1F4DD}"),
+        h("div",{},"Nenhum aporte registrado ainda."),
+        h("div",{style:{fontSize:9,color:"#9A9080",marginTop:6}},"Clique em \"+ Registrar Aporte\" acima para comecar.")
+      ):h("div",{style:{marginBottom:18}},
+        h("div",{style:{fontSize:8,color:"#7A7060",fontFamily:"monospace",fontWeight:700,letterSpacing:1.5,marginBottom:8}},"REGISTROS (mais recente primeiro)"),
+        ...listaOrdenada.map(a=>{
+          const dt=new Date(a.date+"T12:00:00");// meio-dia para evitar timezone shift
+          const dateStr=isNaN(dt.getTime())?a.date:dt.toLocaleDateString("pt-BR",{day:"2-digit",month:"short",year:"numeric"});
+          return h("div",{key:a.id,style:{background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:6,padding:"10px 12px",marginBottom:6,display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}},
+            h("div",{style:{display:"flex",flexDirection:"column",gap:2}},
+              h("span",{style:{fontSize:10,color:"#C8C0B0",fontFamily:"monospace",fontWeight:700}},dateStr),
+              h("span",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace"}},a.date)
+            ),
+            h("div",{style:{display:"flex",alignItems:"center",gap:10}},
+              h("span",{style:{fontFamily:"monospace",fontSize:13,color:"#C8A96E",fontWeight:700}},MV(fB(a.valor))),
+              h("button",{onClick:()=>removerAporte(a.id),title:"Remover",style:{padding:"4px 8px",background:"rgba(224,82,82,0.12)",color:"#E05252",border:"1px solid rgba(224,82,82,0.30)",borderRadius:4,fontSize:9,fontFamily:"monospace",fontWeight:700,cursor:"pointer"}},"\u2715")
+            )
+          );
+        })
+      ),
+      // ===== GRAFICO DE BARRAS - APORTES MENSAIS (ULT. 24 MESES) =====
+      h("div",{style:{background:"linear-gradient(135deg,rgba(0,0,0,0.25),rgba(0,0,0,0.10))",border:"1px solid rgba(200,169,110,0.30)",borderRadius:8,padding:"12px 14px",marginBottom:14}},
+        // Header
+        h("div",{style:{display:"flex",alignItems:"baseline",justifyContent:"space-between",flexWrap:"wrap",gap:6,marginBottom:10}},
+          h("div",{style:{fontSize:10,letterSpacing:2,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,textTransform:"uppercase"}},"\u{1F4CA} Evolu\u00e7\u00e3o dos Aportes Mensais"),
+          h("div",{style:{fontSize:8,color:"#7A7060",fontFamily:"monospace"}},"\u00falt. 24 meses \u2022 agregado por m\u00eas-calend\u00e1rio")
+        ),
+        // Area do grafico
+        h("div",{style:{display:"flex",gap:6,marginBottom:6}},
+          // Eixo Y (labels esquerda)
+          h("div",{style:{display:"flex",flexDirection:"column",justifyContent:"space-between",alignItems:"flex-end",fontSize:7.5,color:"#7A7060",fontFamily:"monospace",height:alturaPx,paddingTop:1,paddingBottom:1}},
+            h("span",{},fmtK(maxValor)),
+            h("span",{},fmtK(maxValor*0.75)),
+            h("span",{},fmtK(maxValor*0.50)),
+            h("span",{},fmtK(maxValor*0.25)),
+            h("span",{},"R$ 0")
           ),
-          ...purchases.map((p,j)=>{
-            if(!p||!p.ticker)return null;
-            const cl3=CL.find(c=>c.id===(cls[p.ticker]||""));
-            const qty=typeof p.qty==="number"?p.qty:0;
-            const price=typeof p.price==="number"?p.price:0;
-            const pTotal=typeof p.total==="number"?p.total:(qty*price);
-            return h("div",{key:j,style:{display:"flex",alignItems:"center",gap:6,padding:"3px 0",borderTop:"1px solid rgba(255,255,255,0.03)"}},
-              h("div",{style:{width:4,height:4,borderRadius:"50%",background:cl3?cl3.color:"#888",flexShrink:0}}),
-              h("span",{style:{fontFamily:"monospace",fontSize:10,color:"#F0EAD8",flex:1}},p.ticker),
-              h("span",{style:{fontSize:9,color:"#8A8070",fontFamily:"monospace"}},fN(qty,qty<100?4:0)+" x "+fN(price,2)),
-              h("span",{style:{fontFamily:"monospace",fontSize:10,color:"#B0A890"}},MV(fB(pTotal)))
-            );
-          })
-        );
-      }))
+          // Container das barras com scroll horizontal
+          h("div",{style:{flex:1,overflowX:"auto",overflowY:"hidden"}},
+            h("div",{style:{position:"relative",height:alturaPx,borderLeft:"1px solid rgba(255,255,255,0.15)",borderBottom:"1px solid rgba(255,255,255,0.15)",minWidth:Math.max(serie.length*22,300)+"px"}},
+              // Linhas de grid horizontais
+              ...[0.25,0.5,0.75].map((f,i)=>h("div",{key:"grid"+i,style:{position:"absolute",left:0,right:0,top:((1-f)*100)+"%",height:1,background:"rgba(255,255,255,0.04)",pointerEvents:"none"}})),
+              // Linha de media (se houver dados)
+              mediaAportada>0&&mediaAportada<maxValor?h("div",{style:{position:"absolute",left:0,right:0,top:((1-mediaAportada/maxValor)*100)+"%",height:0,borderTop:"1.5px dashed rgba(76,175,130,0.50)",pointerEvents:"none",zIndex:2}}):null,
+              mediaAportada>0&&mediaAportada<maxValor?h("div",{style:{position:"absolute",right:4,top:"calc("+((1-mediaAportada/maxValor)*100)+"% - 12px)",fontSize:7,color:"#4CAF82",fontFamily:"monospace",fontWeight:700,zIndex:3}},"m\u00e9dia"):null,
+              // Barras (uma coluna por mes)
+              h("div",{style:{display:"flex",alignItems:"flex-end",justifyContent:"space-around",gap:2,height:"100%",padding:"0 3px"}},
+                ...serie.map(s=>{
+                  const hPct=s.total>0?(s.total/maxValor)*100:0;
+                  const cor=s.total>0?"#C8A96E":"transparent";
+                  const tooltipParts=[s.key];
+                  if(s.aportes.length>0){
+                    s.aportes.forEach(a=>tooltipParts.push("  "+a.date+": "+fB(a.valor)));
+                    tooltipParts.push("Total: "+fB(s.total));
+                  }else{
+                    tooltipParts.push("Sem aportes");
+                  }
+                  return h("div",{key:s.key,style:{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end",height:"100%",position:"relative",maxWidth:24}},
+                    // Valor total acima da barra (so se houver)
+                    s.total>0?h("div",{style:{position:"absolute",bottom:hPct+"%",left:"50%",transform:"translateX(-50%) translateY(-2px)",fontSize:6.5,color:"#E8DCC0",fontFamily:"monospace",fontWeight:700,whiteSpace:"nowrap",pointerEvents:"none"}},(s.total/1000).toFixed(s.total>=10000?0:1)+"k"):null,
+                    // Barra
+                    h("div",{title:tooltipParts.join("\n"),style:{width:"80%",height:hPct+"%",background:s.total>0?"linear-gradient(180deg,#E0C088,#C8A96E)":"transparent",borderRadius:"3px 3px 0 0",boxShadow:s.total>0?"0 -1px 2px rgba(0,0,0,0.3)":"none",minHeight:s.total>0?2:0}})
+                  );
+                })
+              )
+            ),
+            // Labels X (meses) - alinhados sob as barras
+            h("div",{style:{display:"flex",justifyContent:"space-around",gap:2,padding:"4px 3px 0",minWidth:Math.max(serie.length*22,300)+"px"}},
+              ...serie.map(s=>h("div",{key:"x"+s.key,style:{flex:1,fontSize:6.5,color:"#9A9080",fontFamily:"monospace",textAlign:"center",maxWidth:24,whiteSpace:"nowrap"}},s.label))
+            )
+          )
+        ),
+        // Rodape com stats (so se houver dados)
+        valoresPositivos.length>0?h("div",{style:{display:"flex",justifyContent:"space-between",fontSize:8,color:"#7A7060",fontFamily:"monospace",marginTop:8,paddingTop:6,borderTop:"1px dashed rgba(255,255,255,0.08)"}},
+          h("span",{},"min: ",fB(Math.min(...valoresPositivos))),
+          h("span",{},"max: ",fB(Math.max(...valoresPositivos))),
+          h("span",{},"m\u00e9dia: ",fB(mediaAportada)),
+          h("span",{},"meses c/ aporte: "+valoresPositivos.length+"/24")
+        ):h("div",{style:{fontSize:8.5,color:"#9A9080",fontFamily:"monospace",fontStyle:"italic",marginTop:8,textAlign:"center",padding:"6px 0"}},"Sem aportes registrados nos ult. 24 meses")
+      )
     );
     }catch(e){
       console.error("Erro renderizando HISTORY:",e);
