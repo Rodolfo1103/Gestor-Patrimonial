@@ -1656,35 +1656,44 @@ function SolidezCard({total,cw,port,metaMensalIF,setTab,fB,hideVal,dataNasciment
     else scoreTamanho=100;
     scoreTamanho=Math.max(0,Math.min(100,scoreTamanho));
 
-    // ============== DIMENSAO 2: CAPACIDADE DE RENDA PERPETUA (22%) - ICR-RTE AJUSTADO ==============
-    // Usa EXATAMENTE a mesma logica da aba Renda, MAS com SWR calibrado por horizonte:
-    //   1) Renda passiva liquida = soma de v_classe * YIELD_CLASSE[c].base * (1 - IR_DIV[c])
-    //   2) SWR_AJUSTADO aplicado a TODAS classes nao-motoras e nao-imoveis
-    //      (em vez do SWR fixo 4%, usa swrAjustado(idade) - reflete dispersao de outcomes)
-    //   3) Total RTE = renda passiva + SWR_ajustado
-    // Para horizonte 30 anos: SWR=4.0%; 50 anos: SWR=3.34%; 60 anos: SWR=3.0%
+    // ============== DIMENSAO 2: CAPACIDADE MAXIMA SUSTENTAVEL (22%) ==============
+    // NOVA METRICA (substitui ICR-RTE): mede a capacidade MAXIMA de geracao de renda
+    // permitindo consumo gradual das classes nao-motoras enquanto preserva os motores.
+    // Formula: capMax = Renda Motora (dividendos puros, perpetuos) 
+    //                 + Renda Consumiveis (dividendos das nao-motoras)
+    //                 + SWR_EF * valor_Consumiveis (consumo gradual do principal)
+    // SWR_EF ja incorpora o Modelo B refinado: max(renda_auxiliar_observada, SWR teorico)
+    // O SWR ajustado por horizonte (3.31% para 50a) JA EMBUTE a protecao inflacionaria
+    // de longo prazo, portanto comparamos diretamente com meta atual (sem inflar).
     const SWR_AJUSTADO=fireCal.swr;// SWR calibrado por horizonte
-    let rendaPassivaLiq=0;
-    let capitalNaoMotor=0;
+    let rendaMotoraAnual=0;        // dividendos perpetuos dos motores (FII/Infra/Agro)
+    let rendaConsumiveisAnual=0;   // dividendos das nao-motoras (acoes BR, REITs, exterior)
+    let valorConsumiveis=0;        // capital nao-motor + nao-imoveis (consumivel via SWR)
     MPT_CLS.forEach(cid=>{
       const v=total*((cw[cid]||0)/100);// valor da classe em BRL
       if(v<=0)return;
-      // Renda motora: usa yieldEfetivoLiq (observado ou YIELD_CLASSE base)
+      const yLiq=yieldEfetivoLiq(cid,"base",rendaMotoraHist);
       if(FUNDOS_RENDA_MOTORES.includes(cid)){
-        const yLiq=yieldEfetivoLiq(cid,"base",rendaMotoraHist);
-        rendaPassivaLiq+=v*yLiq;
+        // Motor: APENAS dividendos (principal sempre intacto)
+        rendaMotoraAnual+=v*yLiq;
+      }else if(cid!=="imoveis"){
+        // Consumivel: dividendos + capital pode ser consumido via SWR
+        rendaConsumiveisAnual+=v*yLiq;
+        valorConsumiveis+=v;
       }
-      // Capital nao-motor (exclui motores e imoveis fisicos)
-      if(cid!=="imoveis"&&!FUNDOS_RENDA_MOTORES.includes(cid)){
-        capitalNaoMotor+=v;
-      }
+      // imoveis fisicos sao excluidos (iliquidos)
     });
-    // MODELO B REFINADO: max(renda auxiliar observada, SWR sobre nao-motoras)
-    // Evita double-count - se dividendos > SWR usa dividendos, senao SWR puro
-    const naoMotorEf=rendaNaoMotoraEfetiva(rendaAuxiliarHist,FX,capitalNaoMotor,SWR_AJUSTADO);
-    const swrLiq=naoMotorEf.rendaAnual;
-    const rendaRTE=rendaPassivaLiq+swrLiq;// = rendaRTEHoje canonico (motora + max(aux,SWR))
-    const coberturaPct=metaAnual>0?(rendaRTE/metaAnual)*100:0;
+    // SWR EFETIVO: incorpora renda auxiliar observada via max(aux, SWR teorico)
+    // Aplicado apenas sobre o EXCEDENTE entre aux e SWR teorico (para nao double-count com dividendos consumiveis)
+    const SWR_EF_SOLIDEZ=swrEfetivoNaoMotor(rendaAuxiliarHist,FX,valorConsumiveis,SWR_AJUSTADO);
+    const swrSobreConsumiveis=valorConsumiveis*SWR_EF_SOLIDEZ;
+    // Capacidade maxima sustentavel anual
+    const capMaxAnualSolidez=rendaMotoraAnual+rendaConsumiveisAnual+swrSobreConsumiveis;
+    // Para uso em renders subsequentes (variaveis legadas mapeadas)
+    const rendaRTE=capMaxAnualSolidez;
+    const rendaPassivaLiq=rendaMotoraAnual+rendaConsumiveisAnual;
+    const swrLiq=swrSobreConsumiveis;
+    const coberturaPct=metaAnual>0?(capMaxAnualSolidez/metaAnual)*100:0;
     let scoreRenda;
     if(coberturaPct>=150)scoreRenda=100;
     else if(coberturaPct>=120)scoreRenda=85+(coberturaPct-120)*0.5;
@@ -1877,7 +1886,7 @@ function SolidezCard({total,cw,port,metaMensalIF,setTab,fB,hideVal,dataNasciment
         // Contribuicao real = score * (peso/100). Penalizacao = peso - contribuicao.
         const dims=[
           {id:"tam",label:"\u{1F4B0} TAMANHO",cor:"#C8A96E",score:scoreTamanho,peso:22,detail:hideVal?"\u2022\u2022\u2022":multFIRE.toFixed(1)+"x meta anual",alvo:"alvo: "+fireCal.seguro.toFixed(0)+"x (FIRE seguro, "+fireCal.horizonte+"a horizonte)"},
-          {id:"ren",label:"\u{1F525} RENDA ICR-RTE",cor:"#F7931A",score:scoreRenda,peso:22,detail:coberturaPct.toFixed(0)+"% da meta ("+fB(rendaRTE/12)+"/m\u00eas)",alvo:"alvo: \u2265150% (SWR "+(SWR_AJUSTADO*100).toFixed(2)+"%)"},
+          {id:"ren",label:"\u{1F525} CAPACIDADE MAXIMA",cor:"#F7931A",score:scoreRenda,peso:22,detail:coberturaPct.toFixed(0)+"% da meta ("+fB(rendaRTE/12)+"/m\u00eas)",alvo:"alvo: \u2265150% (SWR "+(SWR_AJUSTADO*100).toFixed(2)+"% / horizonte "+fireCal.horizonte+"a)"},
           {id:"res",label:"\u{1F6E1} RESILI\u00caNCIA",cor:"#5B8FD4",score:scoreResi,peso:22,detail:"dd "+ddPiorPct.toFixed(1)+"% (70%) + camb "+(pctCambialAtual*100).toFixed(0)+"% (30%)",alvo:"alvo: dd \u2265-5% E camb \u2265"+(bandasCamb.alvo*100).toFixed(0)+"%"},
           {id:"div",label:"\u{1F517} DIVERSIF.",cor:"#9C7DC2",score:scoreDiv,peso:17,detail:"corr m\u00e9dia "+corrMediaPond.toFixed(2),alvo:"alvo: corr \u22640.0 (descorrel.)"},
           {id:"camb",label:"\u{1F4B5} BLINDAGEM CAMBIAL",cor:"#3DA17C",score:scoreBlindagem,peso:17,detail:hideVal?"\u2022\u2022\u2022":(pctCambialAtual*100).toFixed(1)+"% em moedas fortes",alvo:"alvo: "+(bandasCamb.alvo*100).toFixed(0)+"% ("+(bandasCamb.min*100).toFixed(0)+"-"+(bandasCamb.max*100).toFixed(0)+"%), idade "+idadeAtual+"a"}
@@ -2064,25 +2073,26 @@ function SolidezCard({total,cw,port,metaMensalIF,setTab,fB,hideVal,dataNasciment
             )
           ),
 
-          // ===== DIMENSAO 2: RENDA =====
+          // ===== DIMENSAO 2: CAPACIDADE MAXIMA SUSTENTAVEL =====
           h("div",{style:{marginBottom:9,padding:"9px 11px",background:"rgba(247,147,26,0.08)",borderLeft:"3px solid #F7931A",borderRadius:"0 4px 4px 0"}},
-            h("div",{style:{fontSize:9,letterSpacing:1.2,color:"#F7931A",fontFamily:"monospace",fontWeight:700,marginBottom:6}},"\u{1F525} 2. RENDA ICR-RTE (25%)"),
+            h("div",{style:{fontSize:9,letterSpacing:1.2,color:"#F7931A",fontFamily:"monospace",fontWeight:700,marginBottom:6}},"\u{1F525} 2. CAPACIDADE MAXIMA SUSTENTAVEL (22%)"),
 
             // O conceito
             h("p",{style:{margin:"0 0 7px"}},
               h("strong",{style:{color:"#F7931A"}},"\u{1F4D6} O CONCEITO: "),
-              "Enquanto Tamanho mede o ",h("em",{},"estoque")," (quanto voc\u00ea tem), Renda mede o ",h("em",{},"fluxo")," (quanto pode sacar mensalmente sem corroer o principal). ",h("strong",{},"ICR-RTE = Renda Total Estrategica")," - combina dividendos l\u00edquidos recorrentes (sem vender nada) + saque sustent\u00e1vel de 4% ao ano sobre classes nao-motoras. Esse \u00e9 o n\u00famero que importa para FIRE: ",h("strong",{},"quanto sai do portfolio no seu bolso por m\u00eas"),"."
+              "Enquanto Tamanho mede o ",h("em",{},"estoque")," (quanto voc\u00ea tem), esta dimens\u00e3o mede o ",h("em",{},"fluxo m\u00e1ximo sustent\u00e1vel")," (quanto o portfolio gera por m\u00eas preservando os motores e consumindo gradualmente as classes n\u00e3o-motoras). \u00c9 a m\u00e9trica de IF: ",h("strong",{},"se voce parasse de aportar hoje, quanto sairia do portfolio no seu bolso"),"."
             ),
 
             // Composicao
             h("p",{style:{margin:"0 0 7px"}},
               h("strong",{style:{color:"#F7931A"}},"\u{1F9EE} COMO E COMPOSTA: "),
-              "duas pernas somadas:"
+              "tr\u00eas pernas somadas:"
             ),
             h("div",{style:{padding:"7px 9px",background:"rgba(0,0,0,0.22)",borderRadius:3,fontSize:8.5,lineHeight:1.7,marginBottom:7}},
-              h("div",{},h("span",{style:{color:"#4CAF82",fontWeight:700}},"(A) DIVIDENDOS LIQUIDOS"),": de TODAS as classes que pagam (FII isento, Infra isento, Agro isento, Selic com IR 15%, Treasuries com IR 30%+c\u00e2mbio, REITs 30%, A\u00e7\u00f5es BR e EXT)."),
-              h("div",{},h("span",{style:{color:"#5B8FD4",fontWeight:700}},"(B) SWR 4% AO ANO"),": aplicado APENAS sobre classes ",h("strong",{},"n\u00e3o-motoras")," (Selic, Treasuries, NTN-B, REITs, A\u00e7\u00f5es, BTC, Ouro). Esse 4% e a fra\u00e7\u00e3o que voce vende anualmente para complementar a renda."),
-              h("div",{style:{marginTop:3,fontStyle:"italic",color:"#9A9080"}},h("strong",{},"Motores preservados"),": FII + Infra + Agro NAO sofrem SWR - eles s\u00e3o ",h("em",{},"motores de renda perpetua")," (DY 8-10% isento, com crescimento real). Voce vive dos dividendos deles ",h("em",{},"sem nunca vender"),".")
+              h("div",{},h("span",{style:{color:"#4CAF82",fontWeight:700}},"(A) RENDA MOTORA"),": dividendos l\u00edquidos PERP\u00c9TUOS de FII + Infra + Agro. Principal sempre intacto - voc\u00ea vive disso ",h("em",{},"sem nunca vender"),". Usa renda OBSERVADA (input mensal) se houver hist\u00f3rico, ou yields te\u00f3ricos caso contr\u00e1rio."),
+              h("div",{},h("span",{style:{color:"#5B8FD4",fontWeight:700}},"(B) RENDA CONSUMIVEIS"),": dividendos l\u00edquidos das classes n\u00e3o-motoras (A\u00e7\u00f5es BR, REITs, Stocks/Exterior, Selic, NTN-B). Pagam dividendos enquanto voc\u00ea os possui."),
+              h("div",{},h("span",{style:{color:"#C8A96E",fontWeight:700}},"(C) SWR SOBRE CONSUMIVEIS"),": consumo gradual do principal das n\u00e3o-motoras (",(SWR_AJUSTADO*100).toFixed(2),"% ao ano sobre o valor). Voc\u00ea ",h("em",{},"vende uma fra\u00e7\u00e3o"),' dessas classes a cada ano para complementar a renda. Inclui Modelo B refinado: se a renda auxiliar observada (a\u00e7\u00f5es BR + exterior) > SWR te\u00f3rico, usa a renda observada.'),
+              h("div",{style:{marginTop:3,fontStyle:"italic",color:"#9A9080"}},h("strong",{},"Im\u00f3veis f\u00edsicos exclu\u00eddos"),": il\u00edquidos, n\u00e3o entram no consumo gradual.")
             ),
 
             // ===== TABELA DINAMICA - VALORES MENSAIS =====
@@ -2113,18 +2123,19 @@ function SolidezCard({total,cw,port,metaMensalIF,setTab,fB,hideVal,dataNasciment
               // Diagnostico
               h("div",{style:{marginTop:7,padding:"6px 8px",background:"rgba(0,0,0,0.25)",borderRadius:3,fontSize:8.5,lineHeight:1.55,color:"#C8C0B0"}},
                 h("strong",{style:{color:"#E8C44A"}},"\u{1F4CD} SEU CASO ("+coberturaPct.toFixed(0)+"%): "),
-                "seu portfolio gera ",h("strong",{},hideVal?"\u2022\u2022\u2022":"R$ "+(rendaRTE/12).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g,".")+"/m\u00eas")," contra meta de ",h("strong",{},"R$ "+(metaMensalIF/1000).toFixed(1)+"k/m\u00eas"),
-                coberturaPct>=150?". J\u00e1 cobre com folga plena - voce pode continuar acumulando livremente sem pressao de gera\u00e7\u00e3o de caixa.":
+                "seu portfolio gera capacidade m\u00e1xima de ",h("strong",{},hideVal?"\u2022\u2022\u2022":"R$ "+(rendaRTE/12).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g,".")+"/m\u00eas")," contra meta de ",h("strong",{},"R$ "+(metaMensalIF/1000).toFixed(1)+"k/m\u00eas"),
+                coberturaPct>=150?". J\u00e1 cobre com folga plena - independ\u00eancia financeira atingida com seguran\u00e7a.":
                 coberturaPct>=120?". J\u00e1 cobre com folga modesta - sustent\u00e1vel mas sem cushion grande contra surpresas.":
-                coberturaPct>=100?". Cobre apertado - margem zero. Necessario consolidar antes de depender exclusivamente dele.":
-                ". Ainda h\u00e1 deficit - a renda total e menor que sua meta de gasto. Continuar acumulando ate atingir cobertura."
+                coberturaPct>=100?". Cobre apertado - margem zero. Necess\u00e1rio consolidar antes de depender exclusivamente do portfolio.":
+                ". Ainda h\u00e1 d\u00e9ficit - continuar acumulando at\u00e9 atingir cobertura."
               )
             ),
 
-            // Por que SWR de 4% aqui (vs 5%/3.5%/2.5% em Tamanho)
+            // SWR ajustado por horizonte
             h("p",{style:{margin:"5px 0 0",fontSize:8.5,fontStyle:"italic",color:"#9A9080"}},
-              h("strong",{},"Por que SWR 4% aqui (vs 5% do FIRE basico BR)? "),
-              "ICR-RTE usa o SWR canonico do Trinity Study (4%) como ",h("em",{},"padr\u00e3o conservador universal")," para projetar renda perpetua. As faixas de tamanho (5%/3.5%/2.5%) refletem ",h("em",{},"horizontes de tempo diferentes"),"; mas o SWR 4% e o consenso academico para FIRE sustent\u00e1vel em 30 anos com confianca estat\u00edstica alta."
+              h("strong",{},"SWR ajustado por horizonte ("+(SWR_AJUSTADO*100).toFixed(2)+"% para "+fireCal.horizonte+" anos): "),
+              "para horizontes maiores que 30 anos (Trinity Study), o SWR seguro \u00e9 menor. A calibra\u00e7\u00e3o cient\u00edfica ja embute prote\u00e7\u00e3o inflacion\u00e1ria de longo prazo - n\u00e3o \u00e9 necess\u00e1rio inflar a meta. ",
+              "Voc\u00ea aos "+(fireCal.idade||"X")+"a tem horizonte de "+fireCal.horizonte+"a, da\u00ed o SWR "+(SWR_AJUSTADO*100).toFixed(2)+"%."
             )
           ),
 
@@ -6653,7 +6664,7 @@ function App(){
       // Replica EXATAMENTE a logica do SolidezCard do dashboard.
       // 5 dimensoes com pesos diferenciados (22/22/22/17/17):
       //   - Tamanho (22%) - calibrado por horizonte de vida
-      //   - Renda ICR-RTE (22%) - SWR ajustado por idade
+      //   - Capacidade Maxima Sustentavel (22%) - motora + dividendos consumiveis + SWR_EF
       //   - Resiliencia (22%) - hibrida: 70% drawdown stress + 30% blindagem cambial
       //   - Diversificacao (17%) - correlacao media ponderada
       //   - Blindagem Cambial (17%) - hedge estrutural contra crises BR
@@ -6687,20 +6698,25 @@ function App(){
       else if(multFIRE_TQ<=fireCal_TQ.fat)scoreTamanho_TQ=80+(multFIRE_TQ-fireCal_TQ.seguro)*(20/(fireCal_TQ.fat-fireCal_TQ.seguro));
       else scoreTamanho_TQ=100;
       scoreTamanho_TQ=Math.max(0,Math.min(100,scoreTamanho_TQ));
-      // DIMENSAO 2: Renda ICR-RTE (motora + max(renda_auxiliar_observada, SWR sobre nao-motoras))
-      let rendaPassivaLiq_TQ=0,capitalNaoMotor_TQ=0;
+      // DIMENSAO 2: CAPACIDADE MAXIMA SUSTENTAVEL (motora + dividendos consumiveis + SWR_EF sobre consumiveis)
+      let rendaMotoraAnual_TQ=0,rendaConsumiveisAnual_TQ=0,valorConsumiveis_TQ=0;
       MPT_CLS.forEach(cid=>{
         const v=total*((cw[cid]||0)/100);
         if(v<=0)return;
+        const yLiq=yieldEfetivoLiq(cid,"base",rendaMotoraHist);
         if(FUNDOS_RENDA_MOTORES.includes(cid)){
-          const yLiq=yieldEfetivoLiq(cid,"base",rendaMotoraHist);
-          rendaPassivaLiq_TQ+=v*yLiq;
+          rendaMotoraAnual_TQ+=v*yLiq;
+        }else if(cid!=="imoveis"){
+          rendaConsumiveisAnual_TQ+=v*yLiq;
+          valorConsumiveis_TQ+=v;
         }
-        if(cid!=="imoveis"&&!FUNDOS_RENDA_MOTORES.includes(cid))capitalNaoMotor_TQ+=v;
       });
-      const naoMotorEf_TQ=rendaNaoMotoraEfetiva(rendaAuxiliarHist,FX,capitalNaoMotor_TQ,SWR_AJ_TQ);
-      const swrLiq_TQ=naoMotorEf_TQ.rendaAnual;
-      const rendaRTE_TQ=rendaPassivaLiq_TQ+swrLiq_TQ;
+      const SWR_EF_TQ=swrEfetivoNaoMotor(rendaAuxiliarHist,FX,valorConsumiveis_TQ,SWR_AJ_TQ);
+      const swrSobreConsumiveis_TQ=valorConsumiveis_TQ*SWR_EF_TQ;
+      const capMaxAnual_TQ=rendaMotoraAnual_TQ+rendaConsumiveisAnual_TQ+swrSobreConsumiveis_TQ;
+      const rendaRTE_TQ=capMaxAnual_TQ;// nome legado mantido para compat
+      const rendaPassivaLiq_TQ=rendaMotoraAnual_TQ+rendaConsumiveisAnual_TQ;
+      const swrLiq_TQ=swrSobreConsumiveis_TQ;
       const coberturaPct_TQ=metaAnualTQ>0?(rendaRTE_TQ/metaAnualTQ)*100:0;
       let scoreRenda_TQ;
       if(coberturaPct_TQ>=150)scoreRenda_TQ=100;
@@ -6988,7 +7004,7 @@ function App(){
         "INDICE COMPOSTO ATUAL: "+indiceTQ.toFixed(0)+"/100 (banda: "+bandaTQ+")\\n"+
         "Esta e a metrica MACRO que sintetiza a qualidade do portfolio em 5 DIMENSOES com pesos DIFERENCIADOS:\\n"+
         "  - TAMANHO (22%): "+scoreTamanho_TQ.toFixed(0)+"/100 ("+dimsTQ[0].valor+", alvo "+dimsTQ[0].alvo+")\\n"+
-        "  - RENDA ICR-RTE (22%): "+scoreRenda_TQ.toFixed(0)+"/100 ("+dimsTQ[1].valor+", alvo "+dimsTQ[1].alvo+")\\n"+
+        "  - CAPACIDADE MAXIMA SUSTENTAVEL (22%): "+scoreRenda_TQ.toFixed(0)+"/100 ("+dimsTQ[1].valor+", alvo "+dimsTQ[1].alvo+")\\n"+
         "  - RESILIENCIA (22%): "+scoreResi_TQ.toFixed(0)+"/100 - HIBRIDA: 70% drawdown ("+scoreResiDD_TQ.toFixed(0)+"/100) + 30% cambial ("+scoreResiCambial_TQ.toFixed(0)+"/100). "+dimsTQ[2].valor+"\\n"+
         "  - DIVERSIFICACAO (17%): "+scoreDiv_TQ.toFixed(0)+"/100 ("+dimsTQ[3].valor+", alvo "+dimsTQ[3].alvo+")\\n"+
         "  - BLINDAGEM CAMBIAL (17%): "+scoreBlindagem_TQ.toFixed(0)+"/100 ("+dimsTQ[4].valor+", alvo "+dimsTQ[4].alvo+")\\n"+
