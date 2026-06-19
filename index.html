@@ -527,6 +527,106 @@ function rendaPassivaIcrComAuxiliar(valorClasse,YieldClasseLocal,IR_DIV_LOCAL,re
   return total;
 }
 
+// Variante DECOMPOSTA do helper acima (mesmo modelo B granular, mas retorna decomposicao).
+// Util para SolidezCard e calcCapMax que precisam separar motora vs consumiveis nos cards.
+// Retorna: {motora, consumiveis, total, detalhes:{motoresPorClasse, consumiveisPorClasse}}
+function rendaPassivaIcrComAuxiliarDecomp(valorClasse,YieldClasseLocal,IR_DIV_LOCAL,rendaMotoraHist,rendaAuxiliarHist,fxAtual,cresRendaPow){
+  // Yields observados auxiliares (anualizados em BRL)
+  const auxObs=rendaAuxiliarObservada(rendaAuxiliarHist,fxAtual);
+  const auxBrAnual=auxObs?auxObs.brMedio*12:0;
+  const auxExtAnual=auxObs?auxObs.totalExteriorBrlMedio*12:0;
+  // Bloco BR teorico
+  let teoricoBrAnual=0;
+  const detalhesBR={};
+  CLASSES_AUX_BR.forEach(cid=>{
+    const v=valorClasse[cid]||0;
+    if(v<=0){detalhesBR[cid]={v:0,teorico:0};return;}
+    const yc=YieldClasseLocal[cid];if(!yc){detalhesBR[cid]={v,teorico:0};return;}
+    const ir=IR_DIV_LOCAL[cid]||0;
+    const yBruto=yc.base||0;
+    const fator=cresRendaPow&&cresRendaPow[cid]?cresRendaPow[cid]:1;
+    const t=v*yBruto*(1-ir)*fator;
+    teoricoBrAnual+=t;
+    detalhesBR[cid]={v,teorico:t};
+  });
+  // Bloco Exterior teorico
+  let teoricoExtAnual=0;
+  const detalhesEXT={};
+  CLASSES_AUX_EXT.forEach(cid=>{
+    const v=valorClasse[cid]||0;
+    if(v<=0){detalhesEXT[cid]={v:0,teorico:0};return;}
+    const yc=YieldClasseLocal[cid];if(!yc){detalhesEXT[cid]={v,teorico:0};return;}
+    const ir=IR_DIV_LOCAL[cid]||0;
+    const yBruto=yc.base||0;
+    const fator=cresRendaPow&&cresRendaPow[cid]?cresRendaPow[cid]:1;
+    const t=v*yBruto*(1-ir)*fator;
+    teoricoExtAnual+=t;
+    detalhesEXT[cid]={v,teorico:t};
+  });
+  // Crescimento medio observado nos blocos (aplicado ao aux)
+  const fatorMedioBR=cresRendaPow&&CLASSES_AUX_BR.length>0?
+    CLASSES_AUX_BR.reduce((s,cid)=>s+(cresRendaPow[cid]||1),0)/CLASSES_AUX_BR.length:1;
+  const fatorMedioEXT=cresRendaPow&&CLASSES_AUX_EXT.length>0?
+    CLASSES_AUX_EXT.reduce((s,cid)=>s+(cresRendaPow[cid]||1),0)/CLASSES_AUX_EXT.length:1;
+  // max() por bloco
+  const auxBrEscalada=auxBrAnual*fatorMedioBR;
+  const auxExtEscalada=auxExtAnual*fatorMedioEXT;
+  const rendaBR=Math.max(auxBrEscalada,teoricoBrAnual);
+  const rendaEXT=Math.max(auxExtEscalada,teoricoExtAnual);
+  const fonteBR=auxBrEscalada>=teoricoBrAnual?"aux":"teor";
+  const fonteEXT=auxExtEscalada>=teoricoExtAnual?"aux":"teor";
+  // Para decomposicao por classe dentro do bloco, distribui proporcional ao teorico
+  // (quando aux vence, escala cada classe do bloco pelo fator aux/teor)
+  const ajusteBR=teoricoBrAnual>0?rendaBR/teoricoBrAnual:0;
+  const ajusteEXT=teoricoExtAnual>0?rendaEXT/teoricoExtAnual:0;
+  // Soma decomposta por classe
+  const consumiveisPorClasse={};
+  CLASSES_AUX_BR.forEach(cid=>{
+    const t=detalhesBR[cid]?detalhesBR[cid].teorico:0;
+    consumiveisPorClasse[cid]=t*ajusteBR;
+  });
+  CLASSES_AUX_EXT.forEach(cid=>{
+    const t=detalhesEXT[cid]?detalhesEXT[cid].teorico:0;
+    consumiveisPorClasse[cid]=t*ajusteEXT;
+  });
+  // Motoras (usa yieldEfetivoLiq que ja incorpora observada)
+  let motora=0;
+  const motoresPorClasse={};
+  FUNDOS_RENDA_MOTORES.forEach(cid=>{
+    const v=valorClasse[cid]||0;
+    if(v<=0){motoresPorClasse[cid]=0;return;}
+    const yLiq=yieldEfetivoLiq(cid,"base",rendaMotoraHist);
+    const fator=cresRendaPow&&cresRendaPow[cid]?cresRendaPow[cid]:1;
+    const r=v*yLiq*fator;
+    motora+=r;
+    motoresPorClasse[cid]=r;
+  });
+  // Outras nao-motoras nao-bloco (Selic, NTN-B, BTC, Ouro, imoveis): teorico puro
+  let outras=0;
+  Object.keys(valorClasse).forEach(cid=>{
+    if(FUNDOS_RENDA_MOTORES.includes(cid))return;
+    if(CLASSES_AUX_BR.includes(cid)||CLASSES_AUX_EXT.includes(cid))return;
+    const v=valorClasse[cid]||0;
+    if(v<=0){consumiveisPorClasse[cid]=0;return;}
+    const yc=YieldClasseLocal[cid];if(!yc){consumiveisPorClasse[cid]=0;return;}
+    const ir=IR_DIV_LOCAL[cid]||0;
+    const yBruto=yc.base||0;
+    const fator=cresRendaPow&&cresRendaPow[cid]?cresRendaPow[cid]:1;
+    const r=v*yBruto*(1-ir)*fator;
+    outras+=r;
+    consumiveisPorClasse[cid]=r;
+  });
+  const consumiveis=rendaBR+rendaEXT+outras;
+  return {
+    motora,
+    consumiveis,
+    total:motora+consumiveis,
+    rendaBR,rendaEXT,outras,
+    fonteBR,fonteEXT,
+    detalhes:{motoresPorClasse,consumiveisPorClasse}
+  };
+}
+
 // =====================================================================
 // PTAX BCB - cotacoes oficiais de fechamento por moeda
 // =====================================================================
@@ -1745,33 +1845,27 @@ function SolidezCard({total,cw,port,metaMensalIF,setTab,fB,hideVal,dataNasciment
     // NOVA METRICA (substitui ICR-RTE): mede a capacidade MAXIMA de geracao de renda
     // permitindo consumo gradual das classes nao-motoras enquanto preserva os motores.
     // Formula: capMax = Renda Motora (dividendos puros, perpetuos) 
-    //                 + Renda Consumiveis (dividendos das nao-motoras)
-    //                 + SWR_EF * valor_Consumiveis (consumo gradual do principal)
-    // SWR_EF ja incorpora o Modelo B refinado: max(renda_auxiliar_observada, SWR teorico)
+    //                 + Renda Consumiveis (dividendos das nao-motoras com Modelo B GRANULAR)
+    //                 + SWR teorico * valor_Consumiveis (consumo gradual do principal)
+    // MODELO B GRANULAR: max(aux_BR, teor_BR) + max(aux_EXT, teor_EXT) separados (igual ICR-RTE)
+    // SWR usa taxa teorica pura aqui (aux ja incorporada nos dividendos via max - evita double-count)
     // O SWR ajustado por horizonte (3.31% para 50a) JA EMBUTE a protecao inflacionaria
     // de longo prazo, portanto comparamos diretamente com meta atual (sem inflar).
     const SWR_AJUSTADO=fireCal.swr;// SWR calibrado por horizonte
-    let rendaMotoraAnual=0;        // dividendos perpetuos dos motores (FII/Infra/Agro)
-    let rendaConsumiveisAnual=0;   // dividendos das nao-motoras (acoes BR, REITs, exterior)
-    let valorConsumiveis=0;        // capital nao-motor + nao-imoveis (consumivel via SWR)
+    // Constroi valorClasse local para o helper
+    const valorClasseSolidez={};
+    let valorConsumiveis=0;
     MPT_CLS.forEach(cid=>{
-      const v=total*((cw[cid]||0)/100);// valor da classe em BRL
-      if(v<=0)return;
-      const yLiq=yieldEfetivoLiq(cid,"base",rendaMotoraHist);
-      if(FUNDOS_RENDA_MOTORES.includes(cid)){
-        // Motor: APENAS dividendos (principal sempre intacto)
-        rendaMotoraAnual+=v*yLiq;
-      }else if(cid!=="imoveis"){
-        // Consumivel: dividendos + capital pode ser consumido via SWR
-        rendaConsumiveisAnual+=v*yLiq;
-        valorConsumiveis+=v;
-      }
-      // imoveis fisicos sao excluidos (iliquidos)
+      const v=total*((cw[cid]||0)/100);
+      valorClasseSolidez[cid]=v;
+      if(v>0&&cid!=="imoveis"&&!FUNDOS_RENDA_MOTORES.includes(cid))valorConsumiveis+=v;
     });
-    // SWR EFETIVO: incorpora renda auxiliar observada via max(aux, SWR teorico)
-    // Aplicado apenas sobre o EXCEDENTE entre aux e SWR teorico (para nao double-count com dividendos consumiveis)
-    const SWR_EF_SOLIDEZ=swrEfetivoNaoMotor(rendaAuxiliarHist,FX,valorConsumiveis,SWR_AJUSTADO);
-    const swrSobreConsumiveis=valorConsumiveis*SWR_EF_SOLIDEZ;
+    // Decompoe renda passiva (Modelo B granular por bloco BR/Exterior)
+    const decompSolidez=rendaPassivaIcrComAuxiliarDecomp(valorClasseSolidez,YIELD_CLASSE,IR_DIV,rendaMotoraHist,rendaAuxiliarHist,FX,null);
+    const rendaMotoraAnual=decompSolidez.motora;
+    const rendaConsumiveisAnual=decompSolidez.consumiveis;
+    // SWR sobre consumiveis com taxa TEORICA PURA (aux ja embutida nos consumiveis via max)
+    const swrSobreConsumiveis=valorConsumiveis*SWR_AJUSTADO;
     // Capacidade maxima sustentavel anual
     const capMaxAnualSolidez=rendaMotoraAnual+rendaConsumiveisAnual+swrSobreConsumiveis;
     // Para uso em renders subsequentes (variaveis legadas mapeadas)
@@ -2174,9 +2268,9 @@ function SolidezCard({total,cw,port,metaMensalIF,setTab,fB,hideVal,dataNasciment
               "tr\u00eas pernas somadas:"
             ),
             h("div",{style:{padding:"7px 9px",background:"rgba(0,0,0,0.22)",borderRadius:3,fontSize:8.5,lineHeight:1.7,marginBottom:7}},
-              h("div",{},h("span",{style:{color:"#4CAF82",fontWeight:700}},"(A) RENDA MOTORA"),": dividendos l\u00edquidos PERP\u00c9TUOS de FII + Infra + Agro. Principal sempre intacto - voc\u00ea vive disso ",h("em",{},"sem nunca vender"),". Usa renda OBSERVADA (input mensal) se houver hist\u00f3rico, ou yields te\u00f3ricos caso contr\u00e1rio."),
-              h("div",{},h("span",{style:{color:"#5B8FD4",fontWeight:700}},"(B) RENDA CONSUMIVEIS"),": dividendos l\u00edquidos das classes n\u00e3o-motoras (A\u00e7\u00f5es BR, REITs, Stocks/Exterior, Selic, NTN-B). Pagam dividendos enquanto voc\u00ea os possui."),
-              h("div",{},h("span",{style:{color:"#C8A96E",fontWeight:700}},"(C) SWR SOBRE CONSUMIVEIS"),": consumo gradual do principal das n\u00e3o-motoras (",(SWR_AJUSTADO*100).toFixed(2),"% ao ano sobre o valor). Voc\u00ea ",h("em",{},"vende uma fra\u00e7\u00e3o"),' dessas classes a cada ano para complementar a renda. Inclui Modelo B refinado: se a renda auxiliar observada (a\u00e7\u00f5es BR + exterior) > SWR te\u00f3rico, usa a renda observada.'),
+              h("div",{},h("span",{style:{color:"#4CAF82",fontWeight:700}},"(A) RENDA MOTORA"),": dividendos l\u00edquidos PERP\u00c9TUOS de FII + Infra + Agro. Principal sempre intacto - voc\u00ea vive disso ",h("em",{},"sem nunca vender"),". Usa renda OBSERVADA (input mensal, m\u00e9dia 12m) se houver hist\u00f3rico, ou yields te\u00f3ricos caso contr\u00e1rio."),
+              h("div",{},h("span",{style:{color:"#5B8FD4",fontWeight:700}},"(B) RENDA CONSUMIVEIS"),": dividendos l\u00edquidos das n\u00e3o-motoras com ",h("strong",{},"Modelo B granular"),": max(aux_BR_observada, te\u00f3rico BR) + max(aux_Exterior_observada, te\u00f3rico EXT+REITs+Treasuries). Outras (Selic, NTN-B, BTC, Ouro): te\u00f3rico puro. Quando dividendos reais superam te\u00f3ricos, a realidade prevalece."),
+              h("div",{},h("span",{style:{color:"#C8A96E",fontWeight:700}},"(C) SWR SOBRE CONSUMIVEIS"),": consumo gradual do principal das n\u00e3o-motoras (",(SWR_AJUSTADO*100).toFixed(2),"% ao ano - taxa te\u00f3rica pura, aux j\u00e1 incorporada nos dividendos para evitar double-count). Voc\u00ea ",h("em",{},"vende uma fra\u00e7\u00e3o"),' dessas classes a cada ano para complementar.'),
               h("div",{style:{marginTop:3,fontStyle:"italic",color:"#9A9080"}},h("strong",{},"Im\u00f3veis f\u00edsicos exclu\u00eddos"),": il\u00edquidos, n\u00e3o entram no consumo gradual.")
             ),
 
@@ -6783,21 +6877,18 @@ function App(){
       else if(multFIRE_TQ<=fireCal_TQ.fat)scoreTamanho_TQ=80+(multFIRE_TQ-fireCal_TQ.seguro)*(20/(fireCal_TQ.fat-fireCal_TQ.seguro));
       else scoreTamanho_TQ=100;
       scoreTamanho_TQ=Math.max(0,Math.min(100,scoreTamanho_TQ));
-      // DIMENSAO 2: CAPACIDADE MAXIMA SUSTENTAVEL (motora + dividendos consumiveis + SWR_EF sobre consumiveis)
-      let rendaMotoraAnual_TQ=0,rendaConsumiveisAnual_TQ=0,valorConsumiveis_TQ=0;
+      // DIMENSAO 2: CAPACIDADE MAXIMA SUSTENTAVEL (Modelo B GRANULAR: motora + consumiveis com max(aux,teor) por bloco BR/Exterior + SWR teorico sobre consumiveis)
+      const valorClasse_TQ={};
+      let valorConsumiveis_TQ=0;
       MPT_CLS.forEach(cid=>{
         const v=total*((cw[cid]||0)/100);
-        if(v<=0)return;
-        const yLiq=yieldEfetivoLiq(cid,"base",rendaMotoraHist);
-        if(FUNDOS_RENDA_MOTORES.includes(cid)){
-          rendaMotoraAnual_TQ+=v*yLiq;
-        }else if(cid!=="imoveis"){
-          rendaConsumiveisAnual_TQ+=v*yLiq;
-          valorConsumiveis_TQ+=v;
-        }
+        valorClasse_TQ[cid]=v;
+        if(v>0&&cid!=="imoveis"&&!FUNDOS_RENDA_MOTORES.includes(cid))valorConsumiveis_TQ+=v;
       });
-      const SWR_EF_TQ=swrEfetivoNaoMotor(rendaAuxiliarHist,FX,valorConsumiveis_TQ,SWR_AJ_TQ);
-      const swrSobreConsumiveis_TQ=valorConsumiveis_TQ*SWR_EF_TQ;
+      const decomp_TQ=rendaPassivaIcrComAuxiliarDecomp(valorClasse_TQ,YIELD_CLASSE,IR_DIV,rendaMotoraHist,rendaAuxiliarHist,FX,null);
+      const rendaMotoraAnual_TQ=decomp_TQ.motora;
+      const rendaConsumiveisAnual_TQ=decomp_TQ.consumiveis;
+      const swrSobreConsumiveis_TQ=valorConsumiveis_TQ*SWR_AJ_TQ;// SWR teorico puro - aux ja em consumiveis
       const capMaxAnual_TQ=rendaMotoraAnual_TQ+rendaConsumiveisAnual_TQ+swrSobreConsumiveis_TQ;
       const rendaRTE_TQ=capMaxAnual_TQ;// nome legado mantido para compat
       const rendaPassivaLiq_TQ=rendaMotoraAnual_TQ+rendaConsumiveisAnual_TQ;
@@ -13766,25 +13857,28 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
       //   4. SWR 4% sobre classes pagadoras nao-motoras (Selic+Treasuries+NTN-B+REITs+Acoes BR+EXT)
       // O SWR de 4% sobre essas e considerado sustentavel pela regra de Bengen
       const calcCapMax=()=>{
-        let rendaMotores=0;// renda dos FIIs+Infra+Agro (preservados)
-        let rendaConsumiveis=0;// dividendos das classes que aceitam saque
-        let swrSobreConsumiveis=0;// 4% sobre patrim que pode ser sacado sustentavelmente
+        // MODELO B GRANULAR: motora + consumiveis com max(aux, teor) por bloco BR/Exterior + SWR sobre consumiveis
+        // IMPORTANTE: dividendos consumiveis ja incorporam aux observada via max granular.
+        // Para evitar double-count, o SWR aqui usa taxa TEORICA PURA (SWR_BASE), nao SWR_EF.
+        const decomp=rendaPassivaIcrComAuxiliarDecomp(valorClasse,YIELD_CLASSE,IR_DIV,rendaMotoraHist,rendaAuxiliarHist,FX,null);
+        let rendaMotores=decomp.motora;
+        let rendaConsumiveis=decomp.consumiveis;
+        let swrSobreConsumiveis=0;
         const detalhes={motores:[],consumiveis:[]};
+        // Monta detalhes visuais a partir da decomposicao (SWR base teorico para evitar double-count com aux)
         CL.forEach(c=>{
           const v=valorClasse[c.id]||0;
           if(v<=0)return;
-          if(c.id==="imoveis")return;// imoveis fisicos excluidos (iliquidos)
-          const yLiq=yieldEfetivoLiq(c.id,"base",rendaMotoraHist);
-          const rendaLiq=v*yLiq;
+          if(c.id==="imoveis")return;
           if(FUNDOS_RENDA_MOTORES.includes(c.id)){
-            // Motor: usa SOMENTE a renda passiva (nao consome principal)
-            rendaMotores+=rendaLiq;
-            detalhes.motores.push({id:c.id,name:c.name,color:c.color,valor:v,renda:rendaLiq,dy:yLiq});
+            const r=decomp.detalhes.motoresPorClasse[c.id]||0;
+            const dy=v>0?r/v:0;
+            detalhes.motores.push({id:c.id,name:c.name,color:c.color,valor:v,renda:r,dy});
           }else{
-            // Consumivel: renda passiva + SWR 4% sobre o principal
-            rendaConsumiveis+=rendaLiq;
-            swrSobreConsumiveis+=v*SWR_EF;// SWR efetivo incorpora renda auxiliar via max
-            detalhes.consumiveis.push({id:c.id,name:c.name,color:c.color,valor:v,renda:rendaLiq,swr:v*SWR_EF,total:rendaLiq+v*SWR_EF});
+            const r=decomp.detalhes.consumiveisPorClasse[c.id]||0;
+            const swrI=v*SWR;// SWR teorico puro - aux ja incorporada nos dividendos via max
+            swrSobreConsumiveis+=swrI;
+            detalhes.consumiveis.push({id:c.id,name:c.name,color:c.color,valor:v,renda:r,swr:swrI,total:r+swrI});
           }
         });
         const totalAnual=rendaMotores+rendaConsumiveis+swrSobreConsumiveis;
@@ -13795,6 +13889,8 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           rendaConsumiveis,
           swrSobreConsumiveis,
           detalhes,
+          fonteBR:decomp.fonteBR,
+          fonteEXT:decomp.fonteEXT,
           // Patrimonio preservado nos motores
           patrimMotores:FUNDOS_RENDA_MOTORES.reduce((s,id)=>s+(valorClasse[id]||0),0),
           patrimConsumiveis:CL.filter(c=>!FUNDOS_RENDA_MOTORES.includes(c.id)&&c.id!=="imoveis").reduce((s,c)=>s+(valorClasse[c.id]||0),0)
