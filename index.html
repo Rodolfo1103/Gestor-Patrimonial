@@ -5059,7 +5059,41 @@ function App(){
           }));
           setAportesSimples(sanitizado.sort((a,b)=>a.date.localeCompare(b.date)));
         }
-        if(Array.isArray(dd.histMensal))setHistMensal(dd.histMensal);
+        // Carrega histMensal e migra/reconstroi a partir de hist se necessario
+        let histMensalLoaded=Array.isArray(dd.histMensal)?dd.histMensal:[];
+        // Migracao: se histMensal vazio (ou unico mes) mas hist tem dados validos,
+        // reconstruir histMensal pegando o ultimo snapshot de cada mes em hist
+        if(Array.isArray(dd.hist)&&dd.hist.length>0){
+          const mesesEmHistMensal=new Set(histMensalLoaded.map(r=>{
+            try{const d=new Date(r.date);return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");}catch{return null;}
+          }).filter(Boolean));
+          // Agrupa hist por mes-calendario e pega o snapshot mais recente de cada mes
+          const byMonthHist={};
+          dd.hist.forEach(r=>{
+            if(!r||!r.date||!(r.totalPatrimBRL>0))return;
+            try{
+              const d=new Date(r.date);
+              const k=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");
+              // Mantem o snapshot mais recente do mes
+              if(!byMonthHist[k]||new Date(r.date)>new Date(byMonthHist[k].date)){
+                byMonthHist[k]={...r,mesKey:k};
+              }
+            }catch{}
+          });
+          // Adiciona ao histMensal apenas os meses que ele ainda nao tem
+          let migrouAlgumMes=false;
+          Object.entries(byMonthHist).forEach(([k,snap])=>{
+            if(!mesesEmHistMensal.has(k)){
+              histMensalLoaded.push(snap);
+              migrouAlgumMes=true;
+            }
+          });
+          if(migrouAlgumMes){
+            histMensalLoaded.sort((a,b)=>new Date(a.date)-new Date(b.date));
+            console.log("histMensal reconstruido: "+histMensalLoaded.length+" meses recuperados de hist");
+          }
+        }
+        if(histMensalLoaded.length>0)setHistMensal(histMensalLoaded);
         // Carrega caixa cambial (estrutura dinamica: aceita qualquer moeda ISO)
         // Migracao: o campo legado "OUT" (que armazenava em USD equivalente) NAO e mais usado;
         // se aparecer dado legado, ele e descartado pois nao temos como saber qual moeda especifica.
