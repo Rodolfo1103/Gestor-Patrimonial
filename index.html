@@ -15203,7 +15203,9 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           // META INFLADA (poder de compra futuro, projetado para horizonte do investidor)
           // Usa horizonte estimado de aposentadoria/independencia plena (50 anos para 39a)
           // IPCA cenarios para horizonte longo
-          const horizonteAnos=fireCal&&fireCal.horizonte?fireCal.horizonte:50;
+          const fireCalRenda=calibracoesFIRE(idadeAtual);
+          const horizonteAnos=fireCalRenda&&fireCalRenda.horizonte?fireCalRenda.horizonte:50;
+          const swrAjustadoRenda=fireCalRenda&&fireCalRenda.swr?fireCalRenda.swr:0.04;
           const metaInflBase=metaMensalIF*Math.pow(1.055,horizonteAnos);// IPCA base 5,5%
           const metaInflOti=metaMensalIF*Math.pow(1.03,horizonteAnos);// IPCA otimista 3%
           const metaInflPes=metaMensalIF*Math.pow(1.085,horizonteAnos);// IPCA pessimista 8,5%
@@ -15257,7 +15259,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             idade_motores_intocados_pessimista:rtePes.horizonteAteFII==="indefinido"?"perpetuidade":idadeAtual+rtePes.horizonteAteFII,
             // Premissas
             ipca_cenarios:{otimista:0.03,base:0.055,pessimista:0.085},
-            swr_ajustado_por_horizonte_pct:Number((fireCal.swr*100).toFixed(2))
+            swr_ajustado_por_horizonte_pct:Number((swrAjustadoRenda*100).toFixed(2))
           };
           // Quando IA gerou texto
           const tsFormatado=insightRendaTs?(()=>{
