@@ -7809,6 +7809,8 @@ function App(){
     try{
       // ===== Monta contexto: tickers por classe (restrito ao portfolio) =====
       // ID real da classe NTN-B no app e "rfipca" (nao "ntn_b")
+      // ELEGIBILIDADE: ativos cadastrados no port com classe na lista elegivel, independente de qty/peso.
+      // Mesmo ativos com qty=0 sao elegiveis para estudo (investidor cadastrou pq quer aportar futuramente).
       const classesElegiveis=["acoes_br","acoes_ext","fii","reits","treasuries","infra","agro","rfipca"];
       // Mapeia tickers do portfolio por classe (com peso atual e valor)
       // FILTRO CRITICO: exclui tickers que ja estao em >=5% do patrimonio total (regra dura do investidor)
@@ -7820,11 +7822,13 @@ function App(){
         if(!classesElegiveis.includes(cid))return;
         // pv precisa de ntnbTaxas e ntnbVNA para NTN-B funcionar corretamente
         const v=pv(t,p,ccy,ntnbTaxas,ntnbVNA);
-        if(v<=0)return;
-        const pesoNaClasse=cw[cid]>0?(v/(total*(cw[cid]/100)))*100:0;
-        const pesoNoTotalNum=total>0?(v/total)*100:0;
-        // FILTRO 5%: exclui ativos ja em ou acima de 5% do patrimonio
-        if(pesoNoTotalNum>=5){
+        // NAO filtra por v<=0: ativo cadastrado (mesmo sem posicao) e elegivel para estudo
+        // (investidor pode estar estudando para fazer o primeiro aporte)
+        const temPosicao=v>0;
+        const pesoNaClasse=temPosicao&&cw[cid]>0?(v/(total*(cw[cid]/100)))*100:0;
+        const pesoNoTotalNum=temPosicao&&total>0?(v/total)*100:0;
+        // FILTRO 5%: exclui ativos ja em ou acima de 5% do patrimonio (so se ha posicao)
+        if(temPosicao&&pesoNoTotalNum>=5){
           if(!tickersExcluidosPor5pct[cid])tickersExcluidosPor5pct[cid]=[];
           tickersExcluidosPor5pct[cid].push({ticker:t,pesoNoTotal:pesoNoTotalNum.toFixed(2)+"%"});
           return;// nao adiciona ao tickersPorClasse
@@ -7838,8 +7842,8 @@ function App(){
           precoAtual:ult&&typeof ult.p==="number"?ult.p:0,
           moeda:ccy[t]||"BRL",
           valorBrl:v,
-          pesoNaClasse:pesoNaClasse.toFixed(1)+"%",
-          pesoNoTotal:pesoNoTotalNum.toFixed(2)+"%"
+          pesoNaClasse:temPosicao?pesoNaClasse.toFixed(1)+"%":"sem posicao",
+          pesoNoTotal:temPosicao?pesoNoTotalNum.toFixed(2)+"%":"0% (cadastro sem aporte)"
         });
       });
       // So mantem classes que efetivamente tem tickers ELEGIVEIS apos filtro
@@ -17119,7 +17123,6 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         const classesElegiveis=["acoes_br","acoes_ext","fii","reits","treasuries","infra","agro","rfipca"];
         const tickersPorClasse={};
         const excluidos5pct={};
-        const tickersZerados={};// p.qty=0 ou p.price=0 ou pv=0
         const tickersClasseErrada={};// ticker existe mas cls[t] retorna outra coisa
         const totalLocal=total||0;
         // Varre TODOS os tickers do portfolio (independente de classe) para diagnostico completo
@@ -17135,22 +17138,18 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             tickersClasseErrada["sem_classe"].push(t+" (qty="+(p.qty||0)+",price="+(p.price||0)+")");
             return;
           }
-          // Ticker com valor zero ou negativo (qty zero, price zero, ou outro problema)
-          if(v<=0){
-            if(!tickersZerados[cid])tickersZerados[cid]=[];
-            tickersZerados[cid].push(t+" (qty="+(p.qty||0)+",price="+(p.price||0)+",pv="+v+")");
-            return;
-          }
-          const pesoNoTotalNum=totalLocal>0?(v/totalLocal)*100:0;
-          if(pesoNoTotalNum>=5){
+          // ELEGIBILIDADE: cadastrado e tem classe -> e elegivel (mesmo sem posicao)
+          const temPosicao=v>0;
+          const pesoNoTotalNum=temPosicao&&totalLocal>0?(v/totalLocal)*100:0;
+          if(temPosicao&&pesoNoTotalNum>=5){
             if(!excluidos5pct[cid])excluidos5pct[cid]=[];
             excluidos5pct[cid].push(t+" ("+pesoNoTotalNum.toFixed(2)+"%)");
             return;
           }
           if(!tickersPorClasse[cid])tickersPorClasse[cid]=[];
-          tickersPorClasse[cid].push(t+" ("+pesoNoTotalNum.toFixed(2)+"%)");
+          tickersPorClasse[cid].push(t+(temPosicao?" ("+pesoNoTotalNum.toFixed(2)+"%)":" (cadastro/sem aporte)"));
         });
-        // Detecta classes que tem peso (cw[cid]>0) mas zero tickers elegiveis
+        // Detecta classes que tem peso (cw[cid]>0) mas zero tickers elegiveis (cenario raro: posicao zerada apos filtro)
         const classesComPesoSemTickers=classesElegiveis.filter(cid=>{
           const temPeso=(cw[cid]||0)>0;
           const temElegivel=!!tickersPorClasse[cid];
@@ -17167,16 +17166,11 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           if(tickersPorClasse[cid]){
             relatorio+="\u2713 "+nb+" ("+peso+"% no port): "+tickersPorClasse[cid].length+" elegivel(eis)\n";
             relatorio+="  "+tickersPorClasse[cid].join(", ")+"\n";
-          }else if(tickersZerados[cid]){
-            relatorio+="\u26A0 "+nb+" ("+peso+"% no port): SEM ELEGIVEIS - tickers com valor zero/erro\n";
-            relatorio+="  zerados: "+tickersZerados[cid].join(", ")+"\n";
           }else if(excluidos5pct[cid]){
             relatorio+="\u26A0 "+nb+" ("+peso+"% no port): SEM ELEGIVEIS - todos >=5%\n";
             relatorio+="  excluidos: "+excluidos5pct[cid].join(", ")+"\n";
-          }else if((cw[cid]||0)>0){
-            relatorio+="\u26A0 "+nb+" ("+peso+"% no port): peso>0 mas sem tickers no portfolio cadastrado\n";
           }else{
-            relatorio+="\u2717 "+nb+": classe vazia (peso 0)\n";
+            relatorio+="\u2717 "+nb+": sem ativos cadastrados nesta classe\n";
           }
         });
         if(Object.keys(tickersClasseErrada).length>0){
@@ -17194,7 +17188,6 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         console.log("port:",port);
         console.log("cls:",cls);
         console.log("tickersPorClasse (elegivel):",tickersPorClasse);
-        console.log("tickersZerados:",tickersZerados);
         console.log("excluidos5pct:",excluidos5pct);
         console.log("tickersClasseErrada:",tickersClasseErrada);
         console.log("cw (pesos por classe):",cw);
