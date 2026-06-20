@@ -5087,6 +5087,8 @@ function App(){
   // {ts, versaoPortfolio, proximaJanelaAporte, candidatos:[{classe,ticker,precoAtual,metricas:[],teseResumida,precoTeto,precoIdeal,catalisadores:[],riscos:[],confianca}], observacaoGlobal, erro}
   const [ativosEmEstudo,setAtivosEmEstudo]=useState(null);
   const [ativosEmEstudoLoad,setAtivosEmEstudoLoad]=useState(false);
+  // Historico de taxas NTN-B: snapshots [{ts, mediaBruta, taxasIndiv:{venc:taxaBruta}}] - construido a cada update
+  const [ntnbHistoricoTaxas,setNtnbHistoricoTaxas]=useState([]);
   const [histMensal,setHistMensal]=useState([]);// snapshots consolidados por mes (1 por mes, sem limite)
   // ====== CAIXA CAMBIAL - capital em moedas fortes aguardando preco justo dos ativos finais ======
   // Estrutura dinamica: { USD: valor_em_USD, EUR: valor_em_EUR, JPY: valor_em_JPY, ... }
@@ -5401,6 +5403,11 @@ function App(){
         if(dd.ativosEmEstudo&&typeof dd.ativosEmEstudo==="object"&&Array.isArray(dd.ativosEmEstudo.candidatos)){
           setAtivosEmEstudo(dd.ativosEmEstudo);
         }
+        // Historico de taxas NTN-B
+        if(Array.isArray(dd.ntnbHistoricoTaxas)){
+          const valido=dd.ntnbHistoricoTaxas.filter(s=>s&&typeof s.ts==="number"&&typeof s.mediaBruta==="number"&&s.mediaBruta>0);
+          setNtnbHistoricoTaxas(valido.sort((a,b)=>a.ts-b.ts));
+        }
         // Carrega histMensal e migra/reconstroi a partir de hist se necessario
         let histMensalLoaded=Array.isArray(dd.histMensal)?dd.histMensal:[];
         // Migracao: se histMensal vazio (ou unico mes) mas hist tem dados validos,
@@ -5574,12 +5581,12 @@ function App(){
     if(!inited||!aesKey)return;
     (async()=>{
       try{
-        const obj={port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,selicAtual,metaMensalIF,cenarioIPCA,dataNascimento,insightRenda,insightRendaTs,insightRendaSnap,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,piCycle,nupl,goldSilver,goldSP500,realGoldZ,fx:{...FX},btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,insightSnap,infIPCA,infIGPM,infINCC,infCPI,infHICP,juroFed,juroECB,juroBoJ,ntnbTaxas,ntnbVNA,ntnbUpdTs,ntnbDataCotacao,ntnbDiasDefasagem,ntnbVencimentos:{...NTNB_VENCIMENTOS},cambialCash,rendaMotoraHist,rendaAuxiliarHist,aportesSimples,ativosEmEstudo};
+        const obj={port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,selicAtual,metaMensalIF,cenarioIPCA,dataNascimento,insightRenda,insightRendaTs,insightRendaSnap,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,piCycle,nupl,goldSilver,goldSP500,realGoldZ,fx:{...FX},btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,insightSnap,infIPCA,infIGPM,infINCC,infCPI,infHICP,juroFed,juroECB,juroBoJ,ntnbTaxas,ntnbVNA,ntnbUpdTs,ntnbDataCotacao,ntnbDiasDefasagem,ntnbVencimentos:{...NTNB_VENCIMENTOS},cambialCash,rendaMotoraHist,rendaAuxiliarHist,aportesSimples,ativosEmEstudo,ntnbHistoricoTaxas};
         const enc=await aesEncrypt(aesKey,obj);
         localStorage.setItem(SK_ENC,enc);
       }catch(e){}
     })();
-  },[port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,selicAtual,metaMensalIF,cenarioIPCA,dataNascimento,insightRenda,insightRendaTs,insightRendaSnap,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,piCycle,nupl,goldSilver,goldSP500,realGoldZ,btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,insightSnap,infIPCA,infIGPM,infINCC,infCPI,infHICP,juroFed,juroECB,juroBoJ,ntnbTaxas,ntnbVNA,ntnbUpdTs,cambialCash,rendaMotoraHist,rendaAuxiliarHist,aportesSimples,ativosEmEstudo,inited,aesKey]);
+  },[port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,selicAtual,metaMensalIF,cenarioIPCA,dataNascimento,insightRenda,insightRendaTs,insightRendaSnap,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,piCycle,nupl,goldSilver,goldSP500,realGoldZ,btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,insightSnap,infIPCA,infIGPM,infINCC,infCPI,infHICP,juroFed,juroECB,juroBoJ,ntnbTaxas,ntnbVNA,ntnbUpdTs,cambialCash,rendaMotoraHist,rendaAuxiliarHist,aportesSimples,ativosEmEstudo,ntnbHistoricoTaxas,inited,aesKey]);
 
   // Auto-lock por inatividade (15 min)
   useEffect(()=>{
@@ -8370,6 +8377,41 @@ Responda APENAS com o texto do insight, sem prefacio ou comentarios meta.`;
     },3000);
     return ()=>clearTimeout(tid);
   },[inited,apiKey,hasPos,port,cw,ativosEmEstudo,ativosEmEstudoLoad,gerarPreSelecaoIA,calcProxAporte]);
+
+  // ===== AUTO-SNAPSHOT historico de taxas NTN-B =====
+  // Grava snapshot sempre que ntnbTaxas mudar, com deduplicacao por dia (1 por dia max).
+  // Constroi serie temporal das taxas BRUTAS para o termometro de oportunidade.
+  useEffect(()=>{
+    if(!inited)return;
+    if(!ntnbTaxas||typeof ntnbTaxas!=="object")return;
+    // Coleta taxas brutas validas (>0)
+    const taxasIndiv={};
+    let somaTx=0,nTx=0;
+    Object.entries(ntnbTaxas).forEach(([venc,obj])=>{
+      if(!obj||typeof obj!=="object")return;
+      const txBruta=obj.taxaBrutaVenda||obj.taxaBrutaCompra;
+      if(typeof txBruta==="number"&&txBruta>0&&txBruta<0.20){// sanity: <20%
+        taxasIndiv[venc]=txBruta;
+        somaTx+=txBruta;
+        nTx++;
+      }
+    });
+    if(nTx===0)return;
+    const mediaBruta=somaTx/nTx;
+    // Deduplica: se ultimo snapshot foi hoje, atualiza-o; senao adiciona novo
+    setNtnbHistoricoTaxas(prev=>{
+      const hojeKey=new Date().toISOString().slice(0,10);
+      const ultimo=prev[prev.length-1];
+      const ultimoDia=ultimo&&ultimo.ts?new Date(ultimo.ts).toISOString().slice(0,10):null;
+      const snap={ts:Date.now(),mediaBruta,taxasIndiv,n:nTx};
+      if(ultimoDia===hojeKey){
+        // Atualiza ultimo snapshot do dia
+        return[...prev.slice(0,-1),snap];
+      }
+      // Adiciona novo snapshot (limita historico em 5 anos = ~1825 dias)
+      return[...prev,snap].slice(-1825);
+    });
+  },[inited,ntnbTaxas]);
 
   // Chave de API nao e mais necessaria - cotacoes vem de APIs publicas
   // if(!apiKey)return h(KeyScreen,{onSave:k=>{setApiKeyS(k);if(aesKey)saveApiKey(aesKey,k);}});
@@ -17157,6 +17199,252 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
 
       // Card grande de taxas atuais (reutiliza TesouroNTNBCard)
       h(TesouroNTNBCard,{ntnbTaxas,ntnbVNA,ntnbUpdTs,ntnbStatus,ntnbDataCotacao,ntnbDiasDefasagem,onRefresh:refreshTaxas,port,onTaxaManual:setTaxaManual}),
+
+      // ===== TERMOMETRO DE TAXAS NTN-B (oportunidade historica) =====
+      (()=>{
+        // Calcula media bruta atual (todas as taxas atuais conhecidas)
+        let somaAtual=0,nAtual=0;
+        const taxasAtuaisIndiv={};
+        Object.entries(ntnbTaxas||{}).forEach(([venc,obj])=>{
+          if(!obj||typeof obj!=="object")return;
+          const tx=obj.taxaBrutaVenda||obj.taxaBrutaCompra;
+          if(typeof tx==="number"&&tx>0&&tx<0.20){
+            taxasAtuaisIndiv[venc]=tx;
+            somaAtual+=tx;
+            nAtual++;
+          }
+        });
+        if(nAtual===0)return null;// sem dados atuais
+        const mediaAtualBruta=somaAtual/nAtual;
+        // Calcula estatisticas historicas
+        const hist=Array.isArray(ntnbHistoricoTaxas)?ntnbHistoricoTaxas:[];
+        const nHist=hist.length;
+        // Se historico nao tem dados, mostra placeholder com explicacao
+        if(nHist<2){
+          return h("div",{style:{marginTop:18,padding:"14px 16px",background:"rgba(91,143,212,0.04)",border:"1px dashed rgba(91,143,212,0.30)",borderRadius:10}},
+            h("div",{style:{fontSize:9,letterSpacing:3,color:"#5B8FD4",fontFamily:"monospace",textTransform:"uppercase",marginBottom:6}},"\u{1F321} Termometro de Taxas NTN-B"),
+            h("div",{style:{fontSize:10,color:"#9A9080",lineHeight:1.6,marginBottom:10,fontStyle:"italic"}},"O termometro compara a taxa bruta media atual com o historico que o app constroi com seu uso. Cada atualizacao de taxas via Tesouro Direto adiciona um snapshot diario."),
+            h("div",{style:{display:"flex",alignItems:"baseline",gap:8,padding:"10px 12px",background:"rgba(0,0,0,0.18)",borderRadius:5,marginBottom:8}},
+              h("span",{style:{fontSize:9,color:"#7A7060",fontFamily:"monospace",letterSpacing:1.2}},"TAXA BRUTA MEDIA ATUAL"),
+              h("span",{style:{flex:1}}),
+              h("span",{style:{fontSize:14,color:"#5B8FD4",fontFamily:"monospace",fontWeight:700}},(mediaAtualBruta*100).toFixed(2)+"%"),
+              h("span",{style:{fontSize:8,color:"#7A7060",fontFamily:"monospace"}},"("+nAtual+" venc.)")
+            ),
+            h("div",{style:{fontSize:9,color:"#7A7060",fontStyle:"italic",lineHeight:1.5}},
+              "Historico atual: ",h("strong",{style:{color:"#9A9080"}},nHist+" snapshot"+(nHist!==1?"s":"")),
+              ". O termometro sera ativado quando houver ao menos 2 snapshots em datas distintas (atualize as taxas em dias diferentes para construir a serie)."
+            )
+          );
+        }
+        // Estatisticas historicas (apenas mediaBruta dos snapshots)
+        const medias=hist.map(s=>s.mediaBruta).filter(v=>typeof v==="number"&&v>0);
+        if(medias.length<2)return null;
+        const minHist=Math.min(...medias);
+        const maxHist=Math.max(...medias);
+        const mediaHist=medias.reduce((s,v)=>s+v,0)/medias.length;
+        const range=maxHist-minHist;
+        // Posicao do atual entre min(0%) e max(100%)
+        const posAtualPct=range>0?((mediaAtualBruta-minHist)/range)*100:50;
+        const posAtualClamp=Math.max(0,Math.min(100,posAtualPct));
+        // Posicao da media historica no termometro
+        const posMediaHist=range>0?((mediaHist-minHist)/range)*100:50;
+        // Spread atual vs media historica (em pontos percentuais)
+        const spreadBpp=(mediaAtualBruta-mediaHist)*100;
+        // Janela temporal coberta pelo historico
+        const tsMin=Math.min(...hist.map(s=>s.ts));
+        const tsMax=Math.max(...hist.map(s=>s.ts));
+        const diasCobertos=Math.round((tsMax-tsMin)/86400000);
+        // Interpretacao: posicao no termometro
+        let zona,corZona,corBgZona,insight;
+        if(posAtualClamp>=75){
+          zona="ALTA OPORTUNIDADE";
+          corZona="#4CAF82";
+          corBgZona="rgba(76,175,130,0.10)";
+          insight="Taxas atuais entre as mais altas ja registradas no app. Momento historicamente favoravel para compra de NTN-B - travar taxas reais elevadas para o longo prazo. Considere acelerar aportes nesta classe se houver folga no aporte mensal.";
+        }else if(posAtualClamp>=55){
+          zona="ACIMA DA MEDIA";
+          corZona="#7DD17D";
+          corBgZona="rgba(125,209,125,0.08)";
+          insight="Taxas atuais acima da media historica registrada. Janela razoavel para aporte regular em NTN-B - taxas oferecem premio decente vs media. Manter ritmo de aporte previsto sem urgencia.";
+        }else if(posAtualClamp>=45){
+          zona="NEUTRO";
+          corZona="#E8C44A";
+          corBgZona="rgba(232,196,74,0.08)";
+          insight="Taxas atuais proximas da media historica observada. Aporte regular faz sentido sem acelerar nem desacelerar - momento tipico, sem premio nem desconto significativo.";
+        }else if(posAtualClamp>=25){
+          zona="ABAIXO DA MEDIA";
+          corZona="#E89060";
+          corBgZona="rgba(232,144,96,0.08)";
+          insight="Taxas atuais abaixo da media historica - mercado mais comprimido. Aporte regular ainda valido (B&H, nunca vender), mas considere priorizar outras classes que estejam com premio melhor neste momento.";
+        }else{
+          zona="COMPRESSAO ALTA";
+          corZona="#E05252";
+          corBgZona="rgba(224,82,82,0.08)";
+          insight="Taxas atuais entre as mais baixas registradas - forte compressao. Avalie reduzir velocidade de aportes em NTN-B em favor de outras classes com melhor premio. Manter posicoes ja compradas (B&H).";
+        }
+        return h("div",{style:{marginTop:18,padding:"14px 16px",background:"linear-gradient(135deg,"+corBgZona+",rgba(0,0,0,0.10))",border:"1px solid "+corZona+"55",borderRadius:10}},
+          // Header
+          h("div",{style:{display:"flex",alignItems:"baseline",justifyContent:"space-between",marginBottom:10,flexWrap:"wrap",gap:6}},
+            h("div",{style:{fontSize:9,letterSpacing:3,color:corZona,fontFamily:"monospace",textTransform:"uppercase"}},"\u{1F321} Termometro de Taxas NTN-B"),
+            h("div",{style:{fontSize:8,color:"#7A7060",fontFamily:"monospace"}},nHist+" snapshots em "+diasCobertos+" dia"+(diasCobertos!==1?"s":""))
+          ),
+          // 3 numeros principais
+          h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(110px,1fr))",gap:8,marginBottom:14}},
+            // Atual
+            h("div",{style:{padding:"9px 11px",background:"rgba(0,0,0,0.20)",borderLeft:"3px solid "+corZona,borderRadius:"0 4px 4px 0"}},
+              h("div",{style:{fontSize:7,color:corZona,fontFamily:"monospace",fontWeight:700,letterSpacing:1.2,marginBottom:2}},"MEDIA ATUAL (BRUTA)"),
+              h("div",{style:{fontSize:14,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700}},(mediaAtualBruta*100).toFixed(2)+"%"),
+              h("div",{style:{fontSize:7.5,color:"#7A7060",fontFamily:"monospace",marginTop:2}},nAtual+" vencimentos")
+            ),
+            // Media historica
+            h("div",{style:{padding:"9px 11px",background:"rgba(0,0,0,0.20)",borderLeft:"3px solid #C8A96E",borderRadius:"0 4px 4px 0"}},
+              h("div",{style:{fontSize:7,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,letterSpacing:1.2,marginBottom:2}},"MEDIA HISTORICA"),
+              h("div",{style:{fontSize:14,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700}},(mediaHist*100).toFixed(2)+"%"),
+              h("div",{style:{fontSize:7.5,color:"#7A7060",fontFamily:"monospace",marginTop:2}},"min "+(minHist*100).toFixed(2)+" / max "+(maxHist*100).toFixed(2))
+            ),
+            // Spread (atual vs media historica)
+            h("div",{style:{padding:"9px 11px",background:"rgba(0,0,0,0.20)",borderLeft:"3px solid "+(spreadBpp>=0?"#4CAF82":"#E05252"),borderRadius:"0 4px 4px 0"}},
+              h("div",{style:{fontSize:7,color:spreadBpp>=0?"#4CAF82":"#E05252",fontFamily:"monospace",fontWeight:700,letterSpacing:1.2,marginBottom:2}},"SPREAD VS MEDIA"),
+              h("div",{style:{fontSize:14,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700}},(spreadBpp>=0?"+":"")+spreadBpp.toFixed(2)+"pp"),
+              h("div",{style:{fontSize:7.5,color:"#7A7060",fontFamily:"monospace",marginTop:2}},spreadBpp>=0?"premio atual":"compressao atual")
+            )
+          ),
+          // Termometro horizontal
+          h("div",{style:{padding:"4px 0 0",marginBottom:12}},
+            h("div",{style:{fontSize:7.5,color:"#7A7060",fontFamily:"monospace",fontWeight:700,letterSpacing:1.5,marginBottom:6}},"POSICAO NA FAIXA HISTORICA"),
+            h("div",{style:{position:"relative",height:32,background:"linear-gradient(90deg,rgba(224,82,82,0.30),rgba(232,196,74,0.30),rgba(76,175,130,0.30))",borderRadius:4,border:"1px solid rgba(255,255,255,0.08)"}},
+              // Marca da media historica (linha tracejada vertical)
+              h("div",{style:{position:"absolute",left:"calc("+posMediaHist+"% - 0.5px)",top:-4,bottom:-4,width:1,borderLeft:"1px dashed rgba(200,169,110,0.70)",pointerEvents:"none"}}),
+              h("div",{style:{position:"absolute",left:"calc("+posMediaHist+"% - 18px)",top:-12,fontSize:6.5,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,letterSpacing:0.5,whiteSpace:"nowrap"}},"media"),
+              // Marcador do atual (triangulo apontando para baixo + linha)
+              h("div",{style:{position:"absolute",left:"calc("+posAtualClamp+"% - 8px)",top:-3,width:0,height:0,borderLeft:"8px solid transparent",borderRight:"8px solid transparent",borderTop:"10px solid "+corZona,filter:"drop-shadow(0 1px 2px rgba(0,0,0,0.5))"}}),
+              h("div",{style:{position:"absolute",left:"calc("+posAtualClamp+"% - 0.5px)",top:8,bottom:8,width:1,background:corZona}}),
+              // Pulse circulo no marcador
+              h("div",{style:{position:"absolute",left:"calc("+posAtualClamp+"% - 5px)",bottom:-3,width:10,height:10,borderRadius:"50%",background:corZona,boxShadow:"0 0 8px "+corZona}})
+            ),
+            // Labels min / max
+            h("div",{style:{display:"flex",justifyContent:"space-between",marginTop:5,fontSize:7.5,fontFamily:"monospace",color:"#9A9080"}},
+              h("span",{},h("strong",{style:{color:"#E05252"}},"min ")+(minHist*100).toFixed(2)+"%"),
+              h("span",{style:{color:corZona,fontWeight:700,letterSpacing:1}},zona),
+              h("span",{},h("strong",{style:{color:"#4CAF82"}},"max ")+(maxHist*100).toFixed(2)+"%")
+            )
+          ),
+          // Insight
+          h("div",{style:{padding:"10px 12px",background:"rgba(0,0,0,0.20)",borderRadius:5,fontSize:10,color:"#C8C0B0",lineHeight:1.6,fontStyle:"italic"}},
+            h("strong",{style:{color:corZona,fontStyle:"normal",letterSpacing:0.5}},"\u{1F4A1} "),
+            insight
+          ),
+          // Nota tecnica
+          h("div",{style:{marginTop:8,fontSize:7.5,color:"#7A7060",fontStyle:"italic",lineHeight:1.5}},
+            "Comparativo usa taxas BRUTAS (sem desconto de IR) das NTN-Bs Principal. Historico se enriquece a cada atualizacao - quanto mais voce usar o app, mais robusta a referencia."
+          ),
+          // ===== TIMELINE HISTORICA DE CRISES + GAP COMPARATIVO =====
+          (()=>{
+            // Marcos historicos: taxa NTN-B real bruta media observada em cada periodo
+            // Fontes: ANBIMA, Tesouro Direto serie historica, XP Research, InfoMoney, Exame
+            // Baseline conceitual: media de longo prazo 2009-2024 estimada em ~5.5% real bruto
+            const baselineHistorica=5.50;// % real bruto - media longo prazo
+            const marcos=[
+              {ano:"2008",label:"Subprime",cor:"#E05252",taxa:7.50,gap:+2.00,desc:"Crise mundial - juros reais brasileiros explodem"},
+              {ano:"2013",label:"Tantrum FED",cor:"#E89060",taxa:6.20,gap:+0.70,desc:"FED sinaliza fim do QE - saida de capital de EMs"},
+              {ano:"2015-16",label:"Crise BR",cor:"#E05252",taxa:7.60,gap:+2.10,desc:"Recessao + impeachment + perda grau investimento"},
+              {ano:"2019",label:"Compressao",cor:"#7DD17D",taxa:3.20,gap:-2.30,desc:"Selic em minima historica - taxas reais comprimidas"},
+              {ano:"2020-Q1",label:"COVID stress",cor:"#E05252",taxa:5.80,gap:+0.30,desc:"Marco/2020 pico - mercado precificando colapso"},
+              {ano:"2020-Q4",label:"Pos-COVID",cor:"#7DD17D",taxa:3.10,gap:-2.40,desc:"Selic 2% - menor patamar real desde criacao do plano"},
+              {ano:"2022",label:"Alta global",cor:"#E89060",taxa:5.90,gap:+0.40,desc:"FED sobe juros + persistencia inflacao global"},
+              {ano:"2024 mai",label:"Lula fiscal",cor:"#E05252",taxa:6.65,gap:+1.15,desc:"Recorde abs. NTN-B 2029 - risco fiscal"},
+              {ano:"2026",label:"HOJE",cor:corZona,taxa:mediaAtualBruta*100,gap:(mediaAtualBruta*100)-baselineHistorica,desc:"taxa media bruta atual do app"}
+            ];
+            // Calcula min/max dos gaps para escala do termometro
+            const gaps=marcos.map(m=>m.gap);
+            const gapMin=Math.min(...gaps);
+            const gapMax=Math.max(...gaps);
+            const gapRange=gapMax-gapMin;
+            // Posicao de cada marco no eixo Y (gap em pontos percentuais)
+            // posY=0 = topo (gap max), posY=100 = base (gap min)
+            const yDoGap=(g)=>gapRange>0?((gapMax-g)/gapRange)*100:50;
+            // Largura disponivel: dividir em colunas
+            const W_TL=320;const H_TL=140;
+            return h("div",{style:{marginTop:14,padding:"12px 14px",background:"rgba(0,0,0,0.18)",border:"1px solid rgba(200,169,110,0.20)",borderRadius:6}},
+              h("div",{style:{fontSize:8,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,letterSpacing:1.5,marginBottom:8}},"\u{1F4DC} GAP DA TAXA BRUTA NTN-B EM MOMENTOS HISTORICOS"),
+              h("div",{style:{fontSize:9,color:"#9A9080",lineHeight:1.55,marginBottom:10,fontStyle:"italic"}},"Comparativo do gap (diferenca da taxa media bruta vs baseline historica de ~",baselineHistorica.toFixed(1),"%) em momentos de stress de mercado. Pontos acima da linha de zero = premio elevado (oportunidade); abaixo = compressao."),
+              // SVG da timeline com pontos
+              h("div",{style:{overflowX:"auto",overflowY:"hidden",marginBottom:8}},
+                h("svg",{viewBox:"0 0 "+W_TL+" "+H_TL,style:{width:"100%",height:"auto",minWidth:Math.max(W_TL,marcos.length*36)+"px",display:"block"},preserveAspectRatio:"xMidYMid meet"},
+                  // Eixos
+                  h("line",{x1:30,y1:H_TL-22,x2:W_TL-10,y2:H_TL-22,stroke:"rgba(255,255,255,0.20)",strokeWidth:0.8}),
+                  // Linha de zero (baseline)
+                  (()=>{const yZero=yDoGap(0)*(H_TL-40)/100+8;return h("g",{},
+                    h("line",{x1:30,y1:yZero,x2:W_TL-10,y2:yZero,stroke:"rgba(200,169,110,0.50)",strokeWidth:0.8,strokeDasharray:"3,2"}),
+                    h("text",{x:32,y:yZero-3,fontSize:6,fill:"#C8A96E",fontFamily:"monospace",fontWeight:700},"baseline 5.5%"),
+                    h("text",{x:W_TL-10,y:yZero-3,fontSize:6,fill:"#C8A96E",fontFamily:"monospace",fontWeight:700,textAnchor:"end"},"gap 0pp")
+                  );})(),
+                  // Faixas coloridas no fundo (oportunidade verde acima zero, compressao vermelho abaixo)
+                  (()=>{const yZero=yDoGap(0)*(H_TL-40)/100+8;return h("g",{opacity:0.10},
+                    h("rect",{x:30,y:8,width:W_TL-40,height:yZero-8,fill:"#4CAF82"}),
+                    h("rect",{x:30,y:yZero,width:W_TL-40,height:H_TL-22-yZero,fill:"#E05252"})
+                  );})(),
+                  // Linha conectando pontos
+                  h("polyline",{
+                    points:marcos.map((m,i)=>{
+                      const x=30+(i/(marcos.length-1))*(W_TL-40);
+                      const y=yDoGap(m.gap)*(H_TL-40)/100+8;
+                      return x+","+y;
+                    }).join(" "),
+                    fill:"none",
+                    stroke:"rgba(200,169,110,0.40)",
+                    strokeWidth:1.5
+                  }),
+                  // Pontos
+                  ...marcos.map((m,i)=>{
+                    const x=30+(i/(marcos.length-1))*(W_TL-40);
+                    const y=yDoGap(m.gap)*(H_TL-40)/100+8;
+                    const ehHoje=m.ano==="2026";
+                    return h("g",{key:"marco"+i},
+                      // Halo no ponto atual (HOJE)
+                      ehHoje?h("circle",{cx:x,cy:y,r:9,fill:m.cor,opacity:0.30}):null,
+                      // Ponto
+                      h("circle",{cx:x,cy:y,r:ehHoje?5:3.5,fill:m.cor,stroke:ehHoje?"#FFD700":"#1a1410",strokeWidth:ehHoje?1.2:0.6}),
+                      // Label do ano (eixo X)
+                      h("text",{x:x,y:H_TL-12,fontSize:6.5,fill:ehHoje?"#FFD700":"#9A9080",fontFamily:"monospace",fontWeight:ehHoje?700:600,textAnchor:"middle",letterSpacing:0.2},m.ano),
+                      // Label do evento (eixo X linha 2)
+                      h("text",{x:x,y:H_TL-3,fontSize:5.5,fill:ehHoje?"#FFD700":"#7A7060",fontFamily:"monospace",textAnchor:"middle"},m.label),
+                      // Valor do gap proximo ao ponto
+                      h("text",{x:x,y:y-7,fontSize:6,fill:m.cor,fontFamily:"monospace",fontWeight:700,textAnchor:"middle"},(m.gap>=0?"+":"")+m.gap.toFixed(1))
+                    );
+                  })
+                )
+              ),
+              // Comparativo do "HOJE" vs marcos historicos
+              (()=>{
+                const gapHoje=(mediaAtualBruta*100)-baselineHistorica;
+                // Encontra marco historico com gap mais proximo
+                const sortByDistance=marcos.filter(m=>m.ano!=="2026").map(m=>({...m,distancia:Math.abs(m.gap-gapHoje)})).sort((a,b)=>a.distancia-b.distancia);
+                const maisProximo=sortByDistance[0];
+                const segundoProximo=sortByDistance[1];
+                return h("div",{style:{padding:"9px 11px",background:"rgba(91,143,212,0.06)",border:"1px solid rgba(91,143,212,0.20)",borderRadius:5}},
+                  h("div",{style:{fontSize:7,color:"#5B8FD4",fontFamily:"monospace",fontWeight:700,letterSpacing:1.5,marginBottom:4}},"\u{1F50D} COMPARATIVO COM A HISTORIA"),
+                  h("div",{style:{fontSize:9.5,color:"#C8C0B0",lineHeight:1.6,fontStyle:"italic"}},
+                    "Gap atual: ",h("strong",{style:{color:gapHoje>=0?"#4CAF82":"#E05252",fontStyle:"normal"}},(gapHoje>=0?"+":"")+gapHoje.toFixed(2)+"pp"),
+                    ". Mais proximo de: ",h("strong",{style:{color:maisProximo.cor,fontStyle:"normal"}},maisProximo.ano+" ("+maisProximo.label+", "+(maisProximo.gap>=0?"+":"")+maisProximo.gap.toFixed(1)+"pp)"),
+                    ". Em seguida: ",segundoProximo.ano+" ("+segundoProximo.label+")."
+                  ),
+                  h("div",{style:{fontSize:8.5,color:"#9A9080",marginTop:5,paddingTop:5,borderTop:"1px dashed rgba(255,255,255,0.06)",lineHeight:1.5,fontStyle:"italic"}},
+                    gapHoje>=1.5?"Gap atual evoca momentos de forte stress como "+maisProximo.label+" ("+maisProximo.ano+"). Janela historicamente atrativa para NTN-B.":
+                    gapHoje>=0.5?"Gap acima da baseline. Patamar comparavel a "+maisProximo.label+" ("+maisProximo.ano+") - momento moderadamente atrativo.":
+                    gapHoje>=-0.5?"Gap proximo da baseline historica. Momento neutro - aporte regular sem ajuste tatico.":
+                    gapHoje>=-1.5?"Gap negativo - compressao moderada. Similar a "+maisProximo.label+" ("+maisProximo.ano+") - considere priorizar outras classes.":
+                    "Compressao acentuada - patamar comparavel ao ambiente "+maisProximo.label+" ("+maisProximo.ano+"). Reduza velocidade em NTN-B."
+                  )
+                );
+              })(),
+              h("div",{style:{marginTop:6,fontSize:7,color:"#7A7060",fontStyle:"italic",lineHeight:1.5}},
+                "Baseline 5.5% = media estimada das NTN-Bs entre 2009-2024 (ANBIMA/Tesouro Direto). Marcos historicos sao referenciais e podem variar levemente por vencimento e fonte."
+              )
+            );
+          })()
+        );
+      })(),
 
       // Posicoes do portfolio
       ntnbPos.length>0&&h("div",{style:{marginTop:24,padding:"14px 16px",background:"linear-gradient(135deg,rgba(200,169,110,0.05),rgba(0,0,0,0.20))",border:"1px solid rgba(200,169,110,0.20)",borderRadius:10}},
