@@ -7818,34 +7818,36 @@ function App(){
       // FILTRO CRITICO: exclui tickers que ja estao em >=5% do patrimonio total (regra dura do investidor)
       const tickersPorClasse={};
       const tickersExcluidosPor5pct={};// para informar a IA do que foi filtrado
-      Object.entries(port||{}).forEach(([t,p])=>{
-        if(!p||!t)return;
-        const cid=cls[t];if(!cid)return;
-        if(!classesElegiveis.includes(cid))return;
-        // pv precisa de ntnbTaxas e ntnbVNA para NTN-B funcionar corretamente
-        const v=pv(t,p,ccy,ntnbTaxas,ntnbVNA);
-        // NAO filtra por v<=0: ativo cadastrado (mesmo sem posicao) e elegivel para estudo
-        // (investidor pode estar estudando para fazer o primeiro aporte)
-        const temPosicao=v>0;
-        const pesoNaClasse=temPosicao&&cw[cid]>0?(v/(total*(cw[cid]/100)))*100:0;
-        const pesoNoTotalNum=temPosicao&&total>0?(v/total)*100:0;
-        // FILTRO 5%: exclui ativos ja em ou acima de 5% do patrimonio (so se ha posicao)
-        if(temPosicao&&pesoNoTotalNum>=5){
-          if(!tickersExcluidosPor5pct[cid])tickersExcluidosPor5pct[cid]=[];
-          tickersExcluidosPor5pct[cid].push({ticker:t,pesoNoTotal:pesoNoTotalNum.toFixed(2)+"%"});
-          return;// nao adiciona ao tickersPorClasse
-        }
-        if(!tickersPorClasse[cid])tickersPorClasse[cid]=[];
-        const ult=lastPU&&lastPU[t]?lastPU[t]:null;
-        tickersPorClasse[cid].push({
-          ticker:t,
-          quantidade:p.qty||0,
-          precoMedio:p.avg||0,
-          precoAtual:ult&&typeof ult.p==="number"?ult.p:0,
-          moeda:ccy[t]||"BRL",
-          valorBrl:v,
-          pesoNaClasse:temPosicao?pesoNaClasse.toFixed(1)+"%":"sem posicao",
-          pesoNoTotal:temPosicao?pesoNoTotalNum.toFixed(2)+"%":"0% (cadastro sem aporte)"
+      // Itera por CLASSE -> tickers conhecidos (BASE + custom), mesma fonte que aba Positions usa
+      // Isso garante que tickers cadastrados mas sem posicao em port ainda aparecam (estudo previo)
+      classesElegiveis.forEach(cid=>{
+        const tickersConhecidos=allT(cid);
+        tickersConhecidos.forEach(t=>{
+          if(!t)return;
+          const p=port[t]||null;// pode nao ter posicao - tudo bem
+          // pv funciona com null tratando como qty=0
+          const v=p?pv(t,p,ccy,ntnbTaxas,ntnbVNA):0;
+          const temPosicao=v>0;
+          const pesoNaClasse=temPosicao&&cw[cid]>0?(v/(total*(cw[cid]/100)))*100:0;
+          const pesoNoTotalNum=temPosicao&&total>0?(v/total)*100:0;
+          // FILTRO 5%: exclui ativos ja em ou acima de 5% do patrimonio (so se ha posicao)
+          if(temPosicao&&pesoNoTotalNum>=5){
+            if(!tickersExcluidosPor5pct[cid])tickersExcluidosPor5pct[cid]=[];
+            tickersExcluidosPor5pct[cid].push({ticker:t,pesoNoTotal:pesoNoTotalNum.toFixed(2)+"%"});
+            return;
+          }
+          if(!tickersPorClasse[cid])tickersPorClasse[cid]=[];
+          const ult=lastPU&&lastPU[t]?lastPU[t]:null;
+          tickersPorClasse[cid].push({
+            ticker:t,
+            quantidade:p&&p.qty?p.qty:0,
+            precoMedio:p&&p.avg?p.avg:0,
+            precoAtual:ult&&typeof ult.p==="number"?ult.p:0,
+            moeda:ccy[t]||"BRL",
+            valorBrl:v,
+            pesoNaClasse:temPosicao?pesoNaClasse.toFixed(1)+"%":"sem posicao",
+            pesoNoTotal:temPosicao?pesoNoTotalNum.toFixed(2)+"%":"0% (cadastro sem aporte)"
+          });
         });
       });
       // So mantem classes que efetivamente tem tickers ELEGIVEIS apos filtro
@@ -8165,7 +8167,7 @@ function App(){
       setAtivosEmEstudoLoad(false);
       alert("Erro ao gerar pre-selecao: "+(e&&e.message?e.message:String(e)));
     }
-  },[apiKey,ativosEmEstudoLoad,hasPos,port,cls,cw,total,ccy,lastPU,selicAtual,cenarioIPCA,infIPCA,infCPI,infHICP,juroFed,juroECB,FX,btcUsd,xauBrl,ntnbTaxas,ntnbVNA,calcProxAporte]);
+  },[apiKey,ativosEmEstudoLoad,hasPos,port,cls,cw,total,ccy,lastPU,selicAtual,cenarioIPCA,infIPCA,infCPI,infHICP,juroFed,juroECB,FX,btcUsd,xauBrl,ntnbTaxas,ntnbVNA,calcProxAporte,allT]);
 
   // Gerar insight automatico do dashboard
   const genInsight=useCallback(async(forcar)=>{
@@ -17130,33 +17132,37 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         const totalLocal=total||0;
         // Dump completo de todos os tickers em port
         const todosOsTickersEmPort=Object.keys(port||{});
-        // Varre TODOS os tickers do portfolio
+        // Itera por CLASSE -> tickers conhecidos (BASE + custom), mesma fonte que aba Positions
+        classesElegiveis.forEach(cid=>{
+          const tickersConhecidos=allT(cid);
+          tickersConhecidos.forEach(t=>{
+            if(!t)return;
+            const p=port[t]||null;
+            const v=p?pv(t,p,ccy,ntnbTaxas,ntnbVNA):0;
+            const temPosicao=v>0;
+            const pesoNoTotalNum=temPosicao&&totalLocal>0?(v/totalLocal)*100:0;
+            if(temPosicao&&pesoNoTotalNum>=5){
+              if(!excluidos5pct[cid])excluidos5pct[cid]=[];
+              excluidos5pct[cid].push(t+" ("+pesoNoTotalNum.toFixed(2)+"%)");
+              return;
+            }
+            if(!tickersPorClasse[cid])tickersPorClasse[cid]=[];
+            tickersPorClasse[cid].push(t+(temPosicao?" ("+pesoNoTotalNum.toFixed(2)+"%)":" (sem posicao)"));
+          });
+        });
+        // Adicionalmente, escaneia port para tickers em classes nao elegiveis (info)
         Object.entries(port||{}).forEach(([t,p])=>{
           if(!p||!t)return;
-          const cid=cls[t];
-          const v=pv(t,p,ccy,ntnbTaxas,ntnbVNA);
-          // Ticker sem classe nenhuma: bug critico
+          const cid=p.classId||cls[t];
           if(!cid){
             if(!tickersClasseErrada["SEM_CLS"])tickersClasseErrada["SEM_CLS"]=[];
-            tickersClasseErrada["SEM_CLS"].push(t+" (qty="+(p.qty||0)+", price="+(p.price||0)+", classId="+(p.classId||"-")+")");
+            tickersClasseErrada["SEM_CLS"].push(t+" (qty="+(p.qty||0)+", price="+(p.price||0)+")");
             return;
           }
-          // Ticker em classe nao elegivel
           if(!classesElegiveis.includes(cid)){
             if(!tickersForaElegiveis[cid])tickersForaElegiveis[cid]=[];
             tickersForaElegiveis[cid].push(t+" (qty="+(p.qty||0)+", price="+(p.price||0)+")");
-            return;
           }
-          // Ticker em classe elegivel
-          const temPosicao=v>0;
-          const pesoNoTotalNum=temPosicao&&totalLocal>0?(v/totalLocal)*100:0;
-          if(temPosicao&&pesoNoTotalNum>=5){
-            if(!excluidos5pct[cid])excluidos5pct[cid]=[];
-            excluidos5pct[cid].push(t+" ("+pesoNoTotalNum.toFixed(2)+"%)");
-            return;
-          }
-          if(!tickersPorClasse[cid])tickersPorClasse[cid]=[];
-          tickersPorClasse[cid].push(t+(temPosicao?" ("+pesoNoTotalNum.toFixed(2)+"%)":" (sem posicao)"));
         });
         const classesComPesoSemTickers=classesElegiveis.filter(cid=>{
           const temPeso=(cw[cid]||0)>0;
