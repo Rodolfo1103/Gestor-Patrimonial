@@ -17182,6 +17182,10 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           if(tickersPorClasse[cid]){
             relatorio+="\u2713 "+nb+" ("+peso+"% no port): "+tickersPorClasse[cid].length+" elegivel(eis)\n";
             relatorio+="  "+tickersPorClasse[cid].join(", ")+"\n";
+            // Se HA tambem tickers excluidos por 5% nessa classe, mostra eles tambem
+            if(excluidos5pct[cid]){
+              relatorio+="  \u26A0 excluidos por >=5%: "+excluidos5pct[cid].join(", ")+"\n";
+            }
           }else if(excluidos5pct[cid]){
             relatorio+="\u26A0 "+nb+" ("+peso+"% no port): SEM ELEGIVEIS - todos >=5%\n";
             relatorio+="  excluidos: "+excluidos5pct[cid].join(", ")+"\n";
