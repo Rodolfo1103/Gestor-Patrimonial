@@ -17216,22 +17216,40 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         });
         if(nAtual===0)return null;// sem dados atuais
         const mediaAtualBruta=somaAtual/nAtual;
-        // ===== MARCOS HISTORICOS (estaticos, baseados em fontes publicas) =====
+        // ===== MARCOS HISTORICOS (taxas brutas em %, estaticas - fatos passados) =====
         // Fontes: ANBIMA, Tesouro Direto serie historica, XP Research, InfoMoney, Exame
-        // Baseline conceitual: media de longo prazo 2009-2024 estimada em ~5.5% real bruto
-        const baselineHistorica=5.50;// % real bruto - media longo prazo
-        const marcos=[
-          {ano:"2008",label:"Subprime",cor:"#E05252",taxa:7.50,gap:+2.00,desc:"Crise mundial - juros reais brasileiros explodem"},
-          {ano:"2013",label:"Tantrum FED",cor:"#E89060",taxa:6.20,gap:+0.70,desc:"FED sinaliza fim do QE - saida de capital de EMs"},
-          {ano:"2015-16",label:"Crise BR",cor:"#E05252",taxa:7.60,gap:+2.10,desc:"Recessao + impeachment + perda grau investimento"},
-          {ano:"2019",label:"Compressao",cor:"#7DD17D",taxa:3.20,gap:-2.30,desc:"Selic em minima historica - taxas reais comprimidas"},
-          {ano:"2020-Q1",label:"COVID stress",cor:"#E05252",taxa:5.80,gap:+0.30,desc:"Marco/2020 pico - mercado precificando colapso"},
-          {ano:"2020-Q4",label:"Pos-COVID",cor:"#7DD17D",taxa:3.10,gap:-2.40,desc:"Selic 2% - menor patamar real desde criacao do plano"},
-          {ano:"2022",label:"Alta global",cor:"#E89060",taxa:5.90,gap:+0.40,desc:"FED sobe juros + persistencia inflacao global"},
-          {ano:"2024 mai",label:"Lula fiscal",cor:"#E05252",taxa:6.65,gap:+1.15,desc:"Recorde abs. NTN-B 2029 - risco fiscal"}
+        // Os GAPS sao recalculados dinamicamente vs baseline efetiva (que pode variar com snapshots)
+        const baselinePublica=5.50;// % real bruto - media estimada 2009-2024 (ancora teorica)
+        // ===== Stats do historico do app (calc precoce para baseline dinamica) =====
+        const histPre=Array.isArray(ntnbHistoricoTaxas)?ntnbHistoricoTaxas:[];
+        const mediasPre=histPre.map(s=>s.mediaBruta).filter(v=>typeof v==="number"&&v>0);
+        const nSnap=mediasPre.length;
+        // BASELINE DINAMICA: blend gradual entre publica (ancora) e media app (informacao local)
+        // 0-30 snapshots: 100% publica (ainda pouco confiavel)
+        // 30-180 snapshots: peso app cresce linearmente ate 30%
+        // 180+ snapshots: 70% publica + 30% app (max contribuicao do app)
+        let pesoApp=0;
+        if(nSnap>=30){
+          pesoApp=Math.min(0.30,(nSnap-30)/150*0.30);
+        }
+        const mediaApp=nSnap>0?mediasPre.reduce((s,v)=>s+v,0)/nSnap*100:baselinePublica;
+        const baselineEfetiva=baselinePublica*(1-pesoApp)+mediaApp*pesoApp;
+        const baselineHistorica=baselineEfetiva;// alias mantido para compat downstream
+        // Marcos com TAXA absoluta (gap sera calculado vs baseline efetiva)
+        const marcosTaxa=[
+          {ano:"2008",label:"Subprime",cor:"#E05252",taxa:7.50,desc:"Crise mundial - juros reais brasileiros explodem"},
+          {ano:"2013",label:"Tantrum FED",cor:"#E89060",taxa:6.20,desc:"FED sinaliza fim do QE - saida de capital de EMs"},
+          {ano:"2015-16",label:"Crise BR",cor:"#E05252",taxa:7.60,desc:"Recessao + impeachment + perda grau investimento"},
+          {ano:"2019",label:"Compressao",cor:"#7DD17D",taxa:3.20,desc:"Selic em minima historica - taxas reais comprimidas"},
+          {ano:"2020-Q1",label:"COVID stress",cor:"#E05252",taxa:5.80,desc:"Marco/2020 pico - mercado precificando colapso"},
+          {ano:"2020-Q4",label:"Pos-COVID",cor:"#7DD17D",taxa:3.10,desc:"Selic 2% - menor patamar real desde criacao"},
+          {ano:"2022",label:"Alta global",cor:"#E89060",taxa:5.90,desc:"FED sobe juros + inflacao global"},
+          {ano:"2024 mai",label:"Lula fiscal",cor:"#E05252",taxa:6.65,desc:"Recorde abs. NTN-B 2029 - risco fiscal"}
         ];
+        // Recalcula gap de cada marco vs baseline EFETIVA (assim sao dinamicos)
+        const marcos=marcosTaxa.map(m=>({...m,gap:m.taxa-baselineEfetiva}));
         // Adiciona ponto "HOJE" dinamicamente
-        const gapHoje=(mediaAtualBruta*100)-baselineHistorica;
+        const gapHoje=(mediaAtualBruta*100)-baselineEfetiva;
         // Cor do HOJE conforme intensidade do gap
         const corHoje=gapHoje>=1.5?"#E05252":gapHoje>=0.5?"#E89060":gapHoje>=-0.5?"#E8C44A":gapHoje>=-1.5?"#7DD17D":"#4CAF82";
         const marcosCompleto=[...marcos,{ano:"2026",label:"HOJE",cor:corHoje,taxa:mediaAtualBruta*100,gap:gapHoje,desc:"taxa media bruta atual do app"}];
@@ -17242,15 +17260,18 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         const gapRange=gapMax-gapMin;
         // Posicao de cada marco no eixo Y (gap em pontos percentuais)
         const yDoGap=(g)=>gapRange>0?((gapMax-g)/gapRange)*100:50;
-        const W_TL=320;const H_TL=140;
+        // SVG dimensoes (maior para melhor enquadramento)
+        const W_TL=360;const H_TL=180;
+        // Padding interno para evitar que labels saiam do enquadramento
+        const PAD_X=42;const PAD_TOP=22;const PAD_BOT=44;
         // Marco historico com gap mais proximo do atual
         const sortByDistance=marcos.map(m=>({...m,distancia:Math.abs(m.gap-gapHoje)})).sort((a,b)=>a.distancia-b.distancia);
         const maisProximo=sortByDistance[0];
         const segundoProximo=sortByDistance[1];
-        // ===== Stats do historico do app (snapshots) =====
-        const hist=Array.isArray(ntnbHistoricoTaxas)?ntnbHistoricoTaxas:[];
+        // ===== Stats do historico do app (snapshots) - usa variaveis ja calculadas =====
+        const hist=histPre;
         const nHist=hist.length;
-        const medias=hist.map(s=>s.mediaBruta).filter(v=>typeof v==="number"&&v>0);
+        const medias=mediasPre;
         const temHistAppSuficiente=medias.length>=2;
         let minHist,maxHist,mediaHist,range,posAtualClamp,posMediaHist,spreadBpp,diasCobertos,zona,corZona,corBgZona,insight;
         if(temHistAppSuficiente){
@@ -17289,7 +17310,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             // Header
             h("div",{style:{display:"flex",alignItems:"baseline",justifyContent:"space-between",marginBottom:10,flexWrap:"wrap",gap:6}},
               h("div",{style:{fontSize:9,letterSpacing:3,color:corHoje,fontFamily:"monospace",textTransform:"uppercase"}},"\u{1F4DC} Gap vs Hist\u00f3ria - Linha do Tempo"),
-              h("div",{style:{fontSize:8,color:"#7A7060",fontFamily:"monospace"}},"baseline ~"+baselineHistorica.toFixed(1)+"%")
+              h("div",{style:{fontSize:8,color:"#7A7060",fontFamily:"monospace"}},"baseline "+baselineEfetiva.toFixed(2)+"%")
             ),
             // 3 numeros principais
             h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(110px,1fr))",gap:8,marginBottom:14}},
@@ -17299,9 +17320,9 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                 h("div",{style:{fontSize:7.5,color:"#7A7060",fontFamily:"monospace",marginTop:2}},nAtual+" vencimentos")
               ),
               h("div",{style:{padding:"9px 11px",background:"rgba(0,0,0,0.20)",borderLeft:"3px solid #C8A96E",borderRadius:"0 4px 4px 0"}},
-                h("div",{style:{fontSize:7,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,letterSpacing:1.2,marginBottom:2}},"BASELINE HISTORICA"),
-                h("div",{style:{fontSize:14,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700}},baselineHistorica.toFixed(2)+"%"),
-                h("div",{style:{fontSize:7.5,color:"#7A7060",fontFamily:"monospace",marginTop:2}},"media 2009-2024")
+                h("div",{style:{fontSize:7,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,letterSpacing:1.2,marginBottom:2}},"BASELINE EFETIVA"),
+                h("div",{style:{fontSize:14,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700}},baselineEfetiva.toFixed(2)+"%"),
+                h("div",{style:{fontSize:7.5,color:"#7A7060",fontFamily:"monospace",marginTop:2}},pesoApp>0?(100*(1-pesoApp)).toFixed(0)+"% publica + "+(100*pesoApp).toFixed(0)+"% app":"100% publica (2009-24)")
               ),
               h("div",{style:{padding:"9px 11px",background:"rgba(0,0,0,0.20)",borderLeft:"3px solid "+(gapHoje>=0?"#4CAF82":"#E05252"),borderRadius:"0 4px 4px 0"}},
                 h("div",{style:{fontSize:7,color:gapHoje>=0?"#4CAF82":"#E05252",fontFamily:"monospace",fontWeight:700,letterSpacing:1.2,marginBottom:2}},"GAP ATUAL"),
@@ -17311,42 +17332,54 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             ),
             // ===== SVG TIMELINE =====
             h("div",{style:{overflowX:"auto",overflowY:"hidden",marginBottom:12}},
-              h("svg",{viewBox:"0 0 "+W_TL+" "+H_TL,style:{width:"100%",height:"auto",minWidth:Math.max(W_TL,marcosCompleto.length*36)+"px",display:"block"},preserveAspectRatio:"xMidYMid meet"},
+              h("svg",{viewBox:"0 0 "+W_TL+" "+H_TL,style:{width:"100%",height:"auto",minWidth:Math.max(W_TL,marcosCompleto.length*42)+"px",display:"block"},preserveAspectRatio:"xMidYMid meet"},
                 // Eixo X
-                h("line",{x1:30,y1:H_TL-22,x2:W_TL-10,y2:H_TL-22,stroke:"rgba(255,255,255,0.20)",strokeWidth:0.8}),
+                h("line",{x1:PAD_X,y1:H_TL-PAD_BOT,x2:W_TL-12,y2:H_TL-PAD_BOT,stroke:"rgba(255,255,255,0.20)",strokeWidth:0.8}),
                 // Faixas coloridas de fundo (oportunidade verde acima zero, compressao vermelho abaixo)
-                (()=>{const yZero=yDoGap(0)*(H_TL-40)/100+8;return h("g",{opacity:0.10},
-                  h("rect",{x:30,y:8,width:W_TL-40,height:yZero-8,fill:"#4CAF82"}),
-                  h("rect",{x:30,y:yZero,width:W_TL-40,height:H_TL-22-yZero,fill:"#E05252"})
+                (()=>{const yZero=yDoGap(0)*(H_TL-PAD_TOP-PAD_BOT)/100+PAD_TOP;return h("g",{opacity:0.10},
+                  h("rect",{x:PAD_X,y:PAD_TOP,width:W_TL-PAD_X-12,height:yZero-PAD_TOP,fill:"#4CAF82"}),
+                  h("rect",{x:PAD_X,y:yZero,width:W_TL-PAD_X-12,height:H_TL-PAD_BOT-yZero,fill:"#E05252"})
                 );})(),
-                // Linha de zero (baseline)
-                (()=>{const yZero=yDoGap(0)*(H_TL-40)/100+8;return h("g",{},
-                  h("line",{x1:30,y1:yZero,x2:W_TL-10,y2:yZero,stroke:"rgba(200,169,110,0.50)",strokeWidth:0.8,strokeDasharray:"3,2"}),
-                  h("text",{x:32,y:yZero-3,fontSize:6,fill:"#C8A96E",fontFamily:"monospace",fontWeight:700},"baseline 5.5%"),
-                  h("text",{x:W_TL-10,y:yZero-3,fontSize:6,fill:"#C8A96E",fontFamily:"monospace",fontWeight:700,textAnchor:"end"},"gap 0pp")
+                // Linha de zero (baseline efetiva)
+                (()=>{const yZero=yDoGap(0)*(H_TL-PAD_TOP-PAD_BOT)/100+PAD_TOP;return h("g",{},
+                  h("line",{x1:PAD_X,y1:yZero,x2:W_TL-12,y2:yZero,stroke:"rgba(200,169,110,0.50)",strokeWidth:0.8,strokeDasharray:"3,2"}),
+                  h("text",{x:PAD_X+2,y:yZero-3,fontSize:7,fill:"#C8A96E",fontFamily:"monospace",fontWeight:700},"baseline "+baselineEfetiva.toFixed(2)+"%"),
+                  h("text",{x:W_TL-14,y:yZero-3,fontSize:7,fill:"#C8A96E",fontFamily:"monospace",fontWeight:700,textAnchor:"end"},"gap 0pp")
                 );})(),
                 // Linha conectando pontos
                 h("polyline",{
                   points:marcosCompleto.map((m,i)=>{
-                    const x=30+(i/(marcosCompleto.length-1))*(W_TL-40);
-                    const y=yDoGap(m.gap)*(H_TL-40)/100+8;
+                    const x=PAD_X+(i/(marcosCompleto.length-1))*(W_TL-PAD_X-12);
+                    const y=yDoGap(m.gap)*(H_TL-PAD_TOP-PAD_BOT)/100+PAD_TOP;
                     return x+","+y;
                   }).join(" "),
                   fill:"none",
                   stroke:"rgba(200,169,110,0.40)",
                   strokeWidth:1.5
                 }),
-                // Pontos
+                // Pontos com labels (separar numeros do gap acima/abaixo conforme posicao)
                 ...marcosCompleto.map((m,i)=>{
-                  const x=30+(i/(marcosCompleto.length-1))*(W_TL-40);
-                  const y=yDoGap(m.gap)*(H_TL-40)/100+8;
+                  const x=PAD_X+(i/(marcosCompleto.length-1))*(W_TL-PAD_X-12);
+                  const y=yDoGap(m.gap)*(H_TL-PAD_TOP-PAD_BOT)/100+PAD_TOP;
                   const ehHoje=m.ano==="2026";
+                  // Alterna label do gap: acima do ponto se sobra espaco em cima, senao abaixo
+                  // Tambem evita sair pela esquerda/direita usando textAnchor calculado
+                  const labelAcima=y>PAD_TOP+14;// se tem espaco em cima, coloca acima
+                  const yGap=labelAcima?y-9:y+13;
+                  // Anchor: pontos nas extremidades nao centralizar (saem do quadro)
+                  const anchorGap=i===0?"start":(i===marcosCompleto.length-1?"end":"middle");
+                  const xGap=i===0?x+5:(i===marcosCompleto.length-1?x-5:x);
+                  // Numero do gap formatado (sempre com sinal)
+                  const labelGap=(m.gap>=0?"+":"")+m.gap.toFixed(1);
                   return h("g",{key:"marco"+i},
-                    ehHoje?h("circle",{cx:x,cy:y,r:9,fill:m.cor,opacity:0.30}):null,
-                    h("circle",{cx:x,cy:y,r:ehHoje?5:3.5,fill:m.cor,stroke:ehHoje?"#FFD700":"#1a1410",strokeWidth:ehHoje?1.2:0.6}),
-                    h("text",{x:x,y:H_TL-12,fontSize:6.5,fill:ehHoje?"#FFD700":"#9A9080",fontFamily:"monospace",fontWeight:ehHoje?700:600,textAnchor:"middle",letterSpacing:0.2},m.ano),
-                    h("text",{x:x,y:H_TL-3,fontSize:5.5,fill:ehHoje?"#FFD700":"#7A7060",fontFamily:"monospace",textAnchor:"middle"},m.label),
-                    h("text",{x:x,y:y-7,fontSize:6,fill:m.cor,fontFamily:"monospace",fontWeight:700,textAnchor:"middle"},(m.gap>=0?"+":"")+m.gap.toFixed(1))
+                    ehHoje?h("circle",{cx:x,cy:y,r:10,fill:m.cor,opacity:0.30}):null,
+                    h("circle",{cx:x,cy:y,r:ehHoje?5.5:4,fill:m.cor,stroke:ehHoje?"#FFD700":"#1a1410",strokeWidth:ehHoje?1.3:0.7}),
+                    // Numero do gap (com fundo para legibilidade quando sobre area colorida)
+                    h("text",{x:xGap,y:yGap,fontSize:7.5,fill:m.cor,fontFamily:"monospace",fontWeight:700,textAnchor:anchorGap,style:{paintOrder:"stroke",stroke:"rgba(0,0,0,0.55)",strokeWidth:2.5,strokeLinejoin:"round"}},labelGap),
+                    // Ano (linha 1 do eixo X)
+                    h("text",{x:x,y:H_TL-PAD_BOT+15,fontSize:8,fill:ehHoje?"#FFD700":"#C8C0B0",fontFamily:"monospace",fontWeight:ehHoje?700:600,textAnchor:"middle",letterSpacing:0.3},m.ano),
+                    // Label do evento (linha 2 do eixo X)
+                    h("text",{x:x,y:H_TL-PAD_BOT+27,fontSize:7,fill:ehHoje?"#FFD700":"#9A9080",fontFamily:"monospace",fontWeight:ehHoje?700:500,textAnchor:"middle",letterSpacing:0.2},m.label)
                   );
                 })
               )
@@ -17368,7 +17401,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
               )
             ),
             h("div",{style:{marginTop:6,fontSize:7,color:"#7A7060",fontStyle:"italic",lineHeight:1.5}},
-              "Baseline 5.5% = media estimada das NTN-Bs entre 2009-2024 (ANBIMA/Tesouro Direto). Taxas BRUTAS sem desconto de IR. Marcos sao referenciais e podem variar levemente por vencimento e fonte."
+              "Baseline efetiva = blend entre media publica 2009-24 ("+baselinePublica.toFixed(2)+"%) e media dos snapshots do app, com peso do app crescente conforme o historico se acumula (max 30% apos 180 snapshots). Hoje: peso publica "+(100*(1-pesoApp)).toFixed(0)+"% + peso app "+(100*pesoApp).toFixed(0)+"%. Taxas BRUTAS sem IR. Marcos historicos sao referenciais e podem variar levemente por vencimento e fonte."
             )
           ),
           // ============ CARD 2: TERMOMETRO DO APP (so se ha snapshots suficientes) ============
