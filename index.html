@@ -7988,20 +7988,24 @@ function App(){
         "REGRA DURA #1B - METODOLOGIA PRECO TETO/IDEAL (importante para o investidor entender o sinal):\n"+
         "Para CADA candidato, voce DEVE fornecer precoIdeal e precoTeto com a seguinte definicao:\n"+
         "  - precoTeto = preco em que a TIR projetada do ativo IGUALA a TIR minima exigida da classe (zero margem de seguranca). Acima desse preco, retorno nao compensa risco - NAO comprar.\n"+
-        "  - precoIdeal = preco com margem de seguranca robusta (10-20% abaixo do precoTeto), entrada otima para reforco em momentos de stress.\n"+
-        "  - O sinal visual para o investidor: se precoAtual < precoIdeal = oportunidade clara; entre ideal e teto = na faixa, aceitavel para aporte regular; acima do teto = caro, evitar.\n\n"+
+        "  - precoIdeal = preco com margem de seguranca de aproximadamente 10% abaixo do precoTeto (alinhado com a filosofia B&H do investidor: aporte regular embute margem temporal, nao exige descontos profundos).\n"+
+        "  - precoAtual e precoIdeal e precoTeto devem estar TODOS na MESMA MOEDA do ticker (use o campo 'moeda' de cada candidato em tickersPorClasse). NUNCA misturar BRL com USD/EUR/JPY/etc.\n"+
+        "  - O sinal visual para o investidor: se precoAtual < precoIdeal = oportunidade clara; entre ideal e teto = na faixa, aceitavel para aporte regular; acima do teto = caro, evitar.\n"+
+        "  - IMPORTANTE: alguns tickers podem aparecer com pesoNoTotal '0% (cadastro sem aporte)' - significa que o investidor cadastrou o ativo mas ainda nao iniciou posicao. Esses sao ELEGIVEIS para selecao (ele esta estudando para fazer o primeiro aporte). Eles entram em condicoes de igualdade com os que ja tem posicao.\n\n"+
         "REGRA DURA #2 - UNIVERSO RESTRITO:\n"+
         "Voce DEVE escolher APENAS entre os tickers que aparecem em tickersPorClasse[classe]. NUNCA sugerir ticker fora desta lista. Os tickers >=5% do patrimonio JA FORAM EXCLUIDOS automaticamente antes de chegarem ate voce - todos os tickers em tickersPorClasse estao abaixo de 5% e sao elegiveis. Mas como defesa em profundidade, AINDA assim verifique o campo 'pesoNoTotal' de cada candidato - se passar de 4.5% NAO escolha, prefira outro.\n\n"+
         "REGRA DURA #3 - NTN-B:\n"+
         "Para a classe 'rfipca' (NTN-B), escolher um VENCIMENTO especifico (ex: 'NTN-B 2045') com base na inclinacao da curva e duration adequada. Use o array 'vencimentos' de ntnbInfo para opcoes disponiveis.\n\n"+
         "FILOSOFIA B&H: privilegiar qualidade, moat, previsibilidade. Nunca recomendar ativo caro (acima do preco-teto).\n\n"+
+        "CONTEXTO CAMBIAL (impacta decisao Acoes EXT, REITs, Treasuries):\n"+
+        "O campo 'cenarioMacro' inclui usdBrl e eurBrl. USD muito alto (>R$6) torna entrada em ativos americanos cara em BRL - aporte regular continua valido, mas com menos urgencia. USD muito baixo (<R$5) torna entrada favoravel. NAO mude a tese fundamental do ativo pelo cambio - apenas calibre o sinal de timing. Para ativos asiaticos (HKG, TSE) e europeus (SAP, ABBN, ASML), considerar a moeda nativa vs BRL similarmente.\n\n"+
         "CALIBRACAO TIR (margem de seguranca):\n"+
-        "   - Acoes BR ciclicas sem moat: TIR ~18-20%, margem ~20%\n"+
-        "   - Acoes BR/EXT com moat solido (Big 5, blue chips): TIR ~12-15%, margem ~10%\n"+
+        "   - Acoes BR ciclicas sem moat (commodities, financeiras genericas): TIR ~18-20%, margem ~20%\n"+
+        "   - Acoes BR/EXT com moat solido (compounders com vantagem competitiva duravel, ROE/ROIC consistente >15%, qualquer geografia - EUA, Europa, Asia, EM): TIR ~12-15%, margem ~10%\n"+
         "   - FIIs e Infra/Agro: TIR ~12-14%, ancorada em NTN-B+spread\n"+
         "   - REITs: TIR ~9-11% em USD, ancorada em Treasuries+spread\n"+
         "   - Treasuries/NTN-B: usar YTM/taxa real liquida de IR como TIR\n"+
-        "Margem de seguranca: 10% para aportes recorrentes (B&H regular ja embute margem temporal).\n"+
+        "Margem de seguranca: ~10% para aportes recorrentes (B&H regular ja embute margem temporal). Margens de 20-30% sao reservadas a reforcos em momentos de stress de mercado, nao para aportes regulares.\n"+
         "Use sua estimativa de mercado para metricas (P/L, P/VPA, DY, P/VP, YTM, P/AFFO etc) baseada no ultimo balanco publicado conhecido. Indicar quando o dado for estimativa.\n\n"+
         "FORMATO DE RESPOSTA: voce DEVE chamar a tool 'submit_preselecao' com o JSON estruturado contendo TODAS as classes presentes. Nada fora da tool. Cada candidato deve ter ate 3 metricas chave escolhidas conforme a relevancia para aquela classe naquele momento (ex: P/VP+DY+Spread para FII papel; P/L+P/VPA+DY para acoes BR; YTM+Duration+Spread para treasuries; Duration+Taxa Real+Inclinacao Curva para NTN-B).";
       // ===== User message com dados =====
