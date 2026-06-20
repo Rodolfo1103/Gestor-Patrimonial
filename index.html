@@ -7842,18 +7842,24 @@ function App(){
         }))
       }:null;
       // ===== Cenario macro relevante =====
+      // Inflacao e juros: objetos com campo .anual/.valor (nao numeros diretos)
+      const ipcaAnualVal=infIPCA&&typeof infIPCA.anual==="number"?infIPCA.anual:null;
+      const cpiVal=infCPI&&typeof infCPI.valor==="number"?infCPI.valor:null;
+      const hicpVal=infHICP&&typeof infHICP.valor==="number"?infHICP.valor:null;
+      const juroFedVal=juroFed&&typeof juroFed.valor==="number"?juroFed.valor:null;
+      const juroECBVal=juroECB&&typeof juroECB.valor==="number"?juroECB.valor:null;
       const cenarioMacro={
-        selicAtual:selicAtual+"%",
+        selicAtual:typeof selicAtual==="number"?selicAtual.toFixed(2)+"%":"n/d",
         ipcaCenario:cenarioIPCA,
-        ipca12m:infIPCA?infIPCA.toFixed(2)+"%":"n/d",
-        cpi12mUS:infCPI?infCPI.toFixed(2)+"%":"n/d",
-        hicpEU:infHICP?infHICP.toFixed(2)+"%":"n/d",
-        juroFed:juroFed?juroFed+"%":"n/d",
-        juroECB:juroECB?juroECB+"%":"n/d",
-        usdBrl:FX.USD?FX.USD.toFixed(2):"n/d",
-        eurBrl:FX.EUR?FX.EUR.toFixed(2):"n/d",
-        btcUsd:btcUsd?btcUsd.toLocaleString("en-US",{maximumFractionDigits:0}):"n/d",
-        ouroXauBrl:xauBrl?xauBrl.toFixed(2):"n/d"
+        ipca12m:ipcaAnualVal!==null?ipcaAnualVal.toFixed(2)+"%":"n/d",
+        cpi12mUS:cpiVal!==null?cpiVal.toFixed(2)+"%":"n/d",
+        hicpEU:hicpVal!==null?hicpVal.toFixed(2)+"%":"n/d",
+        juroFed:juroFedVal!==null?juroFedVal.toFixed(2)+"%":"n/d",
+        juroECB:juroECBVal!==null?juroECBVal.toFixed(2)+"%":"n/d",
+        usdBrl:typeof FX.USD==="number"?FX.USD.toFixed(2):"n/d",
+        eurBrl:typeof FX.EUR==="number"?FX.EUR.toFixed(2):"n/d",
+        btcUsd:typeof btcUsd==="number"?btcUsd.toLocaleString("en-US",{maximumFractionDigits:0}):"n/d",
+        ouroXauBrl:typeof xauBrl==="number"?xauBrl.toFixed(2):"n/d"
       };
       // ===== Composicao atual e meta =====
       const composicaoAtual={};
