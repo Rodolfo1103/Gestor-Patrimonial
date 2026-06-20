@@ -3045,6 +3045,13 @@ function CandidatoCard({candidato,classeInfo}){
         h("div",{style:{color:"#4CAF82"}},h("strong",{},"IDEAL")," ",fmtPrice(candidato.precoIdeal)),
         h("div",{style:{color:"#C8C0B0"}},posPreco<=0?"abaixo do ideal!":posPreco>=100?"acima do teto!":"na faixa"),
         h("div",{style:{color:"#E05252"}},h("strong",{},"TETO")," ",fmtPrice(candidato.precoTeto))
+      ),
+      // Legenda explicando metodologia
+      h("div",{style:{marginTop:7,padding:"6px 8px",background:"rgba(0,0,0,0.18)",borderRadius:4,fontSize:7.5,color:"#9A9080",lineHeight:1.55,fontStyle:"italic"}},
+        h("div",{style:{color:"#C8A96E",fontWeight:700,letterSpacing:1,marginBottom:3,fontStyle:"normal"}},"\u{1F4D0} METODOLOGIA"),
+        h("div",{},h("strong",{style:{color:"#4CAF82"}},"IDEAL")," = preco com margem de seguranca robusta (10-20% abaixo do valor justo estimado), entrada otima para reforco em momentos de stress de mercado."),
+        h("div",{style:{marginTop:3}},h("strong",{style:{color:"#E05252"}},"TETO")," = preco em que a TIR projetada do ativo iguala a TIR minima exigida para sua classe de risco (sem margem). Acima desse valor, o retorno esperado nao compensa o risco assumido. ",h("strong",{style:{color:"#C8A96E",fontStyle:"normal"}},"NAO COMPRAR")," acima do teto, independente da tese."),
+        h("div",{style:{marginTop:3}},"TIR minima exigida varia por classe: ciclicas sem moat ~18-20%, compounders com moat ~12-15%, FIIs/Infra/Agro ~12-14% (ancorado em NTN-B+spread), REITs ~9-11% USD (ancorado em Treasuries+spread), Treasuries/NTN-B usa YTM/taxa real liquida.")
       )
     ):null,
     // ===== Barrinhas de Metricas (estilo BTC/Ouro) =====
@@ -7801,18 +7808,27 @@ function App(){
     setAtivosEmEstudoLoad(true);
     try{
       // ===== Monta contexto: tickers por classe (restrito ao portfolio) =====
-      const classesElegiveis=["acoes_br","acoes_ext","fii","reits","treasuries","infra","agro","ntn_b"];
+      // ID real da classe NTN-B no app e "rfipca" (nao "ntn_b")
+      const classesElegiveis=["acoes_br","acoes_ext","fii","reits","treasuries","infra","agro","rfipca"];
       // Mapeia tickers do portfolio por classe (com peso atual e valor)
+      // FILTRO CRITICO: exclui tickers que ja estao em >=5% do patrimonio total (regra dura do investidor)
       const tickersPorClasse={};
+      const tickersExcluidosPor5pct={};// para informar a IA do que foi filtrado
       Object.entries(port||{}).forEach(([t,p])=>{
         if(!p||!t)return;
         const cid=cls[t];if(!cid)return;
         if(!classesElegiveis.includes(cid))return;
         const v=pv(t,p,ccy);
         if(v<=0)return;
-        if(!tickersPorClasse[cid])tickersPorClasse[cid]=[];
         const pesoNaClasse=cw[cid]>0?(v/(total*(cw[cid]/100)))*100:0;
-        const pesoNoTotal=total>0?(v/total)*100:0;
+        const pesoNoTotalNum=total>0?(v/total)*100:0;
+        // FILTRO 5%: exclui ativos ja em ou acima de 5% do patrimonio
+        if(pesoNoTotalNum>=5){
+          if(!tickersExcluidosPor5pct[cid])tickersExcluidosPor5pct[cid]=[];
+          tickersExcluidosPor5pct[cid].push({ticker:t,pesoNoTotal:pesoNoTotalNum.toFixed(2)+"%"});
+          return;// nao adiciona ao tickersPorClasse
+        }
+        if(!tickersPorClasse[cid])tickersPorClasse[cid]=[];
         const ult=lastPU&&lastPU[t]?lastPU[t]:null;
         tickersPorClasse[cid].push({
           ticker:t,
@@ -7822,10 +7838,10 @@ function App(){
           moeda:ccy[t]||"BRL",
           valorBrl:v,
           pesoNaClasse:pesoNaClasse.toFixed(1)+"%",
-          pesoNoTotal:pesoNoTotal.toFixed(2)+"%"
+          pesoNoTotal:pesoNoTotalNum.toFixed(2)+"%"
         });
       });
-      // So mantem classes que efetivamente tem tickers
+      // So mantem classes que efetivamente tem tickers ELEGIVEIS apos filtro
       const classesComTickers=Object.keys(tickersPorClasse);
       if(classesComTickers.length===0){
         setAtivosEmEstudoLoad(false);
@@ -7834,7 +7850,7 @@ function App(){
       }
       // Para NTN-B (ntn_b): inclui vencimentos disponiveis com taxas reais e VNA
       // (mesmo que nao seja "ticker" - IA pode escolher um vencimento como candidato)
-      const ntnbInfo=tickersPorClasse["ntn_b"]?{
+      const ntnbInfo=tickersPorClasse["rfipca"]?{
         vencimentos:Object.keys(NTNB_VENCIMENTOS||{}).map(v=>({
           vencimento:v,
           taxaReal:ntnbTaxas&&ntnbTaxas[v]?(ntnbTaxas[v]*100).toFixed(2)+"%":"n/d",
@@ -7875,32 +7891,43 @@ function App(){
       // ===== Helper: nome amigavel das classes =====
       const classeNomeMap={
         acoes_br:"Acoes BR",acoes_ext:"Acoes Exterior",fii:"FII",reits:"REITs",
-        treasuries:"Treasuries (ETFs)",infra:"Fundos Infraestrutura",agro:"FIAGRO",ntn_b:"NTN-B"
+        treasuries:"Treasuries (ETFs)",infra:"Fundos Infraestrutura",agro:"FIAGRO",rfipca:"NTN-B"
       };
       // ===== Monta system prompt =====
       const systemPrompt="Voce e um analista de investimentos B&H rigoroso, atendendo um investidor brasileiro de 39a com manifesto de longo prazo (B&H estrito, qualidade > preco, zero vendas).\n\n"+
-        "MISSAO: Para cada classe de ativos que o usuario possui, selecionar UM candidato provavel a receber aporte na PROXIMA JANELA. Esta e uma PRE-SELECAO de estudo - o investidor tera tempo de se aprofundar antes da janela.\n\n"+
-        "REGRAS DURAS:\n"+
-        "1. Restrito ao universo: voce DEVE escolher entre os tickers que o usuario JA POSSUI naquela classe. Nao sugerir tickers fora do portfolio.\n"+
-        "2. Para NTN-B: escolher um VENCIMENTO especifico (2035, 2045, 2055, 2065) com base na inclinacao da curva e duration adequada.\n"+
-        "3. Filosofia B&H: privilegiar qualidade, moat, previsibilidade. Nunca recomendar ativo caro (acima do preco-teto).\n"+
-        "4. Calibracao TIR (margem de seguranca):\n"+
+        "MISSAO: Para CADA classe de ativos que o usuario possui (presente em 'tickersPorClasse'), selecionar UM candidato provavel a receber aporte na PROXIMA JANELA. Esta e uma PRE-SELECAO de estudo - o investidor tera tempo de se aprofundar antes da janela.\n\n"+
+        "REGRA DURA #1 - COBERTURA TOTAL (CRITICA):\n"+
+        "Voce DEVE sugerir EXATAMENTE UM candidato para CADA classe presente em tickersPorClasse. NAO PULE NENHUMA CLASSE. Se o usuario possui FII, voce sugere 1 FII. Se possui FIAGRO (agro), voce sugere 1 FIAGRO. Se possui Treasuries (TLT/IEF/VTIP), voce sugere 1 ETF. Se possui NTN-B (rfipca), voce sugere 1 vencimento. Mesmo que voce ache que naquela classe nao ha 'oportunidade ideal', sugira o MELHOR DISPONIVEL entre os tickers listados naquela classe - o investidor confia no julgamento dele para a banda patrimonial, voce so precisa indicar QUAL ativo da classe estudar. Ouro, BTC, Selic e Imoveis ja tem abas proprias e NAO entram nesta pre-selecao - elas nao aparecerao em tickersPorClasse.\n\n"+
+        "REGRA DURA #1B - METODOLOGIA PRECO TETO/IDEAL (importante para o investidor entender o sinal):\n"+
+        "Para CADA candidato, voce DEVE fornecer precoIdeal e precoTeto com a seguinte definicao:\n"+
+        "  - precoTeto = preco em que a TIR projetada do ativo IGUALA a TIR minima exigida da classe (zero margem de seguranca). Acima desse preco, retorno nao compensa risco - NAO comprar.\n"+
+        "  - precoIdeal = preco com margem de seguranca robusta (10-20% abaixo do precoTeto), entrada otima para reforco em momentos de stress.\n"+
+        "  - O sinal visual para o investidor: se precoAtual < precoIdeal = oportunidade clara; entre ideal e teto = na faixa, aceitavel para aporte regular; acima do teto = caro, evitar.\n\n"+
+        "REGRA DURA #2 - UNIVERSO RESTRITO:\n"+
+        "Voce DEVE escolher APENAS entre os tickers que aparecem em tickersPorClasse[classe]. NUNCA sugerir ticker fora desta lista. Os tickers >=5% do patrimonio JA FORAM EXCLUIDOS automaticamente antes de chegarem ate voce - todos os tickers em tickersPorClasse estao abaixo de 5% e sao elegiveis. Mas como defesa em profundidade, AINDA assim verifique o campo 'pesoNoTotal' de cada candidato - se passar de 4.5% NAO escolha, prefira outro.\n\n"+
+        "REGRA DURA #3 - NTN-B:\n"+
+        "Para a classe 'rfipca' (NTN-B), escolher um VENCIMENTO especifico (ex: 'NTN-B 2045') com base na inclinacao da curva e duration adequada. Use o array 'vencimentos' de ntnbInfo para opcoes disponiveis.\n\n"+
+        "FILOSOFIA B&H: privilegiar qualidade, moat, previsibilidade. Nunca recomendar ativo caro (acima do preco-teto).\n\n"+
+        "CALIBRACAO TIR (margem de seguranca):\n"+
         "   - Acoes BR ciclicas sem moat: TIR ~18-20%, margem ~20%\n"+
         "   - Acoes BR/EXT com moat solido (Big 5, blue chips): TIR ~12-15%, margem ~10%\n"+
         "   - FIIs e Infra/Agro: TIR ~12-14%, ancorada em NTN-B+spread\n"+
         "   - REITs: TIR ~9-11% em USD, ancorada em Treasuries+spread\n"+
         "   - Treasuries/NTN-B: usar YTM/taxa real liquida de IR como TIR\n"+
-        "5. Margem de seguranca: 10% para aportes recorrentes (B&H regular ja embute margem temporal).\n"+
-        "6. Use sua estimativa de mercado para metricas (P/L, P/VPA, DY, P/VP, YTM, P/AFFO etc) baseada no ultimo balanco publicado conhecido. Indicar quando o dado for estimativa.\n\n"+
-        "FORMATO DE RESPOSTA: voce DEVE chamar a tool 'submit_preselecao' com o JSON estruturado. Nada fora da tool. Cada candidato deve ter ate 3 metricas chave escolhidas conforme a relevancia para aquela classe naquele momento (ex: P/VP+DY+Spread para FII papel; P/L+P/VPA+DY para acoes BR; YTM+Duration+Spread para treasuries).";
+        "Margem de seguranca: 10% para aportes recorrentes (B&H regular ja embute margem temporal).\n"+
+        "Use sua estimativa de mercado para metricas (P/L, P/VPA, DY, P/VP, YTM, P/AFFO etc) baseada no ultimo balanco publicado conhecido. Indicar quando o dado for estimativa.\n\n"+
+        "FORMATO DE RESPOSTA: voce DEVE chamar a tool 'submit_preselecao' com o JSON estruturado contendo TODAS as classes presentes. Nada fora da tool. Cada candidato deve ter ate 3 metricas chave escolhidas conforme a relevancia para aquela classe naquele momento (ex: P/VP+DY+Spread para FII papel; P/L+P/VPA+DY para acoes BR; YTM+Duration+Spread para treasuries; Duration+Taxa Real+Inclinacao Curva para NTN-B).";
       // ===== User message com dados =====
+      // Lista de tickers excluidos por estarem >=5% do patrimonio (informa a IA mas nao precisa escolher)
+      const temExcluidos=Object.keys(tickersExcluidosPor5pct).length>0;
       const userMessage="DADOS DO PORTFOLIO PARA ANALISE:\n\n"+
         "=== CENARIO MACRO ===\n"+JSON.stringify(cenarioMacro,null,2)+"\n\n"+
         "=== COMPOSICAO ATUAL (% por classe) ===\n"+JSON.stringify(composicaoAtual,null,2)+"\n\n"+
         "=== JANELA DE APORTE ===\n"+(janelaAporte?JSON.stringify(janelaAporte,null,2):"sem janela proxima")+"\n\n"+
-        "=== TICKERS POR CLASSE (universo restrito - voce DEVE escolher dentre estes) ===\n"+JSON.stringify(tickersPorClasse,null,2)+"\n\n"+
+        "=== TICKERS ELEGIVEIS POR CLASSE (universo restrito - voce DEVE escolher dentre estes, TODOS abaixo de 5% do patrimonio) ===\n"+JSON.stringify(tickersPorClasse,null,2)+"\n\n"+
+        (temExcluidos?"=== TICKERS EXCLUIDOS AUTOMATICAMENTE (>=5% do patrimonio - NAO PODE escolher estes) ===\n"+JSON.stringify(tickersExcluidosPor5pct,null,2)+"\n\n":"")+
         (ntnbInfo?"=== NTN-B VENCIMENTOS DISPONIVEIS ===\n"+JSON.stringify(ntnbInfo,null,2)+"\n\n":"")+
-        "Selecione UM candidato por classe (dentre as classes listadas) e chame a tool submit_preselecao com o resultado.";
+        "Selecione UM candidato para CADA classe presente em tickersPorClasse (cobertura total, nao pular nenhuma classe). Chame a tool submit_preselecao com o resultado.";
       // ===== Tool definition para garantir JSON estruturado =====
       const tools=[{
         name:"submit_preselecao",
@@ -7914,7 +7941,7 @@ function App(){
               items:{
                 type:"object",
                 properties:{
-                  classe:{type:"string",description:"ID da classe: acoes_br, acoes_ext, fii, reits, treasuries, infra, agro, ntn_b",enum:["acoes_br","acoes_ext","fii","reits","treasuries","infra","agro","ntn_b"]},
+                  classe:{type:"string",description:"ID da classe: acoes_br, acoes_ext, fii, reits, treasuries, infra, agro, rfipca",enum:["acoes_br","acoes_ext","fii","reits","treasuries","infra","agro","rfipca"]},
                   ticker:{type:"string",description:"Ticker escolhido (ou vencimento para NTN-B ex: 'NTN-B 2045')"},
                   precoAtual:{type:"number",description:"Preco atual conhecido (em BRL para BR, ou na moeda do ativo)"},
                   precoIdeal:{type:"number",description:"Preco ideal de entrada (com margem de seguranca aplicada)"},
@@ -16947,7 +16974,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
       const diasDesdeUpdate=tsEstudo>0?Math.floor((Date.now()-tsEstudo)/(86400000)):null;
       const stale=diasDesdeUpdate===null||diasDesdeUpdate>=7;
       // Classes que entram na pre-selecao (exclui Selic, Imoveis, BTC, Ouro, Caixa Cambial)
-      const classesElegiveis=["acoes_br","acoes_ext","fii","reits","treasuries","infra","agro","ntn_b"];
+      const classesElegiveis=["acoes_br","acoes_ext","fii","reits","treasuries","infra","agro","rfipca"];
       const classesPresentes=classesElegiveis.filter(cid=>(cw[cid]||0)>0);
       // Handler de refresh: chama a IA para gerar pre-selecao
       const handleRefresh=()=>{
@@ -17012,7 +17039,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             h("div",{style:{fontSize:10,color:"#5B8FD4",fontFamily:"monospace",fontStyle:"italic"}},"\u23F3 Atualizando pre-selecao via IA... isso pode levar 30-60 segundos.")
           ):null,
           // Lista de candidatos ordenada por classe (segue ordem de CL para consistencia)
-          ...["acoes_br","acoes_ext","fii","reits","treasuries","infra","agro","ntn_b"].map(cid=>{
+          ...["acoes_br","acoes_ext","fii","reits","treasuries","infra","agro","rfipca"].map(cid=>{
             const cand=ativosEmEstudo.candidatos.find(c=>c.classe===cid);
             if(!cand)return null;
             const classeInfo=CL.find(c=>c.id===cid);
