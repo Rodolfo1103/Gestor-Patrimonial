@@ -17260,10 +17260,10 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         const gapRange=gapMax-gapMin;
         // Posicao de cada marco no eixo Y (gap em pontos percentuais)
         const yDoGap=(g)=>gapRange>0?((gapMax-g)/gapRange)*100:50;
-        // SVG dimensoes (maior para melhor enquadramento)
-        const W_TL=360;const H_TL=180;
+        const W_TL=380;const H_TL=210;
         // Padding interno para evitar que labels saiam do enquadramento
-        const PAD_X=42;const PAD_TOP=22;const PAD_BOT=44;
+        // PAD_BOT maior para acomodar labels rotacionados em 45 graus
+        const PAD_X=42;const PAD_TOP=22;const PAD_BOT=78;
         // Marco historico com gap mais proximo do atual
         const sortByDistance=marcos.map(m=>({...m,distancia:Math.abs(m.gap-gapHoje)})).sort((a,b)=>a.distancia-b.distancia);
         const maisProximo=sortByDistance[0];
@@ -17332,7 +17332,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             ),
             // ===== SVG TIMELINE =====
             h("div",{style:{overflowX:"auto",overflowY:"hidden",marginBottom:12}},
-              h("svg",{viewBox:"0 0 "+W_TL+" "+H_TL,style:{width:"100%",height:"auto",minWidth:Math.max(W_TL,marcosCompleto.length*42)+"px",display:"block"},preserveAspectRatio:"xMidYMid meet"},
+              h("svg",{viewBox:"0 0 "+W_TL+" "+H_TL,style:{width:"100%",height:"auto",minWidth:Math.max(W_TL,marcosCompleto.length*52)+"px",display:"block"},preserveAspectRatio:"xMidYMid meet"},
                 // Eixo X
                 h("line",{x1:PAD_X,y1:H_TL-PAD_BOT,x2:W_TL-12,y2:H_TL-PAD_BOT,stroke:"rgba(255,255,255,0.20)",strokeWidth:0.8}),
                 // Faixas coloridas de fundo (oportunidade verde acima zero, compressao vermelho abaixo)
@@ -17376,10 +17376,10 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                     h("circle",{cx:x,cy:y,r:ehHoje?5.5:4,fill:m.cor,stroke:ehHoje?"#FFD700":"#1a1410",strokeWidth:ehHoje?1.3:0.7}),
                     // Numero do gap (com fundo para legibilidade quando sobre area colorida)
                     h("text",{x:xGap,y:yGap,fontSize:7.5,fill:m.cor,fontFamily:"monospace",fontWeight:700,textAnchor:anchorGap,style:{paintOrder:"stroke",stroke:"rgba(0,0,0,0.55)",strokeWidth:2.5,strokeLinejoin:"round"}},labelGap),
-                    // Ano (linha 1 do eixo X)
-                    h("text",{x:x,y:H_TL-PAD_BOT+15,fontSize:8,fill:ehHoje?"#FFD700":"#C8C0B0",fontFamily:"monospace",fontWeight:ehHoje?700:600,textAnchor:"middle",letterSpacing:0.3},m.ano),
-                    // Label do evento (linha 2 do eixo X)
-                    h("text",{x:x,y:H_TL-PAD_BOT+27,fontSize:7,fill:ehHoje?"#FFD700":"#9A9080",fontFamily:"monospace",fontWeight:ehHoje?700:500,textAnchor:"middle",letterSpacing:0.2},m.label)
+                    // Ano (linha 1 do eixo X - horizontal, legivel como referencia primaria)
+                    h("text",{x:x,y:H_TL-PAD_BOT+16,fontSize:9,fill:ehHoje?"#FFD700":"#C8C0B0",fontFamily:"monospace",fontWeight:ehHoje?700:600,textAnchor:"middle",letterSpacing:0.3},m.ano),
+                    // Label do evento (rotacionado 45 graus para nao colidir entre si)
+                    h("text",{x:x,y:H_TL-PAD_BOT+28,fontSize:8.5,fill:ehHoje?"#FFD700":"#C8C0B0",fontFamily:"monospace",fontWeight:ehHoje?700:500,textAnchor:"start",letterSpacing:0.3,transform:"rotate(35 "+x+" "+(H_TL-PAD_BOT+28)+")"},m.label)
                   );
                 })
               )
