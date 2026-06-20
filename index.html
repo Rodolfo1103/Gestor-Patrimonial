@@ -7818,7 +7818,8 @@ function App(){
         if(!p||!t)return;
         const cid=cls[t];if(!cid)return;
         if(!classesElegiveis.includes(cid))return;
-        const v=pv(t,p,ccy);
+        // pv precisa de ntnbTaxas e ntnbVNA para NTN-B funcionar corretamente
+        const v=pv(t,p,ccy,ntnbTaxas,ntnbVNA);
         if(v<=0)return;
         const pesoNaClasse=cw[cid]>0?(v/(total*(cw[cid]/100)))*100:0;
         const pesoNoTotalNum=total>0?(v/total)*100:0;
@@ -7851,12 +7852,46 @@ function App(){
       // Para NTN-B (ntn_b): inclui vencimentos disponiveis com taxas reais e VNA
       // (mesmo que nao seja "ticker" - IA pode escolher um vencimento como candidato)
       const ntnbInfo=tickersPorClasse["rfipca"]?{
-        vencimentos:Object.keys(NTNB_VENCIMENTOS||{}).map(v=>({
-          vencimento:v,
-          taxaReal:ntnbTaxas&&ntnbTaxas[v]?(ntnbTaxas[v]*100).toFixed(2)+"%":"n/d",
-          vna:ntnbVNA||"n/d"
-        }))
+        vencimentos:Object.keys(NTNB_VENCIMENTOS||{}).map(v=>{
+          const obj=ntnbTaxas&&ntnbTaxas[v]?ntnbTaxas[v]:null;
+          const tx=obj?(obj.taxaBrutaVenda||obj.taxaBrutaCompra):null;
+          return{
+            vencimento:v,
+            dataVencimento:NTNB_VENCIMENTOS[v],
+            taxaReal:typeof tx==="number"&&tx>0?(tx*100).toFixed(2)+"%":"n/d",
+            vna:typeof ntnbVNA==="number"?ntnbVNA.toFixed(2):"n/d"
+          };
+        })
       }:null;
+      // ===== PRE-VALIDACAO: log do que sera enviado a IA (para debug sem gastar creditos) =====
+      console.group("[ATIVOS EM ESTUDO] Pre-validacao antes da chamada IA");
+      console.log("Classes elegiveis:",classesElegiveis);
+      console.log("Classes com tickers (apos filtro 5%):",Object.keys(tickersPorClasse));
+      console.log("Tickers por classe:",tickersPorClasse);
+      console.log("Tickers excluidos por 5%:",tickersExcluidosPor5pct);
+      console.log("NTN-B info:",ntnbInfo);
+      // Validacao: alerta se uma classe presente no portfolio nao aparece (problema na origem)
+      const classesNoPortfolio=new Set();
+      Object.entries(port||{}).forEach(([t,p])=>{
+        if(!p||!t)return;
+        const cid=cls[t];
+        if(cid&&classesElegiveis.includes(cid)){
+          const v=pv(t,p,ccy,ntnbTaxas,ntnbVNA);
+          if(v>0)classesNoPortfolio.add(cid);
+        }
+      });
+      const classesAusentesAposFiltro=[...classesNoPortfolio].filter(cid=>!tickersPorClasse[cid]);
+      if(classesAusentesAposFiltro.length>0){
+        console.warn("ATENCAO: classes presentes no portfolio mas SEM tickers elegiveis apos filtro 5%:",classesAusentesAposFiltro);
+        console.warn("Isto significa que TODOS os ativos dessas classes estao em >=5% do patrimonio. Verifique tickersExcluidosPor5pct acima.");
+      }
+      console.groupEnd();
+      // Se nenhuma classe sobrou, aborta SEM gastar creditos
+      if(Object.keys(tickersPorClasse).length===0){
+        setAtivosEmEstudoLoad(false);
+        alert("Apos filtro de 5%, nenhuma classe tem tickers elegiveis para estudo. Verifique console (DevTools) para diagnostico.");
+        return;
+      }
       // ===== Cenario macro relevante =====
       // Inflacao e juros: objetos com campo .anual/.valor (nao numeros diretos)
       const ipcaAnualVal=infIPCA&&typeof infIPCA.anual==="number"?infIPCA.anual:null;
@@ -7981,7 +8016,7 @@ function App(){
         headers:{"Content-Type":"application/json","x-api-key":apiKey,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
         body:JSON.stringify({
           model:"claude-opus-4-7",// modelo mais capaz para task complexa de analise multi-classe
-          max_tokens:4500,
+          max_tokens:8000,// generoso para acomodar 7-8 classes com tese+catalisadores+riscos por candidato
           system:systemPrompt,
           messages:[{role:"user",content:userMessage}],
           tools,
@@ -7999,11 +8034,68 @@ function App(){
         throw new Error("Resposta da IA nao retornou estrutura esperada");
       }
       // Validacao defensiva: filtra candidatos invalidos
-      const candidatosValidos=toolUse.input.candidatos.filter(c=>
+      let candidatosValidos=toolUse.input.candidatos.filter(c=>
         c&&c.classe&&c.ticker&&Array.isArray(c.metricas)&&c.metricas.length>0&&c.teseResumida
       );
       if(candidatosValidos.length===0){
         throw new Error("Nenhum candidato valido retornado");
+      }
+      let observacaoGlobalFinal=toolUse.input.observacaoGlobal||"";
+      // ===== VALIDACAO DE COBERTURA: classes presentes que NAO foram cobertas? =====
+      const classesCobertas=new Set(candidatosValidos.map(c=>c.classe));
+      const classesPresentes=Object.keys(tickersPorClasse);
+      const classesFaltantes=classesPresentes.filter(cid=>!classesCobertas.has(cid));
+      // Se ha classes faltantes, faz SEGUNDA CHAMADA pedindo especificamente elas
+      if(classesFaltantes.length>0){
+        console.log("Classes faltantes na 1a resposta:",classesFaltantes,"- fazendo retry");
+        try{
+          // Monta universo restrito so com classes faltantes
+          const tickersPorClasseRetry={};
+          classesFaltantes.forEach(cid=>{
+            if(tickersPorClasse[cid])tickersPorClasseRetry[cid]=tickersPorClasse[cid];
+          });
+          const ntnbInfoRetry=tickersPorClasseRetry["rfipca"]?ntnbInfo:null;
+          const systemPromptRetry="Voce e um analista de investimentos B&H rigoroso (mesma calibracao da chamada anterior).\n\n"+
+            "CONTEXTO: o investidor solicitou pre-selecao para sua proxima janela de aporte. Na sua resposta anterior voce NAO cobriu algumas classes que estao presentes no portfolio dele.\n\n"+
+            "MISSAO AGORA: cobrir EXATAMENTE as classes faltantes abaixo. Para cada uma, escolher 1 candidato dentre os tickers presentes.\n\n"+
+            "REGRA DURA: NAO PULAR NENHUMA classe listada. Mesmo que voce ache que nao ha 'oportunidade ideal', sugira o MELHOR DISPONIVEL entre os tickers de cada classe. O investidor precisa de UM candidato de estudo para cada classe que ele tem - essa e a logica da pre-selecao.\n\n"+
+            "Calibracao TIR e definicao de precoTeto/precoIdeal seguem a mesma metodologia da chamada anterior (precoTeto = TIR projetada iguala TIR minima da classe; precoIdeal = 10-20% abaixo do teto para margem de seguranca).\n\n"+
+            "FORMATO: chame submit_preselecao com APENAS as classes faltantes em 'candidatos' (nao repetir as que ja foram cobertas).";
+          const userMessageRetry="CLASSES FALTANTES: "+classesFaltantes.join(", ")+"\n\n"+
+            "=== TICKERS POR CLASSE (universo restrito) ===\n"+JSON.stringify(tickersPorClasseRetry,null,2)+"\n\n"+
+            (ntnbInfoRetry?"=== NTN-B VENCIMENTOS ===\n"+JSON.stringify(ntnbInfoRetry,null,2)+"\n\n":"")+
+            "Cobertura obrigatoria: 1 candidato para cada classe acima.";
+          const respRetry=await fetch("https://api.anthropic.com/v1/messages",{
+            method:"POST",
+            headers:{"Content-Type":"application/json","x-api-key":apiKey,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
+            body:JSON.stringify({
+              model:"claude-opus-4-7",
+              max_tokens:5000,
+              system:systemPromptRetry,
+              messages:[{role:"user",content:userMessageRetry}],
+              tools,
+              tool_choice:{type:"tool",name:"submit_preselecao"}
+            })
+          });
+          if(respRetry.ok){
+            const dataRetry=await respRetry.json();
+            const toolUseRetry=dataRetry.content&&dataRetry.content.find(c=>c.type==="tool_use"&&c.name==="submit_preselecao");
+            if(toolUseRetry&&toolUseRetry.input&&Array.isArray(toolUseRetry.input.candidatos)){
+              const candidatosRetry=toolUseRetry.input.candidatos.filter(c=>
+                c&&c.classe&&c.ticker&&Array.isArray(c.metricas)&&c.metricas.length>0&&c.teseResumida&&classesFaltantes.includes(c.classe)
+              );
+              if(candidatosRetry.length>0){
+                console.log("Retry adicionou",candidatosRetry.length,"candidatos");
+                candidatosValidos=[...candidatosValidos,...candidatosRetry];
+                if(toolUseRetry.input.observacaoGlobal&&!observacaoGlobalFinal){
+                  observacaoGlobalFinal=toolUseRetry.input.observacaoGlobal;
+                }
+              }
+            }
+          }
+        }catch(eRetry){
+          console.warn("Erro no retry de classes faltantes (continuando com 1a resposta):",eRetry);
+        }
       }
       // Hash simples da composicao atual para detectar mudanca
       const versaoPortfolio=Object.keys(port||{}).sort().join(",")+"|"+Object.values(cw||{}).map(v=>Math.round(v||0)).join(",");
@@ -8012,7 +8104,7 @@ function App(){
         versaoPortfolio,
         proximaJanelaAporte:proxAp?proxAp.inicio.toISOString().slice(0,10):null,
         candidatos:candidatosValidos,
-        observacaoGlobal:toolUse.input.observacaoGlobal||""
+        observacaoGlobal:observacaoGlobalFinal
       };
       setAtivosEmEstudo(novoEstudo);
       setAtivosEmEstudoLoad(false);
@@ -16976,10 +17068,60 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
       // Classes que entram na pre-selecao (exclui Selic, Imoveis, BTC, Ouro, Caixa Cambial)
       const classesElegiveis=["acoes_br","acoes_ext","fii","reits","treasuries","infra","agro","rfipca"];
       const classesPresentes=classesElegiveis.filter(cid=>(cw[cid]||0)>0);
+      // Handler diagnostico: roda a coleta de dados SEM chamar IA (custo zero)
+      const handleDiagnostico=()=>{
+        const classesElegiveis=["acoes_br","acoes_ext","fii","reits","treasuries","infra","agro","rfipca"];
+        const tickersPorClasse={};
+        const excluidos5pct={};
+        const totalLocal=total||0;
+        Object.entries(port||{}).forEach(([t,p])=>{
+          if(!p||!t)return;
+          const cid=cls[t];if(!cid)return;
+          if(!classesElegiveis.includes(cid))return;
+          const v=pv(t,p,ccy,ntnbTaxas,ntnbVNA);
+          if(v<=0)return;
+          const pesoNoTotalNum=totalLocal>0?(v/totalLocal)*100:0;
+          if(pesoNoTotalNum>=5){
+            if(!excluidos5pct[cid])excluidos5pct[cid]=[];
+            excluidos5pct[cid].push(t+" ("+pesoNoTotalNum.toFixed(2)+"%)");
+            return;
+          }
+          if(!tickersPorClasse[cid])tickersPorClasse[cid]=[];
+          tickersPorClasse[cid].push(t+" ("+pesoNoTotalNum.toFixed(2)+"%)");
+        });
+        // Monta relatorio textual
+        let relatorio="DIAGNOSTICO DA PRE-SELECAO (sem custo - sem chamar IA)\n\n";
+        relatorio+="Classes elegiveis: "+classesElegiveis.length+"\n";
+        relatorio+="Classes que serao analisadas pela IA: "+Object.keys(tickersPorClasse).length+"\n\n";
+        classesElegiveis.forEach(cid=>{
+          const nomeBonito={acoes_br:"Acoes BR",acoes_ext:"Acoes EXT",fii:"FII",reits:"REITs",treasuries:"Treasuries",infra:"Infra",agro:"FIAGRO",rfipca:"NTN-B"}[cid]||cid;
+          if(tickersPorClasse[cid]){
+            relatorio+="\u2713 "+nomeBonito+": "+tickersPorClasse[cid].length+" ticker(s) elegivel(eis)\n";
+            relatorio+="  "+tickersPorClasse[cid].join(", ")+"\n";
+          }else if(excluidos5pct[cid]){
+            relatorio+="\u26A0 "+nomeBonito+": SEM ELEGIVEIS (todos >=5%)\n";
+            relatorio+="  excluidos: "+excluidos5pct[cid].join(", ")+"\n";
+          }else{
+            relatorio+="\u2717 "+nomeBonito+": sem ativos no portfolio (ou valor=0)\n";
+          }
+        });
+        if(Object.keys(excluidos5pct).length>0){
+          relatorio+="\n--- Tickers excluidos por estarem >=5% do patrimonio ---\n";
+          Object.entries(excluidos5pct).forEach(([cid,lista])=>{
+            relatorio+=cid+": "+lista.join(", ")+"\n";
+          });
+        }
+        relatorio+="\nVerifique o console (DevTools) para detalhes completos.";
+        console.group("[DIAGNOSTICO] Pre-selecao - dados que seriam enviados a IA");
+        console.log("tickersPorClasse:",tickersPorClasse);
+        console.log("excluidos5pct:",excluidos5pct);
+        console.groupEnd();
+        alert(relatorio);
+      };
       // Handler de refresh: chama a IA para gerar pre-selecao
       const handleRefresh=()=>{
         if(!apiKey){alert("Configure sua chave API Anthropic primeiro (botao chave no Dashboard).");return;}
-        if(!window.confirm("Gerar nova pre-selecao de ativos via IA?\n\nCusto estimado: ~$0.30-0.50 da sua API key.\n\nA IA analisara seu portfolio atual e indicara um candidato provavel por classe para a proxima janela de aporte."))return;
+        if(!window.confirm("Gerar nova pre-selecao de ativos via IA?\n\nCusto estimado: ~$0.30-0.50 da sua API key.\n\nDICA: clique em \"DIAGNOSTICO\" antes para verificar (sem custo) se todas as classes estarao cobertas.\n\nA IA analisara seu portfolio atual e indicara um candidato provavel por classe para a proxima janela de aporte."))return;
         gerarPreSelecaoIA();
       };
       content=h("div",{},
@@ -16989,7 +17131,10 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:2}},"Ativos em Estudo"),
             h("div",{style:{fontSize:9,color:"#7A7060",fontStyle:"italic"}},"pre-selecao da IA para a proxima janela de aporte")
           ),
-          h("button",{onClick:handleRefresh,disabled:ativosEmEstudoLoad,style:{padding:"8px 14px",background:stale?"linear-gradient(135deg,#C8A96E,#a8895a)":"rgba(255,255,255,0.05)",color:stale?"#1A1612":"#C8A96E",border:stale?"none":"1px solid rgba(200,169,110,0.30)",borderRadius:5,fontSize:10,fontFamily:"monospace",fontWeight:700,letterSpacing:1.2,cursor:ativosEmEstudoLoad?"not-allowed":"pointer",textTransform:"uppercase"}},ativosEmEstudoLoad?"gerando...":(tsEstudo>0?"atualizar":"gerar pre-selecao"))
+          h("div",{style:{display:"flex",gap:6,flexWrap:"wrap"}},
+            h("button",{onClick:handleDiagnostico,disabled:ativosEmEstudoLoad,style:{padding:"8px 12px",background:"rgba(91,143,212,0.10)",color:"#5B8FD4",border:"1px solid rgba(91,143,212,0.40)",borderRadius:5,fontSize:9,fontFamily:"monospace",fontWeight:700,letterSpacing:1.2,cursor:"pointer",textTransform:"uppercase"},title:"Verifica quais classes serao analisadas, sem chamar a IA (sem custo)"},"\u{1F50D} diagnostico"),
+            h("button",{onClick:handleRefresh,disabled:ativosEmEstudoLoad,style:{padding:"8px 14px",background:stale?"linear-gradient(135deg,#C8A96E,#a8895a)":"rgba(255,255,255,0.05)",color:stale?"#1A1612":"#C8A96E",border:stale?"none":"1px solid rgba(200,169,110,0.30)",borderRadius:5,fontSize:10,fontFamily:"monospace",fontWeight:700,letterSpacing:1.2,cursor:ativosEmEstudoLoad?"not-allowed":"pointer",textTransform:"uppercase"}},ativosEmEstudoLoad?"gerando...":(tsEstudo>0?"atualizar":"gerar pre-selecao"))
+          )
         ),
         // Card de contexto (proxima janela + status do estudo)
         h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:8,marginBottom:16}},
