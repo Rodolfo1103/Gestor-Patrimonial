@@ -7892,7 +7892,51 @@ function App(){
         alert("Apos filtro de 5%, nenhuma classe tem tickers elegiveis para estudo. Verifique console (DevTools) para diagnostico.");
         return;
       }
-      // ===== Cenario macro relevante =====
+      // ===== Descricoes factuais de ativos com potencial de alucinacao IA =====
+      // Fundos pequenos/recentes/regionais onde a IA tende a confundir. Atualizar conforme novos achados.
+      const DESCRICOES_FACTUAIS={
+        // Fundos de Infraestrutura
+        BRZP11:"BRZ Infra Portos FIP-IE - fundo de participacoes (FIP-IE) com 22,9% indireto no Porto Itapoá/SC (terminal de containers operado em parceria com Maersk). NAO E fundo de debentures incentivadas. NAO E FII tradicional. Exposicao indireta a inflacao via receitas portuarias.",
+        AZIN11:"Azimut Infra - FI-Infra investindo em debentures incentivadas (isencao IR) de empresas de infraestrutura. Diversificado em setores (energia, saneamento, transportes).",
+        KDIF11:"Kinea Infra - FI-Infra investindo em debentures incentivadas (isencao IR) de empresas de infraestrutura. Foco em projetos brownfield com fluxos previsiveis.",
+        // FIIs com nomenclatura potencialmente confusa
+        HGLG11:"CSHG Logistica - FII de tijolo, galpoes logisticos (locatarios Mercado Livre, Magazine Luiza, etc).",
+        HGRU11:"CSHG Renda Urbana - FII hibrido (lajes+varejo), inquilino-ancora BRF, Pao de Acucar, Petz.",
+        RBVA11:"Rio Bravo Renda Varejo - FII de tijolo (lojas de rua), portfolio pulverizado.",
+        XPML11:"XP Malls - FII de shoppings (Iguatemi, Jundiai etc).",
+        XPIN11:"XP Industrial - FII industrial/logistico.",
+        BTLG11:"BTG Logistica - FII de galpoes logisticos.",
+        AFHI11:"AF Invest CRI - FII de papel (CRIs IPCA+ e CDI+) - gestao AF Invest.",
+        RECR11:"REC Recebiveis Imobiliarios - FII de papel (CRIs).",
+        KNHY11:"Kinea High Yield CRI - FII de papel high yield (CRIs com taxas mais altas).",
+        KNUQ11:"Kinea Unique - FII de tijolo high-end (lajes premium em SP).",
+        KNIP11:"Kinea Indice Precos - FII de papel atrelado a IPCA+.",
+        TRXF11:"TRX Real Estate - FII multissetorial (tijolo+papel).",
+        ALZR11:"Alianza Trust - FII de tijolo (galpoes/centros logisticos).",
+        FIIB11:"Industrial do Brasil - FII industrial pulverizado.",
+        TGAR11:"TG Ativo Real - FII multimercado imobiliario (papel+terrenos).",
+        TEPP11:"Tellus Properties - FII de tijolo (lajes corporativas).",
+        JFLL11:"JFL Living - FII residencial (multifamily).",
+        PVBI11:"VBI Prime Properties - FII de lajes corporativas premium.",
+        HSML11:"HSI Malls - FII de shoppings (HSI Investimentos).",
+        // FIAGROS
+        KNCA11:"Kinea Credito Agronegocio - FIAGRO de papel (CRAs - certificados de recebiveis agro).",
+        RZTR11:"Riza Terrax - FIAGRO de terras (compra terras agricolas para arrendamento).",
+        BTAL11:"BTG Agro Logistica - FIAGRO de papel (CRAs).",
+        // NTN-B - sempre descrever com vencimento explicito
+        // (preenchido dinamicamente em ntnbInfo)
+      };
+      // Filtra so as descricoes dos ativos que aparecem no portfolio
+      const descricoesRelevantes={};
+      Object.keys(tickersPorClasse).forEach(cid=>{
+        tickersPorClasse[cid].forEach(item=>{
+          if(DESCRICOES_FACTUAIS[item.ticker]){
+            descricoesRelevantes[item.ticker]=DESCRICOES_FACTUAIS[item.ticker];
+          }
+        });
+      });
+
+
       // Inflacao e juros: objetos com campo .anual/.valor (nao numeros diretos)
       const ipcaAnualVal=infIPCA&&typeof infIPCA.anual==="number"?infIPCA.anual:null;
       const cpiVal=infCPI&&typeof infCPI.valor==="number"?infCPI.valor:null;
@@ -7955,14 +7999,16 @@ function App(){
       // ===== User message com dados =====
       // Lista de tickers excluidos por estarem >=5% do patrimonio (informa a IA mas nao precisa escolher)
       const temExcluidos=Object.keys(tickersExcluidosPor5pct).length>0;
+      const temDescricoes=Object.keys(descricoesRelevantes).length>0;
       const userMessage="DADOS DO PORTFOLIO PARA ANALISE:\n\n"+
         "=== CENARIO MACRO ===\n"+JSON.stringify(cenarioMacro,null,2)+"\n\n"+
         "=== COMPOSICAO ATUAL (% por classe) ===\n"+JSON.stringify(composicaoAtual,null,2)+"\n\n"+
         "=== JANELA DE APORTE ===\n"+(janelaAporte?JSON.stringify(janelaAporte,null,2):"sem janela proxima")+"\n\n"+
         "=== TICKERS ELEGIVEIS POR CLASSE (universo restrito - voce DEVE escolher dentre estes, TODOS abaixo de 5% do patrimonio) ===\n"+JSON.stringify(tickersPorClasse,null,2)+"\n\n"+
+        (temDescricoes?"=== DESCRICOES FACTUAIS DE FUNDOS (FONTE: relatorios oficiais - use estas descricoes em vez de seu conhecimento, especialmente para fundos pequenos/regionais) ===\n"+JSON.stringify(descricoesRelevantes,null,2)+"\n\n":"")+
         (temExcluidos?"=== TICKERS EXCLUIDOS AUTOMATICAMENTE (>=5% do patrimonio - NAO PODE escolher estes) ===\n"+JSON.stringify(tickersExcluidosPor5pct,null,2)+"\n\n":"")+
         (ntnbInfo?"=== NTN-B VENCIMENTOS DISPONIVEIS ===\n"+JSON.stringify(ntnbInfo,null,2)+"\n\n":"")+
-        "Selecione UM candidato para CADA classe presente em tickersPorClasse (cobertura total, nao pular nenhuma classe). Chame a tool submit_preselecao com o resultado.";
+        "Selecione UM candidato para CADA classe presente em tickersPorClasse (cobertura total, nao pular nenhuma classe). Para os ativos com descricao factual fornecida, USE essa descricao - nao confunda os tipos. Chame a tool submit_preselecao com o resultado.";
       // ===== Tool definition para garantir JSON estruturado =====
       const tools=[{
         name:"submit_preselecao",
@@ -17073,13 +17119,28 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         const classesElegiveis=["acoes_br","acoes_ext","fii","reits","treasuries","infra","agro","rfipca"];
         const tickersPorClasse={};
         const excluidos5pct={};
+        const tickersZerados={};// p.qty=0 ou p.price=0 ou pv=0
+        const tickersClasseErrada={};// ticker existe mas cls[t] retorna outra coisa
         const totalLocal=total||0;
+        // Varre TODOS os tickers do portfolio (independente de classe) para diagnostico completo
         Object.entries(port||{}).forEach(([t,p])=>{
           if(!p||!t)return;
-          const cid=cls[t];if(!cid)return;
-          if(!classesElegiveis.includes(cid))return;
+          const cid=cls[t];
           const v=pv(t,p,ccy,ntnbTaxas,ntnbVNA);
-          if(v<=0)return;
+          // Ticker com classe nao-elegivel: ignora silenciosamente (e ouro, btc, selic, imoveis)
+          if(cid&&!classesElegiveis.includes(cid))return;
+          // Ticker sem classe nenhuma: e suspeito
+          if(!cid){
+            if(!tickersClasseErrada["sem_classe"])tickersClasseErrada["sem_classe"]=[];
+            tickersClasseErrada["sem_classe"].push(t+" (qty="+(p.qty||0)+",price="+(p.price||0)+")");
+            return;
+          }
+          // Ticker com valor zero ou negativo (qty zero, price zero, ou outro problema)
+          if(v<=0){
+            if(!tickersZerados[cid])tickersZerados[cid]=[];
+            tickersZerados[cid].push(t+" (qty="+(p.qty||0)+",price="+(p.price||0)+",pv="+v+")");
+            return;
+          }
           const pesoNoTotalNum=totalLocal>0?(v/totalLocal)*100:0;
           if(pesoNoTotalNum>=5){
             if(!excluidos5pct[cid])excluidos5pct[cid]=[];
@@ -17089,32 +17150,54 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           if(!tickersPorClasse[cid])tickersPorClasse[cid]=[];
           tickersPorClasse[cid].push(t+" ("+pesoNoTotalNum.toFixed(2)+"%)");
         });
+        // Detecta classes que tem peso (cw[cid]>0) mas zero tickers elegiveis
+        const classesComPesoSemTickers=classesElegiveis.filter(cid=>{
+          const temPeso=(cw[cid]||0)>0;
+          const temElegivel=!!tickersPorClasse[cid];
+          return temPeso&&!temElegivel;
+        });
         // Monta relatorio textual
         let relatorio="DIAGNOSTICO DA PRE-SELECAO (sem custo - sem chamar IA)\n\n";
         relatorio+="Classes elegiveis: "+classesElegiveis.length+"\n";
         relatorio+="Classes que serao analisadas pela IA: "+Object.keys(tickersPorClasse).length+"\n\n";
+        const nomeBonito={acoes_br:"Acoes BR",acoes_ext:"Acoes EXT",fii:"FII",reits:"REITs",treasuries:"Treasuries",infra:"Infra",agro:"FIAGRO",rfipca:"NTN-B"};
         classesElegiveis.forEach(cid=>{
-          const nomeBonito={acoes_br:"Acoes BR",acoes_ext:"Acoes EXT",fii:"FII",reits:"REITs",treasuries:"Treasuries",infra:"Infra",agro:"FIAGRO",rfipca:"NTN-B"}[cid]||cid;
+          const peso=(cw[cid]||0).toFixed(1);
+          const nb=nomeBonito[cid]||cid;
           if(tickersPorClasse[cid]){
-            relatorio+="\u2713 "+nomeBonito+": "+tickersPorClasse[cid].length+" ticker(s) elegivel(eis)\n";
+            relatorio+="\u2713 "+nb+" ("+peso+"% no port): "+tickersPorClasse[cid].length+" elegivel(eis)\n";
             relatorio+="  "+tickersPorClasse[cid].join(", ")+"\n";
+          }else if(tickersZerados[cid]){
+            relatorio+="\u26A0 "+nb+" ("+peso+"% no port): SEM ELEGIVEIS - tickers com valor zero/erro\n";
+            relatorio+="  zerados: "+tickersZerados[cid].join(", ")+"\n";
           }else if(excluidos5pct[cid]){
-            relatorio+="\u26A0 "+nomeBonito+": SEM ELEGIVEIS (todos >=5%)\n";
+            relatorio+="\u26A0 "+nb+" ("+peso+"% no port): SEM ELEGIVEIS - todos >=5%\n";
             relatorio+="  excluidos: "+excluidos5pct[cid].join(", ")+"\n";
+          }else if((cw[cid]||0)>0){
+            relatorio+="\u26A0 "+nb+" ("+peso+"% no port): peso>0 mas sem tickers no portfolio cadastrado\n";
           }else{
-            relatorio+="\u2717 "+nomeBonito+": sem ativos no portfolio (ou valor=0)\n";
+            relatorio+="\u2717 "+nb+": classe vazia (peso 0)\n";
           }
         });
-        if(Object.keys(excluidos5pct).length>0){
-          relatorio+="\n--- Tickers excluidos por estarem >=5% do patrimonio ---\n";
-          Object.entries(excluidos5pct).forEach(([cid,lista])=>{
-            relatorio+=cid+": "+lista.join(", ")+"\n";
+        if(Object.keys(tickersClasseErrada).length>0){
+          relatorio+="\n\u26A0 TICKERS SEM CLASSE ASSOCIADA:\n";
+          Object.entries(tickersClasseErrada).forEach(([k,v])=>{
+            relatorio+="  "+v.join(", ")+"\n";
           });
         }
-        relatorio+="\nVerifique o console (DevTools) para detalhes completos.";
-        console.group("[DIAGNOSTICO] Pre-selecao - dados que seriam enviados a IA");
-        console.log("tickersPorClasse:",tickersPorClasse);
+        if(classesComPesoSemTickers.length>0){
+          relatorio+="\n\u26A0 ALERTA CRITICO: classes com peso no portfolio mas sem tickers elegiveis: "+classesComPesoSemTickers.map(c=>nomeBonito[c]||c).join(", ")+"\n";
+        }
+        relatorio+="\nVerifique o console (DevTools) para o objeto completo.";
+        console.group("[DIAGNOSTICO] Pre-selecao - dados completos");
+        console.log("classesElegiveis:",classesElegiveis);
+        console.log("port:",port);
+        console.log("cls:",cls);
+        console.log("tickersPorClasse (elegivel):",tickersPorClasse);
+        console.log("tickersZerados:",tickersZerados);
         console.log("excluidos5pct:",excluidos5pct);
+        console.log("tickersClasseErrada:",tickersClasseErrada);
+        console.log("cw (pesos por classe):",cw);
         console.groupEnd();
         alert(relatorio);
       };
