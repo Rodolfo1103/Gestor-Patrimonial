@@ -2963,6 +2963,129 @@ function EscaladaPatrimonialIllust({escalada,hideVal}){
   );
 }
 
+// ============== CANDIDATO CARD (aba Ativos em Estudo) ==============
+// Renderiza um candidato pre-selecionado pela IA com barrinhas de metricas, tese, riscos, catalisadores
+function CandidatoCard({candidato,classeInfo}){
+  if(!candidato)return null;
+  // Cor pela classificacao do nivel
+  const corNivel=(nivel)=>{
+    switch(nivel){
+      case "barato":return "#4CAF82";
+      case "justo":return "#E8C44A";
+      case "caro":return "#E05252";
+      case "neutro":default:return "#9A9080";
+    }
+  };
+  // Calcula posicao na barra (0-100) baseado no precoAtual vs precoIdeal/precoTeto
+  // precoIdeal = 0% (otimo), precoTeto = 100% (limite). Atual entre eles.
+  const calcPosicaoPreco=()=>{
+    if(!candidato.precoAtual||!candidato.precoIdeal||!candidato.precoTeto)return null;
+    if(candidato.precoTeto<=candidato.precoIdeal)return null;
+    const range=candidato.precoTeto-candidato.precoIdeal;
+    const pos=((candidato.precoAtual-candidato.precoIdeal)/range)*100;
+    return Math.max(-15,Math.min(115,pos));// permite extrapolacao leve para visualizar
+  };
+  const posPreco=calcPosicaoPreco();
+  // Cor da posicao
+  const corPosPreco=posPreco===null?"#9A9080":
+    posPreco<=20?"#4CAF82":
+    posPreco<=50?"#7DD17D":
+    posPreco<=80?"#E8C44A":
+    posPreco<=100?"#E89060":"#E05252";
+  const corClasse=classeInfo&&classeInfo.color?classeInfo.color:"#C8A96E";
+  // Formatadores
+  const fmtPrice=(p)=>p>=1000?p.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2}):p.toFixed(2);
+  // Confianca em %
+  const confPct=Math.round((candidato.confianca||0.5)*100);
+  return h("div",{style:{background:"linear-gradient(135deg,rgba(255,255,255,0.025),rgba(0,0,0,0.10))",border:"1px solid "+corClasse+"44",borderRadius:8,padding:"14px",marginBottom:12}},
+    // Header: Ticker + Classe + Confianca
+    h("div",{style:{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:8,marginBottom:10,flexWrap:"wrap"}},
+      h("div",{style:{display:"flex",alignItems:"baseline",gap:8,flexWrap:"wrap"}},
+        h("div",{style:{fontSize:18,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700,letterSpacing:0.5}},candidato.ticker),
+        h("div",{style:{fontSize:8,color:corClasse,fontFamily:"monospace",fontWeight:700,letterSpacing:1.3,padding:"2px 8px",background:corClasse+"15",border:"1px solid "+corClasse+"44",borderRadius:3,textTransform:"uppercase"}},classeInfo&&classeInfo.name?classeInfo.name:candidato.classe)
+      ),
+      h("div",{style:{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:1}},
+        h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",letterSpacing:1}},"CONFIANCA IA"),
+        h("div",{style:{display:"flex",alignItems:"center",gap:5}},
+          h("div",{style:{width:50,height:5,background:"rgba(0,0,0,0.30)",borderRadius:3,overflow:"hidden"}},
+            h("div",{style:{width:confPct+"%",height:"100%",background:confPct>=75?"#4CAF82":confPct>=50?"#E8C44A":"#E89060"}})
+          ),
+          h("div",{style:{fontSize:9,color:"#C8C0B0",fontFamily:"monospace",fontWeight:700}},confPct+"%")
+        )
+      )
+    ),
+    // Tese resumida
+    candidato.teseResumida?h("div",{style:{padding:"8px 11px",background:"rgba(0,0,0,0.18)",borderLeft:"2px solid "+corClasse,borderRadius:"0 4px 4px 0",marginBottom:10}},
+      h("div",{style:{fontSize:7,color:corClasse,fontFamily:"monospace",fontWeight:700,letterSpacing:1.5,marginBottom:3}},"TESE"),
+      h("div",{style:{fontSize:10.5,color:"#C8C0B0",lineHeight:1.55,fontFamily:"Georgia,serif",fontStyle:"italic"}},candidato.teseResumida)
+    ):null,
+    // ===== Barra de Preco (visual de posicao) =====
+    posPreco!==null?h("div",{style:{marginBottom:10}},
+      h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:5}},
+        h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",fontWeight:700,letterSpacing:1.5}},"\u{1F4CD} PRECO ATUAL VS FAIXA IDEAL"),
+        h("div",{style:{fontSize:10,color:corPosPreco,fontFamily:"monospace",fontWeight:700}},fmtPrice(candidato.precoAtual))
+      ),
+      // Barra horizontal com marcador
+      h("div",{style:{position:"relative",height:24,background:"linear-gradient(90deg,rgba(76,175,130,0.20),rgba(232,196,74,0.20),rgba(224,82,82,0.20))",borderRadius:3,border:"1px solid rgba(255,255,255,0.08)"}},
+        // Linha de referencia (50%)
+        h("div",{style:{position:"absolute",left:"50%",top:0,bottom:0,width:1,background:"rgba(255,255,255,0.10)"}}),
+        // Marcador (triangulo apontando para baixo)
+        h("div",{style:{position:"absolute",left:"calc("+posPreco+"% - 6px)",top:-2,width:0,height:0,borderLeft:"6px solid transparent",borderRight:"6px solid transparent",borderTop:"8px solid "+corPosPreco,filter:"drop-shadow(0 1px 2px rgba(0,0,0,0.5))"}}),
+        // Linha vertical do marcador
+        h("div",{style:{position:"absolute",left:"calc("+posPreco+"% - 0.5px)",top:6,bottom:6,width:1,background:corPosPreco}})
+      ),
+      // Labels: ideal (esq) - atual (centro) - teto (dir)
+      h("div",{style:{display:"flex",justifyContent:"space-between",marginTop:4,fontSize:7.5,fontFamily:"monospace"}},
+        h("div",{style:{color:"#4CAF82"}},h("strong",{},"IDEAL")," ",fmtPrice(candidato.precoIdeal)),
+        h("div",{style:{color:"#C8C0B0"}},posPreco<=0?"abaixo do ideal!":posPreco>=100?"acima do teto!":"na faixa"),
+        h("div",{style:{color:"#E05252"}},h("strong",{},"TETO")," ",fmtPrice(candidato.precoTeto))
+      )
+    ):null,
+    // ===== Barrinhas de Metricas (estilo BTC/Ouro) =====
+    candidato.metricas&&candidato.metricas.length>0?h("div",{style:{marginBottom:10,padding:"9px 11px",background:"rgba(0,0,0,0.20)",borderRadius:4}},
+      h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",fontWeight:700,letterSpacing:1.5,marginBottom:7}},"METRICAS-CHAVE"),
+      ...candidato.metricas.map((m,i)=>{
+        const corM=corNivel(m.nivel);
+        // Largura da barra: barato=100% (cheia), justo=66%, caro=33%, neutro=50%
+        const larguraBarra=m.nivel==="barato"?100:m.nivel==="justo"?66:m.nivel==="caro"?33:50;
+        return h("div",{key:i,style:{marginBottom:i<candidato.metricas.length-1?7:0}},
+          // Linha label + valor + nivel
+          h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:3,gap:6,flexWrap:"wrap"}},
+            h("div",{style:{fontSize:9.5,color:"#C8C0B0",fontFamily:"monospace",fontWeight:700,letterSpacing:0.5}},m.label),
+            h("div",{style:{display:"flex",alignItems:"baseline",gap:8}},
+              h("span",{style:{fontSize:11,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700}},m.valor),
+              h("span",{style:{fontSize:7,color:corM,fontFamily:"monospace",fontWeight:700,letterSpacing:1.2,padding:"1px 6px",background:corM+"22",borderRadius:3,textTransform:"uppercase"}},m.nivel)
+            )
+          ),
+          // Barrinha visual
+          h("div",{style:{position:"relative",height:5,background:"rgba(0,0,0,0.30)",borderRadius:2,overflow:"hidden",marginBottom:3}},
+            h("div",{style:{width:larguraBarra+"%",height:"100%",background:"linear-gradient(90deg,"+corM+"99,"+corM+")"}})
+          ),
+          // Interpretacao
+          h("div",{style:{fontSize:8,color:"#9A9080",fontStyle:"italic",lineHeight:1.4}},m.interpretacao)
+        );
+      })
+    ):null,
+    // ===== Catalisadores + Riscos (grid 2 colunas) =====
+    h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:8}},
+      // Catalisadores
+      candidato.catalisadores&&candidato.catalisadores.length>0?h("div",{style:{padding:"8px 10px",background:"rgba(76,175,130,0.06)",border:"1px solid rgba(76,175,130,0.20)",borderRadius:4}},
+        h("div",{style:{fontSize:7,color:"#4CAF82",fontFamily:"monospace",fontWeight:700,letterSpacing:1.5,marginBottom:5}},"\u{1F680} CATALISADORES"),
+        h("ul",{style:{margin:0,paddingLeft:14,fontSize:9,color:"#C8C0B0",lineHeight:1.55}},
+          ...candidato.catalisadores.map((c,i)=>h("li",{key:i,style:{marginBottom:2}},c))
+        )
+      ):null,
+      // Riscos
+      candidato.riscos&&candidato.riscos.length>0?h("div",{style:{padding:"8px 10px",background:"rgba(224,82,82,0.05)",border:"1px solid rgba(224,82,82,0.20)",borderRadius:4}},
+        h("div",{style:{fontSize:7,color:"#E89060",fontFamily:"monospace",fontWeight:700,letterSpacing:1.5,marginBottom:5}},"\u26A0 RISCOS"),
+        h("ul",{style:{margin:0,paddingLeft:14,fontSize:9,color:"#C8C0B0",lineHeight:1.55}},
+          ...candidato.riscos.map((r,i)=>h("li",{key:i,style:{marginBottom:2}},r))
+        )
+      ):null
+    )
+  );
+}
+
 function BolsasCard({port,cls}){
   const [tick,setTick]=useState(0);
   const [expanded,setExpanded]=useState(false);
@@ -4960,6 +5083,10 @@ function App(){
   const [hist,setHist]=useState([]);
   // Aportes simples: registros manuais [{id, date, valor, ts}] - registro independente dos snapshots automaticos
   const [aportesSimples,setAportesSimples]=useState([]);
+  // Ativos em estudo: pre-selecao da IA dos candidatos para proxima janela de aporte
+  // {ts, versaoPortfolio, proximaJanelaAporte, candidatos:[{classe,ticker,precoAtual,metricas:[],teseResumida,precoTeto,precoIdeal,catalisadores:[],riscos:[],confianca}], observacaoGlobal, erro}
+  const [ativosEmEstudo,setAtivosEmEstudo]=useState(null);
+  const [ativosEmEstudoLoad,setAtivosEmEstudoLoad]=useState(false);
   const [histMensal,setHistMensal]=useState([]);// snapshots consolidados por mes (1 por mes, sem limite)
   // ====== CAIXA CAMBIAL - capital em moedas fortes aguardando preco justo dos ativos finais ======
   // Estrutura dinamica: { USD: valor_em_USD, EUR: valor_em_EUR, JPY: valor_em_JPY, ... }
@@ -5270,6 +5397,10 @@ function App(){
           }));
           setAportesSimples(sanitizado.sort((a,b)=>a.date.localeCompare(b.date)));
         }
+        // Ativos em estudo: validacao defensiva (estrutura pode ter mudado)
+        if(dd.ativosEmEstudo&&typeof dd.ativosEmEstudo==="object"&&Array.isArray(dd.ativosEmEstudo.candidatos)){
+          setAtivosEmEstudo(dd.ativosEmEstudo);
+        }
         // Carrega histMensal e migra/reconstroi a partir de hist se necessario
         let histMensalLoaded=Array.isArray(dd.histMensal)?dd.histMensal:[];
         // Migracao: se histMensal vazio (ou unico mes) mas hist tem dados validos,
@@ -5443,12 +5574,12 @@ function App(){
     if(!inited||!aesKey)return;
     (async()=>{
       try{
-        const obj={port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,selicAtual,metaMensalIF,cenarioIPCA,dataNascimento,insightRenda,insightRendaTs,insightRendaSnap,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,piCycle,nupl,goldSilver,goldSP500,realGoldZ,fx:{...FX},btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,insightSnap,infIPCA,infIGPM,infINCC,infCPI,infHICP,juroFed,juroECB,juroBoJ,ntnbTaxas,ntnbVNA,ntnbUpdTs,ntnbDataCotacao,ntnbDiasDefasagem,ntnbVencimentos:{...NTNB_VENCIMENTOS},cambialCash,rendaMotoraHist,rendaAuxiliarHist,aportesSimples};
+        const obj={port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,selicAtual,metaMensalIF,cenarioIPCA,dataNascimento,insightRenda,insightRendaTs,insightRendaSnap,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,piCycle,nupl,goldSilver,goldSP500,realGoldZ,fx:{...FX},btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,insightSnap,infIPCA,infIGPM,infINCC,infCPI,infHICP,juroFed,juroECB,juroBoJ,ntnbTaxas,ntnbVNA,ntnbUpdTs,ntnbDataCotacao,ntnbDiasDefasagem,ntnbVencimentos:{...NTNB_VENCIMENTOS},cambialCash,rendaMotoraHist,rendaAuxiliarHist,aportesSimples,ativosEmEstudo};
         const enc=await aesEncrypt(aesKey,obj);
         localStorage.setItem(SK_ENC,enc);
       }catch(e){}
     })();
-  },[port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,selicAtual,metaMensalIF,cenarioIPCA,dataNascimento,insightRenda,insightRendaTs,insightRendaSnap,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,piCycle,nupl,goldSilver,goldSP500,realGoldZ,btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,insightSnap,infIPCA,infIGPM,infINCC,infCPI,infHICP,juroFed,juroECB,juroBoJ,ntnbTaxas,ntnbVNA,ntnbUpdTs,cambialCash,rendaMotoraHist,rendaAuxiliarHist,aportesSimples,inited,aesKey]);
+  },[port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,selicAtual,metaMensalIF,cenarioIPCA,dataNascimento,insightRenda,insightRendaTs,insightRendaSnap,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,piCycle,nupl,goldSilver,goldSP500,realGoldZ,btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,insightSnap,infIPCA,infIGPM,infINCC,infCPI,infHICP,juroFed,juroECB,juroBoJ,ntnbTaxas,ntnbVNA,ntnbUpdTs,cambialCash,rendaMotoraHist,rendaAuxiliarHist,aportesSimples,ativosEmEstudo,inited,aesKey]);
 
   // Auto-lock por inatividade (15 min)
   useEffect(()=>{
@@ -7580,6 +7711,205 @@ function App(){
     setChatL(false);
   };
 
+  // ===== GERAR PRE-SELECAO DE ATIVOS EM ESTUDO VIA IA =====
+  // Para cada classe elegivel, seleciona 1 candidato (sempre dentre tickers ja existentes no portfolio)
+  // com ate 3 metricas-chave escolhidas pela IA conforme relevancia da classe naquele momento
+  const gerarPreSelecaoIA=useCallback(async()=>{
+    if(!apiKey){alert("Configure sua chave API Anthropic primeiro.");return;}
+    if(ativosEmEstudoLoad)return;
+    if(!hasPos){alert("Adicione posicoes ao portfolio primeiro.");return;}
+    setAtivosEmEstudoLoad(true);
+    try{
+      // ===== Monta contexto: tickers por classe (restrito ao portfolio) =====
+      const classesElegiveis=["acoes_br","acoes_ext","fii","reits","treasuries","infra","agro","ntn_b"];
+      // Mapeia tickers do portfolio por classe (com peso atual e valor)
+      const tickersPorClasse={};
+      Object.entries(port||{}).forEach(([t,p])=>{
+        if(!p||!t)return;
+        const cid=cls[t];if(!cid)return;
+        if(!classesElegiveis.includes(cid))return;
+        const v=pv(t,p,ccy);
+        if(v<=0)return;
+        if(!tickersPorClasse[cid])tickersPorClasse[cid]=[];
+        const pesoNaClasse=cw[cid]>0?(v/(total*(cw[cid]/100)))*100:0;
+        const pesoNoTotal=total>0?(v/total)*100:0;
+        const ult=lastPU&&lastPU[t]?lastPU[t]:null;
+        tickersPorClasse[cid].push({
+          ticker:t,
+          quantidade:p.qty||0,
+          precoMedio:p.avg||0,
+          precoAtual:ult&&typeof ult.p==="number"?ult.p:0,
+          moeda:ccy[t]||"BRL",
+          valorBrl:v,
+          pesoNaClasse:pesoNaClasse.toFixed(1)+"%",
+          pesoNoTotal:pesoNoTotal.toFixed(2)+"%"
+        });
+      });
+      // So mantem classes que efetivamente tem tickers
+      const classesComTickers=Object.keys(tickersPorClasse);
+      if(classesComTickers.length===0){
+        setAtivosEmEstudoLoad(false);
+        alert("Nenhuma classe elegivel tem tickers cadastrados no portfolio.");
+        return;
+      }
+      // Para NTN-B (ntn_b): inclui vencimentos disponiveis com taxas reais e VNA
+      // (mesmo que nao seja "ticker" - IA pode escolher um vencimento como candidato)
+      const ntnbInfo=tickersPorClasse["ntn_b"]?{
+        vencimentos:Object.keys(NTNB_VENCIMENTOS||{}).map(v=>({
+          vencimento:v,
+          taxaReal:ntnbTaxas&&ntnbTaxas[v]?(ntnbTaxas[v]*100).toFixed(2)+"%":"n/d",
+          vna:ntnbVNA||"n/d"
+        }))
+      }:null;
+      // ===== Cenario macro relevante =====
+      const cenarioMacro={
+        selicAtual:selicAtual+"%",
+        ipcaCenario:cenarioIPCA,
+        ipca12m:infIPCA?infIPCA.toFixed(2)+"%":"n/d",
+        cpi12mUS:infCPI?infCPI.toFixed(2)+"%":"n/d",
+        hicpEU:infHICP?infHICP.toFixed(2)+"%":"n/d",
+        juroFed:juroFed?juroFed+"%":"n/d",
+        juroECB:juroECB?juroECB+"%":"n/d",
+        usdBrl:FX.USD?FX.USD.toFixed(2):"n/d",
+        eurBrl:FX.EUR?FX.EUR.toFixed(2):"n/d",
+        btcUsd:btcUsd?btcUsd.toLocaleString("en-US",{maximumFractionDigits:0}):"n/d",
+        ouroXauBrl:xauBrl?xauBrl.toFixed(2):"n/d"
+      };
+      // ===== Composicao atual e meta =====
+      const composicaoAtual={};
+      CL.forEach(c=>{if((cw[c.id]||0)>0)composicaoAtual[c.id]=(cw[c.id]||0).toFixed(1)+"%";});
+      // Proxima janela de aporte
+      const proxAp=calcProxAporte();
+      const janelaAporte=proxAp?{
+        inicio:proxAp.inicio.toLocaleDateString("pt-BR"),
+        fim:proxAp.fim?proxAp.fim.toLocaleDateString("pt-BR"):null,
+        diasAteInicio:proxAp.diasAteInicio,
+        naJanela:proxAp.naJanela
+      }:null;
+      // ===== Helper: nome amigavel das classes =====
+      const classeNomeMap={
+        acoes_br:"Acoes BR",acoes_ext:"Acoes Exterior",fii:"FII",reits:"REITs",
+        treasuries:"Treasuries (ETFs)",infra:"Fundos Infraestrutura",agro:"FIAGRO",ntn_b:"NTN-B"
+      };
+      // ===== Monta system prompt =====
+      const systemPrompt="Voce e um analista de investimentos B&H rigoroso, atendendo um investidor brasileiro de 39a com manifesto de longo prazo (B&H estrito, qualidade > preco, zero vendas).\n\n"+
+        "MISSAO: Para cada classe de ativos que o usuario possui, selecionar UM candidato provavel a receber aporte na PROXIMA JANELA. Esta e uma PRE-SELECAO de estudo - o investidor tera tempo de se aprofundar antes da janela.\n\n"+
+        "REGRAS DURAS:\n"+
+        "1. Restrito ao universo: voce DEVE escolher entre os tickers que o usuario JA POSSUI naquela classe. Nao sugerir tickers fora do portfolio.\n"+
+        "2. Para NTN-B: escolher um VENCIMENTO especifico (2035, 2045, 2055, 2065) com base na inclinacao da curva e duration adequada.\n"+
+        "3. Filosofia B&H: privilegiar qualidade, moat, previsibilidade. Nunca recomendar ativo caro (acima do preco-teto).\n"+
+        "4. Calibracao TIR (margem de seguranca):\n"+
+        "   - Acoes BR ciclicas sem moat: TIR ~18-20%, margem ~20%\n"+
+        "   - Acoes BR/EXT com moat solido (Big 5, blue chips): TIR ~12-15%, margem ~10%\n"+
+        "   - FIIs e Infra/Agro: TIR ~12-14%, ancorada em NTN-B+spread\n"+
+        "   - REITs: TIR ~9-11% em USD, ancorada em Treasuries+spread\n"+
+        "   - Treasuries/NTN-B: usar YTM/taxa real liquida de IR como TIR\n"+
+        "5. Margem de seguranca: 10% para aportes recorrentes (B&H regular ja embute margem temporal).\n"+
+        "6. Use sua estimativa de mercado para metricas (P/L, P/VPA, DY, P/VP, YTM, P/AFFO etc) baseada no ultimo balanco publicado conhecido. Indicar quando o dado for estimativa.\n\n"+
+        "FORMATO DE RESPOSTA: voce DEVE chamar a tool 'submit_preselecao' com o JSON estruturado. Nada fora da tool. Cada candidato deve ter ate 3 metricas chave escolhidas conforme a relevancia para aquela classe naquele momento (ex: P/VP+DY+Spread para FII papel; P/L+P/VPA+DY para acoes BR; YTM+Duration+Spread para treasuries).";
+      // ===== User message com dados =====
+      const userMessage="DADOS DO PORTFOLIO PARA ANALISE:\n\n"+
+        "=== CENARIO MACRO ===\n"+JSON.stringify(cenarioMacro,null,2)+"\n\n"+
+        "=== COMPOSICAO ATUAL (% por classe) ===\n"+JSON.stringify(composicaoAtual,null,2)+"\n\n"+
+        "=== JANELA DE APORTE ===\n"+(janelaAporte?JSON.stringify(janelaAporte,null,2):"sem janela proxima")+"\n\n"+
+        "=== TICKERS POR CLASSE (universo restrito - voce DEVE escolher dentre estes) ===\n"+JSON.stringify(tickersPorClasse,null,2)+"\n\n"+
+        (ntnbInfo?"=== NTN-B VENCIMENTOS DISPONIVEIS ===\n"+JSON.stringify(ntnbInfo,null,2)+"\n\n":"")+
+        "Selecione UM candidato por classe (dentre as classes listadas) e chame a tool submit_preselecao com o resultado.";
+      // ===== Tool definition para garantir JSON estruturado =====
+      const tools=[{
+        name:"submit_preselecao",
+        description:"Submit a estrutura de pre-selecao de ativos para a proxima janela de aporte",
+        input_schema:{
+          type:"object",
+          properties:{
+            candidatos:{
+              type:"array",
+              description:"Lista de candidatos pre-selecionados, um por classe analisada",
+              items:{
+                type:"object",
+                properties:{
+                  classe:{type:"string",description:"ID da classe: acoes_br, acoes_ext, fii, reits, treasuries, infra, agro, ntn_b",enum:["acoes_br","acoes_ext","fii","reits","treasuries","infra","agro","ntn_b"]},
+                  ticker:{type:"string",description:"Ticker escolhido (ou vencimento para NTN-B ex: 'NTN-B 2045')"},
+                  precoAtual:{type:"number",description:"Preco atual conhecido (em BRL para BR, ou na moeda do ativo)"},
+                  precoIdeal:{type:"number",description:"Preco ideal de entrada (com margem de seguranca aplicada)"},
+                  precoTeto:{type:"number",description:"Preco maximo aceitavel (acima dele nao comprar)"},
+                  metricas:{
+                    type:"array",
+                    description:"Ate 3 metricas chave de valuation, escolhidas conforme relevancia para esta classe",
+                    minItems:1,
+                    maxItems:3,
+                    items:{
+                      type:"object",
+                      properties:{
+                        label:{type:"string",description:"Nome curto da metrica (ex: 'P/L', 'P/VP', 'DY 12m', 'YTM liq')"},
+                        valor:{type:"string",description:"Valor formatado da metrica (ex: '5.2', '0.85', '9.8%')"},
+                        interpretacao:{type:"string",description:"Curta descricao do que significa (ex: 'barato vs media historica', 'spread atrativo vs NTN-B')"},
+                        nivel:{type:"string",enum:["barato","justo","caro","neutro"],description:"Classificacao em 4 niveis para colorizar"}
+                      },
+                      required:["label","valor","interpretacao","nivel"]
+                    }
+                  },
+                  teseResumida:{type:"string",description:"Tese de investimento em 2-3 frases, max 350 caracteres"},
+                  catalisadores:{type:"array",items:{type:"string"},description:"Lista de 2-4 catalisadores positivos (eventos esperados que destravariam valor)"},
+                  riscos:{type:"array",items:{type:"string"},description:"Lista de 2-4 riscos principais a monitorar"},
+                  confianca:{type:"number",minimum:0,maximum:1,description:"Auto-avaliacao da confianca da analise (0 a 1)"}
+                },
+                required:["classe","ticker","precoAtual","precoIdeal","precoTeto","metricas","teseResumida","catalisadores","riscos","confianca"]
+              }
+            },
+            observacaoGlobal:{type:"string",description:"Observacao macro/estrategica que vale para todos os candidatos (max 400 caracteres)"}
+          },
+          required:["candidatos","observacaoGlobal"]
+        }
+      }];
+      // ===== Chama API Anthropic =====
+      const resp=await fetch("https://api.anthropic.com/v1/messages",{
+        method:"POST",
+        headers:{"Content-Type":"application/json","x-api-key":apiKey,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
+        body:JSON.stringify({
+          model:"claude-opus-4-7",// modelo mais capaz para task complexa de analise multi-classe
+          max_tokens:4500,
+          system:systemPrompt,
+          messages:[{role:"user",content:userMessage}],
+          tools,
+          tool_choice:{type:"tool",name:"submit_preselecao"}
+        })
+      });
+      if(!resp.ok){
+        const errTxt=await resp.text();
+        throw new Error("API "+resp.status+": "+errTxt.slice(0,300));
+      }
+      const data=await resp.json();
+      // ===== Extrai tool_use do retorno =====
+      const toolUse=data.content&&data.content.find(c=>c.type==="tool_use"&&c.name==="submit_preselecao");
+      if(!toolUse||!toolUse.input||!Array.isArray(toolUse.input.candidatos)){
+        throw new Error("Resposta da IA nao retornou estrutura esperada");
+      }
+      // Validacao defensiva: filtra candidatos invalidos
+      const candidatosValidos=toolUse.input.candidatos.filter(c=>
+        c&&c.classe&&c.ticker&&Array.isArray(c.metricas)&&c.metricas.length>0&&c.teseResumida
+      );
+      if(candidatosValidos.length===0){
+        throw new Error("Nenhum candidato valido retornado");
+      }
+      // Hash simples da composicao atual para detectar mudanca
+      const versaoPortfolio=Object.keys(port||{}).sort().join(",")+"|"+Object.values(cw||{}).map(v=>Math.round(v||0)).join(",");
+      const novoEstudo={
+        ts:Date.now(),
+        versaoPortfolio,
+        proximaJanelaAporte:proxAp?proxAp.inicio.toISOString().slice(0,10):null,
+        candidatos:candidatosValidos,
+        observacaoGlobal:toolUse.input.observacaoGlobal||""
+      };
+      setAtivosEmEstudo(novoEstudo);
+      setAtivosEmEstudoLoad(false);
+    }catch(e){
+      console.error("Erro gerarPreSelecaoIA:",e);
+      setAtivosEmEstudoLoad(false);
+      alert("Erro ao gerar pre-selecao: "+(e&&e.message?e.message:String(e)));
+    }
+  },[apiKey,ativosEmEstudoLoad,hasPos,port,cls,cw,total,ccy,lastPU,selicAtual,cenarioIPCA,infIPCA,infCPI,infHICP,juroFed,juroECB,FX,btcUsd,xauBrl,ntnbTaxas,ntnbVNA,calcProxAporte]);
+
   // Gerar insight automatico do dashboard
   const genInsight=useCallback(async(forcar)=>{
     if(!apiKey)return;
@@ -8016,6 +8346,31 @@ Responda APENAS com o texto do insight, sem prefacio ou comentarios meta.`;
     gravaSnapshot();
   },[lastPU,inited]);
 
+  // ===== AUTO-TRIGGER pre-selecao de ativos: 7 dias antes da janela de aporte =====
+  // So dispara se: tem API key + tem portfolio + nao gerou ainda OU gerou ha >7 dias OU portfolio mudou significativamente
+  useEffect(()=>{
+    if(!inited||!apiKey||!hasPos)return;
+    if(ativosEmEstudoLoad)return;
+    const proxAp=calcProxAporte();
+    if(!proxAp)return;
+    // So considera auto-trigger se faltam <=7 dias para a janela
+    if(proxAp.diasAteInicio>7)return;
+    const tsAtual=ativosEmEstudo&&ativosEmEstudo.ts?ativosEmEstudo.ts:0;
+    const diasDesdeUpdate=tsAtual>0?Math.floor((Date.now()-tsAtual)/86400000):999;
+    // Hash atual do portfolio para detectar mudanca significativa
+    const versaoAtual=Object.keys(port||{}).sort().join(",")+"|"+Object.values(cw||{}).map(v=>Math.round(v||0)).join(",");
+    const portfolioMudou=tsAtual>0&&ativosEmEstudo.versaoPortfolio&&ativosEmEstudo.versaoPortfolio!==versaoAtual;
+    // Triggers: nunca gerou OU mais de 7 dias OU portfolio mudou
+    const deveDisparar=tsAtual===0||diasDesdeUpdate>=7||portfolioMudou;
+    if(!deveDisparar)return;
+    // Aguarda 3s para nao competir com outros effects no boot
+    const tid=setTimeout(()=>{
+      console.log("Auto-trigger pre-selecao de ativos em estudo:",{diasDesdeUpdate,portfolioMudou,diasAteJanela:proxAp.diasAteInicio});
+      gerarPreSelecaoIA();
+    },3000);
+    return ()=>clearTimeout(tid);
+  },[inited,apiKey,hasPos,port,cw,ativosEmEstudo,ativosEmEstudoLoad,gerarPreSelecaoIA,calcProxAporte]);
+
   // Chave de API nao e mais necessaria - cotacoes vem de APIs publicas
   // if(!apiKey)return h(KeyScreen,{onSave:k=>{setApiKeyS(k);if(aesKey)saveApiKey(aesKey,k);}});
   // Se nao autenticado, mostra tela de PIN ANTES de qualquer outra checagem
@@ -8181,7 +8536,7 @@ Responda APENAS com o texto do insight, sem prefacio ou comentarios meta.`;
 
   // TABS
   const tabs=h("div",{style:{display:"flex",borderBottom:"1px solid rgba(255,255,255,0.06)",marginBottom:18,marginTop:10,overflowX:"auto"}},
-    ...[{id:"dashboard",label:"Dashboard"},{id:"correlacao",label:"Correlação"},{id:"positions",label:"Posições"},{id:"aporte",label:"Aporte"},{id:"caixacambial",label:"Caixa Cambial"},{id:"chat",label:"Analise"},{id:"mpt",label:"MPT"},{id:"aw",label:"All Weather"},{id:"yale",label:"Yale"},{id:"stress",label:"Stress Test"},{id:"projecao",label:"Projecoes"},{id:"renda",label:"Renda"},{id:"btcouro",label:"BTC/Ouro"},{id:"treasuries",label:"Treasuries"},{id:"tesouro",label:"Tesouro Direto"},{id:"history",label:"Historico"}].map(t=>
+    ...[{id:"dashboard",label:"Dashboard"},{id:"correlacao",label:"Correlação"},{id:"positions",label:"Posições"},{id:"aporte",label:"Aporte"},{id:"estudo",label:"Ativos em Estudo"},{id:"caixacambial",label:"Caixa Cambial"},{id:"chat",label:"Analise"},{id:"mpt",label:"MPT"},{id:"aw",label:"All Weather"},{id:"yale",label:"Yale"},{id:"stress",label:"Stress Test"},{id:"projecao",label:"Projecoes"},{id:"renda",label:"Renda"},{id:"btcouro",label:"BTC/Ouro"},{id:"treasuries",label:"Treasuries"},{id:"tesouro",label:"Tesouro Direto"},{id:"history",label:"Historico"}].map(t=>
       h("button",{key:t.id,onClick:()=>{setTab(t.id);if(t.id!=="aporte"){setApR(null);setStep("r");}},style:{background:"none",border:"none",borderBottom:tab===t.id?"2px solid #C8A96E":"2px solid transparent",color:tab===t.id?"#C8A96E":"#8A8070",padding:"6px 10px",cursor:"pointer",fontSize:12,marginBottom:-1,flexShrink:0,whiteSpace:"nowrap"}},t.label)
     ),
     h("button",{onClick:()=>{
@@ -16456,6 +16811,109 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
       console.error("Erro renderizando BTC/OURO:",e);
       content=h("div",{style:{padding:"24px 16px",background:"rgba(224,82,82,0.06)",border:"1px solid rgba(224,82,82,0.25)",borderRadius:8,marginTop:12}},
         h("div",{style:{fontSize:11,color:"#E05252",fontFamily:"monospace",fontWeight:700,marginBottom:8}},"\u26A0 Erro ao renderizar BTC/Ouro"),
+        h("div",{style:{fontSize:10,color:"#9A9080",lineHeight:1.6,fontFamily:"monospace",whiteSpace:"pre-wrap"}},e&&e.message?e.message:String(e))
+      );
+    }
+  }
+
+  // ===== ATIVOS EM ESTUDO - Pre-selecao de IA dos candidatos a aporte =====
+  if(tab==="estudo"){
+    try{
+      // Calcula janela de aporte para mostrar contexto
+      const proxAp_E=calcProxAporte();
+      // Determina staleness: se >7 dias ou portfolio mudou, sugere refresh
+      const tsEstudo=ativosEmEstudo&&ativosEmEstudo.ts?ativosEmEstudo.ts:0;
+      const diasDesdeUpdate=tsEstudo>0?Math.floor((Date.now()-tsEstudo)/(86400000)):null;
+      const stale=diasDesdeUpdate===null||diasDesdeUpdate>=7;
+      // Classes que entram na pre-selecao (exclui Selic, Imoveis, BTC, Ouro, Caixa Cambial)
+      const classesElegiveis=["acoes_br","acoes_ext","fii","reits","treasuries","infra","agro","ntn_b"];
+      const classesPresentes=classesElegiveis.filter(cid=>(cw[cid]||0)>0);
+      // Handler de refresh: chama a IA para gerar pre-selecao
+      const handleRefresh=()=>{
+        if(!apiKey){alert("Configure sua chave API Anthropic primeiro (botao chave no Dashboard).");return;}
+        if(!window.confirm("Gerar nova pre-selecao de ativos via IA?\n\nCusto estimado: ~$0.30-0.50 da sua API key.\n\nA IA analisara seu portfolio atual e indicara um candidato provavel por classe para a proxima janela de aporte."))return;
+        gerarPreSelecaoIA();
+      };
+      content=h("div",{},
+        // Header da aba
+        h("div",{style:{display:"flex",alignItems:"baseline",justifyContent:"space-between",flexWrap:"wrap",gap:10,marginBottom:14}},
+          h("div",{},
+            h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:2}},"Ativos em Estudo"),
+            h("div",{style:{fontSize:9,color:"#7A7060",fontStyle:"italic"}},"pre-selecao da IA para a proxima janela de aporte")
+          ),
+          h("button",{onClick:handleRefresh,disabled:ativosEmEstudoLoad,style:{padding:"8px 14px",background:stale?"linear-gradient(135deg,#C8A96E,#a8895a)":"rgba(255,255,255,0.05)",color:stale?"#1A1612":"#C8A96E",border:stale?"none":"1px solid rgba(200,169,110,0.30)",borderRadius:5,fontSize:10,fontFamily:"monospace",fontWeight:700,letterSpacing:1.2,cursor:ativosEmEstudoLoad?"not-allowed":"pointer",textTransform:"uppercase"}},ativosEmEstudoLoad?"gerando...":(tsEstudo>0?"atualizar":"gerar pre-selecao"))
+        ),
+        // Card de contexto (proxima janela + status do estudo)
+        h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:8,marginBottom:16}},
+          // Proxima janela de aporte
+          proxAp_E?h("div",{style:{background:"rgba(91,143,212,0.08)",borderLeft:"3px solid #5B8FD4",padding:"9px 11px",borderRadius:"0 4px 4px 0"}},
+            h("div",{style:{fontSize:7,color:"#5B8FD4",fontFamily:"monospace",fontWeight:700,letterSpacing:1.2,marginBottom:3}},"PROXIMA JANELA"),
+            h("div",{style:{fontSize:11,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700}},proxAp_E.inicio.toLocaleDateString("pt-BR",{day:"2-digit",month:"short"})),
+            h("div",{style:{fontSize:8,color:"#7A7060",fontFamily:"monospace",marginTop:2}},proxAp_E.diasAteInicio===0?"hoje":"em "+proxAp_E.diasAteInicio+" dias")
+          ):null,
+          // Ultima geracao
+          h("div",{style:{background:"rgba(200,169,110,0.08)",borderLeft:"3px solid #C8A96E",padding:"9px 11px",borderRadius:"0 4px 4px 0"}},
+            h("div",{style:{fontSize:7,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,letterSpacing:1.2,marginBottom:3}},"ULTIMA ANALISE"),
+            tsEstudo>0?h("div",{style:{fontSize:11,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700}},new Date(tsEstudo).toLocaleDateString("pt-BR")):h("div",{style:{fontSize:10,color:"#7A7060",fontFamily:"monospace",fontStyle:"italic"}},"nunca gerada"),
+            tsEstudo>0?h("div",{style:{fontSize:8,color:stale?"#E89060":"#7A7060",fontFamily:"monospace",marginTop:2}},diasDesdeUpdate===0?"hoje":diasDesdeUpdate+" dia"+(diasDesdeUpdate>1?"s":"")+" atras"+(stale?" \u26A0":"")):null
+          ),
+          // Classes a analisar
+          h("div",{style:{background:"rgba(76,175,130,0.08)",borderLeft:"3px solid #4CAF82",padding:"9px 11px",borderRadius:"0 4px 4px 0"}},
+            h("div",{style:{fontSize:7,color:"#4CAF82",fontFamily:"monospace",fontWeight:700,letterSpacing:1.2,marginBottom:3}},"CLASSES NA ANALISE"),
+            h("div",{style:{fontSize:11,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700}},classesPresentes.length+" classes"),
+            h("div",{style:{fontSize:8,color:"#7A7060",fontFamily:"monospace",marginTop:2}},"de "+classesElegiveis.length+" elegiveis")
+          )
+        ),
+        // Texto explicativo (so se nunca gerou e nao esta gerando)
+        !ativosEmEstudo&&!ativosEmEstudoLoad?h("div",{style:{padding:"18px 16px",background:"linear-gradient(135deg,rgba(200,169,110,0.06),rgba(91,143,212,0.03))",border:"1px dashed rgba(200,169,110,0.30)",borderRadius:8,marginBottom:14}},
+          h("div",{style:{fontSize:11,color:"#E8E2D5",fontFamily:"Georgia,serif",fontStyle:"italic",lineHeight:1.7,marginBottom:10}},"\u201CAntecipa\u00e7\u00e3o e estudo s\u00e3o vantagens estrat\u00e9gicas. Em vez de decidir o que aportar na pr\u00f3pria janela, a IA pr\u00e9-seleciona candidatos prov\u00e1veis para que voc\u00ea tenha tempo de estudar a fundo antes de comprar.\u201D"),
+          h("div",{style:{fontSize:10,color:"#9A9080",lineHeight:1.6,marginBottom:8}},h("strong",{style:{color:"#C8A96E"}},"Como funciona:")),
+          h("ul",{style:{fontSize:9.5,color:"#9A9080",lineHeight:1.7,paddingLeft:16,margin:0}},
+            h("li",{},"A IA analisa seu portfolio atual, seu manifesto B&H, valuations dos seus ativos e cen\u00e1rio macro"),
+            h("li",{},"Para cada classe elegivel, seleciona ",h("strong",{},"um candidato prov\u00e1vel")," (sempre dentre os ativos que voc\u00ea j\u00e1 possui)"),
+            h("li",{},"Exibe at\u00e9 3 m\u00e9tricas-chave por candidato (P/L, P/VPA, DY, P/VP, YTM, etc - escolhidas pela IA conforme a classe)"),
+            h("li",{},"Indica pre\u00e7o teto, pre\u00e7o ideal de entrada, catalisadores e riscos"),
+            h("li",{},"Voc\u00ea estuda os candidatos com calma at\u00e9 a janela de aporte; ali decide com base nos dados atualizados")
+          ),
+          h("div",{style:{fontSize:8.5,color:"#7A7060",lineHeight:1.6,marginTop:10,paddingTop:8,borderTop:"1px dashed rgba(255,255,255,0.08)",fontStyle:"italic"}},"Esta pre-selecao N\u00c3O \u00e9 uma ordem de compra. Funciona como ferramenta de ",h("strong",{},"due diligence antecipada"),". A decis\u00e3o final continua sendo na janela do Aporte, com dados atualizados no momento."),
+          h("div",{style:{fontSize:8.5,color:"#E8C44A",marginTop:8,fontStyle:"italic",textAlign:"center"}},"Clique em ",h("strong",{},"\"gerar pre-selecao\"")," acima para iniciar a primeira analise.")
+        ):null,
+        // Loading inicial (quando nao tem dados e esta gerando)
+        !ativosEmEstudo&&ativosEmEstudoLoad?h("div",{style:{padding:"40px 20px",background:"linear-gradient(135deg,rgba(91,143,212,0.10),rgba(200,169,110,0.05))",border:"1px solid rgba(91,143,212,0.35)",borderRadius:8,marginBottom:14,textAlign:"center"}},
+          h("div",{style:{fontSize:14,color:"#5B8FD4",fontFamily:"Georgia,serif",fontStyle:"italic",marginBottom:12}},"\u23F3 Gerando primeira pre-selecao..."),
+          h("div",{style:{fontSize:10,color:"#9A9080",lineHeight:1.7,maxWidth:480,margin:"0 auto"}},"A IA esta analisando seu portfolio, manifesto B&H, valuations dos ativos e cenario macro. Este processo leva tipicamente 30-60 segundos."),
+          h("div",{style:{marginTop:14,fontSize:8,color:"#7A7060",fontStyle:"italic",fontFamily:"monospace"}},"Aguarde sem fechar o app...")
+        ):null,
+        // Quando ja gerou: lista os candidatos com cards detalhados
+        ativosEmEstudo&&ativosEmEstudo.candidatos&&ativosEmEstudo.candidatos.length>0?h("div",{},
+          // Estado de carregamento sobreposto durante refresh
+          ativosEmEstudoLoad?h("div",{style:{padding:"12px 14px",background:"rgba(91,143,212,0.06)",border:"1px solid rgba(91,143,212,0.30)",borderRadius:6,marginBottom:12,textAlign:"center"}},
+            h("div",{style:{fontSize:10,color:"#5B8FD4",fontFamily:"monospace",fontStyle:"italic"}},"\u23F3 Atualizando pre-selecao via IA... isso pode levar 30-60 segundos.")
+          ):null,
+          // Lista de candidatos ordenada por classe (segue ordem de CL para consistencia)
+          ...["acoes_br","acoes_ext","fii","reits","treasuries","infra","agro","ntn_b"].map(cid=>{
+            const cand=ativosEmEstudo.candidatos.find(c=>c.classe===cid);
+            if(!cand)return null;
+            const classeInfo=CL.find(c=>c.id===cid);
+            return h(CandidatoCard,{key:cid,candidato:cand,classeInfo});
+          }).filter(Boolean)
+        ):null,
+        // Observacao global (se gerada)
+        ativosEmEstudo&&ativosEmEstudo.observacaoGlobal?h("div",{style:{marginTop:12,padding:"10px 12px",background:"rgba(91,143,212,0.06)",border:"1px solid rgba(91,143,212,0.20)",borderRadius:6}},
+          h("div",{style:{fontSize:8,color:"#5B8FD4",fontFamily:"monospace",fontWeight:700,letterSpacing:1.5,marginBottom:5}},"\u{1F4DC} OBSERVACAO GLOBAL DA IA"),
+          h("div",{style:{fontSize:10,color:"#C8C0B0",lineHeight:1.6,fontStyle:"italic"}},ativosEmEstudo.observacaoGlobal)
+        ):null,
+        // Rodape com aviso
+        h("div",{style:{marginTop:20,padding:"10px 12px",background:"rgba(0,0,0,0.18)",borderRadius:6,fontSize:9,color:"#7A7060",lineHeight:1.6,fontStyle:"italic"}},
+          h("strong",{style:{color:"#9A9080"}},"Importante: "),
+          "A pre-selecao e uma ferramenta de estudo antecipado, ",h("strong",{},"nao uma indicacao definitiva de compra"),
+          ". A IA usa dados publicos e estimativas baseadas no ultimo balanco conhecido - sempre confirme os numeros nas fontes oficiais (RI da empresa, Status Invest, Fundamentus, etc) durante seu estudo. A decisao final e sempre na janela de aporte com dados atualizados."
+        )
+      );
+    }catch(e){
+      console.error("Erro renderizando ESTUDO:",e);
+      content=h("div",{style:{padding:"24px 16px",background:"rgba(224,82,82,0.06)",border:"1px solid rgba(224,82,82,0.25)",borderRadius:8,marginTop:12}},
+        h("div",{style:{fontSize:11,color:"#E05252",fontFamily:"monospace",fontWeight:700,marginBottom:8}},"\u26A0 Erro ao renderizar Ativos em Estudo"),
         h("div",{style:{fontSize:10,color:"#9A9080",lineHeight:1.6,fontFamily:"monospace",whiteSpace:"pre-wrap"}},e&&e.message?e.message:String(e))
       );
     }
