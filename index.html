@@ -5100,6 +5100,8 @@ function App(){
   // {ts, versaoPortfolio, proximaJanelaAporte, candidatos:[{classe,ticker,precoAtual,metricas:[],teseResumida,precoTeto,precoIdeal,catalisadores:[],riscos:[],confianca}], observacaoGlobal, erro}
   const [ativosEmEstudo,setAtivosEmEstudo]=useState(null);
   const [ativosEmEstudoLoad,setAtivosEmEstudoLoad]=useState(false);
+  // Texto do diagnostico para copiar/colar (modal)
+  const [diagnosticoTexto,setDiagnosticoTexto]=useState(null);
   // Historico de taxas NTN-B: snapshots [{ts, mediaBruta, taxasIndiv:{venc:taxaBruta}}] - construido a cada update
   const [ntnbHistoricoTaxas,setNtnbHistoricoTaxas]=useState([]);
   const [histMensal,setHistMensal]=useState([]);// snapshots consolidados por mes (1 por mes, sem limite)
@@ -17123,22 +17125,29 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         const classesElegiveis=["acoes_br","acoes_ext","fii","reits","treasuries","infra","agro","rfipca"];
         const tickersPorClasse={};
         const excluidos5pct={};
-        const tickersClasseErrada={};// ticker existe mas cls[t] retorna outra coisa
+        const tickersClasseErrada={};
+        const tickersForaElegiveis={};// classes nao-elegiveis (selic, ouro, btc, imoveis, caixacambial)
         const totalLocal=total||0;
-        // Varre TODOS os tickers do portfolio (independente de classe) para diagnostico completo
+        // Dump completo de todos os tickers em port
+        const todosOsTickersEmPort=Object.keys(port||{});
+        // Varre TODOS os tickers do portfolio
         Object.entries(port||{}).forEach(([t,p])=>{
           if(!p||!t)return;
           const cid=cls[t];
           const v=pv(t,p,ccy,ntnbTaxas,ntnbVNA);
-          // Ticker com classe nao-elegivel: ignora silenciosamente (e ouro, btc, selic, imoveis)
-          if(cid&&!classesElegiveis.includes(cid))return;
-          // Ticker sem classe nenhuma: e suspeito
+          // Ticker sem classe nenhuma: bug critico
           if(!cid){
-            if(!tickersClasseErrada["sem_classe"])tickersClasseErrada["sem_classe"]=[];
-            tickersClasseErrada["sem_classe"].push(t+" (qty="+(p.qty||0)+",price="+(p.price||0)+")");
+            if(!tickersClasseErrada["SEM_CLS"])tickersClasseErrada["SEM_CLS"]=[];
+            tickersClasseErrada["SEM_CLS"].push(t+" (qty="+(p.qty||0)+", price="+(p.price||0)+", classId="+(p.classId||"-")+")");
             return;
           }
-          // ELEGIBILIDADE: cadastrado e tem classe -> e elegivel (mesmo sem posicao)
+          // Ticker em classe nao elegivel
+          if(!classesElegiveis.includes(cid)){
+            if(!tickersForaElegiveis[cid])tickersForaElegiveis[cid]=[];
+            tickersForaElegiveis[cid].push(t+" (qty="+(p.qty||0)+", price="+(p.price||0)+")");
+            return;
+          }
+          // Ticker em classe elegivel
           const temPosicao=v>0;
           const pesoNoTotalNum=temPosicao&&totalLocal>0?(v/totalLocal)*100:0;
           if(temPosicao&&pesoNoTotalNum>=5){
@@ -17147,19 +17156,20 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             return;
           }
           if(!tickersPorClasse[cid])tickersPorClasse[cid]=[];
-          tickersPorClasse[cid].push(t+(temPosicao?" ("+pesoNoTotalNum.toFixed(2)+"%)":" (cadastro/sem aporte)"));
+          tickersPorClasse[cid].push(t+(temPosicao?" ("+pesoNoTotalNum.toFixed(2)+"%)":" (sem posicao)"));
         });
-        // Detecta classes que tem peso (cw[cid]>0) mas zero tickers elegiveis (cenario raro: posicao zerada apos filtro)
         const classesComPesoSemTickers=classesElegiveis.filter(cid=>{
           const temPeso=(cw[cid]||0)>0;
           const temElegivel=!!tickersPorClasse[cid];
           return temPeso&&!temElegivel;
         });
         // Monta relatorio textual
-        let relatorio="DIAGNOSTICO DA PRE-SELECAO (sem custo - sem chamar IA)\n\n";
+        let relatorio="DIAGNOSTICO COMPLETO (sem chamar IA - custo zero)\n\n";
+        relatorio+="Total de tickers em port: "+todosOsTickersEmPort.length+"\n";
         relatorio+="Classes elegiveis: "+classesElegiveis.length+"\n";
         relatorio+="Classes que serao analisadas pela IA: "+Object.keys(tickersPorClasse).length+"\n\n";
         const nomeBonito={acoes_br:"Acoes BR",acoes_ext:"Acoes EXT",fii:"FII",reits:"REITs",treasuries:"Treasuries",infra:"Infra",agro:"FIAGRO",rfipca:"NTN-B"};
+        relatorio+="=== STATUS POR CLASSE ELEGIVEL ===\n";
         classesElegiveis.forEach(cid=>{
           const peso=(cw[cid]||0).toFixed(1);
           const nb=nomeBonito[cid]||cid;
@@ -17170,29 +17180,39 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             relatorio+="\u26A0 "+nb+" ("+peso+"% no port): SEM ELEGIVEIS - todos >=5%\n";
             relatorio+="  excluidos: "+excluidos5pct[cid].join(", ")+"\n";
           }else{
-            relatorio+="\u2717 "+nb+": sem ativos cadastrados nesta classe\n";
+            relatorio+="\u2717 "+nb+": NENHUM ticker cadastrado nesta classe em port\n";
           }
         });
+        // CRITICO: mostrar tickers em outras classes que talvez deveriam estar nas elegiveis
+        if(Object.keys(tickersForaElegiveis).length>0){
+          relatorio+="\n=== TICKERS EM CLASSES NAO-ELEGIVEIS (selic/ouro/btc/imoveis/caixa) ===\n";
+          Object.entries(tickersForaElegiveis).forEach(([cid,lista])=>{
+            relatorio+=cid+": "+lista.join(", ")+"\n";
+          });
+        }
         if(Object.keys(tickersClasseErrada).length>0){
-          relatorio+="\n\u26A0 TICKERS SEM CLASSE ASSOCIADA:\n";
+          relatorio+="\n\u26A0 TICKERS SEM CLASSE ASSOCIADA (bug grave):\n";
           Object.entries(tickersClasseErrada).forEach(([k,v])=>{
             relatorio+="  "+v.join(", ")+"\n";
           });
         }
         if(classesComPesoSemTickers.length>0){
-          relatorio+="\n\u26A0 ALERTA CRITICO: classes com peso no portfolio mas sem tickers elegiveis: "+classesComPesoSemTickers.map(c=>nomeBonito[c]||c).join(", ")+"\n";
+          relatorio+="\n\u26A0 ALERTA: classes com peso>0 mas sem tickers elegiveis: "+classesComPesoSemTickers.map(c=>nomeBonito[c]||c).join(", ")+"\n";
         }
-        relatorio+="\nVerifique o console (DevTools) para o objeto completo.";
+        relatorio+="\n=== TODOS OS TICKERS EM PORT (raw) ===\n"+todosOsTickersEmPort.join(", ");
+        relatorio+="\n\nDetalhes completos no console (DevTools).";
         console.group("[DIAGNOSTICO] Pre-selecao - dados completos");
         console.log("classesElegiveis:",classesElegiveis);
-        console.log("port:",port);
-        console.log("cls:",cls);
+        console.log("todosOsTickersEmPort:",todosOsTickersEmPort);
+        console.log("port (raw):",port);
+        console.log("cls (mapping ticker->classe):",cls);
         console.log("tickersPorClasse (elegivel):",tickersPorClasse);
+        console.log("tickersForaElegiveis (classes nao-elegiveis):",tickersForaElegiveis);
+        console.log("tickersClasseErrada (sem cls):",tickersClasseErrada);
         console.log("excluidos5pct:",excluidos5pct);
-        console.log("tickersClasseErrada:",tickersClasseErrada);
         console.log("cw (pesos por classe):",cw);
         console.groupEnd();
-        alert(relatorio);
+        setDiagnosticoTexto(relatorio);
       };
       // Handler de refresh: chama a IA para gerar pre-selecao
       const handleRefresh=()=>{
@@ -17201,6 +17221,36 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         gerarPreSelecaoIA();
       };
       content=h("div",{},
+        // Modal de diagnostico (textarea selecionavel + botao copiar)
+        diagnosticoTexto?h("div",{style:{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.85)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:14}},
+          h("div",{style:{background:"#1a1410",border:"1px solid #C8A96E",borderRadius:8,padding:14,maxWidth:600,width:"100%",maxHeight:"90vh",display:"flex",flexDirection:"column",gap:10}},
+            h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}},
+              h("div",{style:{fontSize:11,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,letterSpacing:1.5}},"\u{1F50D} DIAGNOSTICO"),
+              h("button",{onClick:()=>setDiagnosticoTexto(null),style:{padding:"4px 10px",background:"rgba(224,82,82,0.15)",color:"#E05252",border:"1px solid rgba(224,82,82,0.40)",borderRadius:4,fontSize:10,fontFamily:"monospace",fontWeight:700,cursor:"pointer"}},"FECHAR \u2715")
+            ),
+            h("textarea",{
+              value:diagnosticoTexto,
+              readOnly:true,
+              onFocus:e=>e.target.select(),
+              style:{flex:1,minHeight:300,background:"#0d0a08",color:"#E8E2D5",border:"1px solid rgba(200,169,110,0.30)",borderRadius:5,padding:"10px 12px",fontSize:11,fontFamily:"monospace",lineHeight:1.5,resize:"vertical",outline:"none",whiteSpace:"pre-wrap"}
+            }),
+            h("div",{style:{display:"flex",gap:6,flexWrap:"wrap"}},
+              h("button",{onClick:()=>{
+                if(navigator.clipboard&&navigator.clipboard.writeText){
+                  navigator.clipboard.writeText(diagnosticoTexto).then(()=>{
+                    alert("Copiado! Cole onde desejar.");
+                  }).catch(()=>{
+                    alert("Falha ao copiar automaticamente. Selecione o texto manualmente (toque longo no campo) e use Copiar.");
+                  });
+                }else{
+                  alert("Navegador nao suporta copia automatica. Selecione o texto manualmente (toque longo no campo) e use Copiar.");
+                }
+              },style:{flex:1,padding:"10px 14px",background:"linear-gradient(135deg,#C8A96E,#a8895a)",color:"#1A1612",border:"none",borderRadius:5,fontSize:10,fontFamily:"monospace",fontWeight:700,letterSpacing:1.2,cursor:"pointer",textTransform:"uppercase"}},"\u{1F4CB} copiar texto"),
+              h("button",{onClick:()=>setDiagnosticoTexto(null),style:{padding:"10px 14px",background:"rgba(255,255,255,0.05)",color:"#9A9080",border:"1px solid rgba(255,255,255,0.10)",borderRadius:5,fontSize:10,fontFamily:"monospace",fontWeight:700,letterSpacing:1.2,cursor:"pointer",textTransform:"uppercase"}},"fechar")
+            ),
+            h("div",{style:{fontSize:8.5,color:"#7A7060",fontStyle:"italic",textAlign:"center"}},"Toque longo no campo de texto para selecionar manualmente. O botao \"copiar\" copia tudo de uma vez (se permitido pelo navegador).")
+          )
+        ):null,
         // Header da aba
         h("div",{style:{display:"flex",alignItems:"baseline",justifyContent:"space-between",flexWrap:"wrap",gap:10,marginBottom:14}},
           h("div",{},
