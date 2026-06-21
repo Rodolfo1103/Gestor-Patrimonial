@@ -915,6 +915,115 @@ const FUNDOS_RENDA_MOTORES=["fii","infra","agro"];
 const CLASSES_AUX_BR=["acoes_br"];
 const CLASSES_AUX_EXT=["acoes_eua","acoes_mundo","reits","treasuries"];
 
+// =====================================================================
+// PARAMETROS CONGELADOS POR TICKER (Calibracao Jun/2026)
+// =====================================================================
+// Tabela DETERMINISTICA usada pela IA do Estudo (Ativos em Estudo).
+// Objetivo: eliminar drift entre rodadas. Mesmo preco -> mesmo veredito.
+// REVISAO ANUAL OBRIGATORIA: cada Setembro reabrir e revalidar classificacoes.
+//
+// Campos:
+//   tipo: classificacao subjetiva do ativo (define TIR e margem)
+//   tirMin: TIR minima exigida em % (decimal anual)
+//   margem: margem de seguranca em % (desconto sobre preco-teto para chegar no preco-ideal)
+//   crescReal: crescimento real esperado da renda/lucro em % (decimal anual)
+//   dyBase: yield base esperado em % (apenas para FIIs/Infra/Agro/REITs)
+//   ultimaRevisao: data ISO do ultimo check da classificacao
+//
+// REGRA DE USO PELA IA:
+//   - IA DEVE usar EXATAMENTE estes parametros para cada ticker listado
+//   - Qualquer desvio precisa ser EXPLICITO no campo justificativa do JSON
+//   - Tickers NAO listados aqui: IA usa default da classe + flag "sem calibracao especifica"
+const PARAMETROS_CONGELADOS={
+  // ===== ACOES BR =====
+  WEGE3:{tipo:"Compounder qualidade",tirMin:0.13,margem:0.10,crescReal:0.05,ultimaRevisao:"2026-06"},
+  ITUB3:{tipo:"Compounder qualidade",tirMin:0.13,margem:0.10,crescReal:0.05,ultimaRevisao:"2026-06"},
+  PSSA3:{tipo:"Compounder qualidade (seguradora)",tirMin:0.13,margem:0.10,crescReal:0.05,ultimaRevisao:"2026-06"},
+  CXSE3:{tipo:"Compounder defensivo",tirMin:0.14,margem:0.10,crescReal:0.04,ultimaRevisao:"2026-06"},
+  BBAS3:{tipo:"Compounder defensivo (banco estatal)",tirMin:0.14,margem:0.10,crescReal:0.04,ultimaRevisao:"2026-06"},
+  MULT3:{tipo:"Compounder defensivo (shopping)",tirMin:0.14,margem:0.10,crescReal:0.04,ultimaRevisao:"2026-06"},
+  EGIE3:{tipo:"Ciclica com moat (geracao)",tirMin:0.15,margem:0.15,crescReal:0.03,ultimaRevisao:"2026-06"},
+  TAEE11:{tipo:"Ciclica com moat (transmissao)",tirMin:0.15,margem:0.15,crescReal:0.03,ultimaRevisao:"2026-06"},
+  KLBN4:{tipo:"Ciclica com moat (papel/celulose)",tirMin:0.15,margem:0.15,crescReal:0.03,ultimaRevisao:"2026-06"},
+  CMIN3:{tipo:"Ciclica sem moat (mineradora)",tirMin:0.18,margem:0.20,crescReal:0.02,ultimaRevisao:"2026-06"},
+  FRAS3:{tipo:"Ciclica sem moat (autopeca)",tirMin:0.18,margem:0.20,crescReal:0.02,ultimaRevisao:"2026-06"},
+  
+  // ===== FIIs =====
+  HGLG11:{tipo:"FII Logistica top",tirMin:0.11,margem:0.10,dyBase:0.095,pvpaTeto:1.00,ultimaRevisao:"2026-06"},
+  BTLG11:{tipo:"FII Logistica top",tirMin:0.11,margem:0.10,dyBase:0.095,pvpaTeto:1.00,ultimaRevisao:"2026-06"},
+  HGRU11:{tipo:"FII Tijolo premium (renda urbana)",tirMin:0.115,margem:0.10,dyBase:0.095,pvpaTeto:1.00,ultimaRevisao:"2026-06"},
+  PVBI11:{tipo:"FII Tijolo premium (escritorio)",tirMin:0.115,margem:0.10,dyBase:0.090,pvpaTeto:1.00,ultimaRevisao:"2026-06"},
+  ALZR11:{tipo:"FII Tijolo premium (multi-uso)",tirMin:0.115,margem:0.10,dyBase:0.090,pvpaTeto:1.00,ultimaRevisao:"2026-06"},
+  TRXF11:{tipo:"FII Renda urbana",tirMin:0.12,margem:0.15,dyBase:0.095,pvpaTeto:1.00,ultimaRevisao:"2026-06"},
+  RBVA11:{tipo:"FII Renda urbana",tirMin:0.12,margem:0.15,dyBase:0.095,pvpaTeto:1.00,ultimaRevisao:"2026-06"},
+  JFLL11:{tipo:"FII Renda urbana",tirMin:0.12,margem:0.15,dyBase:0.095,pvpaTeto:1.00,ultimaRevisao:"2026-06"},
+  FIIB11:{tipo:"FII Logistica top",tirMin:0.11,margem:0.10,dyBase:0.095,pvpaTeto:1.00,ultimaRevisao:"2026-06"},
+  XPIN11:{tipo:"FII Logistica top",tirMin:0.11,margem:0.10,dyBase:0.095,pvpaTeto:1.00,ultimaRevisao:"2026-06"},
+  TEPP11:{tipo:"FII Tijolo premium (escritorio)",tirMin:0.115,margem:0.10,dyBase:0.090,pvpaTeto:1.00,ultimaRevisao:"2026-06"},
+  TGAR11:{tipo:"FII Renda urbana",tirMin:0.12,margem:0.15,dyBase:0.095,pvpaTeto:1.00,ultimaRevisao:"2026-06"},
+  HSML11:{tipo:"FII Hibrido shopping",tirMin:0.12,margem:0.10,dyBase:0.095,pvpaTeto:1.00,ultimaRevisao:"2026-06"},
+  XPML11:{tipo:"FII Hibrido shopping",tirMin:0.12,margem:0.10,dyBase:0.095,pvpaTeto:1.00,ultimaRevisao:"2026-06"},
+  RECR11:{tipo:"FII Papel high yield",tirMin:"CDI+0.04",margem:0.15,dyBase:0.135,pvpaTeto:1.02,ultimaRevisao:"2026-06"},
+  KNHY11:{tipo:"FII Papel high yield",tirMin:"CDI+0.04",margem:0.15,dyBase:0.135,pvpaTeto:1.02,ultimaRevisao:"2026-06"},
+  KNUQ11:{tipo:"FII Papel high yield",tirMin:"CDI+0.04",margem:0.15,dyBase:0.135,pvpaTeto:1.02,ultimaRevisao:"2026-06"},
+  KNIP11:{tipo:"FII Papel high grade",tirMin:"CDI+0.025",margem:0.10,dyBase:0.120,pvpaTeto:1.02,ultimaRevisao:"2026-06"},
+  AFHI11:{tipo:"FII Papel high grade",tirMin:"CDI+0.025",margem:0.10,dyBase:0.120,pvpaTeto:1.02,ultimaRevisao:"2026-06"},
+  
+  // ===== REITs =====
+  O:{tipo:"REIT Triple-net premium",tirMin:0.10,margem:0.10,affoYieldMin:0.06,spreadTreasury10Y:0.03,ultimaRevisao:"2026-06"},
+  FPI:{tipo:"REIT Specialty (farmland)",tirMin:0.11,margem:0.15,affoYieldMin:0.07,spreadTreasury10Y:0.04,ultimaRevisao:"2026-06"},
+  
+  // ===== ACOES EUA =====
+  MSFT:{tipo:"Compounder mega-cap moat",tirMin:0.12,margem:0.10,crescReal:0.07,ultimaRevisao:"2026-06"},
+  GOOGL:{tipo:"Compounder mega-cap moat",tirMin:0.12,margem:0.10,crescReal:0.07,ultimaRevisao:"2026-06"},
+  BRKB:{tipo:"Compounder mega-cap moat",tirMin:0.12,margem:0.10,crescReal:0.05,ultimaRevisao:"2026-06"},
+  PEP:{tipo:"Quality value",tirMin:0.13,margem:0.10,crescReal:0.04,ultimaRevisao:"2026-06"},
+  LIN:{tipo:"Quality value (industrial gas)",tirMin:0.13,margem:0.10,crescReal:0.05,ultimaRevisao:"2026-06"},
+  ECL:{tipo:"Quality value (specialty chem)",tirMin:0.13,margem:0.10,crescReal:0.05,ultimaRevisao:"2026-06"},
+  WM:{tipo:"Quality value (waste mgmt)",tirMin:0.13,margem:0.10,crescReal:0.04,ultimaRevisao:"2026-06"},
+  PH:{tipo:"Industrial moat (motion control)",tirMin:0.13,margem:0.12,crescReal:0.05,ultimaRevisao:"2026-06"},
+  APH:{tipo:"Industrial moat (conectores)",tirMin:0.13,margem:0.12,crescReal:0.06,ultimaRevisao:"2026-06"},
+  DHR:{tipo:"Industrial moat (life sciences)",tirMin:0.13,margem:0.12,crescReal:0.06,ultimaRevisao:"2026-06"},
+  AOS:{tipo:"Industrial moat (water heaters)",tirMin:0.13,margem:0.12,crescReal:0.04,ultimaRevisao:"2026-06"},
+  ADBE:{tipo:"Growth tecnologia",tirMin:0.14,margem:0.15,crescReal:0.08,ultimaRevisao:"2026-06"},
+  AMAT:{tipo:"Growth tecnologia (semis)",tirMin:0.14,margem:0.15,crescReal:0.08,ultimaRevisao:"2026-06"},
+  PANW:{tipo:"Growth tecnologia (cyber)",tirMin:0.14,margem:0.15,crescReal:0.10,ultimaRevisao:"2026-06"},
+  MU:{tipo:"Ciclica/Commodity (memoria)",tirMin:0.15,margem:0.15,crescReal:0.03,ultimaRevisao:"2026-06"},
+  XOM:{tipo:"Ciclica/Commodity (oleo)",tirMin:0.15,margem:0.15,crescReal:0.02,ultimaRevisao:"2026-06"},
+  CTVA:{tipo:"Ciclica/Commodity (agro)",tirMin:0.15,margem:0.15,crescReal:0.03,ultimaRevisao:"2026-06"},
+  TSN:{tipo:"Ciclica/Commodity (proteina)",tirMin:0.15,margem:0.15,crescReal:0.02,ultimaRevisao:"2026-06"},
+  ADM:{tipo:"Ciclica/Commodity (agro processing)",tirMin:0.15,margem:0.15,crescReal:0.02,ultimaRevisao:"2026-06"},
+  
+  // ===== ACOES MUNDO =====
+  SAP:{tipo:"Compounder Europa (software)",tirMin:0.13,margem:0.10,crescReal:0.06,ultimaRevisao:"2026-06"},
+  ASML:{tipo:"Compounder Europa (semis equip)",tirMin:0.13,margem:0.10,crescReal:0.08,ultimaRevisao:"2026-06"},
+  SIE:{tipo:"Compounder Europa (industrial)",tirMin:0.13,margem:0.10,crescReal:0.04,ultimaRevisao:"2026-06"},
+  REA:{tipo:"Compounder (real estate listings)",tirMin:0.13,margem:0.10,crescReal:0.07,ultimaRevisao:"2026-06"},
+  NSIS_B:{tipo:"Quality Europa (industrial)",tirMin:0.13,margem:0.10,crescReal:0.04,ultimaRevisao:"2026-06"},
+  HLMA:{tipo:"Quality Europa (safety equip)",tirMin:0.13,margem:0.10,crescReal:0.05,ultimaRevisao:"2026-06"},
+  KOG:{tipo:"Quality Europa (industrial fluid)",tirMin:0.13,margem:0.10,crescReal:0.05,ultimaRevisao:"2026-06"},
+  ABBN:{tipo:"Quality Europa (eletrico/automacao)",tirMin:0.13,margem:0.10,crescReal:0.05,ultimaRevisao:"2026-06"},
+  HKG0700:{tipo:"Conglomerado Asia (Tencent)",tirMin:0.14,margem:0.15,crescReal:0.07,ultimaRevisao:"2026-06"},
+  HKG1299:{tipo:"Conglomerado Asia (AIA seguros)",tirMin:0.14,margem:0.15,crescReal:0.06,ultimaRevisao:"2026-06"},
+  J36:{tipo:"Conglomerado Asia (Jardine)",tirMin:0.14,margem:0.15,crescReal:0.04,ultimaRevisao:"2026-06"},
+  HKG0001:{tipo:"Conglomerado Asia (CK Hutchison)",tirMin:0.14,margem:0.15,crescReal:0.04,ultimaRevisao:"2026-06"},
+  HKG0087:{tipo:"Conglomerado Asia (Swire B)",tirMin:0.14,margem:0.15,crescReal:0.04,ultimaRevisao:"2026-06"},
+  GMEXICOB:{tipo:"Emerging quality (mineradora MX)",tirMin:0.15,margem:0.15,crescReal:0.04,ultimaRevisao:"2026-06"},
+  NDIA:{tipo:"Emerging quality (ETF India)",tirMin:0.15,margem:0.15,crescReal:0.07,ultimaRevisao:"2026-06"},
+  WES:{tipo:"Emerging quality (Wesfarmers AU)",tirMin:0.15,margem:0.15,crescReal:0.04,ultimaRevisao:"2026-06"},
+  TSE8058:{tipo:"Industrial Japao (Mitsubishi Corp)",tirMin:0.13,margem:0.12,crescReal:0.04,ultimaRevisao:"2026-06"},
+  TSE8031:{tipo:"Industrial Japao (Mitsui)",tirMin:0.13,margem:0.12,crescReal:0.04,ultimaRevisao:"2026-06"},
+  
+  // ===== INFRA =====
+  BRZP11:{tipo:"FI-Infra diversificado",tirMin:0.095,margem:0.10,dyBase:0.10,ultimaRevisao:"2026-06"},
+  AZIN11:{tipo:"FI-Infra diversificado",tirMin:0.095,margem:0.10,dyBase:0.10,ultimaRevisao:"2026-06"},
+  KDIF11:{tipo:"FI-Infra diversificado",tirMin:0.095,margem:0.10,dyBase:0.10,ultimaRevisao:"2026-06"},
+};
+// Helper para a IA: pega parametros de um ticker, com fallback de default por classe
+function getParametrosCongelados(ticker){
+  return PARAMETROS_CONGELADOS[ticker]||null;
+}
+
 // ===== STRESS TEST - Cenarios historicos curados =====
 // dd: drawdown peak-to-trough estimado por classe (em decimal, negativo = perda)
 // rec: meses estimados para recuperacao historica
@@ -8059,28 +8168,57 @@ function App(){
         "FILOSOFIA B&H: privilegiar qualidade, moat, previsibilidade. Nunca recomendar ativo caro (acima do preco-teto).\n\n"+
         "CONTEXTO CAMBIAL (impacta decisao Acoes EUA, Acoes MUNDO, REITs, Treasuries):\n"+
         "O campo 'cenarioMacro' inclui usdBrl e eurBrl. USD muito alto (>R$6) torna entrada em ativos americanos cara em BRL - aporte regular continua valido, mas com menos urgencia. USD muito baixo (<R$5) torna entrada favoravel. NAO mude a tese fundamental do ativo pelo cambio - apenas calibre o sinal de timing. Para ativos asiaticos (HKG, TSE) e europeus (SAP, ABBN, ASML), considerar a moeda nativa vs BRL similarmente.\n\n"+
-        "CALIBRACAO TIR (margem de seguranca):\n"+
-        "   - Acoes BR ciclicas sem moat (commodities, financeiras genericas): TIR ~18-20%, margem ~20%\n"+
-        "   - Acoes BR/EUA/MUNDO com moat solido (compounders com vantagem competitiva duravel, ROE/ROIC consistente >15%, qualquer geografia - EUA, Europa, Asia, EM): TIR ~12-15%, margem ~10%\n"+
-        "   - FIIs e Infra/Agro: TIR ~12-14%, ancorada em NTN-B+spread\n"+
-        "   - REITs: TIR ~9-11% em USD, ancorada em Treasuries+spread\n"+
-        "   - Treasuries/NTN-B: usar YTM/taxa real liquida de IR como TIR\n"+
-        "Margem de seguranca: ~10% para aportes recorrentes (B&H regular ja embute margem temporal). Margens de 20-30% sao reservadas a reforcos em momentos de stress de mercado, nao para aportes regulares.\n"+
-        "Use sua estimativa de mercado para metricas (P/L, P/VPA, DY, P/VP, YTM, P/AFFO etc) baseada no ultimo balanco publicado conhecido. Indicar quando o dado for estimativa.\n\n"+
+        "CALIBRACAO TIR - REGRA DURA #4 (CRITICA PARA REPRODUCIBILIDADE):\n"+
+        "O investidor mantém uma TABELA DE PARAMETROS CONGELADOS por ticker (enviada no userMessage como PARAMETROS_CONGELADOS_POR_TICKER). Para CADA ticker que aparece nessa tabela, voce DEVE usar EXATAMENTE os parametros listados - sem improvisar, sem revisar, sem 'interpretar diferente'. Isto e o que garante que o mesmo preco produza o mesmo veredito em rodadas diferentes (reproducibilidade da analise).\n"+
+        "Procedimento OBRIGATORIO para cada ticker:\n"+
+        "  1) Consulte PARAMETROS_CONGELADOS_POR_TICKER[ticker]. Se existir, use EXATAMENTE: tirMin, margem, crescReal, dyBase/pvpaTeto/affoYieldMin conforme aplicavel.\n"+
+        "  2) Calcule precoTeto pela formula da classe usando esses parametros (ver formulas abaixo).\n"+
+        "  3) precoIdeal = precoTeto * (1 - margem). Use EXATAMENTE a margem da tabela.\n"+
+        "  4) Compare precoAtual com precoTeto e precoIdeal para classificar.\n"+
+        "  5) Se o ticker NAO esta na tabela: use os defaults da classe abaixo e mencione no teseResumida 'Sem calibracao especifica para este ticker - usando default da classe X'.\n"+
+        "FORMULAS DE PRECO TETO POR CLASSE:\n"+
+        "  - Acoes (BR/EUA/MUNDO): precoTeto = lucro_por_acao_normalizado * P/L_teto, onde P/L_teto = 1 / (tirMin - crescReal). Use lucro_por_acao normalizado mid-cycle (NAO extrapolar picos), atualizado com ultimo balanco conhecido.\n"+
+        "  - FIIs: precoTeto = MIN(dividendo_anual / tirMin, VPA * pvpaTeto). Pega o MENOR dos dois (criterio mais conservador).\n"+
+        "  - REITs: precoTeto = AFFO_anual / affoYieldMin. Verifique tambem: AFFO_yield >= Treasury_10Y + spreadTreasury10Y, senao reduza precoTeto.\n"+
+        "  - Infra/FIAGRO: precoTeto = dividendo_anual / tirMin. Calibrar com NTN-B liquida atual (spread >=3pp para Infra, >=4pp para FIAGRO).\n"+
+        "  - NTN-B: precoTeto = preco que entrega taxa liquida >= IPCA+5% (curta), >=IPCA+5,5% (media), >=IPCA+6% (longa).\n"+
+        "  - Treasuries: precoTeto baseado em YTM atual (TLT/IEF > 4.5% = excelente; VTIP yield real > 2% = excelente).\n"+
+        "DEFAULTS POR CLASSE (apenas para tickers fora da tabela congelada):\n"+
+        "   - Acoes BR ciclicas sem moat: TIR 18%, margem 20%, crescReal 2%\n"+
+        "   - Acoes BR/EUA/MUNDO com moat: TIR 13%, margem 10%, crescReal 5%\n"+
+        "   - FIIs tijolo: TIR 11.5%, margem 10%, pvpaTeto 1.00\n"+
+        "   - FIIs papel: TIR CDI+3pp, margem 10%, pvpaTeto 1.02\n"+
+        "   - REITs: TIR 10% USD, margem 10%, affoYieldMin 6%\n"+
+        "   - Infra/FIAGRO: TIR 9.5%-10.5%, margem 10%\n"+
+        "REGRA DE DIVERGENCIA: se voce julgar que o parametro congelado de um ticker esta DESATUALIZADO (ex: empresa virou cíclica por deterioracao), NAO mude por conta propria. Use o parametro congelado normalmente e ADICIONE um alerta no campo 'riscos': 'Sugiro reclassificar este ticker na proxima revisao anual: [motivo]'. O investidor decidira na revisao formal.\n\n"+
+        "MARGEM DE SEGURANCA - REGRA DURA: use EXATAMENTE a margem da tabela congelada para tickers listados. Para tickers fora da tabela, use os defaults acima. NUNCA aplique margem de 20-30% para aporte regular - essas margens sao reservadas APENAS para reforco em pânico de mercado, fora desta funcionalidade de pre-selecao.\n"+
+        "Use sua estimativa de mercado para dados FUNDAMENTAIS observaveis (lucro_por_acao, VPA, DY, AFFO, YTM, etc) baseada no ultimo balanco publicado conhecido. Indicar quando o dado for estimativa.\n\n"+
         "FORMATO DE RESPOSTA: voce DEVE chamar a tool 'submit_preselecao' com o JSON estruturado contendo TODAS as classes presentes. Nada fora da tool. Cada candidato deve ter ate 3 metricas chave escolhidas conforme a relevancia para aquela classe naquele momento (ex: P/VP+DY+Spread para FII papel; P/L+P/VPA+DY para acoes BR; YTM+Duration+Spread para treasuries; Duration+Taxa Real+Inclinacao Curva para NTN-B).";
       // ===== User message com dados =====
       // Lista de tickers excluidos por estarem >=5% do patrimonio (informa a IA mas nao precisa escolher)
       const temExcluidos=Object.keys(tickersExcluidosPor5pct).length>0;
       const temDescricoes=Object.keys(descricoesRelevantes).length>0;
+      // Monta dicionario de parametros congelados APENAS para tickers elegiveis (reduz tokens)
+      const tickersElegiveis=new Set();
+      Object.values(tickersPorClasse||{}).forEach(arr=>{
+        if(Array.isArray(arr))arr.forEach(c=>{if(c&&c.ticker)tickersElegiveis.add(c.ticker);});
+      });
+      const parametrosRelevantes={};
+      tickersElegiveis.forEach(tk=>{
+        if(PARAMETROS_CONGELADOS[tk])parametrosRelevantes[tk]=PARAMETROS_CONGELADOS[tk];
+      });
+      const temParametros=Object.keys(parametrosRelevantes).length>0;
+      
       const userMessage="DADOS DO PORTFOLIO PARA ANALISE:\n\n"+
         "=== CENARIO MACRO ===\n"+JSON.stringify(cenarioMacro,null,2)+"\n\n"+
         "=== COMPOSICAO ATUAL (% por classe) ===\n"+JSON.stringify(composicaoAtual,null,2)+"\n\n"+
         "=== JANELA DE APORTE ===\n"+(janelaAporte?JSON.stringify(janelaAporte,null,2):"sem janela proxima")+"\n\n"+
         "=== TICKERS ELEGIVEIS POR CLASSE (universo restrito - voce DEVE escolher dentre estes, TODOS abaixo de 5% do patrimonio) ===\n"+JSON.stringify(tickersPorClasse,null,2)+"\n\n"+
+        (temParametros?"=== PARAMETROS CONGELADOS POR TICKER (CALIBRACAO DETERMINISTICA - USAR EXATAMENTE) ===\nEstes parametros sao a CALIBRACAO OFICIAL do investidor para cada ticker. Voce DEVE usar EXATAMENTE estes numeros para calcular precoTeto e precoIdeal. NAO improvise TIR ou margem - use o que esta aqui. Se um ticker NAO esta listado, use o default da classe (CALIBRACAO TIR no system prompt) e mencione no campo teseResumida que e estimativa.\nCampos: tipo=classificacao, tirMin=TIR minima exigida (decimal), margem=margem de seguranca (decimal), crescReal=crescimento real esperado (decimal), dyBase=yield base esperado (decimal, FII/Infra/Agro/REIT), pvpaTeto=P/VPA teto (FIIs), affoYieldMin=AFFO yield minimo (REITs), spreadTreasury10Y=spread minimo sobre Treasury 10Y (REITs).\n"+JSON.stringify(parametrosRelevantes,null,2)+"\n\n":"")+
         (temDescricoes?"=== DESCRICOES FACTUAIS DE FUNDOS (FONTE: relatorios oficiais - use estas descricoes em vez de seu conhecimento, especialmente para fundos pequenos/regionais) ===\n"+JSON.stringify(descricoesRelevantes,null,2)+"\n\n":"")+
         (temExcluidos?"=== TICKERS EXCLUIDOS AUTOMATICAMENTE (>=5% do patrimonio - NAO PODE escolher estes) ===\n"+JSON.stringify(tickersExcluidosPor5pct,null,2)+"\n\n":"")+
         (ntnbInfo?"=== NTN-B VENCIMENTOS DISPONIVEIS ===\n"+JSON.stringify(ntnbInfo,null,2)+"\n\n":"")+
-        "Selecione UM candidato para CADA classe presente em tickersPorClasse (cobertura total, nao pular nenhuma classe). Para os ativos com descricao factual fornecida, USE essa descricao - nao confunda os tipos. Chame a tool submit_preselecao com o resultado.";
+        "Selecione UM candidato para CADA classe presente em tickersPorClasse (cobertura total, nao pular nenhuma classe). Para os ativos com descricao factual fornecida, USE essa descricao - nao confunda os tipos. USE EXATAMENTE os parametros congelados para os tickers listados em PARAMETROS_CONGELADOS_POR_TICKER. Chame a tool submit_preselecao com o resultado.";
       // ===== Tool definition para garantir JSON estruturado =====
       const tools=[{
         name:"submit_preselecao",
@@ -17329,7 +17467,23 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         h("div",{style:{display:"flex",alignItems:"baseline",justifyContent:"space-between",flexWrap:"wrap",gap:10,marginBottom:14}},
           h("div",{},
             h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:2}},"Ativos em Estudo"),
-            h("div",{style:{fontSize:9,color:"#7A7060",fontStyle:"italic"}},"pre-selecao da IA para a proxima janela de aporte")
+            h("div",{style:{fontSize:9,color:"#7A7060",fontStyle:"italic"}},"pre-selecao da IA para a proxima janela de aporte"),
+            (function(){
+              // Mostra status da calibracao dos parametros congelados
+              const total=Object.keys(PARAMETROS_CONGELADOS).length;
+              // Verifica revisao mais antiga (ultimaRevisao formato YYYY-MM)
+              let maisAntiga="9999-99";
+              Object.values(PARAMETROS_CONGELADOS).forEach(p=>{if(p.ultimaRevisao&&p.ultimaRevisao<maisAntiga)maisAntiga=p.ultimaRevisao;});
+              // Calcula meses desde maisAntiga
+              const hoje=new Date();
+              const [ya,ma]=maisAntiga.split("-").map(Number);
+              const mesesPassados=(hoje.getFullYear()-ya)*12+(hoje.getMonth()+1-ma);
+              const precisa=mesesPassados>=12;
+              return h("div",{style:{fontSize:8,color:precisa?"#E89060":"#4CAF82",fontFamily:"monospace",marginTop:3,letterSpacing:0.5}},
+                precisa?("\u26A0 ANUAL DUE: "+mesesPassados+"m desde "+maisAntiga+" - revisar PARAMETROS_CONGELADOS no codigo"):
+                ("\u2713 Calibracao: "+total+" tickers (ultima rev. "+maisAntiga+")")
+              );
+            })()
           ),
           h("div",{style:{display:"flex",gap:6,flexWrap:"wrap"}},
             h("button",{onClick:handleDiagnostico,disabled:ativosEmEstudoLoad,style:{padding:"8px 12px",background:"rgba(91,143,212,0.10)",color:"#5B8FD4",border:"1px solid rgba(91,143,212,0.40)",borderRadius:5,fontSize:9,fontFamily:"monospace",fontWeight:700,letterSpacing:1.2,cursor:"pointer",textTransform:"uppercase"},title:"Verifica quais classes serao analisadas, sem chamar a IA (sem custo)"},"\u{1F50D} diagnostico"),
