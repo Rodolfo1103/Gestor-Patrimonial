@@ -18576,6 +18576,26 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           if(typeof dadosIA.div_anual==="number")df.divAnual=dadosIA.div_anual;
           if(typeof dadosIA.affo_por_acao==="number")df.affoPorAcao=dadosIA.affo_por_acao;
           if(typeof dadosIA.yieldAtual==="number")df.yieldAtual=dadosIA.yieldAtual;
+          // Fallback: se yieldAtual nao foi retornado, tenta extrair do primeiro card (geralmente YTM/yield)
+          if(typeof df.yieldAtual!=="number"&&Array.isArray(dadosIA.metricasPreco)&&dadosIA.metricasPreco.length>0){
+            for(let i=0;i<dadosIA.metricasPreco.length;i++){
+              const m=dadosIA.metricasPreco[i];
+              if(!m||!m.valor)continue;
+              const label=(m.label||"").toLowerCase();
+              // Procura por YTM, yield, ou similar
+              if(label.includes("ytm")||label.includes("yield")||label.includes("rendimento")){
+                // Tenta parsear "4.32%", "4,32%", "+4.32pp", etc
+                const match=String(m.valor).match(/(-?\d+[.,]?\d*)/);
+                if(match){
+                  const num=parseFloat(match[1].replace(",","."));
+                  if(!isNaN(num)&&num>0&&num<20){
+                    df.yieldAtual=num/100;// converte % para fracao
+                    break;
+                  }
+                }
+              }
+            }
+          }
         }
         const tirInfo=calcTIRImplicita(tkSym,"treasuries",precoAtual,df,calibracoesCustom);
         const mPreco=(dadosIA&&Array.isArray(dadosIA.metricasPreco))?dadosIA.metricasPreco:[];
