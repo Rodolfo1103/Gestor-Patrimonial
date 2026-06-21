@@ -8575,7 +8575,24 @@ function App(){
           }
           const ativosArr=toolUse.input&&Array.isArray(toolUse.input.ativos)?toolUse.input.ativos:[];
           log("Batch "+(bi+1)+" retornou "+ativosArr.length+" ativos");
-          ativosArr.forEach(a=>{if(a&&a.ticker)ativosObj[a.ticker]=a;});
+          // Validacao de completude: ticker so e aceito se tiver metricasPreco e metricasQualidade COMPLETAS
+          let aceitos=0, rejeitados=0;
+          ativosArr.forEach(a=>{
+            if(!a||!a.ticker)return;
+            const mP=Array.isArray(a.metricasPreco)?a.metricasPreco:[];
+            const mQ=Array.isArray(a.metricasQualidade)?a.metricasQualidade:[];
+            // Cada metrica precisa ter label, valor, interpretacao, nivel
+            const completaP=mP.length>=3&&mP.slice(0,3).every(m=>m&&m.label&&m.valor&&m.interpretacao&&m.nivel);
+            const completaQ=mQ.length>=3&&mQ.slice(0,3).every(m=>m&&m.label&&m.valor&&m.interpretacao&&m.nivel);
+            if(!completaP||!completaQ){
+              log("  Rejeitado "+a.ticker+": metricasPreco="+(completaP?"ok":"incompleta")+" metricasQualidade="+(completaQ?"ok":"incompleta"));
+              rejeitados++;
+              return;
+            }
+            ativosObj[a.ticker]=a;
+            aceitos++;
+          });
+          log("Batch "+(bi+1)+": "+aceitos+" aceitos, "+rejeitados+" rejeitados por dados incompletos");
           // Salva progressivamente apos cada batch (feedback em tempo real)
           const versaoAtual=Object.keys(port||{}).sort().join("|");
           setRiscoRetornoData({
