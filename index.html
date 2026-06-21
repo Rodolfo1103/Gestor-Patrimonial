@@ -5426,6 +5426,8 @@ function App(){
   const [fRR_status,setFRR_status]=useState("todos");
   // Modal calibracao manual
   const [calibrandoTicker_RR,setCalibrandoTicker_RR]=useState(null);
+  // Log de debug da ultima tentativa de gerar analise (visivel na tela)
+  const [rrDebugLog,setRRDebugLog]=useState([]);
   // Texto do diagnostico para copiar/colar (modal)
   const [diagnosticoTexto,setDiagnosticoTexto]=useState(null);
   // Historico de taxas NTN-B: snapshots [{ts, mediaBruta, taxasIndiv:{venc:taxaBruta}}] - construido a cada update
@@ -8175,6 +8177,14 @@ function App(){
     if(riscoRetornoLoad)return;
     if(!hasPos){alert("Adicione posicoes ao portfolio primeiro.");return;}
     setRiscoRetornoLoad(true);
+    const logs=[];
+    const log=(msg)=>{
+      const ts=new Date().toLocaleTimeString("pt-BR");
+      logs.push("["+ts+"] "+msg);
+      setRRDebugLog([...logs]);
+      console.log("[RiscoRetorno]",msg);
+    };
+    log("Inicio");
     try{
       // Coleta TODOS os tickers do portfolio com classId valido
       const classesElegiveis=["acoes_br","acoes_eua","acoes_mundo","fii","reits","treasuries","infra","agro"];
@@ -8193,10 +8203,12 @@ function App(){
         }
       });
       if(tickersAnalisar.length===0){
+        log("ERRO: Nenhum ticker elegivel.");
         alert("Nenhum ticker elegivel encontrado.");
         setRiscoRetornoLoad(false);
         return;
       }
+      log("Tickers a analisar: "+tickersAnalisar.length);
       // Contexto macro
       const ctxMacro={
         selic:typeof selicAtual==="number"?selicAtual:null,
@@ -8269,7 +8281,7 @@ function App(){
         }
       }];
       // Chamar API
-      console.log("[RiscoRetorno] Chamando API com",tickersAnalisar.length,"tickers");
+      log("Chamando API com "+tickersAnalisar.length+" tickers...");
       const resp=await fetch("https://api.anthropic.com/v1/messages",{
         method:"POST",
         headers:{
@@ -8287,21 +8299,24 @@ function App(){
           tool_choice:{type:"tool",name:"submit_risco_retorno"}
         })
       });
-      console.log("[RiscoRetorno] HTTP status:",resp.status);
+      log("HTTP status: "+resp.status);
       if(!resp.ok){
         const txt=await resp.text();
-        console.error("[RiscoRetorno] API erro:",txt);
+        log("ERRO HTTP "+resp.status+": "+txt.slice(0,300));
         throw new Error("API "+resp.status+": "+txt.slice(0,400));
       }
       const data=await resp.json();
-      console.log("[RiscoRetorno] Response recebido. stop_reason:",data.stop_reason,"usage:",data.usage);
+      log("Response. stop_reason="+(data.stop_reason||"?")+" usage="+JSON.stringify(data.usage||{}));
       const toolUse=(data.content||[]).find(c=>c.type==="tool_use"&&c.name==="submit_risco_retorno");
       if(!toolUse){
-        console.error("[RiscoRetorno] Sem tool_use no content:",JSON.stringify(data.content||[]).slice(0,500));
+        log("ERRO: Sem tool_use no content. Content blocks: "+(data.content||[]).map(c=>c.type).join(","));
+        // Tenta extrair texto pra ajudar debug
+        const textBlock=(data.content||[]).find(c=>c.type==="text");
+        if(textBlock)log("Texto retornado pela IA: "+(textBlock.text||"").slice(0,300));
         throw new Error("IA nao retornou tool submit_risco_retorno. stop_reason="+(data.stop_reason||"?"));
       }
       const ativosArr=toolUse.input&&Array.isArray(toolUse.input.ativos)?toolUse.input.ativos:[];
-      console.log("[RiscoRetorno] Ativos retornados:",ativosArr.length,"de",tickersAnalisar.length,"esperados");
+      log("Ativos retornados: "+ativosArr.length+" de "+tickersAnalisar.length);
       const ativosObj={};
       ativosArr.forEach(a=>{if(a&&a.ticker)ativosObj[a.ticker]=a;});
       // Versao do portfolio para invalidacao automatica
@@ -8311,14 +8326,15 @@ function App(){
         versaoPortfolio:versao,
         ativos:ativosObj
       });
+      log("OK: dados salvos.");
       // Mensagem informativa se IA cobriu parcialmente
       if(ativosArr.length<tickersAnalisar.length){
         alert("Analise gerada com "+ativosArr.length+" de "+tickersAnalisar.length+" tickers (IA pode ter pulado alguns). Rode novamente se necessario.");
       }
       setRiscoRetornoLoad(false);
     }catch(e){
-      console.error("Erro gerarRiscoRetornoIA:",e);
-      alert("Erro ao gerar analise Risco x Retorno: "+(e&&e.message?e.message:String(e)));
+      log("EXCEPTION: "+(e&&e.message?e.message:String(e)));
+      alert("Erro ao gerar analise Risco x Retorno: "+(e&&e.message?e.message:String(e))+"\n\nVer painel de debug na tela.");
       setRiscoRetornoLoad(false);
     }
   },[apiKey,riscoRetornoLoad,hasPos,port,lastPU,calibracoesCustom,selicAtual,infIPCA,FX,juroFed,ntnbTaxas]);
@@ -17811,6 +17827,14 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         ):h("div",{style:{background:"rgba(232,144,96,0.06)",border:"1px solid rgba(232,144,96,0.25)",padding:"10px 12px",borderRadius:6,marginBottom:14,fontSize:10,color:"#E89060",fontFamily:"monospace",lineHeight:1.6}},
           h("strong",{},"\u26A0 Sem analise IA ainda. "),"A regua TIR mostra os parametros alvo dos tickers calibrados, mas o calculo da TIR atual no preco de mercado precisa de dados fundamentais (lucro por acao, dividendo anual, AFFO) que vem da IA. Clique em ",h("strong",{},"\"gerar analise IA\"")," para popular tudo."
         ),
+        // Painel de debug (log das ultimas tentativas)
+        rrDebugLog.length>0?h("div",{style:{background:"rgba(91,143,212,0.04)",border:"1px solid rgba(91,143,212,0.25)",borderRadius:6,padding:"8px 10px",marginBottom:14,fontFamily:"monospace",fontSize:8.5,color:"#9ABFE5",lineHeight:1.5}},
+          h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5}},
+            h("strong",{style:{color:"#5B8FD4",letterSpacing:1}},"DEBUG LOG - ULTIMA TENTATIVA"),
+            h("button",{onClick:()=>setRRDebugLog([]),style:{background:"none",border:"none",color:"#7A7060",fontSize:9,cursor:"pointer",padding:"2px 6px"}},"limpar")
+          ),
+          rrDebugLog.map((line,i)=>h("div",{key:i,style:{wordBreak:"break-all"}},line))
+        ):null,
         // Filtros
         tickersAnalise.length>0?h("div",{style:{display:"flex",gap:14,flexWrap:"wrap",marginBottom:14,fontSize:9}},
           // Filtros por classe
