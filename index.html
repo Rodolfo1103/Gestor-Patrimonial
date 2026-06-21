@@ -8187,7 +8187,7 @@ function App(){
             ticker:tk,
             classe:info.classId,
             precoAtual:precoAtual||0,
-            moeda:info.ccy||"BRL",
+            moeda:BCCY[tk]||info.ccy||"BRL",
             calibracao:PARAMETROS_CONGELADOS[tk]||calibracoesCustom[tk]||null
           });
         }
@@ -8269,6 +8269,7 @@ function App(){
         }
       }];
       // Chamar API
+      console.log("[RiscoRetorno] Chamando API com",tickersAnalisar.length,"tickers");
       const resp=await fetch("https://api.anthropic.com/v1/messages",{
         method:"POST",
         headers:{
@@ -8279,21 +8280,28 @@ function App(){
         },
         body:JSON.stringify({
           model:"claude-opus-4-7",
-          max_tokens:8000,
+          max_tokens:16000,
           system:systemPrompt,
           messages:[{role:"user",content:userMessage}],
           tools,
           tool_choice:{type:"tool",name:"submit_risco_retorno"}
         })
       });
+      console.log("[RiscoRetorno] HTTP status:",resp.status);
       if(!resp.ok){
         const txt=await resp.text();
-        throw new Error("API "+resp.status+": "+txt.slice(0,200));
+        console.error("[RiscoRetorno] API erro:",txt);
+        throw new Error("API "+resp.status+": "+txt.slice(0,400));
       }
       const data=await resp.json();
+      console.log("[RiscoRetorno] Response recebido. stop_reason:",data.stop_reason,"usage:",data.usage);
       const toolUse=(data.content||[]).find(c=>c.type==="tool_use"&&c.name==="submit_risco_retorno");
-      if(!toolUse)throw new Error("IA nao retornou tool submit_risco_retorno");
+      if(!toolUse){
+        console.error("[RiscoRetorno] Sem tool_use no content:",JSON.stringify(data.content||[]).slice(0,500));
+        throw new Error("IA nao retornou tool submit_risco_retorno. stop_reason="+(data.stop_reason||"?"));
+      }
       const ativosArr=toolUse.input&&Array.isArray(toolUse.input.ativos)?toolUse.input.ativos:[];
+      console.log("[RiscoRetorno] Ativos retornados:",ativosArr.length,"de",tickersAnalisar.length,"esperados");
       const ativosObj={};
       ativosArr.forEach(a=>{if(a&&a.ticker)ativosObj[a.ticker]=a;});
       // Versao do portfolio para invalidacao automatica
@@ -8303,6 +8311,10 @@ function App(){
         versaoPortfolio:versao,
         ativos:ativosObj
       });
+      // Mensagem informativa se IA cobriu parcialmente
+      if(ativosArr.length<tickersAnalisar.length){
+        alert("Analise gerada com "+ativosArr.length+" de "+tickersAnalisar.length+" tickers (IA pode ter pulado alguns). Rode novamente se necessario.");
+      }
       setRiscoRetornoLoad(false);
     }catch(e){
       console.error("Erro gerarRiscoRetornoIA:",e);
@@ -17705,7 +17717,8 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           // Calcula TIR usando preco ATUAL (responde a mudancas de preco)
           const tirInfo=calcTIRImplicita(tk,info.classId,precoAtual,df,calibracoesCustom);
           // pesoNoTotal
-          const valor=info.qty*precoAtual*(info.ccy&&info.ccy!=="BRL"?(FX[info.ccy]||1):1);
+          const ccyTk=BCCY[tk]||info.ccy||"BRL";
+          const valor=info.qty*precoAtual*(ccyTk!=="BRL"?(FX[ccyTk]||1):1);
           const pesoNoTotal=total>0?(valor/total)*100:0;
           tickersAnalise.push({
             ticker:tk,
@@ -17713,7 +17726,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             classeNome:CL.find(c=>c.id===info.classId)?.name||info.classId,
             classeColor:CL.find(c=>c.id===info.classId)?.color||"#9A9080",
             precoAtual,
-            moeda:info.ccy||"BRL",
+            moeda:BCCY[tk]||info.ccy||"BRL",
             qty:info.qty||0,
             pesoNoTotal,
             tirAtual:tirInfo?tirInfo.tirAtual:null,
