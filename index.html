@@ -8663,35 +8663,39 @@ function App(){
         throw new Error("Nenhum ticker retornado em "+batches.length+" batches. Ver log.");
       }
       // Versao do portfolio para invalidacao automatica
-      // PRESERVA dados anteriores via forma FUNCIONAL
       const versao=Object.keys(port||{}).sort().join("|");
-      // Captura prev state usando forma sincrona com setter callback - garante leitura atomica
-      let novoEstadoSync=null;
-      setRiscoRetornoData(prev=>{
-        const ativosAnt=(prev&&prev.ativos)||{};
-        const merged={...ativosAnt,...ativosObj};
-        novoEstadoSync={
-          ts:Date.now(),
-          versaoPortfolio:versao,
-          ativos:merged
-        };
-        log("Save final: prev tinha "+Object.keys(ativosAnt).length+" tickers, merged tera "+Object.keys(merged).length);
-        return novoEstadoSync;
-      });
-      // Salva IMEDIATAMENTE no localStorage SEM esperar o useEffect (que pode demorar/perder)
-      if(novoEstadoSync&&aesKey){
-        try{
-          // Le todo o objeto atual do localStorage e atualiza so o riscoRetornoData
-          const enc=localStorage.getItem(SK_ENC);
-          if(enc){
-            const dd=await aesDecrypt(aesKey,enc);
-            dd.riscoRetornoData=novoEstadoSync;
-            const novoEnc=await aesEncrypt(aesKey,dd);
-            localStorage.setItem(SK_ENC,novoEnc);
-            log("Persistido imediatamente no localStorage ("+Object.keys(novoEstadoSync.ativos).length+" tickers)");
+      // Le estado atual ATOMICAMENTE do localStorage criptografado para fazer merge correto
+      // (nao confia no estado React em memoria por causa de race conditions com closures stale)
+      let ativosAtualLS={};
+      let ddCompleto=null;
+      try{
+        const enc=localStorage.getItem(SK_ENC);
+        if(enc&&aesKey){
+          ddCompleto=await aesDecrypt(aesKey,enc);
+          if(ddCompleto&&ddCompleto.riscoRetornoData&&ddCompleto.riscoRetornoData.ativos){
+            ativosAtualLS=ddCompleto.riscoRetornoData.ativos;
           }
-        }catch(eP){log("Erro persistencia imediata: "+(eP.message||eP));}
+        }
+      }catch(eL){log("Erro lendo localStorage: "+(eL.message||eL));}
+      // Faz o merge: ativos antigos do localStorage + novos do rerun
+      const ativosFinal={...ativosAtualLS,...ativosObj};
+      const novoEstadoSync={
+        ts:Date.now(),
+        versaoPortfolio:versao,
+        ativos:ativosFinal
+      };
+      log("MERGE: localStorage tinha "+Object.keys(ativosAtualLS).length+" tickers, +"+Object.keys(ativosObj).length+" do rerun = "+Object.keys(ativosFinal).length+" total");
+      // Persistir IMEDIATAMENTE no localStorage (sincrono)
+      if(aesKey&&ddCompleto){
+        try{
+          ddCompleto.riscoRetornoData=novoEstadoSync;
+          const novoEnc=await aesEncrypt(aesKey,ddCompleto);
+          localStorage.setItem(SK_ENC,novoEnc);
+          log("Persistido no localStorage ("+Object.keys(ativosFinal).length+" tickers)");
+        }catch(eP){log("Erro persistencia: "+(eP.message||eP));}
       }
+      // Atualizar estado React (so depois de persistir, para evitar race)
+      setRiscoRetornoData(novoEstadoSync);
       log("OK: dados salvos.");
       if(totalRetornado<tickersAnalisar.length){
         alert("Analise gerada com "+totalRetornado+" de "+tickersAnalisar.length+" tickers. Rode novamente para tentar completar os faltantes.");
