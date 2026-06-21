@@ -1053,6 +1053,40 @@ const DEFAULTS_POR_CLASSE={
   agro:{tirMin:0.105,margem:0.10,dyBase:0.105,crescReal:0.035,nome:"FIAGRO (default)"}
 };
 
+// Descricoes factuais de ativos com potencial de alucinacao IA
+// Usado tanto na aba RR quanto no Aporte para impedir que a IA invente caracteristicas
+const DESCRICOES_FACTUAIS={
+  // Fundos de Infraestrutura
+  BRZP11:"BRZ Infra Portos FIP-IE - fundo de participacoes (FIP-IE) com 22,9% indireto no Porto Itapoá/SC (terminal de containers operado em parceria com Maersk). NAO E fundo de debentures incentivadas. NAO E FII tradicional. Exposicao indireta a inflacao via receitas portuarias.",
+  AZIN11:"Azimut Infra - FI-Infra investindo em debentures incentivadas (isencao IR) de empresas de infraestrutura. Diversificado em setores (energia, saneamento, transportes).",
+  KDIF11:"Kinea Infra - FI-Infra investindo em debentures incentivadas (isencao IR) de empresas de infraestrutura. Foco em projetos brownfield com fluxos previsiveis.",
+  // FIIs com nomenclatura potencialmente confusa
+  HGLG11:"CSHG Logistica - FII de tijolo, galpoes logisticos (locatarios Mercado Livre, Magazine Luiza, etc).",
+  HGRU11:"CSHG Renda Urbana - FII hibrido (lajes+varejo), inquilino-ancora BRF, Pao de Acucar, Petz.",
+  RBVA11:"Rio Bravo Renda Varejo - FII de tijolo (lojas de rua), portfolio pulverizado.",
+  XPML11:"XP Malls - FII de shoppings (Iguatemi, Jundiai etc).",
+  XPIN11:"XP Industrial - FII industrial/logistico.",
+  BTLG11:"BTG Logistica - FII de galpoes logisticos.",
+  AFHI11:"AF Invest CRI - FII de papel (CRIs IPCA+ e CDI+) - gestao AF Invest.",
+  RECR11:"REC Recebiveis Imobiliarios - FII de papel (CRIs).",
+  KNHY11:"Kinea High Yield CRI - FII de papel high yield (CRIs com taxas mais altas).",
+  KNUQ11:"Kinea Unique - FII de tijolo high-end (lajes premium em SP).",
+  KNIP11:"Kinea Indice Precos - FII de papel atrelado a IPCA+.",
+  TRXF11:"TRX Real Estate - FII multissetorial (tijolo+papel).",
+  ALZR11:"Alianza Trust - FII de tijolo (galpoes/centros logisticos).",
+  FIIB11:"Industrial do Brasil - FII industrial pulverizado.",
+  TGAR11:"TG Ativo Real - FII multimercado imobiliario (papel+terrenos).",
+  TEPP11:"Tellus Properties - FII de tijolo (lajes corporativas).",
+  JFLL11:"JFL Living - FII residencial (multifamily).",
+  PVBI11:"VBI Prime Properties - FII de lajes corporativas premium.",
+  HSML11:"HSI Malls - FII de shoppings (HSI Investimentos).",
+  SNFZ11:"Suno Fazenda - FIAGRO de terras agricolas.",
+  // FIAGROS
+  KNCA11:"Kinea Credito Agronegocio - FIAGRO de papel (CRAs - certificados de recebiveis agro).",
+  RZTR11:"Riza Terrax - FIAGRO de terras (compra terras agricolas para arrendamento).",
+  BTAL11:"BTG Agro Logistica - FIAGRO de papel (CRAs)."
+};
+
 // Retorna parametros efetivos: calibracao custom > tabela congelada > default da classe
 // Retorna {parametros, fonte: 'custom'|'congelado'|'default', classeId}
 function getParametrosEfetivos(ticker,classeId,calibracoesCustom){
@@ -8434,6 +8468,9 @@ function App(){
         "4) Para FIIs: div_anual = DIVIDENDO ANUALIZADO POR COTA em BRL (soma dos rendimentos pagos nos ultimos 12m). EXEMPLO: HGLG11 div_anual ~10 BRL (NAO confundir com VPA ou valor da cota). ALZR11 div_anual ~7 BRL. RECR11 div_anual ~12 BRL. NUNCA confunda div_anual com VPA ou cotacao.\n"+
         "5) Para REITs: affo_por_acao = AFFO POR ACAO em USD TTM. EXEMPLO: O affo_por_acao ~4.20 USD. NAO confundir com FFO ou EPS.\n"+
         "6) Para INFRA/AGRO (Brasil): div_anual = DIVIDENDO ANUALIZADO POR COTA em BRL.\n"+
+        "6b) Para TREASURIES (TLT, IEF, VTIP): yieldAtual OBRIGATORIO em fracao decimal (ex: 0.0432 para 4.32%). TLT/IEF = Treasury yield NOMINAL atual da duration correspondente (TLT ~20yr Treasury yield, IEF ~10yr Treasury yield). VTIP = yield REAL atual dos TIPS curtos (pode ser baixo, 0.5-2.5%). NAO retornar lpa/div_anual/affo para Treasuries.\n"+
+        "   - metricasPreco para TLT/IEF: YTM nominal, Premio vs Cash Fed Funds, Duration-yield/PVBP (sensibilidade)\n"+
+        "   - metricasPreco para VTIP: Yield REAL (real yield), Breakeven inflation, Duration-yield\n"+
         "7) SANIDADE OBRIGATORIA antes de retornar: para cada ticker, CALCULE mentalmente DY = div_anual/precoAtual ou EY = lpa/precoAtual. Se o resultado for >25%, voce ESTA ERRADO - revise os valores. DYs reais de FIIs estao entre 7-15%. EYs reais de acoes estao entre 3-15%. Se voce nao consegue ancorar em valor plausivel, use a observacao para indicar 'estimativa de baixa confianca' mas NUNCA forneca valor que gera DY/EY absurdo.\n"+
         "\n"+
         "METRICAS DE PRECO (metricasPreco, EXATAMENTE 3):\n"+
@@ -8503,6 +8540,7 @@ function App(){
                   div_anual:{type:"number",description:"Dividendo anualizado em moeda nativa (FII/Infra/Agro)"},
                   affo_por_acao:{type:"number",description:"AFFO por acao TTM (REITs)"},
                   vpa:{type:"number",description:"Valor patrimonial por cota (FIIs)"},
+                  yieldAtual:{type:"number",description:"OBRIGATORIO para Treasuries (TLT/IEF/VTIP): yield-to-maturity atual em fracao decimal. Ex: 0.0432 para 4.32%. Para TLT/IEF use Treasury yield correspondente (TLT~20yr, IEF~10yr). Para VTIP use yield REAL (TIPS yield, pode ser <2%). NAO usar campo para outras classes."},
                   metricasPreco:{
                     type:"array",
                     description:"3 metricas de PRECO/VALUATION. Para acoes: P/L, P/VPA, DY estimado. Para FIIs: P/VP, DY 12m, Spread sobre NTN-B liq. Para REITs: P/AFFO, DY, Spread sobre Treasury 10Y. Para Infra/Agro: P/VP, DY anual, Spread sobre NTN-B liq.",
@@ -8551,8 +8589,12 @@ function App(){
       for(let bi=0;bi<batches.length;bi++){
         const batch=batches[bi];
         log("Batch "+(bi+1)+"/"+batches.length+" ("+batch.length+" tickers): "+batch.map(b=>b.ticker).join(","));
+        // Filtra descricoes factuais dos tickers deste batch
+        const descBatch={};
+        batch.forEach(b=>{if(DESCRICOES_FACTUAIS[b.ticker])descBatch[b.ticker]=DESCRICOES_FACTUAIS[b.ticker];});
+        const blocoDesc=Object.keys(descBatch).length>0?"\n\n=== DESCRICOES FACTUAIS (FONTE OFICIAL - use estas e NAO seu conhecimento, especialmente para fundos pequenos/regionais) ===\n"+JSON.stringify(descBatch,null,2)+"\n":"";
         const userMessage="BATCH "+(bi+1)+" DE "+batches.length+" - ANALISAR ESTES "+batch.length+" TICKERS:\n"+JSON.stringify(batch,null,2)+"\n\n"+
-          "CONTEXTO MACRO ATUAL:\n"+JSON.stringify(ctxMacro,null,2)+"\n\n"+
+          "CONTEXTO MACRO ATUAL:\n"+JSON.stringify(ctxMacro,null,2)+blocoDesc+"\n\n"+
           "Chamar submit_risco_retorno UMA UNICA VEZ retornando array ativos com EXATAMENTE "+batch.length+" entradas (uma por ticker, na mesma ordem).";
         try{
           const resp=await fetch("https://api.anthropic.com/v1/messages",{
@@ -8829,41 +8871,7 @@ function App(){
         alert("Apos filtro de 5%, nenhuma classe tem tickers elegiveis para estudo. Verifique console (DevTools) para diagnostico.");
         return;
       }
-      // ===== Descricoes factuais de ativos com potencial de alucinacao IA =====
-      // Fundos pequenos/recentes/regionais onde a IA tende a confundir. Atualizar conforme novos achados.
-      const DESCRICOES_FACTUAIS={
-        // Fundos de Infraestrutura
-        BRZP11:"BRZ Infra Portos FIP-IE - fundo de participacoes (FIP-IE) com 22,9% indireto no Porto Itapoá/SC (terminal de containers operado em parceria com Maersk). NAO E fundo de debentures incentivadas. NAO E FII tradicional. Exposicao indireta a inflacao via receitas portuarias.",
-        AZIN11:"Azimut Infra - FI-Infra investindo em debentures incentivadas (isencao IR) de empresas de infraestrutura. Diversificado em setores (energia, saneamento, transportes).",
-        KDIF11:"Kinea Infra - FI-Infra investindo em debentures incentivadas (isencao IR) de empresas de infraestrutura. Foco em projetos brownfield com fluxos previsiveis.",
-        // FIIs com nomenclatura potencialmente confusa
-        HGLG11:"CSHG Logistica - FII de tijolo, galpoes logisticos (locatarios Mercado Livre, Magazine Luiza, etc).",
-        HGRU11:"CSHG Renda Urbana - FII hibrido (lajes+varejo), inquilino-ancora BRF, Pao de Acucar, Petz.",
-        RBVA11:"Rio Bravo Renda Varejo - FII de tijolo (lojas de rua), portfolio pulverizado.",
-        XPML11:"XP Malls - FII de shoppings (Iguatemi, Jundiai etc).",
-        XPIN11:"XP Industrial - FII industrial/logistico.",
-        BTLG11:"BTG Logistica - FII de galpoes logisticos.",
-        AFHI11:"AF Invest CRI - FII de papel (CRIs IPCA+ e CDI+) - gestao AF Invest.",
-        RECR11:"REC Recebiveis Imobiliarios - FII de papel (CRIs).",
-        KNHY11:"Kinea High Yield CRI - FII de papel high yield (CRIs com taxas mais altas).",
-        KNUQ11:"Kinea Unique - FII de tijolo high-end (lajes premium em SP).",
-        KNIP11:"Kinea Indice Precos - FII de papel atrelado a IPCA+.",
-        TRXF11:"TRX Real Estate - FII multissetorial (tijolo+papel).",
-        ALZR11:"Alianza Trust - FII de tijolo (galpoes/centros logisticos).",
-        FIIB11:"Industrial do Brasil - FII industrial pulverizado.",
-        TGAR11:"TG Ativo Real - FII multimercado imobiliario (papel+terrenos).",
-        TEPP11:"Tellus Properties - FII de tijolo (lajes corporativas).",
-        JFLL11:"JFL Living - FII residencial (multifamily).",
-        PVBI11:"VBI Prime Properties - FII de lajes corporativas premium.",
-        HSML11:"HSI Malls - FII de shoppings (HSI Investimentos).",
-        // FIAGROS
-        KNCA11:"Kinea Credito Agronegocio - FIAGRO de papel (CRAs - certificados de recebiveis agro).",
-        RZTR11:"Riza Terrax - FIAGRO de terras (compra terras agricolas para arrendamento).",
-        BTAL11:"BTG Agro Logistica - FIAGRO de papel (CRAs).",
-        // NTN-B - sempre descrever com vencimento explicito
-        // (preenchido dinamicamente em ntnbInfo)
-      };
-      // Filtra so as descricoes dos ativos que aparecem no portfolio
+      // Filtra so as descricoes dos ativos que aparecem no portfolio (usa DESCRICOES_FACTUAIS global)
       const descricoesRelevantes={};
       Object.keys(tickersPorClasse).forEach(cid=>{
         tickersPorClasse[cid].forEach(item=>{
@@ -18540,7 +18548,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         );
       };
 
-      // Helper render bloco Risco x Retorno (regua + 6 cards) para um ETF
+      // Helper render bloco RISCO x RETORNO x VALUATION para ETF (regua TIR + 3 cards de preco)
       const rrBlockETF=(tkSym)=>{
         const dadosIA=riscoRetornoData&&riscoRetornoData.ativos?riscoRetornoData.ativos[tkSym]:null;
         const portTk=port[tkSym]||{};
@@ -18550,20 +18558,19 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           if(typeof dadosIA.lpa_normalizado==="number")df.lpa=dadosIA.lpa_normalizado;
           if(typeof dadosIA.div_anual==="number")df.divAnual=dadosIA.div_anual;
           if(typeof dadosIA.affo_por_acao==="number")df.affoPorAcao=dadosIA.affo_por_acao;
+          if(typeof dadosIA.yieldAtual==="number")df.yieldAtual=dadosIA.yieldAtual;
         }
         const tirInfo=calcTIRImplicita(tkSym,"treasuries",precoAtual,df,calibracoesCustom);
         const mPreco=(dadosIA&&Array.isArray(dadosIA.metricasPreco))?dadosIA.metricasPreco:[];
-        const mQual=(dadosIA&&Array.isArray(dadosIA.metricasQualidade))?dadosIA.metricasQualidade:[];
         const corPreco=(nivel)=>nivel==="barato"?"#4CAF82":nivel==="caro"?"#E05252":nivel==="justo"?"#C8A96E":"#9A9080";
-        const corQual=(nivel)=>nivel==="forte"?"#4CAF82":nivel==="fraco"?"#E05252":nivel==="adequado"?"#C8A96E":"#9A9080";
-        // SEMPRE renderiza o bloco, com diagnostico se faltarem dados
-        const semDados=!dadosIA;
-        const cardsVazios=mPreco.length===0&&mQual.length===0;
+        if(!dadosIA){
+          return h("div",{style:{marginTop:10,paddingTop:10,borderTop:"1px solid rgba(255,255,255,0.07)",fontSize:9,color:"#E89060",fontStyle:"italic",padding:"6px 8px",background:"rgba(232,144,96,0.05)",borderRadius:4}},"\u26A0 "+tkSym+" sem analise IA. Roda \"ATUALIZAR ANALISE\" na aba Risco x Retorno.");
+        }
         return h("div",{style:{marginTop:10,paddingTop:10,borderTop:"1px solid rgba(255,255,255,0.07)"}},
           h("div",{style:{fontSize:7.5,letterSpacing:1.5,color:"#7AA0B5",fontFamily:"monospace",fontWeight:700,marginBottom:6}},"\u25CF RISCO x RETORNO x VALUATION"),
           // Regua TIR (so com tirAtual valido)
-          tirInfo&&typeof tirInfo.tirAtual==="number"&&isFinite(tirInfo.tirAtual)?h(ReguaTIR,{tirAtual:tirInfo.tirAtual,tirAlvo:tirInfo.tirAlvo,moeda:"USD"}):h("div",{style:{fontSize:9,color:"#7A7060",fontStyle:"italic",padding:"6px 8px",background:"rgba(0,0,0,0.15)",borderRadius:4}},"Regua TIR aguardando dados fundamentais da IA (yield atual). TIR alvo: "+(tirInfo&&tirInfo.tirAlvo?(tirInfo.tirAlvo*100).toFixed(1)+"%":"-")),
-          // Cards PRECO
+          tirInfo&&typeof tirInfo.tirAtual==="number"&&isFinite(tirInfo.tirAtual)?h(ReguaTIR,{tirAtual:tirInfo.tirAtual,tirAlvo:tirInfo.tirAlvo,moeda:"USD"}):h("div",{style:{fontSize:9,color:"#7A7060",fontStyle:"italic",padding:"6px 8px",background:"rgba(0,0,0,0.15)",borderRadius:4}},"Regua TIR aguardando yield atual da analise IA. TIR alvo: "+(tirInfo&&tirInfo.tirAlvo?(tirInfo.tirAlvo*100).toFixed(1)+"%":"-")),
+          // Cards de valuation
           mPreco.length>0?h("div",{style:{marginTop:8}},
             h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",letterSpacing:1.2,marginBottom:4,fontWeight:700}},"VALUATION / PRECO"),
             h("div",{style:{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:5}},
@@ -18576,23 +18583,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                 );
               })
             )
-          ):null,
-          // Cards QUALIDADE
-          mQual.length>0?h("div",{style:{marginTop:6}},
-            h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",letterSpacing:1.2,marginBottom:4,fontWeight:700}},"QUALIDADE / RISCO"),
-            h("div",{style:{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:5}},
-              mQual.slice(0,3).map((m,k)=>{
-                const corM=corQual(m.nivel);
-                return h("div",{key:"mq"+k,style:{background:"rgba(255,255,255,0.025)",border:"1px solid "+corM+"33",borderRadius:4,padding:"5px 7px"}},
-                  h("div",{style:{fontSize:7,color:"#9A9080",fontFamily:"monospace",letterSpacing:0.8,marginBottom:1}},m.label),
-                  h("div",{style:{fontSize:10.5,color:corM,fontFamily:"monospace",fontWeight:700,marginBottom:2}},m.valor),
-                  h("div",{style:{fontSize:7,color:"#7A7060",lineHeight:1.3,fontStyle:"italic"}},m.interpretacao)
-                );
-              })
-            )
-          ):null,
-          // Diagnostico
-          semDados?h("div",{style:{marginTop:6,fontSize:8,color:"#E89060",fontStyle:"italic",padding:"6px 8px",background:"rgba(232,144,96,0.05)",borderRadius:4}},"\u26A0 "+tkSym+" sem analise IA. Vai na aba Risco x Retorno e roda \"ANALISAR APENAS FALTANTES\"."):(cardsVazios?h("div",{style:{marginTop:6,fontSize:8,color:"#E89060",fontStyle:"italic",padding:"6px 8px",background:"rgba(232,144,96,0.05)",borderRadius:4}},"\u26A0 "+tkSym+" tem analise antiga (sem 6 cards). Rode nova analise para gerar os cards."):null)
+          ):h("div",{style:{marginTop:6,fontSize:8,color:"#E89060",fontStyle:"italic",padding:"6px 8px",background:"rgba(232,144,96,0.05)",borderRadius:4}},"\u26A0 "+tkSym+" analise antiga (sem cards). Roda nova analise.")
         );
       };
 
