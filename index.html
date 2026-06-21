@@ -18702,12 +18702,14 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
       console.error("Erro renderizando Treasuries:",e);
       content=h("div",{style:{padding:"24px 16px",background:"rgba(224,82,82,0.06)",border:"1px solid rgba(224,82,82,0.25)",borderRadius:8,marginTop:12}},
         h("div",{style:{fontSize:11,color:"#E05252",fontFamily:"monospace",fontWeight:700,marginBottom:8}},"\u26A0 Erro ao renderizar Treasuries"),
-        h("div",{style:{fontSize:10,color:"#9A9080",lineHeight:1.6,fontFamily:"monospace",whiteSpace:"pre-wrap"}},e&&e.message?e.message:String(e))
+        h("div",{style:{fontSize:10,color:"#9A9080",lineHeight:1.6,fontFamily:"monospace",whiteSpace:"pre-wrap"}},e&&e.message?e.message:String(e)),
+        h("div",{style:{fontSize:9,color:"#7A7060",lineHeight:1.5,fontFamily:"monospace",marginTop:8,fontStyle:"italic"}},e&&e.stack?e.stack.slice(0,400):"")
       );
     }
   }
 
   if(tab==="tesouro"){
+    try{
     // Helpers para atualizar taxa manual e refresh
     const refreshTaxas=async()=>{
       setNtnbStatus("buscando taxas...");
@@ -19286,6 +19288,14 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         )
       )
     );
+    }catch(e){
+      console.error("Erro renderizando Tesouro Direto:",e);
+      content=h("div",{style:{padding:"24px 16px",background:"rgba(224,82,82,0.06)",border:"1px solid rgba(224,82,82,0.25)",borderRadius:8,marginTop:12}},
+        h("div",{style:{fontSize:11,color:"#E05252",fontFamily:"monospace",fontWeight:700,marginBottom:8}},"\u26A0 Erro ao renderizar Tesouro Direto"),
+        h("div",{style:{fontSize:10,color:"#9A9080",lineHeight:1.6,fontFamily:"monospace",whiteSpace:"pre-wrap"}},e&&e.message?e.message:String(e)),
+        h("div",{style:{fontSize:9,color:"#7A7060",lineHeight:1.5,fontFamily:"monospace",marginTop:8,fontStyle:"italic"}},e&&e.stack?e.stack.slice(0,400):"")
+      );
+    }
   }
 
   if(tab==="caixacambial"){
