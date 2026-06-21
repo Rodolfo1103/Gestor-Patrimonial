@@ -8358,7 +8358,7 @@ function App(){
   // - Drivers de retorno (3-4 pontos)
   // - Drivers de risco (3-4 pontos)
   // Cache: ts + versaoPortfolio. Se portfolio muda ou >14 dias, sugere refresh.
-  const gerarRiscoRetornoIA=useCallback(async()=>{
+  const gerarRiscoRetornoIA=useCallback(async(apenasTickers)=>{
     if(!apiKey){alert("Configure sua chave API Anthropic primeiro.");return;}
     if(riscoRetornoLoad)return;
     if(!hasPos){alert("Adicione posicoes ao portfolio primeiro.");return;}
@@ -8370,13 +8370,17 @@ function App(){
       setRRDebugLog([...logs]);
       console.log("[RiscoRetorno]",msg);
     };
-    log("Inicio");
+    const modo=Array.isArray(apenasTickers)&&apenasTickers.length>0?"PARCIAL ("+apenasTickers.length+" tickers)":"COMPLETO";
+    log("Inicio - modo: "+modo);
     try{
       // Coleta TODOS os tickers do portfolio com classId valido
       const classesElegiveis=["acoes_br","acoes_eua","acoes_mundo","fii","reits","treasuries","infra","agro"];
       const tickersAnalisar=[];
+      const apenasSet=Array.isArray(apenasTickers)&&apenasTickers.length>0?new Set(apenasTickers):null;
       Object.entries(port||{}).forEach(([tk,info])=>{
         if(info&&info.classId&&classesElegiveis.includes(info.classId)){
+          // Modo parcial: filtra apenas tickers especificados
+          if(apenasSet&&!apenasSet.has(tk))return;
           // Inclui mesmo com qty=0 (cadastrado em estudo)
           const precoAtual=typeof info.price==="number"?info.price:null;
           tickersAnalisar.push({
@@ -8636,11 +8640,14 @@ function App(){
           });
           log("Batch "+(bi+1)+": "+aceitos+" aceitos ("+(aceitos-comFallback-semDados)+" perfeitos, "+comFallback+" com fallback leve, "+semDados+" com muitas lacunas)");
           // Salva progressivamente apos cada batch (feedback em tempo real)
+          // CRITICO: preserva dados ANTERIORES de tickers que nao foram analisados nesta rodada
+          // (impede perda de dados em reruns parciais ou que falham em alguns batches)
           const versaoAtual=Object.keys(port||{}).sort().join("|");
+          const ativosAnteriores=(riscoRetornoData&&riscoRetornoData.ativos)||{};
           setRiscoRetornoData({
             ts:Date.now(),
             versaoPortfolio:versaoAtual,
-            ativos:{...ativosObj}
+            ativos:{...ativosAnteriores,...ativosObj}
           });
         }catch(e){
           log("Batch "+(bi+1)+" EXCEPTION: "+(e&&e.message?e.message:String(e)));
@@ -8653,11 +8660,13 @@ function App(){
         throw new Error("Nenhum ticker retornado em "+batches.length+" batches. Ver log.");
       }
       // Versao do portfolio para invalidacao automatica
+      // PRESERVA dados anteriores de tickers nao analisados nesta rodada
       const versao=Object.keys(port||{}).sort().join("|");
+      const ativosAnt=(riscoRetornoData&&riscoRetornoData.ativos)||{};
       setRiscoRetornoData({
         ts:Date.now(),
         versaoPortfolio:versao,
-        ativos:ativosObj
+        ativos:{...ativosAnt,...ativosObj}
       });
       log("OK: dados salvos.");
       if(totalRetornado<tickersAnalisar.length){
@@ -18204,7 +18213,14 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         statusCount.semdados>0?h("div",{style:{background:"rgba(232,144,96,0.04)",border:"1px solid rgba(232,144,96,0.25)",borderRadius:6,padding:"8px 10px",marginBottom:14}},
           h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}},
             h("strong",{style:{color:"#E89060",fontSize:9,letterSpacing:1,fontFamily:"monospace"}},"\u26A0 "+statusCount.semdados+" ATIVOS SEM DADOS - DIAGNOSTICO"),
-            h("div",{style:{display:"flex",gap:6}},
+            h("div",{style:{display:"flex",gap:6,flexWrap:"wrap"}},
+              h("button",{onClick:()=>{
+                const semDadosArr=tickersAnalise.filter(t=>t.margemSeg===null&&!t.dadosIA);
+                const tickers=semDadosArr.map(t=>t.ticker);
+                if(tickers.length===0){alert("Nenhum ticker sem dadosIA");return;}
+                if(!confirm("Rodar analise APENAS para "+tickers.length+" tickers sem dados? Custo estimado: ~$"+(tickers.length*0.005).toFixed(2)+" USD"))return;
+                gerarRiscoRetornoIA(tickers);
+              },disabled:riscoRetornoLoad,style:{background:riscoRetornoLoad?"rgba(76,175,130,0.05)":"linear-gradient(135deg,rgba(76,175,130,0.25),rgba(76,175,130,0.10))",border:"1px solid rgba(76,175,130,0.45)",borderRadius:3,color:"#4CAF82",fontSize:8.5,padding:"3px 9px",cursor:riscoRetornoLoad?"not-allowed":"pointer",fontFamily:"monospace",letterSpacing:1,fontWeight:700}},riscoRetornoLoad?"AGUARDE...":"\u21BB ANALISAR APENAS FALTANTES"),
               h("button",{onClick:()=>{
                 const semDadosArr=tickersAnalise.filter(t=>t.margemSeg===null);
                 const linhas=semDadosArr.map(t=>{
