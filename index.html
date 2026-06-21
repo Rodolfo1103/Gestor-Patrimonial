@@ -8218,41 +8218,45 @@ function App(){
         treasury10Y:typeof juroFed==="object"&&juroFed?juroFed.valor:null,
         ntnbLiqMedia:typeof ntnbTaxas==="object"&&ntnbTaxas?(Object.values(ntnbTaxas).reduce((s,v)=>s+v,0)/Object.keys(ntnbTaxas).length*0.85):null,
       };
-      const systemPrompt="Voce e um analista fundamentalista B&H rigoroso. Para cada ticker da lista, fornecer dados fundamentais OBJETIVOS + 3 metricas observaveis + drivers de retorno e risco. Retornar VIA TOOL submit_risco_retorno.\n\n"+
+      const systemPrompt="Voce e um analista fundamentalista B&H rigoroso. Para cada ticker da lista, fornecer dados fundamentais OBJETIVOS + 2-3 metricas observaveis + drivers de retorno e risco. Retornar VIA TOOL submit_risco_retorno.\n\n"+
         "REGRAS CRITICAS:\n"+
-        "1) Para CADA ticker fornecido, retornar uma entrada. NAO PULAR.\n"+
-        "2) DADOS FUNDAMENTAIS DEVEM SER ESTIMATIVAS ANCORADAS NO ULTIMO BALANCO PUBLICO conhecido. Indicar 'dataReferencia' (ano-mes). NUNCA inventar valores.\n"+
+        "1) Para CADA ticker fornecido neste batch, retornar uma entrada COMPLETA. NAO PULAR NENHUM ticker.\n"+
+        "2) DADOS FUNDAMENTAIS DEVEM SER ESTIMATIVAS ANCORADAS NO ULTIMO BALANCO PUBLICO conhecido. Indicar 'dataReferencia' (ano-mes). NUNCA inventar valores - se nao tem conhecimento real, faca estimativa conservadora baseada em pares/setor e mencione na observacao.\n"+
         "3) Para ACOES: lpa_normalizado = lucro por acao MID-CYCLE (NAO extrapolar pico, NAO usar minimo - normalizar com media 5 anos para ciclicas, ou TTM para defensivas).\n"+
-        "4) Para FIIs: div_anual = dividendo anualizado (12m TTM). dyAtual = div_anual / precoAtual (calcule).\n"+
-        "5) Para REITs: affoPorAcao = AFFO por acao TTM. affoYield = affoPorAcao / precoAtual (calcule).\n"+
+        "4) Para FIIs: div_anual = dividendo anualizado (12m TTM, soma dos rendimentos pagos).\n"+
+        "5) Para REITs: affo_por_acao = AFFO por acao TTM.\n"+
         "6) Para INFRA/AGRO (Brasil): div_anual = dividendo anualizado.\n"+
-        "7) 3 metricas: as MAIS RELEVANTES para a classe. Ex Acoes BR: P/L, P/VPA, DY ou ROE. Ex FII: P/VP, DY 12m, Spread sobre NTN-B liq. Ex REIT: P/AFFO, DY, Spread sobre Treasury 10Y.\n"+
-        "8) Drivers retorno: 3-4 itens curtos (max 80 chars cada) descrevendo POR QUE este ativo gera valor (moat, crescimento, vantagem competitiva).\n"+
-        "9) Drivers risco: 3-4 itens curtos (max 80 chars cada) descrevendo o que pode dar errado (concentracao, regulatorio, ciclo).\n"+
-        "10) NIVEL de cada metrica: 'barato', 'justo', 'caro' ou 'neutro' - sempre relativo a media historica do proprio ativo / pares.\n";
-      const userMessage="ANALISAR OS SEGUINTES TICKERS:\n"+JSON.stringify(tickersAnalisar,null,2)+"\n\n"+
-        "CONTEXTO MACRO ATUAL:\n"+JSON.stringify(ctxMacro,null,2)+"\n\n"+
-        "Para cada ticker, chamar submit_risco_retorno UMA UNICA VEZ com lista completa.";
+        "7) 2-3 metricas: as MAIS RELEVANTES para a classe. Ex Acoes BR: P/L, P/VPA, DY. Ex FII: P/VP, DY 12m, Spread sobre NTN-B liq. Ex REIT: P/AFFO, DY, Spread sobre Treasury 10Y.\n"+
+        "8) Drivers retorno: 2-3 itens curtos (max 80 chars cada).\n"+
+        "9) Drivers risco: 2-3 itens curtos (max 80 chars cada).\n"+
+        "10) NIVEL de cada metrica: 'barato', 'justo', 'caro' ou 'neutro' - relativo a media historica/pares.\n"+
+        "11) IMPORTANTE: o batch tem no maximo 12 tickers - retorne TODOS no array ativos.\n";
+      // Processa em batches de 12 tickers para evitar truncamento por max_tokens
+      const BATCH_SIZE=12;
+      const ativosObj={};
+      const batches=[];
+      for(let i=0;i<tickersAnalisar.length;i+=BATCH_SIZE){
+        batches.push(tickersAnalisar.slice(i,i+BATCH_SIZE));
+      }
+      log("Dividido em "+batches.length+" batches de ate "+BATCH_SIZE+" tickers");
       const tools=[{
         name:"submit_risco_retorno",
-        description:"Submit dados de risco x retorno para todos os tickers analisados",
+        description:"Submit dados de risco x retorno para todos os tickers do batch (lista completa)",
         input_schema:{
           type:"object",
           properties:{
             ativos:{
               type:"array",
-              description:"Um item por ticker analisado, mesma ordem da lista de entrada",
+              description:"Um item por ticker do batch, mesma ordem da lista de entrada. RETORNAR TODOS.",
               items:{
                 type:"object",
                 properties:{
                   ticker:{type:"string"},
                   classe:{type:"string"},
-                  // Dados fundamentais (qual usar depende da classe)
                   lpa_normalizado:{type:"number",description:"Lucro por acao MID-CYCLE (acoes)"},
-                  div_anual:{type:"number",description:"Dividendo anualizado em moeda nativa do ativo (FII/Infra/Agro)"},
+                  div_anual:{type:"number",description:"Dividendo anualizado em moeda nativa (FII/Infra/Agro)"},
                   affo_por_acao:{type:"number",description:"AFFO por acao TTM (REITs)"},
                   vpa:{type:"number",description:"Valor patrimonial por cota (FIIs)"},
-                  // Metricas observadas
                   metricas:{
                     type:"array",
                     minItems:2,
@@ -8260,18 +8264,18 @@ function App(){
                     items:{
                       type:"object",
                       properties:{
-                        label:{type:"string",description:"Nome curto (ex: 'P/L', 'P/VP', 'DY 12m', 'Spread NTN-B')"},
-                        valor:{type:"string",description:"Valor formatado (ex: '8.5', '0.92', '9.8%', '+4.2pp')"},
-                        interpretacao:{type:"string",description:"Frase curta explicando o numero (max 100 chars)"},
+                        label:{type:"string"},
+                        valor:{type:"string"},
+                        interpretacao:{type:"string",description:"Max 100 chars"},
                         nivel:{type:"string",enum:["barato","justo","caro","neutro"]}
                       },
                       required:["label","valor","interpretacao","nivel"]
                     }
                   },
-                  driversRetorno:{type:"array",minItems:2,maxItems:4,items:{type:"string",description:"Driver de retorno (max 80 chars)"}},
-                  driversRisco:{type:"array",minItems:2,maxItems:4,items:{type:"string",description:"Driver de risco (max 80 chars)"}},
-                  dataReferencia:{type:"string",description:"Ano-mes do ultimo balanco conhecido (ex: 2026-03)"},
-                  observacao:{type:"string",description:"Observacao adicional opcional (max 200 chars)"}
+                  driversRetorno:{type:"array",minItems:2,maxItems:3,items:{type:"string",description:"Max 80 chars"}},
+                  driversRisco:{type:"array",minItems:2,maxItems:3,items:{type:"string",description:"Max 80 chars"}},
+                  dataReferencia:{type:"string",description:"Ano-mes do ultimo balanco (ex: 2026-03)"},
+                  observacao:{type:"string",description:"Opcional, max 200 chars"}
                 },
                 required:["ticker","classe","metricas","driversRetorno","driversRisco","dataReferencia"]
               }
@@ -8280,45 +8284,63 @@ function App(){
           required:["ativos"]
         }
       }];
-      // Chamar API
-      log("Chamando API com "+tickersAnalisar.length+" tickers...");
-      const resp=await fetch("https://api.anthropic.com/v1/messages",{
-        method:"POST",
-        headers:{
-          "Content-Type":"application/json",
-          "x-api-key":apiKey,
-          "anthropic-version":"2023-06-01",
-          "anthropic-dangerous-direct-browser-access":"true"
-        },
-        body:JSON.stringify({
-          model:"claude-opus-4-7",
-          max_tokens:16000,
-          system:systemPrompt,
-          messages:[{role:"user",content:userMessage}],
-          tools,
-          tool_choice:{type:"tool",name:"submit_risco_retorno"}
-        })
-      });
-      log("HTTP status: "+resp.status);
-      if(!resp.ok){
-        const txt=await resp.text();
-        log("ERRO HTTP "+resp.status+": "+txt.slice(0,300));
-        throw new Error("API "+resp.status+": "+txt.slice(0,400));
+      // Processar batches sequencialmente
+      for(let bi=0;bi<batches.length;bi++){
+        const batch=batches[bi];
+        log("Batch "+(bi+1)+"/"+batches.length+" ("+batch.length+" tickers): "+batch.map(b=>b.ticker).join(","));
+        const userMessage="BATCH "+(bi+1)+" DE "+batches.length+" - ANALISAR ESTES "+batch.length+" TICKERS:\n"+JSON.stringify(batch,null,2)+"\n\n"+
+          "CONTEXTO MACRO ATUAL:\n"+JSON.stringify(ctxMacro,null,2)+"\n\n"+
+          "Chamar submit_risco_retorno UMA UNICA VEZ retornando array ativos com EXATAMENTE "+batch.length+" entradas (uma por ticker, na mesma ordem).";
+        try{
+          const resp=await fetch("https://api.anthropic.com/v1/messages",{
+            method:"POST",
+            headers:{
+              "Content-Type":"application/json",
+              "x-api-key":apiKey,
+              "anthropic-version":"2023-06-01",
+              "anthropic-dangerous-direct-browser-access":"true"
+            },
+            body:JSON.stringify({
+              model:"claude-opus-4-7",
+              max_tokens:8000,
+              system:systemPrompt,
+              messages:[{role:"user",content:userMessage}],
+              tools,
+              tool_choice:{type:"tool",name:"submit_risco_retorno"}
+            })
+          });
+          if(!resp.ok){
+            const txt=await resp.text();
+            log("Batch "+(bi+1)+" ERRO HTTP "+resp.status+": "+txt.slice(0,200));
+            continue;// pula este batch, tenta proximo
+          }
+          const data=await resp.json();
+          log("Batch "+(bi+1)+" stop="+(data.stop_reason||"?")+" tokens_out="+(data.usage?data.usage.output_tokens:"?"));
+          const toolUse=(data.content||[]).find(c=>c.type==="tool_use"&&c.name==="submit_risco_retorno");
+          if(!toolUse){
+            log("Batch "+(bi+1)+" sem tool_use. Pulando.");
+            continue;
+          }
+          const ativosArr=toolUse.input&&Array.isArray(toolUse.input.ativos)?toolUse.input.ativos:[];
+          log("Batch "+(bi+1)+" retornou "+ativosArr.length+" ativos");
+          ativosArr.forEach(a=>{if(a&&a.ticker)ativosObj[a.ticker]=a;});
+          // Salva progressivamente apos cada batch (feedback em tempo real)
+          const versaoAtual=Object.keys(port||{}).sort().join("|");
+          setRiscoRetornoData({
+            ts:Date.now(),
+            versaoPortfolio:versaoAtual,
+            ativos:{...ativosObj}
+          });
+        }catch(e){
+          log("Batch "+(bi+1)+" EXCEPTION: "+(e&&e.message?e.message:String(e)));
+          // continua para proximo batch
+        }
       }
-      const data=await resp.json();
-      log("Response. stop_reason="+(data.stop_reason||"?")+" usage="+JSON.stringify(data.usage||{}));
-      const toolUse=(data.content||[]).find(c=>c.type==="tool_use"&&c.name==="submit_risco_retorno");
-      if(!toolUse){
-        log("ERRO: Sem tool_use no content. Content blocks: "+(data.content||[]).map(c=>c.type).join(","));
-        // Tenta extrair texto pra ajudar debug
-        const textBlock=(data.content||[]).find(c=>c.type==="text");
-        if(textBlock)log("Texto retornado pela IA: "+(textBlock.text||"").slice(0,300));
-        throw new Error("IA nao retornou tool submit_risco_retorno. stop_reason="+(data.stop_reason||"?"));
+      const totalRetornado=Object.keys(ativosObj).length;
+      log("TOTAL: "+totalRetornado+" de "+tickersAnalisar.length+" tickers");
+      if(totalRetornado===0){
+        throw new Error("Nenhum ticker retornado em "+batches.length+" batches. Ver log.");
       }
-      const ativosArr=toolUse.input&&Array.isArray(toolUse.input.ativos)?toolUse.input.ativos:[];
-      log("Ativos retornados: "+ativosArr.length+" de "+tickersAnalisar.length);
-      const ativosObj={};
-      ativosArr.forEach(a=>{if(a&&a.ticker)ativosObj[a.ticker]=a;});
       // Versao do portfolio para invalidacao automatica
       const versao=Object.keys(port||{}).sort().join("|");
       setRiscoRetornoData({
@@ -8327,9 +8349,10 @@ function App(){
         ativos:ativosObj
       });
       log("OK: dados salvos.");
-      // Mensagem informativa se IA cobriu parcialmente
-      if(ativosArr.length<tickersAnalisar.length){
-        alert("Analise gerada com "+ativosArr.length+" de "+tickersAnalisar.length+" tickers (IA pode ter pulado alguns). Rode novamente se necessario.");
+      if(totalRetornado<tickersAnalisar.length){
+        alert("Analise gerada com "+totalRetornado+" de "+tickersAnalisar.length+" tickers. Rode novamente para tentar completar os faltantes.");
+      }else{
+        alert("Analise completa: "+totalRetornado+" tickers!");
       }
       setRiscoRetornoLoad(false);
     }catch(e){
