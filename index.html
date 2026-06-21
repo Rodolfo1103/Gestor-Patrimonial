@@ -8348,7 +8348,8 @@ function App(){
         "\n"+
         "8) Drivers retorno: 2-3 itens curtos (max 80 chars cada).\n"+
         "9) Drivers risco: 2-3 itens curtos (max 80 chars cada).\n"+
-        "10) IMPORTANTE: o batch tem no maximo 12 tickers - retorne TODOS no array ativos.\n";
+        "10) IMPORTANTE: o batch tem no maximo 12 tickers - retorne TODOS no array ativos.\n"+
+        "11) CHECKLIST OBRIGATORIO antes de submeter: cada ativo DEVE ter metricasPreco com EXATAMENTE 3 itens E metricasQualidade com EXATAMENTE 3 itens. Se voce esquecer qualquer card de qualidade (alavancagem, ROE/ROIC, ou moat), a analise sera invalidada. NAO pule.\n";
       // Processa em batches de 12 tickers para evitar truncamento por max_tokens
       const BATCH_SIZE=12;
       const ativosObj={};
