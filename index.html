@@ -8243,7 +8243,7 @@ function App(){
       Object.entries(port||{}).forEach(([tk,info])=>{
         if(info&&info.classId&&classesElegiveis.includes(info.classId)){
           // Inclui mesmo com qty=0 (cadastrado em estudo)
-          const precoAtual=lastPU&&lastPU[tk]?lastPU[tk].p:null;
+          const precoAtual=typeof info.price==="number"?info.price:null;
           tickersAnalisar.push({
             ticker:tk,
             classe:info.classId,
@@ -17826,7 +17826,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
       Object.entries(port||{}).forEach(([tk,info])=>{
         if(info&&info.classId&&classesElegiveisRR.includes(info.classId)){
           const dadosIA=riscoRetornoData&&riscoRetornoData.ativos?riscoRetornoData.ativos[tk]:null;
-          const precoAtual=lastPU&&lastPU[tk]?lastPU[tk].p:null;
+          const precoAtual=typeof info.price==="number"?info.price:null;
           // Monta dadosFundamentais para calcTIRImplicita
           const df={selic:typeof selicAtual==="number"?selicAtual:null};
           if(dadosIA){
