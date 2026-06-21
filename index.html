@@ -11828,10 +11828,35 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         return {...a,pctAporte,valorAporte};
       }).filter(s=>s.valorAporte>0.5);
       content=h("div",{},
-        h("div",{style:{fontSize:11,color:"#8A8070",marginBottom:12,lineHeight:1.7}},"A IA analisa o portfolio priorizando QUALIDADE dos ativos (vantagem competitiva, gestao, geracao de caixa) sobre desconto puro, evitando value traps. Todas as classes recebem aporte; os volumes refletem balanceamento e oportunidades de qualidade ao preco justo."),
-        // Heatmap de evolucao das bandas
-        h(BandHeatmap,{hist,cw}),
-        h("div",{style:{marginBottom:12}},...CL.filter(c=>c.id!=="imoveis").map(c=>{const w=cw[c.id]||0,s=w<c.min?"u":w>c.max&&!c.flex?"o":"k";if(s==="k")return null;return h("div",{key:c.id,style:{display:"flex",alignItems:"center",gap:6,marginBottom:4,padding:"4px 8px",background:s==="u"?"rgba(224,82,82,0.06)":"rgba(232,196,74,0.06)",border:"1px solid "+(s==="u"?"#E0525222":"#E8C44A22"),borderRadius:5}},h("span",{style:{fontSize:10,color:s==="u"?"#E05252":"#E8C44A"}},c.tag),h("span",{style:{fontSize:10,color:"#B0A890",flex:1}},c.name),h("span",{style:{fontFamily:"monospace",fontSize:9,color:s==="u"?"#E05252":"#E8C44A"}},pc(w)+" "+(s==="u"?"abaixo":"acima")));})),
+        // Card explicativo da metodologia do Aporte
+        h("div",{style:{background:"linear-gradient(135deg,rgba(200,169,110,0.06),rgba(91,143,212,0.03))",border:"1px solid rgba(200,169,110,0.25)",borderRadius:9,padding:"13px 15px",marginBottom:14}},
+          h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:7}},"Metodologia do Aporte"),
+          h("div",{style:{fontSize:10,color:"#B0A890",lineHeight:1.7,marginBottom:9}},
+            "A IA opera como ",h("strong",{style:{color:"#C8A96E"}},"analista B&H rigoroso (Munger/Smith)"),", filosofia ",h("em",{},"quality at a reasonable price"),". Zero vendas. Aportes mensais sao o unico mecanismo de rebalanceamento."
+          ),
+          h("div",{style:{fontSize:9.5,color:"#9A9080",lineHeight:1.7,marginBottom:7}},
+            h("strong",{style:{color:"#E8C44A"}},"Decisao ponderada 50/50 entre: "),
+            h("br",null),
+            h("strong",{style:{color:"#4CAF82"}},"\u25CF Oportunidade tatica")," (preco favoravel, cenario AW, valor relativo, diversificacao, macro - os 5 eixos)",
+            h("br",null),
+            h("strong",{style:{color:"#5B8FD4"}},"\u25CF Rebalanceamento estrutural")," (gap vs 5 metas: MPT, All Weather, Yale, Vetores Macro, Solidez Patrimonial)"
+          ),
+          h("div",{style:{fontSize:9.5,color:"#9A9080",lineHeight:1.7,marginBottom:7}},
+            h("strong",{style:{color:"#E8C44A"}},"Regras inviolaveis: ")
+          ),
+          h("ul",{style:{fontSize:9,color:"#9A9080",lineHeight:1.7,margin:"0 0 7px 0",paddingLeft:18}},
+            h("li",{},"piso 3% do aporte mensal por classe (12 classes)"),
+            h("li",{},"teto 30% por classe de risco (Selic e excecao)"),
+            h("li",{},"limite 5% por ticker individual do patrimonio total"),
+            h("li",{},"NUNCA sugere ativos fora do portfolio - selecao de universo cabe ao investidor")
+          ),
+          h("div",{style:{fontSize:9.5,color:"#9A9080",lineHeight:1.7,marginBottom:7}},
+            h("strong",{style:{color:"#E8C44A"}},"Quando preco esta caro: ")," excedente vai para Tesouro Selic 2031 (caixa estrategico produtivo) - nunca forca aporte em ativo de qualidade duvidosa ou em ativo bom porem caro."
+          ),
+          h("div",{style:{fontSize:9,color:"#7A7060",lineHeight:1.6,fontStyle:"italic",paddingTop:7,borderTop:"1px dashed rgba(255,255,255,0.10)"}},
+            "Para cada classe: ranking unico de 3 ativos (#1 top pick combinando qualidade + preco, #2 com trade-off, #3 alternativa). Cada candidato traz TIR implicita, TIR minima exigida, adequacao risco-retorno e margem de seguranca. Calibracao por ticker congelada (revisao anual em Setembro) para garantir reproducibilidade entre rodadas."
+          )
+        ),
         // Preview do Raciocinio: visualizacao prevista dos 5 eixos por classe
         h(PreviewRaciocinio,{cw,total,selicAtual,ipcaAnual:infIPCA&&infIPCA.anual?infIPCA.anual:null,ntnbTaxas,mvrvZ,piCycle,nupl,goldSilver,goldSP500,realGoldZ,xauVar,btcVar}),
         h("div",{style:{display:"flex",alignItems:"center",gap:7,background:"rgba(200,169,110,0.05)",border:"1px solid rgba(200,169,110,0.25)",borderRadius:9,padding:"11px 14px",marginBottom:10}},h("span",{style:{color:"#C8A96E",fontFamily:"monospace",fontSize:14}},"R$"),h("input",{type:"text",placeholder:"0,00",value:apV,onChange:e=>setApV(e.target.value.replace(/[^0-9,.]/g,"")),style:{flex:1,background:"transparent",border:"none",outline:"none",color:"#F0EAD8",fontSize:26}})),
