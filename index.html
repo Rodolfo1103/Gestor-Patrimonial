@@ -5474,6 +5474,7 @@ function App(){
   // {ts, versaoPortfolio, ativos:{ticker:{lpa_normalizado,dy_12m,affo,metricas[],driversRetorno[],driversRisco[],dataReferencia,observacao}}}
   const [riscoRetornoData,setRiscoRetornoData]=useState(null);
   const [riscoRetornoLoad,setRiscoRetornoLoad]=useState(false);
+  const [treasuriesValLoad,setTreasuriesValLoad]=useState(false);
   // Calibracoes manuais de tickers fora da tabela PARAMETROS_CONGELADOS
   // {ticker:{tipo,tirMin,margem,crescReal,dyBase}}
   const [calibracoesCustom,setCalibracoesCustom]=useState({});
@@ -8402,6 +8403,127 @@ function App(){
       }]
     }));
   },[]);
+
+  // ===== ANALISE DE VALUATION DOS TREASURIES (TLT, IEF, VTIP) =====
+  // Funcao dedicada que faz 1 chamada IA pedindo TIR ATUAL e TIR ALVO explicitamente
+  // alem das 3 metricas de valuation. Salva em riscoRetornoData com campos _tirAtual e _tirAlvo
+  // para a regua TIR ler direto sem precisar de calcTIRImplicita.
+  const gerarValuationTreasuriesIA=useCallback(async()=>{
+    if(!apiKey){alert("Configure sua chave API Anthropic primeiro.");return;}
+    if(treasuriesValLoad)return;
+    setTreasuriesValLoad(true);
+    try{
+      // Coleta dados atuais dos 3 ETFs
+      const etfs=["TLT","IEF","VTIP"].map(t=>({
+        ticker:t,
+        precoAtual:typeof port[t]?.price==="number"?port[t].price:null,
+        descricao:{
+          TLT:"iShares 20+ Year Treasury Bond ETF - duration ~17 anos",
+          IEF:"iShares 7-10 Year Treasury Bond ETF - duration ~7.5 anos",
+          VTIP:"Vanguard Short-Term Inflation-Protected Securities ETF - TIPS curtos, duration ~2.5 anos"
+        }[t]
+      }));
+      const sys="Voce e analista de renda fixa US. Responda APENAS chamando a tool 'submit_treasuries_valuation' com dados quantitativos verificaveis dos 3 ETFs.";
+      const userMsg="Analisar valuation atual de TLT, IEF e VTIP. ETFs:\n"+JSON.stringify(etfs,null,2)+
+        "\n\nPara CADA ETF retorne:\n"+
+        "- yieldAtual: yield-to-maturity atual em fracao decimal (ex: 0.0445 para 4.45%). Para TLT/IEF use Treasury yield correspondente (TLT ~30yr, IEF ~10yr). Para VTIP use REAL yield (TIPS yield curto).\n"+
+        "- yieldAlvo: yield justo de referencia em fracao decimal. TLT: 0.045 (historica media 20yr). IEF: 0.045 (historica media 10yr). VTIP: 0.020 (real yield neutro).\n"+
+        "- 3 metricas de valuation (label, valor formatado, interpretacao curta, nivel barato/justo/caro/neutro):\n"+
+        "    TLT/IEF: YTM nominal, Premio vs Fed Funds, Duration-yield\n"+
+        "    VTIP: Yield REAL, Breakeven inflation, Duration-yield\n"+
+        "- driversRetorno: 2 motivos do yield atual\n"+
+        "- driversRisco: 2 riscos relevantes\n"+
+        "Chame a tool UMA UNICA VEZ com array de 3 entradas (TLT, IEF, VTIP nesta ordem).";
+      const tools=[{
+        name:"submit_treasuries_valuation",
+        description:"Submit valuation atual dos 3 ETFs Treasury",
+        input_schema:{
+          type:"object",
+          properties:{
+            etfs:{
+              type:"array",
+              minItems:3,
+              maxItems:3,
+              items:{
+                type:"object",
+                properties:{
+                  ticker:{type:"string"},
+                  yieldAtual:{type:"number",description:"YTM atual em fracao decimal"},
+                  yieldAlvo:{type:"number",description:"Yield justo de referencia em fracao decimal"},
+                  metricasPreco:{
+                    type:"array",
+                    minItems:3,
+                    maxItems:3,
+                    items:{
+                      type:"object",
+                      properties:{
+                        label:{type:"string"},
+                        valor:{type:"string"},
+                        interpretacao:{type:"string"},
+                        nivel:{type:"string",enum:["barato","justo","caro","neutro"]}
+                      },
+                      required:["label","valor","interpretacao","nivel"]
+                    }
+                  },
+                  driversRetorno:{type:"array",items:{type:"string"},minItems:2,maxItems:2},
+                  driversRisco:{type:"array",items:{type:"string"},minItems:2,maxItems:2}
+                },
+                required:["ticker","yieldAtual","yieldAlvo","metricasPreco","driversRetorno","driversRisco"]
+              }
+            }
+          },
+          required:["etfs"]
+        }
+      }];
+      const resp=await fetch("https://api.anthropic.com/v1/messages",{
+        method:"POST",
+        headers:{"x-api-key":apiKey,"anthropic-version":"2023-06-01","content-type":"application/json","anthropic-dangerous-direct-browser-access":"true"},
+        body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:3000,system:sys,messages:[{role:"user",content:userMsg}],tools,tool_choice:{type:"tool",name:"submit_treasuries_valuation"}})
+      });
+      const data=await resp.json();
+      if(data.error)throw new Error(data.error.message||"Erro API");
+      registrarUsoAPI("claude-sonnet-4-6",data.usage,"Treasuries Valuation");
+      const toolUse=(data.content||[]).find(b=>b.type==="tool_use");
+      if(!toolUse||!toolUse.input||!Array.isArray(toolUse.input.etfs)){
+        throw new Error("IA nao retornou tool_use valido");
+      }
+      const etfsResp=toolUse.input.etfs;
+      // Le estado atual do localStorage para merge
+      let ativosLS={};
+      try{
+        const raw=localStorage.getItem("rrdata-v1");
+        if(raw){
+          const parsed=JSON.parse(raw);
+          if(parsed&&parsed.ativos)ativosLS=parsed.ativos;
+        }
+      }catch(eLS){}
+      const novosAtivos={...ativosLS};
+      etfsResp.forEach(e=>{
+        if(!e||!e.ticker)return;
+        const existente=novosAtivos[e.ticker]||{};
+        novosAtivos[e.ticker]={
+          ...existente,
+          ticker:e.ticker,
+          classe:"treasuries",
+          yieldAtual:e.yieldAtual,
+          _tirAtual:e.yieldAtual,
+          _tirAlvo:e.yieldAlvo,
+          metricasPreco:e.metricasPreco,
+          driversRetorno:e.driversRetorno,
+          driversRisco:e.driversRisco,
+          ts:Date.now()
+        };
+      });
+      const versao=Object.keys(port||{}).sort().join("|");
+      const novoEstado={ts:Date.now(),versaoPortfolio:versao,ativos:novosAtivos};
+      try{localStorage.setItem("rrdata-v1",JSON.stringify(novoEstado));}catch(ePS){}
+      setRiscoRetornoData(novoEstado);
+      alert("Valuation dos 3 ETFs Treasury atualizado!");
+    }catch(e){
+      alert("Erro: "+(e.message||String(e)));
+    }
+    setTreasuriesValLoad(false);
+  },[apiKey,treasuriesValLoad,port,registrarUsoAPI]);
 
   // ===== GERAR DADOS DE RISCO X RETORNO VIA IA =====
   // Para CADA ticker do portfolio (com posicao ou zerado), pega:
@@ -18568,45 +18690,19 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
       // Helper render bloco RISCO x RETORNO x VALUATION para ETF (regua TIR + 3 cards de preco)
       const rrBlockETF=(tkSym)=>{
         const dadosIA=riscoRetornoData&&riscoRetornoData.ativos?riscoRetornoData.ativos[tkSym]:null;
-        const portTk=port[tkSym]||{};
-        const precoAtual=typeof portTk.price==="number"?portTk.price:null;
-        const df={selic:typeof selicAtual==="number"?selicAtual:null};
-        if(dadosIA){
-          if(typeof dadosIA.lpa_normalizado==="number")df.lpa=dadosIA.lpa_normalizado;
-          if(typeof dadosIA.div_anual==="number")df.divAnual=dadosIA.div_anual;
-          if(typeof dadosIA.affo_por_acao==="number")df.affoPorAcao=dadosIA.affo_por_acao;
-          if(typeof dadosIA.yieldAtual==="number")df.yieldAtual=dadosIA.yieldAtual;
-          // Fallback: se yieldAtual nao foi retornado, tenta extrair do primeiro card (geralmente YTM/yield)
-          if(typeof df.yieldAtual!=="number"&&Array.isArray(dadosIA.metricasPreco)&&dadosIA.metricasPreco.length>0){
-            for(let i=0;i<dadosIA.metricasPreco.length;i++){
-              const m=dadosIA.metricasPreco[i];
-              if(!m||!m.valor)continue;
-              const label=(m.label||"").toLowerCase();
-              // Procura por YTM, yield, ou similar
-              if(label.includes("ytm")||label.includes("yield")||label.includes("rendimento")){
-                // Tenta parsear "4.32%", "4,32%", "+4.32pp", etc
-                const match=String(m.valor).match(/(-?\d+[.,]?\d*)/);
-                if(match){
-                  const num=parseFloat(match[1].replace(",","."));
-                  if(!isNaN(num)&&num>0&&num<20){
-                    df.yieldAtual=num/100;// converte % para fracao
-                    break;
-                  }
-                }
-              }
-            }
-          }
-        }
-        const tirInfo=calcTIRImplicita(tkSym,"treasuries",precoAtual,df,calibracoesCustom);
         const mPreco=(dadosIA&&Array.isArray(dadosIA.metricasPreco))?dadosIA.metricasPreco:[];
         const corPreco=(nivel)=>nivel==="barato"?"#4CAF82":nivel==="caro"?"#E05252":nivel==="justo"?"#C8A96E":"#9A9080";
         if(!dadosIA){
-          return h("div",{style:{marginTop:10,paddingTop:10,borderTop:"1px solid rgba(255,255,255,0.07)",fontSize:9,color:"#E89060",fontStyle:"italic",padding:"6px 8px",background:"rgba(232,144,96,0.05)",borderRadius:4}},"\u26A0 "+tkSym+" sem analise IA. Roda \"ATUALIZAR ANALISE\" na aba Risco x Retorno.");
+          return h("div",{style:{marginTop:10,paddingTop:10,borderTop:"1px solid rgba(255,255,255,0.07)",fontSize:9,color:"#E89060",fontStyle:"italic",padding:"6px 8px",background:"rgba(232,144,96,0.05)",borderRadius:4}},"\u26A0 "+tkSym+" sem analise. Clica no botao ANALISAR VALUATION acima.");
         }
+        // Prefere campos dedicados (_tirAtual/_tirAlvo) salvos pela funcao gerarValuationTreasuriesIA
+        // Fallback para yieldAtual + alvo fixo se nao tiver
+        let tirAtual=(typeof dadosIA._tirAtual==="number"&&isFinite(dadosIA._tirAtual))?dadosIA._tirAtual:(typeof dadosIA.yieldAtual==="number"?dadosIA.yieldAtual:null);
+        let tirAlvo=(typeof dadosIA._tirAlvo==="number"&&isFinite(dadosIA._tirAlvo))?dadosIA._tirAlvo:(tkSym==="VTIP"?0.020:0.045);
         return h("div",{style:{marginTop:10,paddingTop:10,borderTop:"1px solid rgba(255,255,255,0.07)"}},
           h("div",{style:{fontSize:7.5,letterSpacing:1.5,color:"#7AA0B5",fontFamily:"monospace",fontWeight:700,marginBottom:6}},"\u25CF RISCO x RETORNO x VALUATION"),
           // Regua TIR (so com tirAtual valido)
-          tirInfo&&typeof tirInfo.tirAtual==="number"&&isFinite(tirInfo.tirAtual)?h(ReguaTIR,{tirAtual:tirInfo.tirAtual,tirAlvo:tirInfo.tirAlvo,moeda:"USD"}):h("div",{style:{fontSize:9,color:"#7A7060",fontStyle:"italic",padding:"6px 8px",background:"rgba(0,0,0,0.15)",borderRadius:4}},"Regua TIR aguardando yield atual da analise IA. TIR alvo: "+(tirInfo&&tirInfo.tirAlvo?(tirInfo.tirAlvo*100).toFixed(1)+"%":"-")),
+          typeof tirAtual==="number"&&isFinite(tirAtual)?h(ReguaTIR,{tirAtual:tirAtual,tirAlvo:tirAlvo,moeda:"USD"}):h("div",{style:{fontSize:9,color:"#7A7060",fontStyle:"italic",padding:"6px 8px",background:"rgba(0,0,0,0.15)",borderRadius:4}},"Regua TIR aguardando yield. Clica em ANALISAR VALUATION acima. Alvo: "+(tirAlvo*100).toFixed(1)+"%"),
           // Cards de valuation
           mPreco.length>0?h("div",{style:{marginTop:8}},
             h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",letterSpacing:1.2,marginBottom:4,fontWeight:700}},"VALUATION / PRECO"),
@@ -18620,7 +18716,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                 );
               })
             )
-          ):h("div",{style:{marginTop:6,fontSize:8,color:"#E89060",fontStyle:"italic",padding:"6px 8px",background:"rgba(232,144,96,0.05)",borderRadius:4}},"\u26A0 "+tkSym+" analise antiga (sem cards). Roda nova analise.")
+          ):h("div",{style:{marginTop:6,fontSize:8,color:"#E89060",fontStyle:"italic",padding:"6px 8px",background:"rgba(232,144,96,0.05)",borderRadius:4}},"\u26A0 "+tkSym+" sem metricas. Clica em ANALISAR VALUATION acima.")
         );
       };
 
@@ -18652,15 +18748,15 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             let comDados=0;
             ["TLT","IEF","VTIP"].forEach(t=>{
               const d=riscoRetornoData&&riscoRetornoData.ativos?riscoRetornoData.ativos[t]:null;
-              if(d&&Array.isArray(d.metricasPreco)&&d.metricasPreco.length>=3&&typeof d.yieldAtual==="number")comDados++;
+              if(d&&Array.isArray(d.metricasPreco)&&d.metricasPreco.length>=3&&typeof d._tirAtual==="number")comDados++;
             });
-            return comDados===3?"Valuation atualizado para os 3 ETFs. Atualize para refletir mudancas de yields recentes.":"Analise de valuation dos ETFs ("+comDados+"/3 com dados). Inclui yield atual, premio vs cash, duration-yield.";
+            return comDados===3?"Valuation atualizado para os 3 ETFs. Atualize para refletir mudancas de yields recentes.":"Analise de valuation dos ETFs ("+comDados+"/3 com dados). Inclui regua TIR, yields, premio vs cash.";
           })()),
           h("button",{onClick:()=>{
-            if(riscoRetornoLoad)return;
-            if(!confirm("Rodar analise de valuation IA para TLT, IEF e VTIP? Custo estimado: ~$0.05 USD"))return;
-            gerarRiscoRetornoIA(["TLT","IEF","VTIP"]);
-          },disabled:riscoRetornoLoad||!apiKey,style:{flexShrink:0,background:riscoRetornoLoad||!apiKey?"rgba(91,181,212,0.10)":"linear-gradient(135deg,rgba(91,181,212,0.30),rgba(91,181,212,0.15))",border:"1px solid rgba(91,181,212,0.50)",borderRadius:4,color:"#5BB5D4",fontSize:9,padding:"6px 12px",cursor:riscoRetornoLoad||!apiKey?"not-allowed":"pointer",fontFamily:"monospace",letterSpacing:1.5,fontWeight:700,textTransform:"uppercase"}},riscoRetornoLoad?"AGUARDE...":(apiKey?"\u21BB ANALISAR VALUATION":"SEM API KEY"))
+            if(treasuriesValLoad)return;
+            if(!confirm("Rodar analise de valuation IA para TLT, IEF e VTIP? Custo estimado: ~$0.03 USD"))return;
+            gerarValuationTreasuriesIA();
+          },disabled:treasuriesValLoad||!apiKey,style:{flexShrink:0,background:treasuriesValLoad||!apiKey?"rgba(91,181,212,0.10)":"linear-gradient(135deg,rgba(91,181,212,0.30),rgba(91,181,212,0.15))",border:"1px solid rgba(91,181,212,0.50)",borderRadius:4,color:"#5BB5D4",fontSize:9,padding:"6px 12px",cursor:treasuriesValLoad||!apiKey?"not-allowed":"pointer",fontFamily:"monospace",letterSpacing:1.5,fontWeight:700,textTransform:"uppercase"}},treasuriesValLoad?"AGUARDE...":(apiKey?"\u21BB ANALISAR VALUATION":"SEM API KEY"))
         ),
 
         // Filosofia da estrategia
