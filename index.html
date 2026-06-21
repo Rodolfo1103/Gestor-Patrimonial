@@ -17987,6 +17987,24 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
               h("div",{style:{marginBottom:tk.dadosIA?10:0}},
                 h(ReguaTIR,{tirAtual:tk.tirAtual,tirAlvo:tk.tirAlvo,moeda:tk.moeda})
               ),
+              // Diagnostico se TIR atual nao foi calculada (mostra qual dado falta)
+              tk.dadosIA&&tk.tirAtual===null?h("div",{style:{fontSize:8,color:"#E89060",fontFamily:"monospace",marginTop:-4,marginBottom:6,padding:"4px 7px",background:"rgba(232,144,96,0.06)",borderLeft:"2px solid rgba(232,144,96,0.35)",borderRadius:"0 3px 3px 0",lineHeight:1.5}},
+                "\u26A0 TIR nao calculada. Campos recebidos da IA: ",
+                (function(){
+                  const d=tk.dadosIA;
+                  const presentes=[];
+                  if(typeof d.lpa_normalizado==="number")presentes.push("lpa="+d.lpa_normalizado.toFixed(2));
+                  if(typeof d.div_anual==="number")presentes.push("div_anual="+d.div_anual.toFixed(2));
+                  if(typeof d.affo_por_acao==="number")presentes.push("affo="+d.affo_por_acao.toFixed(2));
+                  if(typeof d.vpa==="number")presentes.push("vpa="+d.vpa.toFixed(2));
+                  return presentes.length>0?presentes.join(", "):"NENHUM dos campos esperados (lpa_normalizado, div_anual, affo_por_acao)";
+                })(),
+                ". Esperado para "+tk.classe+": ",
+                (tk.classe==="acoes_br"||tk.classe==="acoes_eua"||tk.classe==="acoes_mundo")?"lpa_normalizado":
+                tk.classe==="fii"?"div_anual":
+                tk.classe==="reits"?"affo_por_acao":
+                (tk.classe==="infra"||tk.classe==="agro")?"div_anual":"-"
+              ):null,
               // Drivers retorno x risco + 3 metricas (so se IA carregou)
               tk.dadosIA?h("div",{style:{marginTop:10}},
                 // Drivers retorno x risco
