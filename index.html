@@ -8575,24 +8575,66 @@ function App(){
           }
           const ativosArr=toolUse.input&&Array.isArray(toolUse.input.ativos)?toolUse.input.ativos:[];
           log("Batch "+(bi+1)+" retornou "+ativosArr.length+" ativos");
-          // Validacao de completude: ticker so e aceito se tiver metricasPreco e metricasQualidade COMPLETAS
-          let aceitos=0, rejeitados=0;
+          // Validacao SUAVE: aceita o ticker e PREENCHE campos faltantes com fallback
+          // Filosofia: melhor ter ticker com card parcial do que ter "sem dados" na UI
+          let aceitos=0, comFallback=0, semDados=0;
           ativosArr.forEach(a=>{
             if(!a||!a.ticker)return;
-            const mP=Array.isArray(a.metricasPreco)?a.metricasPreco:[];
-            const mQ=Array.isArray(a.metricasQualidade)?a.metricasQualidade:[];
-            // Cada metrica precisa ter label, valor, interpretacao, nivel
-            const completaP=mP.length>=3&&mP.slice(0,3).every(m=>m&&m.label&&m.valor&&m.interpretacao&&m.nivel);
-            const completaQ=mQ.length>=3&&mQ.slice(0,3).every(m=>m&&m.label&&m.valor&&m.interpretacao&&m.nivel);
-            if(!completaP||!completaQ){
-              log("  Rejeitado "+a.ticker+": metricasPreco="+(completaP?"ok":"incompleta")+" metricasQualidade="+(completaQ?"ok":"incompleta"));
-              rejeitados++;
-              return;
-            }
-            ativosObj[a.ticker]=a;
+            // Normaliza metricasPreco: garante 3 itens, preenche faltantes
+            const mP=Array.isArray(a.metricasPreco)?a.metricasPreco.slice(0,3):[];
+            const mQ=Array.isArray(a.metricasQualidade)?a.metricasQualidade.slice(0,3):[];
+            // Diagnostico de campos
+            const fixMetrica=(m,defaultLabel)=>{
+              if(!m||typeof m!=="object")return{label:defaultLabel,valor:"-",interpretacao:"dado nao retornado",nivel:"neutro"};
+              return{
+                label:m.label||defaultLabel,
+                valor:m.valor||"-",
+                interpretacao:m.interpretacao||"(sem comentario)",
+                nivel:m.nivel||"neutro"
+              };
+            };
+            // Conta o que estava faltando antes do fix (para log)
+            let camposFaltando=[];
+            const checaCampos=(arr,prefixo)=>{
+              arr.forEach((m,i)=>{
+                if(!m){camposFaltando.push(prefixo+i+":vazio");return;}
+                if(!m.label)camposFaltando.push(prefixo+i+":label");
+                if(!m.valor)camposFaltando.push(prefixo+i+":valor");
+                if(!m.interpretacao)camposFaltando.push(prefixo+i+":interpretacao");
+                if(!m.nivel)camposFaltando.push(prefixo+i+":nivel");
+              });
+              // Se array tem menos de 3, conta os que faltam
+              for(let i=arr.length;i<3;i++)camposFaltando.push(prefixo+i+":AUSENTE");
+            };
+            checaCampos(mP,"P");
+            checaCampos(mQ,"Q");
+            // Preenche tudo
+            const mPFixo=[
+              fixMetrica(mP[0],"Preco 1"),
+              fixMetrica(mP[1],"Preco 2"),
+              fixMetrica(mP[2],"Preco 3")
+            ];
+            const mQFixo=[
+              fixMetrica(mQ[0],"Qualidade 1"),
+              fixMetrica(mQ[1],"Qualidade 2"),
+              fixMetrica(mQ[2],"Qualidade 3")
+            ];
+            // Atualiza o objeto com versoes fixadas
+            const ativoFixo={...a,metricasPreco:mPFixo,metricasQualidade:mQFixo};
+            ativosObj[a.ticker]=ativoFixo;
             aceitos++;
+            // Log: rastreia qualidade do retorno
+            if(camposFaltando.length===0){
+              // perfeito - nao loga
+            }else if(camposFaltando.length<=4){
+              comFallback++;
+              log("  "+a.ticker+" aceito com fallback ("+camposFaltando.length+" campos): "+camposFaltando.slice(0,6).join(","));
+            }else{
+              semDados++;
+              log("  "+a.ticker+" aceito mas com "+camposFaltando.length+" lacunas: "+camposFaltando.slice(0,8).join(",")+(camposFaltando.length>8?"...":""));
+            }
           });
-          log("Batch "+(bi+1)+": "+aceitos+" aceitos, "+rejeitados+" rejeitados por dados incompletos");
+          log("Batch "+(bi+1)+": "+aceitos+" aceitos ("+(aceitos-comFallback-semDados)+" perfeitos, "+comFallback+" com fallback leve, "+semDados+" com muitas lacunas)");
           // Salva progressivamente apos cada batch (feedback em tempo real)
           const versaoAtual=Object.keys(port||{}).sort().join("|");
           setRiscoRetornoData({
@@ -18157,6 +18199,36 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             h("button",{onClick:()=>setRRDebugLog([]),style:{background:"none",border:"none",color:"#7A7060",fontSize:9,cursor:"pointer",padding:"2px 6px"}},"limpar")
           ),
           rrDebugLog.map((line,i)=>h("div",{key:i,style:{wordBreak:"break-all"}},line))
+        ):null,
+        // DIAGNOSTICO "SEM DADOS": botao para imprimir motivo exato de cada ticker sem TIR
+        statusCount.semdados>0?h("div",{style:{background:"rgba(232,144,96,0.04)",border:"1px solid rgba(232,144,96,0.25)",borderRadius:6,padding:"8px 10px",marginBottom:14}},
+          h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}},
+            h("strong",{style:{color:"#E89060",fontSize:9,letterSpacing:1,fontFamily:"monospace"}},"\u26A0 "+statusCount.semdados+" ATIVOS SEM DADOS - DIAGNOSTICO"),
+            h("button",{onClick:()=>{
+              const semDadosArr=tickersAnalise.filter(t=>t.margemSeg===null);
+              const linhas=semDadosArr.map(t=>{
+                const motivos=[];
+                if(!t.precoAtual||t.precoAtual<=0)motivos.push("preco=0/null");
+                if(!t.dadosIA)motivos.push("sem dadosIA");
+                else{
+                  const d=t.dadosIA;
+                  const cls=t.classe;
+                  if(cls==="acoes_br"||cls==="acoes_eua"||cls==="acoes_mundo"){
+                    if(typeof d.lpa_normalizado!=="number"||d.lpa_normalizado<=0)motivos.push("lpa_normalizado="+(d.lpa_normalizado!==undefined?d.lpa_normalizado:"undef"));
+                  }else if(cls==="fii"||cls==="infra"||cls==="agro"){
+                    if(typeof d.div_anual!=="number"||d.div_anual<=0)motivos.push("div_anual="+(d.div_anual!==undefined?d.div_anual:"undef"));
+                  }else if(cls==="reits"){
+                    if(typeof d.affo_por_acao!=="number"||d.affo_por_acao<=0)motivos.push("affo_por_acao="+(d.affo_por_acao!==undefined?d.affo_por_acao:"undef"));
+                  }
+                }
+                if(t.tirInconsistente)motivos.push("TIR fora de [-10%, 40%]");
+                if(!t.tirAlvo)motivos.push("sem tirAlvo (parametros)");
+                return t.ticker+" ["+t.classe+"]: "+(motivos.join(", ")||"motivo desconhecido");
+              });
+              alert("Diagnostico de tickers sem dados:\n\n"+linhas.join("\n"));
+            },style:{background:"rgba(232,144,96,0.10)",border:"1px solid rgba(232,144,96,0.35)",borderRadius:3,color:"#E89060",fontSize:8.5,padding:"3px 9px",cursor:"pointer",fontFamily:"monospace",letterSpacing:1,fontWeight:700}},"INSPECIONAR")
+          ),
+          h("div",{style:{fontSize:9,color:"#B0A890",lineHeight:1.5}},"Clique em INSPECIONAR para ver, por ticker, qual campo fundamental esta ausente ou invalido. Util para decidir se vale rodar nova analise ou se e bug.")
         ):null,
         // Filtros
         tickersAnalise.length>0?h("div",{style:{display:"flex",gap:14,flexWrap:"wrap",marginBottom:14,fontSize:9}},
