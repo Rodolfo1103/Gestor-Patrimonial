@@ -8429,6 +8429,7 @@ function App(){
       const classesElegiveis=["acoes_br","acoes_eua","acoes_mundo","fii","reits","treasuries","infra","agro"];
       const tickersAnalisar=[];
       const apenasSet=Array.isArray(apenasTickers)&&apenasTickers.length>0?new Set(apenasTickers):null;
+      const jaAdicionados=new Set();
       Object.entries(port||{}).forEach(([tk,info])=>{
         if(info&&info.classId&&classesElegiveis.includes(info.classId)){
           // Modo parcial: filtra apenas tickers especificados
@@ -8442,7 +8443,23 @@ function App(){
             moeda:BCCY[tk]||info.ccy||"BRL",
             calibracao:PARAMETROS_CONGELADOS[tk]||calibracoesCustom[tk]||null
           });
+          jaAdicionados.add(tk);
         }
+      });
+      // Garantir TLT/IEF/VTIP sempre presentes (estrategia core de treasuries, mesmo sem posicao em port)
+      ["TLT","IEF","VTIP"].forEach(tk=>{
+        if(jaAdicionados.has(tk))return;
+        if(apenasSet&&!apenasSet.has(tk))return;
+        const info=port[tk]||{};
+        const precoAtual=typeof info.price==="number"?info.price:null;
+        tickersAnalisar.push({
+          ticker:tk,
+          classe:"treasuries",
+          precoAtual:precoAtual||0,
+          moeda:"USD",
+          calibracao:PARAMETROS_CONGELADOS[tk]||calibracoesCustom[tk]||null
+        });
+        jaAdicionados.add(tk);
       });
       if(tickersAnalisar.length===0){
         log("ERRO: Nenhum ticker elegivel.");
@@ -18606,6 +18623,24 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             h("div",{style:{fontFamily:"monospace",fontSize:14,color:"#E8E2D5",fontWeight:700}},"5% - 10%"),
             h("div",{style:{fontSize:9,color:pctTotal>=5&&pctTotal<=10?"#4CAF82":pctTotal<5?"#E89060":"#E8C44A",fontFamily:"monospace",marginTop:2}},pctTotal<5?"Abaixo do alvo":pctTotal>10?"Acima do alvo":"Dentro do alvo")
           )
+        ),
+
+        // Botao para analisar valuation dos 3 ETFs via IA (acao direta sem ir na aba RR)
+        h("div",{style:{display:"flex",alignItems:"center",gap:8,marginBottom:14,background:"rgba(91,181,212,0.05)",border:"1px solid rgba(91,181,212,0.25)",borderRadius:6,padding:"8px 12px"}},
+          h("div",{style:{flex:1,fontSize:9,color:"#7AA0B5",lineHeight:1.5}},(()=>{
+            // Conta quantos dos 3 tem analise completa
+            let comDados=0;
+            ["TLT","IEF","VTIP"].forEach(t=>{
+              const d=riscoRetornoData&&riscoRetornoData.ativos?riscoRetornoData.ativos[t]:null;
+              if(d&&Array.isArray(d.metricasPreco)&&d.metricasPreco.length>=3&&typeof d.yieldAtual==="number")comDados++;
+            });
+            return comDados===3?"Valuation atualizado para os 3 ETFs. Atualize para refletir mudancas de yields recentes.":"Analise de valuation dos ETFs ("+comDados+"/3 com dados). Inclui yield atual, premio vs cash, duration-yield.";
+          })()),
+          h("button",{onClick:()=>{
+            if(riscoRetornoLoad)return;
+            if(!confirm("Rodar analise de valuation IA para TLT, IEF e VTIP? Custo estimado: ~$0.05 USD"))return;
+            gerarRiscoRetornoIA(["TLT","IEF","VTIP"]);
+          },disabled:riscoRetornoLoad||!apiKey,style:{flexShrink:0,background:riscoRetornoLoad||!apiKey?"rgba(91,181,212,0.10)":"linear-gradient(135deg,rgba(91,181,212,0.30),rgba(91,181,212,0.15))",border:"1px solid rgba(91,181,212,0.50)",borderRadius:4,color:"#5BB5D4",fontSize:9,padding:"6px 12px",cursor:riscoRetornoLoad||!apiKey?"not-allowed":"pointer",fontFamily:"monospace",letterSpacing:1.5,fontWeight:700,textTransform:"uppercase"}},riscoRetornoLoad?"AGUARDE...":(apiKey?"\u21BB ANALISAR VALUATION":"SEM API KEY"))
         ),
 
         // Filosofia da estrategia
