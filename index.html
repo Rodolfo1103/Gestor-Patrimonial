@@ -915,6 +915,24 @@ const FUNDOS_RENDA_MOTORES=["fii","infra","agro"];
 const CLASSES_AUX_BR=["acoes_br"];
 const CLASSES_AUX_EXT=["acoes_eua","acoes_mundo","reits","treasuries"];
 
+// ===== PRECOS DOS MODELOS ANTHROPIC (USD por milhao de tokens) =====
+// Fonte: docs.anthropic.com/en/docs/about-claude/models/all-models (Jun/2026)
+// Atualizar manualmente se a Anthropic mudar precos. Usado para estimar gasto da sessao.
+const PRECOS_MODELOS={
+  "claude-opus-4-7":{input:15,output:75},
+  "claude-opus-4-6":{input:15,output:75},
+  "claude-sonnet-4-6":{input:3,output:15},
+  "claude-sonnet-4-5":{input:3,output:15},
+  "claude-haiku-4-5-20251001":{input:1,output:5},
+  "claude-haiku-4-5":{input:1,output:5}
+};
+// Helper para calcular custo USD de uma chamada
+function calcCustoChamada(model,inputTokens,outputTokens){
+  const p=PRECOS_MODELOS[model];
+  if(!p)return 0;
+  return ((inputTokens||0)*p.input+(outputTokens||0)*p.output)/1000000;
+}
+
 // =====================================================================
 // PARAMETROS CONGELADOS POR TICKER (Calibracao Jun/2026)
 // =====================================================================
@@ -5428,6 +5446,9 @@ function App(){
   const [calibrandoTicker_RR,setCalibrandoTicker_RR]=useState(null);
   // Log de debug da ultima tentativa de gerar analise (visivel na tela)
   const [rrDebugLog,setRRDebugLog]=useState([]);
+  // Acompanhamento de uso/gasto da API na sessao atual (zera ao recarregar pagina)
+  // {totalUSD, chamadas:[{ts, model, inputTokens, outputTokens, custoUSD, contexto}]}
+  const [apiUsageSession,setApiUsageSession]=useState({totalUSD:0,chamadas:[]});
   // Texto do diagnostico para copiar/colar (modal)
   const [diagnosticoTexto,setDiagnosticoTexto]=useState(null);
   // Historico de taxas NTN-B: snapshots [{ts, mediaBruta, taxasIndiv:{venc:taxaBruta}}] - construido a cada update
@@ -8165,6 +8186,36 @@ function App(){
     setChatL(false);
   };
 
+  // ===== Helper: registra uma chamada de API e acumula custo da sessao =====
+  // model: string ("claude-sonnet-4-6" etc)
+  // usage: objeto retornado pela API (data.usage) com input_tokens e output_tokens
+  // contexto: descricao curta ("Risco x Retorno batch 1/5", "Aporte", "Chat", etc)
+  const registrarUsoAPI=useCallback((model,usage,contexto)=>{
+    if(!usage)return;
+    const inTok=usage.input_tokens||0;
+    const outTok=usage.output_tokens||0;
+    const cacheCreate=usage.cache_creation_input_tokens||0;
+    const cacheRead=usage.cache_read_input_tokens||0;
+    // Cache create custa o mesmo de input. Cache read custa 10% do input.
+    const p=PRECOS_MODELOS[model]||{input:3,output:15};
+    const custoInput=(inTok+cacheCreate)*p.input/1000000;
+    const custoCache=cacheRead*p.input*0.1/1000000;
+    const custoOutput=outTok*p.output/1000000;
+    const custoTotal=custoInput+custoCache+custoOutput;
+    setApiUsageSession(prev=>({
+      totalUSD:prev.totalUSD+custoTotal,
+      chamadas:[...prev.chamadas,{
+        ts:Date.now(),
+        model,
+        inputTokens:inTok+cacheCreate,
+        outputTokens:outTok,
+        cacheReadTokens:cacheRead,
+        custoUSD:custoTotal,
+        contexto:contexto||""
+      }]
+    }));
+  },[]);
+
   // ===== GERAR DADOS DE RISCO X RETORNO VIA IA =====
   // Para CADA ticker do portfolio (com posicao ou zerado), pega:
   // - Dados fundamentais (lpa normalizado, dy 12m, AFFO, etc)
@@ -8315,7 +8366,18 @@ function App(){
             continue;// pula este batch, tenta proximo
           }
           const data=await resp.json();
-          log("Batch "+(bi+1)+" stop="+(data.stop_reason||"?")+" tokens_out="+(data.usage?data.usage.output_tokens:"?"));
+          // Calcula custo desta chamada em USD
+          let custoChamada=0;
+          if(data.usage){
+            const p=PRECOS_MODELOS["claude-sonnet-4-6"];
+            const inTok=(data.usage.input_tokens||0)+(data.usage.cache_creation_input_tokens||0);
+            const outTok=data.usage.output_tokens||0;
+            const cacheRead=data.usage.cache_read_input_tokens||0;
+            custoChamada=(inTok*p.input+outTok*p.output+cacheRead*p.input*0.1)/1000000;
+          }
+          log("Batch "+(bi+1)+" stop="+(data.stop_reason||"?")+" custo=$"+custoChamada.toFixed(4));
+          // Registra uso (sempre, mesmo se tool_use vier vazio - foi cobrado)
+          registrarUsoAPI("claude-sonnet-4-6",data.usage,"Risco x Retorno batch "+(bi+1)+"/"+batches.length);
           const toolUse=(data.content||[]).find(c=>c.type==="tool_use"&&c.name==="submit_risco_retorno");
           if(!toolUse){
             log("Batch "+(bi+1)+" sem tool_use. Pulando.");
@@ -8360,7 +8422,7 @@ function App(){
       alert("Erro ao gerar analise Risco x Retorno: "+(e&&e.message?e.message:String(e))+"\n\nVer painel de debug na tela.");
       setRiscoRetornoLoad(false);
     }
-  },[apiKey,riscoRetornoLoad,hasPos,port,lastPU,calibracoesCustom,selicAtual,infIPCA,FX,juroFed,ntnbTaxas]);
+  },[apiKey,riscoRetornoLoad,hasPos,port,lastPU,calibracoesCustom,selicAtual,infIPCA,FX,juroFed,ntnbTaxas,registrarUsoAPI]);
 
   // ===== GERAR PRE-SELECAO DE ATIVOS EM ESTUDO VIA IA =====
   // Para cada classe elegivel, seleciona 1 candidato (sempre dentre tickers ja existentes no portfolio)
@@ -8677,6 +8739,7 @@ function App(){
         throw new Error("API "+resp.status+": "+errTxt.slice(0,300));
       }
       const data=await resp.json();
+      registrarUsoAPI("claude-opus-4-7",data.usage,"Pre-selecao Aporte");
       // ===== Extrai tool_use do retorno =====
       const toolUse=data.content&&data.content.find(c=>c.type==="tool_use"&&c.name==="submit_preselecao");
       if(!toolUse||!toolUse.input||!Array.isArray(toolUse.input.candidatos)){
@@ -8728,6 +8791,7 @@ function App(){
           });
           if(respRetry.ok){
             const dataRetry=await respRetry.json();
+            registrarUsoAPI("claude-opus-4-7",dataRetry.usage,"Pre-selecao Aporte (retry classes faltantes)");
             const toolUseRetry=dataRetry.content&&dataRetry.content.find(c=>c.type==="tool_use"&&c.name==="submit_preselecao");
             if(toolUseRetry&&toolUseRetry.input&&Array.isArray(toolUseRetry.input.candidatos)){
               const candidatosRetry=toolUseRetry.input.candidatos.filter(c=>
@@ -9889,7 +9953,24 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
       const diasSem=["domingo","segunda-feira","terca-feira","quarta-feira","quinta-feira","sexta-feira","sabado"];
       const meses=["janeiro","fevereiro","marco","abril","maio","junho","julho","agosto","setembro","outubro","novembro","dezembro"];
       const dataHoje=diasSem[hojeData.getDay()]+", "+hojeData.getDate()+" de "+meses[hojeData.getMonth()]+" de "+hojeData.getFullYear();
-      const dateHeader=h("div",{style:{fontSize:10,color:"#7A7060",fontFamily:"Georgia,serif",fontStyle:"italic",letterSpacing:0.5,marginBottom:14,paddingBottom:9,borderBottom:"1px solid rgba(200,169,110,0.12)",textAlign:"right"}},dataHoje);
+      // Linha topo: data (esquerda) + uso da API na sessao (direita)
+      const usoSessaoUSD=apiUsageSession.totalUSD||0;
+      const chamadasCount=(apiUsageSession.chamadas||[]).length;
+      const dateHeader=h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexWrap:"wrap",marginBottom:14,paddingBottom:9,borderBottom:"1px solid rgba(200,169,110,0.12)"}},
+        // Data (esquerda)
+        h("div",{style:{fontSize:10,color:"#7A7060",fontFamily:"Georgia,serif",fontStyle:"italic",letterSpacing:0.5}},dataHoje),
+        // Card uso da API (direita)
+        h("div",{style:{display:"flex",alignItems:"center",gap:8,fontFamily:"monospace"}},
+          h("div",{style:{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:1}},
+            h("div",{style:{fontSize:7.5,color:"#7A7060",letterSpacing:1.2,textTransform:"uppercase"}},"GASTO API SESSAO"),
+            h("div",{style:{fontSize:11,color:usoSessaoUSD>0?"#C8A96E":"#5A5550",fontWeight:700}},
+              "$"+usoSessaoUSD.toFixed(4),
+              chamadasCount>0?h("span",{style:{fontSize:8,color:"#7A7060",marginLeft:4,fontWeight:400}},"("+chamadasCount+" chamada"+(chamadasCount===1?"":"s")+")"):null
+            )
+          ),
+          h("a",{href:"https://console.anthropic.com/settings/billing",target:"_blank",rel:"noopener noreferrer",style:{padding:"5px 9px",background:"rgba(91,143,212,0.08)",border:"1px solid rgba(91,143,212,0.30)",borderRadius:5,color:"#5B8FD4",fontSize:9,fontWeight:700,textDecoration:"none",letterSpacing:1.2,whiteSpace:"nowrap",textTransform:"uppercase"},title:"Abre o console Anthropic para ver saldo real e recarregar"},"\u21B1 Console")
+        )
+      );
 
       content=h("div",{},dateHeader,h(BolsasCard,{port,cls}),h(SolidezCard,{total,cw,port,metaMensalIF,setTab,fB,hideVal,dataNascimento,cambialCash,rendaMotoraHist,rendaAuxiliarHist,FX}),aporteCard,insightCard,h(AllocChart,{cw,ct,fB,MV,hideVal}),h(DiversificationCard,{cw,setTab}),h(RiskChart,{cw,selicAtual,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,recalibrarRR_viaIA,calibracaoLoad,calibracaoErr,hasAjustesIA:!!ajustesRR_IA,apiKey}),h(EvolChart,{histMensal,hist,showUSD,setShowUSD,hideVal}),h(ComparativoChart,{histMensal,idxMensal,hideVal}),insightMensalCard,h(HeatmapChart,{hist,histMensal}),h(CurrencyChart,{port,cls,hideVal,cambialCash}),topPos);
     }
