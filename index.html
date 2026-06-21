@@ -8640,14 +8640,16 @@ function App(){
           });
           log("Batch "+(bi+1)+": "+aceitos+" aceitos ("+(aceitos-comFallback-semDados)+" perfeitos, "+comFallback+" com fallback leve, "+semDados+" com muitas lacunas)");
           // Salva progressivamente apos cada batch (feedback em tempo real)
-          // CRITICO: preserva dados ANTERIORES de tickers que nao foram analisados nesta rodada
-          // (impede perda de dados em reruns parciais ou que falham em alguns batches)
+          // CRITICO: usa forma FUNCIONAL do setState para garantir que cada batch leia o estado mais recente
+          // (closure direta em riscoRetornoData nao atualiza entre batches em uma mesma execucao - bug conhecido React)
           const versaoAtual=Object.keys(port||{}).sort().join("|");
-          const ativosAnteriores=(riscoRetornoData&&riscoRetornoData.ativos)||{};
-          setRiscoRetornoData({
-            ts:Date.now(),
-            versaoPortfolio:versaoAtual,
-            ativos:{...ativosAnteriores,...ativosObj}
+          setRiscoRetornoData(prev=>{
+            const ativosAnteriores=(prev&&prev.ativos)||{};
+            return {
+              ts:Date.now(),
+              versaoPortfolio:versaoAtual,
+              ativos:{...ativosAnteriores,...ativosObj}
+            };
           });
         }catch(e){
           log("Batch "+(bi+1)+" EXCEPTION: "+(e&&e.message?e.message:String(e)));
@@ -8660,13 +8662,15 @@ function App(){
         throw new Error("Nenhum ticker retornado em "+batches.length+" batches. Ver log.");
       }
       // Versao do portfolio para invalidacao automatica
-      // PRESERVA dados anteriores de tickers nao analisados nesta rodada
+      // PRESERVA dados anteriores via forma FUNCIONAL
       const versao=Object.keys(port||{}).sort().join("|");
-      const ativosAnt=(riscoRetornoData&&riscoRetornoData.ativos)||{};
-      setRiscoRetornoData({
-        ts:Date.now(),
-        versaoPortfolio:versao,
-        ativos:{...ativosAnt,...ativosObj}
+      setRiscoRetornoData(prev=>{
+        const ativosAnt=(prev&&prev.ativos)||{};
+        return {
+          ts:Date.now(),
+          versaoPortfolio:versao,
+          ativos:{...ativosAnt,...ativosObj}
+        };
       });
       log("OK: dados salvos.");
       if(totalRetornado<tickersAnalisar.length){
@@ -18493,15 +18497,17 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           if(typeof dadosIA.affo_por_acao==="number")df.affoPorAcao=dadosIA.affo_por_acao;
         }
         const tirInfo=calcTIRImplicita(tkSym,"treasuries",precoAtual,df,calibracoesCustom);
-        if(!dadosIA&&!tirInfo)return null;
         const mPreco=(dadosIA&&Array.isArray(dadosIA.metricasPreco))?dadosIA.metricasPreco:[];
         const mQual=(dadosIA&&Array.isArray(dadosIA.metricasQualidade))?dadosIA.metricasQualidade:[];
         const corPreco=(nivel)=>nivel==="barato"?"#4CAF82":nivel==="caro"?"#E05252":nivel==="justo"?"#C8A96E":"#9A9080";
         const corQual=(nivel)=>nivel==="forte"?"#4CAF82":nivel==="fraco"?"#E05252":nivel==="adequado"?"#C8A96E":"#9A9080";
+        // SEMPRE renderiza o bloco, com diagnostico se faltarem dados
+        const semDados=!dadosIA;
+        const cardsVazios=mPreco.length===0&&mQual.length===0;
         return h("div",{style:{marginTop:10,paddingTop:10,borderTop:"1px solid rgba(255,255,255,0.07)"}},
           h("div",{style:{fontSize:7.5,letterSpacing:1.5,color:"#7AA0B5",fontFamily:"monospace",fontWeight:700,marginBottom:6}},"\u25CF RISCO x RETORNO x VALUATION"),
-          // Regua TIR
-          tirInfo&&typeof tirInfo.tirAtual==="number"&&isFinite(tirInfo.tirAtual)?h(ReguaTIR,{tirAtual:tirInfo.tirAtual,tirAlvo:tirInfo.tirAlvo,moeda:"USD"}):h("div",{style:{fontSize:9,color:"#7A7060",fontStyle:"italic",padding:"6px 0"}},"Regua TIR aguardando dados da analise IA"),
+          // Regua TIR (so com tirAtual valido)
+          tirInfo&&typeof tirInfo.tirAtual==="number"&&isFinite(tirInfo.tirAtual)?h(ReguaTIR,{tirAtual:tirInfo.tirAtual,tirAlvo:tirInfo.tirAlvo,moeda:"USD"}):h("div",{style:{fontSize:9,color:"#7A7060",fontStyle:"italic",padding:"6px 8px",background:"rgba(0,0,0,0.15)",borderRadius:4}},"Regua TIR aguardando dados fundamentais da IA (yield atual). TIR alvo: "+(tirInfo&&tirInfo.tirAlvo?(tirInfo.tirAlvo*100).toFixed(1)+"%":"-")),
           // Cards PRECO
           mPreco.length>0?h("div",{style:{marginTop:8}},
             h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",letterSpacing:1.2,marginBottom:4,fontWeight:700}},"VALUATION / PRECO"),
@@ -18530,8 +18536,8 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
               })
             )
           ):null,
-          // Sem dadosIA -> aviso
-          !dadosIA?h("div",{style:{marginTop:6,fontSize:8,color:"#E89060",fontStyle:"italic",padding:"6px 8px",background:"rgba(232,144,96,0.05)",borderRadius:4}},"\u26A0 Sem analise da IA para este ETF. Gere a analise na aba Risco x Retorno."):null
+          // Diagnostico
+          semDados?h("div",{style:{marginTop:6,fontSize:8,color:"#E89060",fontStyle:"italic",padding:"6px 8px",background:"rgba(232,144,96,0.05)",borderRadius:4}},"\u26A0 "+tkSym+" sem analise IA. Vai na aba Risco x Retorno e roda \"ANALISAR APENAS FALTANTES\"."):(cardsVazios?h("div",{style:{marginTop:6,fontSize:8,color:"#E89060",fontStyle:"italic",padding:"6px 8px",background:"rgba(232,144,96,0.05)",borderRadius:4}},"\u26A0 "+tkSym+" tem analise antiga (sem 6 cards). Rode nova analise para gerar os cards."):null)
         );
       };
 
@@ -19245,8 +19251,8 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
               h("span",{style:{color:"#7A7060"}},"Taxa de venda hoje:"),
               h("span",{style:{color:"#C8A96E",fontWeight:700}},"IPCA+"+(tx.taxaBrutaVenda*100).toFixed(2)+"% bruto / IPCA+"+(taxaLiquidaIR(tx.taxaBrutaVenda)*100).toFixed(2)+"% liq")
             ),
-            // Bloco RR: regua + 6 cards (calculado localmente, sem IA)
-            tx&&tx.taxaBrutaVenda>0?rrBlockNTNB(t,tx.taxaBrutaVenda,calcDurationNTNB(anosAteVenc(venc),tx.taxaBrutaVenda)):null
+            // Bloco RR: regua + 6 cards (calculado localmente, sem IA - sempre renderiza)
+            rrBlockNTNB(t,tx?tx.taxaBrutaVenda:0,tx&&tx.taxaBrutaVenda>0?calcDurationNTNB(anosAteVenc(venc),tx.taxaBrutaVenda):anosAteVenc(venc))
           );
         })
       ),
