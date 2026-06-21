@@ -5807,6 +5807,24 @@ function App(){
         if(dd.riscoRetornoData&&typeof dd.riscoRetornoData==="object"&&dd.riscoRetornoData.ativos&&typeof dd.riscoRetornoData.ativos==="object"){
           setRiscoRetornoData(dd.riscoRetornoData);
         }
+        // Override com rrdata-v1 (chave dedicada nao criptografada) - tem prioridade pois e salva imediatamente
+        // apos cada analise, enquanto o blob criptografado pode estar atrasado pelo useEffect async
+        try{
+          const rawRR=localStorage.getItem("rrdata-v1");
+          if(rawRR){
+            const parsedRR=JSON.parse(rawRR);
+            if(parsedRR&&parsedRR.ativos&&typeof parsedRR.ativos==="object"){
+              // Merge: prioriza rrdata-v1 mas preserva tickers que so existem no blob criptografado
+              const blobAtivos=(dd.riscoRetornoData&&dd.riscoRetornoData.ativos)||{};
+              const merged={...blobAtivos,...parsedRR.ativos};
+              setRiscoRetornoData({
+                ts:parsedRR.ts||Date.now(),
+                versaoPortfolio:parsedRR.versaoPortfolio||"",
+                ativos:merged
+              });
+            }
+          }
+        }catch(eRR){console.warn("Erro lendo rrdata-v1:",eRR);}
         if(dd.calibracoesCustom&&typeof dd.calibracoesCustom==="object"){
           setCalibracoesCustom(dd.calibracoesCustom);
         }
@@ -8664,37 +8682,32 @@ function App(){
       }
       // Versao do portfolio para invalidacao automatica
       const versao=Object.keys(port||{}).sort().join("|");
-      // Le estado atual ATOMICAMENTE do localStorage criptografado para fazer merge correto
-      // (nao confia no estado React em memoria por causa de race conditions com closures stale)
+      // Le estado atual ATOMICAMENTE de chave dedicada do localStorage (NAO criptografada - sao so dados de analise)
+      // Isso evita race condition com o useEffect que salva o blob criptografado completo
       let ativosAtualLS={};
-      let ddCompleto=null;
       try{
-        const enc=localStorage.getItem(SK_ENC);
-        if(enc&&aesKey){
-          ddCompleto=await aesDecrypt(aesKey,enc);
-          if(ddCompleto&&ddCompleto.riscoRetornoData&&ddCompleto.riscoRetornoData.ativos){
-            ativosAtualLS=ddCompleto.riscoRetornoData.ativos;
+        const raw=localStorage.getItem("rrdata-v1");
+        if(raw){
+          const parsed=JSON.parse(raw);
+          if(parsed&&parsed.ativos&&typeof parsed.ativos==="object"){
+            ativosAtualLS=parsed.ativos;
           }
         }
-      }catch(eL){log("Erro lendo localStorage: "+(eL.message||eL));}
-      // Faz o merge: ativos antigos do localStorage + novos do rerun
+      }catch(eL){log("Erro lendo rrdata-v1: "+(eL.message||eL));}
+      // Faz o merge: ativos antigos + novos do rerun
       const ativosFinal={...ativosAtualLS,...ativosObj};
       const novoEstadoSync={
         ts:Date.now(),
         versaoPortfolio:versao,
         ativos:ativosFinal
       };
-      log("MERGE: localStorage tinha "+Object.keys(ativosAtualLS).length+" tickers, +"+Object.keys(ativosObj).length+" do rerun = "+Object.keys(ativosFinal).length+" total");
-      // Persistir IMEDIATAMENTE no localStorage (sincrono)
-      if(aesKey&&ddCompleto){
-        try{
-          ddCompleto.riscoRetornoData=novoEstadoSync;
-          const novoEnc=await aesEncrypt(aesKey,ddCompleto);
-          localStorage.setItem(SK_ENC,novoEnc);
-          log("Persistido no localStorage ("+Object.keys(ativosFinal).length+" tickers)");
-        }catch(eP){log("Erro persistencia: "+(eP.message||eP));}
-      }
-      // Atualizar estado React (so depois de persistir, para evitar race)
+      log("MERGE: rrdata-v1 tinha "+Object.keys(ativosAtualLS).length+" tickers, +"+Object.keys(ativosObj).length+" do rerun = "+Object.keys(ativosFinal).length+" total");
+      // Persistir IMEDIATAMENTE no localStorage (sem criptografia - dados nao sensiveis)
+      try{
+        localStorage.setItem("rrdata-v1",JSON.stringify(novoEstadoSync));
+        log("Persistido em rrdata-v1 ("+Object.keys(ativosFinal).length+" tickers)");
+      }catch(eP){log("Erro persistencia rrdata-v1: "+(eP.message||eP));}
+      // Atualizar estado React
       setRiscoRetornoData(novoEstadoSync);
       log("OK: dados salvos.");
       if(totalRetornado<tickersAnalisar.length){
