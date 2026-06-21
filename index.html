@@ -18204,31 +18204,60 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         statusCount.semdados>0?h("div",{style:{background:"rgba(232,144,96,0.04)",border:"1px solid rgba(232,144,96,0.25)",borderRadius:6,padding:"8px 10px",marginBottom:14}},
           h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}},
             h("strong",{style:{color:"#E89060",fontSize:9,letterSpacing:1,fontFamily:"monospace"}},"\u26A0 "+statusCount.semdados+" ATIVOS SEM DADOS - DIAGNOSTICO"),
-            h("button",{onClick:()=>{
-              const semDadosArr=tickersAnalise.filter(t=>t.margemSeg===null);
-              const linhas=semDadosArr.map(t=>{
-                const motivos=[];
-                if(!t.precoAtual||t.precoAtual<=0)motivos.push("preco=0/null");
-                if(!t.dadosIA)motivos.push("sem dadosIA");
-                else{
-                  const d=t.dadosIA;
-                  const cls=t.classe;
-                  if(cls==="acoes_br"||cls==="acoes_eua"||cls==="acoes_mundo"){
-                    if(typeof d.lpa_normalizado!=="number"||d.lpa_normalizado<=0)motivos.push("lpa_normalizado="+(d.lpa_normalizado!==undefined?d.lpa_normalizado:"undef"));
-                  }else if(cls==="fii"||cls==="infra"||cls==="agro"){
-                    if(typeof d.div_anual!=="number"||d.div_anual<=0)motivos.push("div_anual="+(d.div_anual!==undefined?d.div_anual:"undef"));
-                  }else if(cls==="reits"){
-                    if(typeof d.affo_por_acao!=="number"||d.affo_por_acao<=0)motivos.push("affo_por_acao="+(d.affo_por_acao!==undefined?d.affo_por_acao:"undef"));
+            h("div",{style:{display:"flex",gap:6}},
+              h("button",{onClick:()=>{
+                const semDadosArr=tickersAnalise.filter(t=>t.margemSeg===null);
+                const linhas=semDadosArr.map(t=>{
+                  const motivos=[];
+                  if(!t.precoAtual||t.precoAtual<=0)motivos.push("preco=0/null");
+                  if(!t.dadosIA)motivos.push("sem dadosIA");
+                  else{
+                    const d=t.dadosIA;
+                    const cls=t.classe;
+                    if(cls==="acoes_br"||cls==="acoes_eua"||cls==="acoes_mundo"){
+                      if(typeof d.lpa_normalizado!=="number"||d.lpa_normalizado<=0)motivos.push("lpa_normalizado="+(d.lpa_normalizado!==undefined?d.lpa_normalizado:"undef"));
+                    }else if(cls==="fii"||cls==="infra"||cls==="agro"){
+                      if(typeof d.div_anual!=="number"||d.div_anual<=0)motivos.push("div_anual="+(d.div_anual!==undefined?d.div_anual:"undef"));
+                    }else if(cls==="reits"){
+                      if(typeof d.affo_por_acao!=="number"||d.affo_por_acao<=0)motivos.push("affo_por_acao="+(d.affo_por_acao!==undefined?d.affo_por_acao:"undef"));
+                    }
                   }
-                }
-                if(t.tirInconsistente)motivos.push("TIR fora de [-10%, 40%]");
-                if(!t.tirAlvo)motivos.push("sem tirAlvo (parametros)");
-                return t.ticker+" ["+t.classe+"]: "+(motivos.join(", ")||"motivo desconhecido");
-              });
-              alert("Diagnostico de tickers sem dados:\n\n"+linhas.join("\n"));
-            },style:{background:"rgba(232,144,96,0.10)",border:"1px solid rgba(232,144,96,0.35)",borderRadius:3,color:"#E89060",fontSize:8.5,padding:"3px 9px",cursor:"pointer",fontFamily:"monospace",letterSpacing:1,fontWeight:700}},"INSPECIONAR")
+                  if(t.tirInconsistente)motivos.push("TIR fora de [-10%, 40%]");
+                  if(!t.tirAlvo)motivos.push("sem tirAlvo (parametros)");
+                  return t.ticker+" ["+t.classe+"]: "+(motivos.join(", ")||"motivo desconhecido");
+                });
+                const texto="Diagnostico de tickers sem dados ("+semDadosArr.length+"):\n\n"+linhas.join("\n");
+                window.__rrDiagText=texto;
+                // forca re-render para mostrar o texto
+                setRRDebugLog(prev=>[...prev]);
+              },style:{background:"rgba(232,144,96,0.10)",border:"1px solid rgba(232,144,96,0.35)",borderRadius:3,color:"#E89060",fontSize:8.5,padding:"3px 9px",cursor:"pointer",fontFamily:"monospace",letterSpacing:1,fontWeight:700}},"INSPECIONAR"),
+              window.__rrDiagText?h("button",{onClick:()=>{
+                try{
+                  if(navigator&&navigator.clipboard&&navigator.clipboard.writeText){
+                    navigator.clipboard.writeText(window.__rrDiagText).then(()=>{
+                      alert("Copiado!");
+                    }).catch(e=>{alert("Erro ao copiar: "+e.message);});
+                  }else{
+                    // fallback: cria textarea temporario
+                    const ta=document.createElement("textarea");
+                    ta.value=window.__rrDiagText;
+                    document.body.appendChild(ta);
+                    ta.select();
+                    document.execCommand("copy");
+                    document.body.removeChild(ta);
+                    alert("Copiado!");
+                  }
+                }catch(e){alert("Erro: "+e.message);}
+              },style:{background:"rgba(91,143,212,0.15)",border:"1px solid rgba(91,143,212,0.40)",borderRadius:3,color:"#5B8FD4",fontSize:8.5,padding:"3px 9px",cursor:"pointer",fontFamily:"monospace",letterSpacing:1,fontWeight:700}},"COPIAR"):null,
+              window.__rrDiagText?h("button",{onClick:()=>{
+                window.__rrDiagText=null;
+                setRRDebugLog(prev=>[...prev]);
+              },style:{background:"none",border:"1px solid rgba(255,255,255,0.15)",borderRadius:3,color:"#7A7060",fontSize:8.5,padding:"3px 9px",cursor:"pointer",fontFamily:"monospace",letterSpacing:1}},"FECHAR"):null
+            )
           ),
-          h("div",{style:{fontSize:9,color:"#B0A890",lineHeight:1.5}},"Clique em INSPECIONAR para ver, por ticker, qual campo fundamental esta ausente ou invalido. Util para decidir se vale rodar nova analise ou se e bug.")
+          window.__rrDiagText?h("div",{style:{background:"rgba(0,0,0,0.30)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:4,padding:"8px 10px",marginTop:8,maxHeight:280,overflowY:"auto"}},
+            h("pre",{style:{fontFamily:"monospace",fontSize:9,color:"#C8C0B0",lineHeight:1.5,margin:0,whiteSpace:"pre-wrap",wordBreak:"break-all",userSelect:"text"}},window.__rrDiagText)
+          ):h("div",{style:{fontSize:9,color:"#B0A890",lineHeight:1.5}},"Clique em INSPECIONAR para ver, por ticker, qual campo fundamental esta ausente ou invalido.")
         ):null,
         // Filtros
         tickersAnalise.length>0?h("div",{style:{display:"flex",gap:14,flexWrap:"wrap",marginBottom:14,fontSize:9}},
