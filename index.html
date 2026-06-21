@@ -1129,12 +1129,13 @@ function calcTIRImplicita(ticker,classeId,precoAtual,dadosFundamentais,calibraco
 }
 
 // Componente ReguaTIR - barra horizontal SVG com marca TIR alvo e atual
-// Props: {tirAtual, tirAlvo, height (default 28), tirMin (default 0), tirMax (default 0.25)}
-function ReguaTIR({tirAtual,tirAlvo,height,tirMin,tirMax}){
+// Props: {tirAtual, tirAlvo, height (default 28), tirMin (default 0), tirMax (default 0.25), moeda (default 'BRL')}
+function ReguaTIR({tirAtual,tirAlvo,height,tirMin,tirMax,moeda}){
   const h2=window.React.createElement;
   height=height||32;
   tirMin=typeof tirMin==="number"?tirMin:0;
   tirMax=typeof tirMax==="number"?tirMax:0.25;
+  moeda=moeda||"BRL";
   const w=300;// largura logica do SVG
   const padX=10;
   const innerW=w-2*padX;
@@ -1191,6 +1192,10 @@ function ReguaTIR({tirAtual,tirAlvo,height,tirMin,tirMax}){
         h2("circle",{cx:posX(tirAtual),cy:yMid,r:5,fill:corCirculo,stroke:"#1A1612",strokeWidth:1.5}),
         h2("text",{x:posX(tirAtual),y:yMid-9,fontSize:8,fill:corCirculo,textAnchor:"middle",fontFamily:"monospace",fontWeight:700},(tirAtual*100).toFixed(1)+"%")
       )
+    ),
+    // Label da moeda da TIR (canto inferior direito)
+    h2("div",{style:{fontSize:7.5,color:"#6A6050",fontFamily:"monospace",textAlign:"right",marginTop:1,letterSpacing:0.8,fontStyle:"italic"}},
+      "TIR real em "+moeda
     )
   );
 }
@@ -17815,7 +17820,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
               ),
               // Regua TIR
               h("div",{style:{marginBottom:tk.dadosIA?10:0}},
-                h(ReguaTIR,{tirAtual:tk.tirAtual,tirAlvo:tk.tirAlvo})
+                h(ReguaTIR,{tirAtual:tk.tirAtual,tirAlvo:tk.tirAlvo,moeda:tk.moeda})
               ),
               // Drivers retorno x risco + 3 metricas (so se IA carregou)
               tk.dadosIA?h("div",{style:{marginTop:10}},
@@ -17854,6 +17859,8 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         tickersAnalise.length>0?h("div",{style:{marginTop:18,padding:"10px 12px",background:"rgba(154,144,128,0.04)",borderLeft:"2px solid rgba(154,144,128,0.20)",borderRadius:"0 4px 4px 0",fontSize:8.5,color:"#7A7060",lineHeight:1.7}},
           h("div",{style:{marginBottom:3}},h("strong",{style:{color:"#9A9080"}},"Como interpretar: "),"o circulo colorido na regua marca a TIR atual no preco de mercado. A linha tracejada dourada marca a TIR alvo do ativo (parametro congelado). Verde = TIR atual >=3pp acima do alvo (oportunidade). Amarelo = na faixa do alvo. Vermelho = TIR atual >=2pp abaixo do alvo (caro)."),
           h("div",{style:{marginBottom:3}},h("strong",{style:{color:"#9A9080"}},"TIR atual = "),"Earnings Yield (lucro/preco) + crescimento real, ou DY (dividendo/preco) + crescimento real para FIIs/Infra/Agro. Recalculada localmente quando preco muda."),
+          h("div",{style:{marginBottom:3,padding:"6px 8px",background:"rgba(91,143,212,0.06)",borderLeft:"2px solid rgba(91,143,212,0.30)",borderRadius:"0 3px 3px 0",marginTop:6,marginLeft:-4}},
+            h("strong",{style:{color:"#5B8FD4"}},"\u{1F4A1} Sobre moedas: "),"a TIR e calculada na ",h("strong",{style:{color:"#9ABFE5"}},"moeda real do ativo")," (USD para acoes EUA, EUR para europeias, BRL para BR, JPY para japonesas, etc.). MSFT a 13% real em USD compete com a tabela calibrada em USD; WEGE3 a 13% real em BRL compete com a tabela em BRL. ",h("strong",{},"NAO somar diretamente"),": cada TIR e poder de compra na sua moeda local. Para um investidor brasileiro, o retorno realizado em BRL inclui ainda o efeito cambial (USD/EUR/JPY vs BRL ao longo do tempo) - isso e analisado em outras abas (Blindagem Cambial, Caixa Cambial)."),
           h("div",{},h("strong",{style:{color:"#9A9080"}},"Importante: "),"a regua e ferramenta de estudo, nao indicacao de compra. A IA usa dados publicos e estimativas baseadas no ultimo balanco - confirme nas fontes oficiais antes de aporte real.")
         ):null
       );
