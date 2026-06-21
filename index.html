@@ -18481,6 +18481,60 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         );
       };
 
+      // Helper render bloco Risco x Retorno (regua + 6 cards) para um ETF
+      const rrBlockETF=(tkSym)=>{
+        const dadosIA=riscoRetornoData&&riscoRetornoData.ativos?riscoRetornoData.ativos[tkSym]:null;
+        const portTk=port[tkSym]||{};
+        const precoAtual=typeof portTk.price==="number"?portTk.price:null;
+        const df={selic:typeof selicAtual==="number"?selicAtual:null};
+        if(dadosIA){
+          if(typeof dadosIA.lpa_normalizado==="number")df.lpa=dadosIA.lpa_normalizado;
+          if(typeof dadosIA.div_anual==="number")df.divAnual=dadosIA.div_anual;
+          if(typeof dadosIA.affo_por_acao==="number")df.affoPorAcao=dadosIA.affo_por_acao;
+        }
+        const tirInfo=calcTIRImplicita(tkSym,"treasuries",precoAtual,df,calibracoesCustom);
+        if(!dadosIA&&!tirInfo)return null;
+        const mPreco=(dadosIA&&Array.isArray(dadosIA.metricasPreco))?dadosIA.metricasPreco:[];
+        const mQual=(dadosIA&&Array.isArray(dadosIA.metricasQualidade))?dadosIA.metricasQualidade:[];
+        const corPreco=(nivel)=>nivel==="barato"?"#4CAF82":nivel==="caro"?"#E05252":nivel==="justo"?"#C8A96E":"#9A9080";
+        const corQual=(nivel)=>nivel==="forte"?"#4CAF82":nivel==="fraco"?"#E05252":nivel==="adequado"?"#C8A96E":"#9A9080";
+        return h("div",{style:{marginTop:10,paddingTop:10,borderTop:"1px solid rgba(255,255,255,0.07)"}},
+          h("div",{style:{fontSize:7.5,letterSpacing:1.5,color:"#7AA0B5",fontFamily:"monospace",fontWeight:700,marginBottom:6}},"\u25CF RISCO x RETORNO x VALUATION"),
+          // Regua TIR
+          tirInfo&&typeof tirInfo.tirAtual==="number"&&isFinite(tirInfo.tirAtual)?h(ReguaTIR,{tirAtual:tirInfo.tirAtual,tirAlvo:tirInfo.tirAlvo,moeda:"USD"}):h("div",{style:{fontSize:9,color:"#7A7060",fontStyle:"italic",padding:"6px 0"}},"Regua TIR aguardando dados da analise IA"),
+          // Cards PRECO
+          mPreco.length>0?h("div",{style:{marginTop:8}},
+            h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",letterSpacing:1.2,marginBottom:4,fontWeight:700}},"VALUATION / PRECO"),
+            h("div",{style:{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:5}},
+              mPreco.slice(0,3).map((m,k)=>{
+                const corM=corPreco(m.nivel);
+                return h("div",{key:"mp"+k,style:{background:"rgba(255,255,255,0.025)",border:"1px solid "+corM+"33",borderRadius:4,padding:"5px 7px"}},
+                  h("div",{style:{fontSize:7,color:"#9A9080",fontFamily:"monospace",letterSpacing:0.8,marginBottom:1}},m.label),
+                  h("div",{style:{fontSize:10.5,color:corM,fontFamily:"monospace",fontWeight:700,marginBottom:2}},m.valor),
+                  h("div",{style:{fontSize:7,color:"#7A7060",lineHeight:1.3,fontStyle:"italic"}},m.interpretacao)
+                );
+              })
+            )
+          ):null,
+          // Cards QUALIDADE
+          mQual.length>0?h("div",{style:{marginTop:6}},
+            h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",letterSpacing:1.2,marginBottom:4,fontWeight:700}},"QUALIDADE / RISCO"),
+            h("div",{style:{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:5}},
+              mQual.slice(0,3).map((m,k)=>{
+                const corM=corQual(m.nivel);
+                return h("div",{key:"mq"+k,style:{background:"rgba(255,255,255,0.025)",border:"1px solid "+corM+"33",borderRadius:4,padding:"5px 7px"}},
+                  h("div",{style:{fontSize:7,color:"#9A9080",fontFamily:"monospace",letterSpacing:0.8,marginBottom:1}},m.label),
+                  h("div",{style:{fontSize:10.5,color:corM,fontFamily:"monospace",fontWeight:700,marginBottom:2}},m.valor),
+                  h("div",{style:{fontSize:7,color:"#7A7060",lineHeight:1.3,fontStyle:"italic"}},m.interpretacao)
+                );
+              })
+            )
+          ):null,
+          // Sem dadosIA -> aviso
+          !dadosIA?h("div",{style:{marginTop:6,fontSize:8,color:"#E89060",fontStyle:"italic",padding:"6px 8px",background:"rgba(232,144,96,0.05)",borderRadius:4}},"\u26A0 Sem analise da IA para este ETF. Gere a analise na aba Risco x Retorno."):null
+        );
+      };
+
       content=h("div",{},
         // Header
         h("div",{style:{marginBottom:14}},
@@ -18532,7 +18586,8 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           barraPeso(wTLT,TRE_TARGET.TLT,"#E89060"),
           Math.abs(dvTLT)>2&&h("div",{style:{fontSize:8,color:dvTLT<0?"#E89060":"#E8C44A",marginTop:5,fontFamily:"monospace",fontStyle:"italic"}},
             dvTLT<0?"\u26A0 "+Math.abs(dvTLT).toFixed(1)+"% abaixo do alvo - priorizar nos proximos aportes":"\u26A0 +"+dvTLT.toFixed(1)+"% acima do alvo - reduzir nos proximos aportes"
-          )
+          ),
+          rrBlockETF("TLT")
         ),
 
         // ========== IEF ==========
@@ -18553,7 +18608,8 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           barraPeso(wIEF,TRE_TARGET.IEF,"#E8C44A"),
           Math.abs(dvIEF)>2&&h("div",{style:{fontSize:8,color:dvIEF<0?"#E89060":"#E8C44A",marginTop:5,fontFamily:"monospace",fontStyle:"italic"}},
             dvIEF<0?"\u26A0 "+Math.abs(dvIEF).toFixed(1)+"% abaixo do alvo - priorizar nos proximos aportes":"\u26A0 +"+dvIEF.toFixed(1)+"% acima do alvo - reduzir nos proximos aportes"
-          )
+          ),
+          rrBlockETF("IEF")
         ),
 
         // ========== VTIP ==========
@@ -18574,7 +18630,8 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           barraPeso(wVTIP,TRE_TARGET.VTIP,"#4CAF82"),
           Math.abs(dvVTIP)>2&&h("div",{style:{fontSize:8,color:dvVTIP<0?"#E89060":"#E8C44A",marginTop:5,fontFamily:"monospace",fontStyle:"italic"}},
             dvVTIP<0?"\u26A0 "+Math.abs(dvVTIP).toFixed(1)+"% abaixo do alvo - priorizar nos proximos aportes":"\u26A0 +"+dvVTIP.toFixed(1)+"% acima do alvo - reduzir nos proximos aportes"
-          )
+          ),
+          rrBlockETF("VTIP")
         ),
 
         // Quadro: Comportamento esperado em cenarios
@@ -18662,6 +18719,72 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
 
     // Calcula GAP relativo (mercado vs carrego)
     const gapPctTotal=totalCarrego>0?((totalNTNB-totalCarrego)/totalCarrego)*100:0;
+
+    // Helper render bloco RR para uma NTN-B (calculado localmente, sem IA)
+    const rrBlockNTNB=(ticker,taxaBruta,durMod)=>{
+      if(!taxaBruta||taxaBruta<=0)return h("div",{style:{marginTop:8,fontSize:9,color:"#7A7060",fontStyle:"italic"}},"Aguardando taxa de mercado para calcular metricas");
+      const taxaLiq=taxaLiquidaIR(taxaBruta);
+      // Bucket de duration
+      let bucket="curta",bucketLabel="Curta (<5a)";
+      if(durMod>=20){bucket="extra";bucketLabel="Extra-Longa (>20a)";}
+      else if(durMod>=12){bucket="longa";bucketLabel="Longa (12-20a)";}
+      else if(durMod>=5){bucket="media";bucketLabel="Media (5-12a)";}
+      // TIR alvo por bucket
+      const alvosPorBucket={curta:0.05,media:0.055,longa:0.06,extra:0.06};
+      const tirAlvo=alvosPorBucket[bucket]||0.055;
+      // PRECO: spread vs alvo / equivalente bruto / bucket de oportunidade
+      const spreadPP=(taxaLiq-tirAlvo)*100;
+      const nivelPreco=taxaLiq>=0.06?"barato":taxaLiq>=0.05?"justo":"caro";
+      const corPreco=(n)=>n==="barato"?"#4CAF82":n==="caro"?"#E05252":n==="justo"?"#C8A96E":"#9A9080";
+      // QUALIDADE: emitente / IR liquido / risco MtM (volatilidade pela duration)
+      const volMtMEst=durMod*0.6;
+      const nivelVol=durMod<5?"forte":durMod<20?"adequado":"fraco";
+      const corQual=(n)=>n==="forte"?"#4CAF82":n==="fraco"?"#E05252":n==="adequado"?"#C8A96E":"#9A9080";
+      return h("div",{style:{marginTop:10,paddingTop:10,borderTop:"1px solid rgba(200,169,110,0.10)"}},
+        h("div",{style:{fontSize:7.5,letterSpacing:1.5,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,marginBottom:6}},"\u25CF RISCO x RETORNO x VALUATION"),
+        h(ReguaTIR,{tirAtual:taxaLiq,tirAlvo:tirAlvo,moeda:"BRL real",tirMin:0,tirMax:0.10}),
+        h("div",{style:{marginTop:8}},
+          h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",letterSpacing:1.2,marginBottom:4,fontWeight:700}},"VALUATION / PRECO"),
+          h("div",{style:{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:5}},
+            h("div",{style:{background:"rgba(255,255,255,0.025)",border:"1px solid "+corPreco(nivelPreco)+"33",borderRadius:4,padding:"5px 7px"}},
+              h("div",{style:{fontSize:7,color:"#9A9080",fontFamily:"monospace",letterSpacing:0.8,marginBottom:1}},"Taxa real liq"),
+              h("div",{style:{fontSize:10.5,color:corPreco(nivelPreco),fontFamily:"monospace",fontWeight:700,marginBottom:2}},"IPCA+"+(taxaLiq*100).toFixed(2)+"%"),
+              h("div",{style:{fontSize:7,color:"#7A7060",lineHeight:1.3,fontStyle:"italic"}},"Bruto IPCA+"+(taxaBruta*100).toFixed(2)+"%")
+            ),
+            h("div",{style:{background:"rgba(255,255,255,0.025)",border:"1px solid "+corPreco(spreadPP>=0?"barato":spreadPP>=-0.5?"justo":"caro")+"33",borderRadius:4,padding:"5px 7px"}},
+              h("div",{style:{fontSize:7,color:"#9A9080",fontFamily:"monospace",letterSpacing:0.8,marginBottom:1}},"Spread vs alvo"),
+              h("div",{style:{fontSize:10.5,color:corPreco(spreadPP>=0?"barato":spreadPP>=-0.5?"justo":"caro"),fontFamily:"monospace",fontWeight:700,marginBottom:2}},(spreadPP>=0?"+":"")+spreadPP.toFixed(2)+"pp"),
+              h("div",{style:{fontSize:7,color:"#7A7060",lineHeight:1.3,fontStyle:"italic"}},"Alvo IPCA+"+(tirAlvo*100).toFixed(1)+"% liq")
+            ),
+            h("div",{style:{background:"rgba(255,255,255,0.025)",border:"1px solid "+corPreco(nivelPreco)+"33",borderRadius:4,padding:"5px 7px"}},
+              h("div",{style:{fontSize:7,color:"#9A9080",fontFamily:"monospace",letterSpacing:0.8,marginBottom:1}},"Janela"),
+              h("div",{style:{fontSize:10.5,color:corPreco(nivelPreco),fontFamily:"monospace",fontWeight:700,marginBottom:2}},nivelPreco==="barato"?"REFORCO":nivelPreco==="justo"?"NORMAL":"PISO 3%"),
+              h("div",{style:{fontSize:7,color:"#7A7060",lineHeight:1.3,fontStyle:"italic"}},taxaLiq>=0.06?"oportunidade":taxaLiq>=0.05?"aporte normal":"caro - so piso")
+            )
+          )
+        ),
+        h("div",{style:{marginTop:6}},
+          h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",letterSpacing:1.2,marginBottom:4,fontWeight:700}},"QUALIDADE / RISCO"),
+          h("div",{style:{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:5}},
+            h("div",{style:{background:"rgba(255,255,255,0.025)",border:"1px solid #4CAF8233",borderRadius:4,padding:"5px 7px"}},
+              h("div",{style:{fontSize:7,color:"#9A9080",fontFamily:"monospace",letterSpacing:0.8,marginBottom:1}},"Emitente"),
+              h("div",{style:{fontSize:10.5,color:"#4CAF82",fontFamily:"monospace",fontWeight:700,marginBottom:2}},"Tesouro BR"),
+              h("div",{style:{fontSize:7,color:"#7A7060",lineHeight:1.3,fontStyle:"italic"}},"risco soberano - menor risco local")
+            ),
+            h("div",{style:{background:"rgba(255,255,255,0.025)",border:"1px solid #4CAF8233",borderRadius:4,padding:"5px 7px"}},
+              h("div",{style:{fontSize:7,color:"#9A9080",fontFamily:"monospace",letterSpacing:0.8,marginBottom:1}},"Carrego"),
+              h("div",{style:{fontSize:10.5,color:"#4CAF82",fontFamily:"monospace",fontWeight:700,marginBottom:2}},(taxaLiq*100).toFixed(2)+"%+IPCA"),
+              h("div",{style:{fontSize:7,color:"#7A7060",lineHeight:1.3,fontStyle:"italic"}},"travado ate "+ticker.split("-")[1]+" se carregada")
+            ),
+            h("div",{style:{background:"rgba(255,255,255,0.025)",border:"1px solid "+corQual(nivelVol)+"33",borderRadius:4,padding:"5px 7px"}},
+              h("div",{style:{fontSize:7,color:"#9A9080",fontFamily:"monospace",letterSpacing:0.8,marginBottom:1}},"Vol MtM esp."),
+              h("div",{style:{fontSize:10.5,color:corQual(nivelVol),fontFamily:"monospace",fontWeight:700,marginBottom:2}},"~"+volMtMEst.toFixed(1)+"%a.a."),
+              h("div",{style:{fontSize:7,color:"#7A7060",lineHeight:1.3,fontStyle:"italic"}},bucketLabel+" - dur "+durMod.toFixed(1)+"a")
+            )
+          )
+        )
+      );
+    };
 
     content=h("div",{},
       // Header da aba
@@ -19121,11 +19244,12 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             tx&&tx.taxaBrutaVenda>0&&h("div",{style:{marginTop:6,paddingTop:6,borderTop:"1px solid rgba(200,169,110,0.10)",display:"flex",justifyContent:"space-between",fontSize:9,fontFamily:"monospace"}},
               h("span",{style:{color:"#7A7060"}},"Taxa de venda hoje:"),
               h("span",{style:{color:"#C8A96E",fontWeight:700}},"IPCA+"+(tx.taxaBrutaVenda*100).toFixed(2)+"% bruto / IPCA+"+(taxaLiquidaIR(tx.taxaBrutaVenda)*100).toFixed(2)+"% liq")
-            )
+            ),
+            // Bloco RR: regua + 6 cards (calculado localmente, sem IA)
+            tx&&tx.taxaBrutaVenda>0?rrBlockNTNB(t,tx.taxaBrutaVenda,calcDurationNTNB(anosAteVenc(venc),tx.taxaBrutaVenda)):null
           );
         })
       ),
-
       // Bloco explicativo
       h("div",{style:{marginTop:24,padding:"14px 16px",background:"rgba(0,0,0,0.15)",border:"1px solid rgba(200,169,110,0.15)",borderRadius:8}},
         h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:8}},"Estrategia desta classe"),
