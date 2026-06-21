@@ -1871,32 +1871,6 @@ async function callAPI(messages,key){
 }
 
 // SVG helpers
-function ChatPanel({chatM,setChatM,chatIn,setChatIn,chatL,sendChat,apR}){
-  const endRef=useRef(null);
-  useEffect(()=>{
-    if(endRef.current){
-      try{endRef.current.scrollIntoView({behavior:"smooth"});}catch(e){}
-    }
-  },[chatM,chatL]);
-  const SUGG=apR?["Por que esse ativo e nao outro da mesma classe?","Qual o principal risco desta alocacao?","O valuation esta realmente atrativo?","Ha ativo com melhor margem de seguranca?"]:["Como esta o valuation dos FIIs brasileiros?","Perspectiva para acoes brasileiras neste ciclo?","Como avaliar margem de seguranca em FIIs de papel?","Quando alocar mais em Bitcoin num portfolio patrimonial?"];
-  return h("div",{style:{display:"flex",flexDirection:"column",height:"calc(100vh - 160px)"}},
-    h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}},h("div",{},h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase"}},"Debate de Valuation"),h("div",{style:{fontSize:11,color:"#5A5550",marginTop:2}},apR?"Ultima analise carregada":"Portfolio atual como contexto")),chatM.length>0&&h("button",{onClick:()=>setChatM([]),style:{background:"none",border:"1px solid rgba(255,255,255,0.08)",borderRadius:5,color:"#5A5550",fontSize:10,padding:"4px 8px",cursor:"pointer"}},"limpar")),
-    h("div",{style:{flex:1,overflowY:"auto",paddingRight:4,marginBottom:10}},
-      chatM.length===0&&h("div",{},
-        h("div",{style:{padding:"12px",background:"rgba(200,169,110,0.05)",border:"1px solid rgba(200,169,110,0.15)",borderRadius:10,marginBottom:14,fontSize:12,color:"#B0A890",lineHeight:1.7}},"Ola. Sou seu analista Buy & Hold. Posso debater recomendacoes, discutir valuation e analisar riscos.",apR&&h("span",{style:{color:"#C8A96E"}}," Ultima analise carregada.")),
-        h("div",{style:{fontSize:9,color:"#5A5550",fontFamily:"monospace",textTransform:"uppercase",letterSpacing:2,marginBottom:8}},"Sugestoes"),
-        ...SUGG.map((s,i)=>h("button",{key:i,onClick:()=>sendChat(s),style:{display:"block",width:"100%",textAlign:"left",background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:8,padding:"9px 11px",color:"#9A9080",fontSize:12,cursor:"pointer",marginBottom:5,lineHeight:1.5}},s))
-      ),
-      ...chatM.map((m,i)=>h("div",{key:i,style:{display:"flex",flexDirection:"column",alignItems:m.role==="user"?"flex-end":"flex-start",marginBottom:10}},h("div",{style:{maxWidth:"88%",padding:"9px 12px",background:m.role==="user"?"rgba(200,169,110,0.12)":"rgba(255,255,255,0.04)",border:"1px solid "+(m.role==="user"?"rgba(200,169,110,0.25)":"rgba(255,255,255,0.07)"),borderRadius:m.role==="user"?"12px 12px 4px 12px":"12px 12px 12px 4px"}},h("div",{style:{fontSize:12,color:m.role==="user"?"#F0EAD8":"#C8C0B0",lineHeight:1.7,whiteSpace:"pre-wrap"}},m.content)),h("div",{style:{fontSize:9,color:"#3A3830",marginTop:2,fontFamily:"monospace"}},m.role==="user"?"voce":"analista"))),
-      chatL&&h("div",{className:"dp",style:{padding:"10px 12px",background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:"12px 12px 12px 4px",display:"inline-flex",marginBottom:10}},h("span"),h("span"),h("span")),
-      h("div",{ref:endRef})
-    ),
-    h("div",{style:{display:"flex",gap:8,alignItems:"flex-end",background:"rgba(0,0,0,0.3)",border:"1px solid rgba(200,169,110,0.2)",borderRadius:12,padding:"8px 10px"}},
-      h("textarea",{value:chatIn,onChange:e=>setChatIn(e.target.value),onKeyDown:e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();if(chatIn.trim())sendChat(chatIn);}},placeholder:"Questione uma recomendacao ou peca analise...",rows:2,style:{flex:1,background:"transparent",border:"none",outline:"none",color:"#F0EAD8",fontSize:13,resize:"none",lineHeight:1.5,maxHeight:80}}),
-      h("button",{onClick:()=>{if(chatIn.trim())sendChat(chatIn);},disabled:chatL||!chatIn.trim(),style:{flexShrink:0,width:36,height:36,background:chatL||!chatIn.trim()?"rgba(200,169,110,0.1)":"linear-gradient(135deg,#C8A96E,#A8893E)",border:"none",borderRadius:8,cursor:chatL||!chatIn.trim()?"not-allowed":"pointer",color:"#0D0F14",fontSize:16}},"^")
-    )
-  );
-}
 
 // Card compacto de Diversificacao para o Dashboard (replica do score + banda da aba Correlacao)
 function DiversificationCard({cw,setTab}){
@@ -5564,9 +5538,11 @@ function App(){
   const [juroECB,setJuroECB]=useState(null);  // ECB Deposit Facility Rate (FRED: ECBDFR)
   const [juroBoJ,setJuroBoJ]=useState(null);  // BoJ Call Money Rate (FRED: IRSTCI01JPM156N)
   const [aErr,setAErr]=useState("");
-  const [chatM,setChatM]=useState([]);
-  const [chatIn,setChatIn]=useState("");
-  const [chatL,setChatL]=useState(false);
+  // Debate de aporte (chat inline)
+  const [debateAporteOpen,setDebateAporteOpen]=useState(false);
+  const [debateMsgs,setDebateMsgs]=useState([]);
+  const [debateInput,setDebateInput]=useState("");
+  const [debateLoad,setDebateLoad]=useState(false);
   // Projecao
   const [projAporte,setProjAporte]=useState(20000);
   const [projModo,setProjModo]=useState("real");// real ou nominal
@@ -8302,18 +8278,47 @@ function App(){
     atualizaHistMensal(novoSnap);
   },[hasPos,total,cw,atualizaHistMensal]);
 
-  const sendChat=async msg=>{
-    if(!msg.trim())return;
-    setChatM(prev=>[...prev,{role:"user",content:msg}]);setChatIn("");setChatL(true);
-    const portCtx=Object.entries(port).filter(([t,p])=>pv(t,p,ccy)>0).map(([t,p])=>({t,cls:cls[t],v:Math.round(pv(t,p,ccy))})).sort((a,b)=>b.v-a.v).slice(0,10);
-    const allocCtx=apR?{valor:apR.apValue,resumo:apR.resumo}:null;
-    const h8=chatM.slice(-8);
-    const prompt="Analista patrimonial senior Buy&Hold aposentadoria. FILOSOFIA DO INVESTIDOR (respeitar integralmente): Quality at a reasonable price. Foco primario em QUALIDADE dos ativos (vantagem competitiva, gestao, geracao de caixa). Aceita pagar preco justo por excelencia. Receia value trap. Dollar cost averaging - tempo dilui pontos de entrada, nao espera minima absoluta. Nunca pagar preco claramente acima de fundamentos. PORTFOLIO:"+JSON.stringify(portCtx)+(allocCtx?"\\nULTIMA ANALISE:"+JSON.stringify(allocCtx):".")+"\\nResponda direto, max 4 paragrafos, com olhar critico tanto para descontos exagerados (value trap?) quanto para premios excessivos (bolha?).\\nHistorico:\\n"+h8.map(m=>(m.role==="user"?"Investidor: ":"Analista: ")+m.content).join("\\n")+"\\nPergunta: "+msg;
+  // ===== Debate de Aporte: chat inline para questionar a IA sobre o aporte gerado =====
+  const sendDebateAporte=async msg=>{
+    if(!msg.trim()||!apR)return;
+    setDebateMsgs(prev=>[...prev,{role:"user",content:msg}]);
+    setDebateInput("");
+    setDebateLoad(true);
     try{
-      const txt=await callAPI([{role:"user",content:prompt}],apiKey);
-      setChatM(prev=>[...prev,{role:"assistant",content:txt}]);
-    }catch(e){setChatM(prev=>[...prev,{role:"assistant",content:"Erro: "+e.message}]);}
-    setChatL(false);
+      // Contexto compacto do aporte: classes + ativos do ranking
+      const ctxAporte={
+        valor:apR.apValue,
+        resumo:(apR.resumo||"").slice(0,2500),
+        classes:(apR.classes||[]).map(c=>({
+          id:c.id,pct:c.pct,valor:c.valor,
+          ativos:(c.ativos||[]).map(a=>({
+            rank:a.rank,ticker:a.ticker,valor:a.valor,score:a.score,
+            metricas:a.metricas,porque:a.porque_essa_posicao,
+            tir:a.tir_implicita,tirMin:a.tir_minima_exigida,
+            adequacao:a.adequacao_risco_retorno,margem:a.margem_seguranca
+          }))
+        }))
+      };
+      // Portfolio resumido (top 10 posicoes)
+      const portCtx=Object.entries(port).filter(([t,p])=>pv(t,p,ccy)>0).map(([t,p])=>({t,cls:cls[t],v:Math.round(pv(t,p,ccy))})).sort((a,b)=>b.v-a.v).slice(0,10);
+      // Historico do chat (max 8 ultimas msgs)
+      const h8=debateMsgs.slice(-8);
+      const histTxt=h8.map(m=>(m.role==="user"?"Investidor: ":"Analista: ")+m.content).join("\n");
+      const prompt="Voce e o analista B&H que gerou o aporte abaixo. O investidor (filosofia Munger/Terry Smith: quality at a reasonable price; foco primario em qualidade; receia value trap; nunca paga claramente acima de fundamentos; aceita preco justo por excelencia) quer DEBATER a recomendacao. Defenda suas escolhas com argumentos tecnicos OU revise se a critica for valida - seja honesto. Responda em portugues, direto, max 3-4 paragrafos, sem repetir o aporte inteiro - foque no ponto questionado.\n\nAPORTE GERADO:\n"+JSON.stringify(ctxAporte)+"\n\nPORTFOLIO ATUAL (top 10):\n"+JSON.stringify(portCtx)+"\n\n"+(histTxt?"HISTORICO DA CONVERSA:\n"+histTxt+"\n\n":"")+"PERGUNTA DO INVESTIDOR: "+msg;
+      const resp=await fetch("https://api.anthropic.com/v1/messages",{
+        method:"POST",
+        headers:{"x-api-key":apiKey,"anthropic-version":"2023-06-01","content-type":"application/json","anthropic-dangerous-direct-browser-access":"true"},
+        body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:1500,messages:[{role:"user",content:prompt}]})
+      });
+      const data=await resp.json();
+      if(data.error)throw new Error(data.error.message||"Erro API");
+      registrarUsoAPI("claude-sonnet-4-6",data.usage,"Debate Aporte");
+      const txt=(data.content||[]).filter(b=>b.type==="text").map(b=>b.text).join("\n").trim()||"(sem resposta)";
+      setDebateMsgs(prev=>[...prev,{role:"assistant",content:txt}]);
+    }catch(e){
+      setDebateMsgs(prev=>[...prev,{role:"assistant",content:"Erro: "+(e.message||String(e))}]);
+    }
+    setDebateLoad(false);
   };
 
   // ===== Helper: registra uma chamada de API e acumula custo da sessao =====
@@ -9674,7 +9679,7 @@ Responda APENAS com o texto do insight, sem prefacio ou comentarios meta.`;
 
   // TABS
   const tabs=h("div",{style:{display:"flex",borderBottom:"1px solid rgba(255,255,255,0.06)",marginBottom:18,marginTop:10,overflowX:"auto"}},
-    ...[{id:"dashboard",label:"Dashboard"},{id:"correlacao",label:"Correlação"},{id:"positions",label:"Posições"},{id:"aporte",label:"Aporte"},{id:"riscoretorno",label:"Risco x Retorno"},{id:"caixacambial",label:"Caixa Cambial"},{id:"chat",label:"Analise"},{id:"mpt",label:"MPT"},{id:"aw",label:"All Weather"},{id:"yale",label:"Yale"},{id:"stress",label:"Stress Test"},{id:"projecao",label:"Projecoes"},{id:"renda",label:"Renda"},{id:"btcouro",label:"BTC/Ouro"},{id:"treasuries",label:"Treasuries"},{id:"tesouro",label:"Tesouro Direto"},{id:"history",label:"Historico"}].map(t=>
+    ...[{id:"dashboard",label:"Dashboard"},{id:"correlacao",label:"Correlação"},{id:"positions",label:"Posições"},{id:"aporte",label:"Aporte"},{id:"riscoretorno",label:"Risco x Retorno"},{id:"caixacambial",label:"Caixa Cambial"},{id:"mpt",label:"MPT"},{id:"aw",label:"All Weather"},{id:"yale",label:"Yale"},{id:"stress",label:"Stress Test"},{id:"projecao",label:"Projecoes"},{id:"renda",label:"Renda"},{id:"btcouro",label:"BTC/Ouro"},{id:"treasuries",label:"Treasuries"},{id:"tesouro",label:"Tesouro Direto"},{id:"history",label:"Historico"}].map(t=>
       h("button",{key:t.id,onClick:()=>{setTab(t.id);if(t.id!=="aporte"){setApR(null);setStep("r");}},style:{background:"none",border:"none",borderBottom:tab===t.id?"2px solid #C8A96E":"2px solid transparent",color:tab===t.id?"#C8A96E":"#8A8070",padding:"6px 10px",cursor:"pointer",fontSize:12,marginBottom:-1,flexShrink:0,whiteSpace:"nowrap"}},t.label)
     ),
     h("button",{onClick:()=>{
@@ -12101,14 +12106,30 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             )
           )
         ),
-        // Botao para debater o aporte na aba Analise
-        h("button",{onClick:()=>{
-          setTab("analysis");
-          // Injeta uma pergunta inicial com contexto do aporte
-          const ticks=(apR.classes||[]).flatMap(c=>(c.ativos||[]).map(a=>a.ticker)).filter(Boolean).slice(0,8);
-          const pergunta="Acabei de gerar uma analise de aporte de "+fB(apR.apValue)+". Os ativos sugeridos foram: "+ticks.join(", ")+". Gostaria de debater alguns pontos: voce sustenta as escolhas frente ao cenario macro atual? Algum ticker poderia ser substituido por outro com melhor margem de seguranca?";
-          setChatIn(pergunta);
-        },style:{width:"100%",padding:"11px",background:"linear-gradient(135deg,rgba(91,143,212,0.15),rgba(91,143,212,0.05))",border:"1px solid rgba(91,143,212,0.4)",borderRadius:7,color:"#5B8FD4",fontSize:11,fontWeight:700,letterSpacing:2,textTransform:"uppercase",cursor:"pointer",marginBottom:10,fontFamily:"monospace"}},"Debater este aporte com a IA"),
+        // BOTAO: abrir/fechar chat de debate com a IA
+        h("button",{onClick:()=>setDebateAporteOpen(o=>!o),style:{width:"100%",padding:"11px",background:debateAporteOpen?"linear-gradient(135deg,rgba(91,143,212,0.25),rgba(91,143,212,0.10))":"linear-gradient(135deg,rgba(91,143,212,0.12),rgba(91,143,212,0.04))",border:"1px solid rgba(91,143,212,0.4)",borderRadius:7,color:"#5B8FD4",fontSize:11,fontWeight:700,letterSpacing:2,textTransform:"uppercase",cursor:"pointer",marginBottom:10,fontFamily:"monospace"}},debateAporteOpen?"\u25BC Fechar chat":"\u{1F4AC} Debater este aporte com a IA"),
+        // CHAT INLINE: aparece quando aberto
+        debateAporteOpen?h("div",{style:{background:"rgba(0,0,0,0.25)",border:"1px solid rgba(91,143,212,0.3)",borderRadius:8,padding:"12px",marginBottom:10,display:"flex",flexDirection:"column",gap:8}},
+          // Mensagens
+          debateMsgs.length===0?h("div",{style:{fontSize:10,color:"#7A7060",fontStyle:"italic",padding:"6px 4px",lineHeight:1.6}},
+            "Questione qualquer parte do aporte. Sugestoes: 'Por que MSFT lidera em vez de GOOGL?', 'BBAS3 nao tem value trap?', 'A divisao em FII faz sentido com NTN-B alta?', 'Posso reduzir Selic e aumentar EUA?'"
+          ):h("div",{style:{maxHeight:340,overflowY:"auto",paddingRight:4,display:"flex",flexDirection:"column",gap:8}},
+            debateMsgs.map((m,i)=>h("div",{key:i,style:{display:"flex",flexDirection:"column",alignItems:m.role==="user"?"flex-end":"flex-start"}},
+              h("div",{style:{maxWidth:"92%",padding:"8px 11px",background:m.role==="user"?"rgba(91,143,212,0.12)":"rgba(255,255,255,0.04)",border:"1px solid "+(m.role==="user"?"rgba(91,143,212,0.30)":"rgba(255,255,255,0.08)"),borderRadius:m.role==="user"?"10px 10px 3px 10px":"10px 10px 10px 3px"}},
+                h("div",{style:{fontSize:11,color:m.role==="user"?"#C8D8E8":"#C8C0B0",lineHeight:1.65,whiteSpace:"pre-wrap"}},m.content)
+              ),
+              h("div",{style:{fontSize:8,color:"#3A3830",marginTop:2,fontFamily:"monospace",letterSpacing:1}},m.role==="user"?"voce":"analista")
+            )),
+            debateLoad?h("div",{style:{padding:"8px 11px",background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:"10px 10px 10px 3px",display:"inline-block",alignSelf:"flex-start"}},h("span",{style:{fontSize:10,color:"#7A7060",fontStyle:"italic"}},"analisando...")):null
+          ),
+          // Input
+          h("div",{style:{display:"flex",gap:6,alignItems:"flex-end",background:"rgba(0,0,0,0.3)",border:"1px solid rgba(91,143,212,0.25)",borderRadius:8,padding:"6px 8px"}},
+            h("textarea",{value:debateInput,onChange:e=>setDebateInput(e.target.value),onKeyDown:e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();if(debateInput.trim()&&!debateLoad)sendDebateAporte(debateInput);}},placeholder:apiKey?"Questione uma escolha, peca alternativa, debata o racional...":"Configure API key no botao API para usar",rows:2,disabled:!apiKey,style:{flex:1,background:"transparent",border:"none",outline:"none",color:"#F0EAD8",fontSize:12,resize:"none",lineHeight:1.5,maxHeight:80,fontFamily:"inherit"}}),
+            h("button",{onClick:()=>{if(debateInput.trim()&&!debateLoad)sendDebateAporte(debateInput);},disabled:debateLoad||!debateInput.trim()||!apiKey,style:{flexShrink:0,width:32,height:32,background:debateLoad||!debateInput.trim()||!apiKey?"rgba(91,143,212,0.15)":"linear-gradient(135deg,#5B8FD4,#3D70B8)",border:"none",borderRadius:6,cursor:debateLoad||!debateInput.trim()||!apiKey?"not-allowed":"pointer",color:"#FFF",fontSize:14,fontWeight:700}},"\u25B6")
+          ),
+          // Limpar conversa
+          debateMsgs.length>0?h("div",{style:{display:"flex",justifyContent:"flex-end"}},h("button",{onClick:()=>setDebateMsgs([]),style:{background:"none",border:"1px solid rgba(255,255,255,0.10)",borderRadius:4,color:"#5A5550",fontSize:9,padding:"3px 7px",cursor:"pointer",fontFamily:"monospace",letterSpacing:1}},"limpar conversa")):null
+        ):null,
         h("div",{style:{background:"rgba(200,169,110,0.04)",border:"1px solid rgba(200,169,110,0.2)",borderRadius:8,padding:"12px",marginBottom:10,textAlign:"center"}},h("div",{style:{fontSize:11,color:"#B0A890",marginBottom:9,lineHeight:1.6}},"Executou o aporte? Registre as compras e o portfolio se atualiza."),h("button",{onClick:()=>setStep("confirm"),style:{width:"100%",padding:"11px",background:"linear-gradient(135deg,#C8A96E,#A8893E)",border:"none",borderRadius:6,color:"#0D0F14",fontSize:12,fontWeight:700,letterSpacing:2,textTransform:"uppercase",cursor:"pointer"}},"Registrar compras executadas"))
       );
     } else {
@@ -12181,11 +12202,6 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         h("button",{onClick:genAlloc,disabled:loadA,style:{width:"100%",padding:"13px",background:loadA?"#2A2820":"linear-gradient(135deg,#C8A96E,#A8893E)",border:loadA?"1px solid #C8A96E33":"none",borderRadius:9,color:loadA?"#C8A96E":"#0D0F14",fontSize:12,fontWeight:700,letterSpacing:3,textTransform:"uppercase",cursor:loadA?"not-allowed":"pointer"}},loadA?"Analisando...":"Gerar analise fundamentalista")
       );
     }
-  }
-
-  // CHAT
-  if(tab==="chat"){
-    content=h(ChatPanel,{chatM,setChatM,chatIn,setChatIn,chatL,sendChat,apR});
   }
 
   // MPT (Modern Portfolio Theory)
