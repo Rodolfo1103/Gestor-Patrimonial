@@ -8657,18 +8657,24 @@ function App(){
             }
           });
           log("Batch "+(bi+1)+": "+aceitos+" aceitos ("+(aceitos-comFallback-semDados)+" perfeitos, "+comFallback+" com fallback leve, "+semDados+" com muitas lacunas)");
-          // Salva progressivamente apos cada batch (feedback em tempo real)
-          // CRITICO: usa forma FUNCIONAL do setState para garantir que cada batch leia o estado mais recente
-          // (closure direta em riscoRetornoData nao atualiza entre batches em uma mesma execucao - bug conhecido React)
+          // Salva INCREMENTAL apos cada batch: garante que se a analise cair no meio, dados nao se percam
+          // Usa rrdata-v1 (chave dedicada nao criptografada) para evitar bug do stack overflow no aesEncrypt
           const versaoAtual=Object.keys(port||{}).sort().join("|");
-          setRiscoRetornoData(prev=>{
-            const ativosAnteriores=(prev&&prev.ativos)||{};
-            return {
-              ts:Date.now(),
-              versaoPortfolio:versaoAtual,
-              ativos:{...ativosAnteriores,...ativosObj}
-            };
-          });
+          let ativosLSBatch={};
+          try{
+            const raw=localStorage.getItem("rrdata-v1");
+            if(raw){
+              const parsed=JSON.parse(raw);
+              if(parsed&&parsed.ativos)ativosLSBatch=parsed.ativos;
+            }
+          }catch(eLB){}
+          const mergeBatch={...ativosLSBatch,...ativosObj};
+          const estadoBatch={ts:Date.now(),versaoPortfolio:versaoAtual,ativos:mergeBatch};
+          try{
+            localStorage.setItem("rrdata-v1",JSON.stringify(estadoBatch));
+            log("  Batch "+(bi+1)+" salvo em rrdata-v1 ("+Object.keys(mergeBatch).length+" tickers acumulados)");
+          }catch(ePB){log("  Batch "+(bi+1)+" erro salvar: "+(ePB.message||ePB));}
+          setRiscoRetornoData(estadoBatch);
         }catch(e){
           log("Batch "+(bi+1)+" EXCEPTION: "+(e&&e.message?e.message:String(e)));
           // continua para proximo batch
