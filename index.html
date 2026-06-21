@@ -1141,21 +1141,32 @@ function calcTIRImplicita(ticker,classeId,precoAtual,dadosFundamentais,calibraco
     }
   }
   
+  // Filtro de sanidade: TIR > 40% indica dado fundamental absurdo da IA (lpa/divAnual confundidos com outros valores)
+  // ou TIR negativa: ativo nao remunera. Marca como "inconsistente" para nao poluir a regua.
+  let tirInconsistente=false;
+  if(tirAtual!==null){
+    if(tirAtual>0.40||tirAtual<-0.10){
+      tirInconsistente=true;
+      tirAtual=null;// invalida o calculo
+    }
+  }
+  
   // Margem de seguranca: quanto a TIR atual supera (positivo) ou fica abaixo (negativo) do alvo
   const margemSeg=(tirAtual!==null&&tirAlvo!==null)?(tirAtual-tirAlvo):null;
-  return {tirAtual,tirAlvo,margemSeg,parametros:p,fonte:ef.fonte};
+  return {tirAtual,tirAlvo,margemSeg,parametros:p,fonte:ef.fonte,tirInconsistente};
 }
 
 // Componente ReguaTIR - barra horizontal SVG com marca TIR alvo e atual
-// Props: {tirAtual, tirAlvo, height (default 28), tirMin (default 0), tirMax (default 0.25), moeda (default 'BRL')}
+// Props: {tirAtual, tirAlvo, height (default 64), tirMin (default 0), tirMax (default 0.25), moeda (default 'BRL')}
 function ReguaTIR({tirAtual,tirAlvo,height,tirMin,tirMax,moeda}){
   const h2=window.React.createElement;
-  height=height||32;
+  // Altura aumentada para acomodar labels com folga
+  height=height||64;
   tirMin=typeof tirMin==="number"?tirMin:0;
   tirMax=typeof tirMax==="number"?tirMax:0.25;
   moeda=moeda||"BRL";
-  const w=300;// largura logica do SVG
-  const padX=10;
+  const w=300;
+  const padX=14;
   const innerW=w-2*padX;
   
   // Posicao em pixels para uma TIR
@@ -1165,54 +1176,73 @@ function ReguaTIR({tirAtual,tirAlvo,height,tirMin,tirMax,moeda}){
   };
   
   // Cor: TIR atual vs alvo
-  let corCirculo="#9A9080";
+  let corAtual="#9A9080";
   if(tirAtual!==null&&tirAlvo!==null){
     const delta=tirAtual-tirAlvo;
-    if(delta>=0.03)corCirculo="#4CAF82";// muito acima do alvo (oportunidade)
-    else if(delta>=0)corCirculo="#8FBE3F";// acima do alvo
-    else if(delta>=-0.02)corCirculo="#E8C44A";// proximo do alvo (amarelo)
-    else if(delta>=-0.05)corCirculo="#E89060";// abaixo do alvo (laranja)
-    else corCirculo="#E05252";// muito abaixo (vermelho)
+    if(delta>=0.03)corAtual="#4CAF82";
+    else if(delta>=0)corAtual="#8FBE3F";
+    else if(delta>=-0.02)corAtual="#E8C44A";
+    else if(delta>=-0.05)corAtual="#E89060";
+    else corAtual="#E05252";
   }
   
-  const yMid=height/2;
+  // Layout vertical:
+  // y=8: label "TIR ATUAL X.X%" + seta apontando pra baixo
+  // y=22: ponta da seta
+  // y=26-38: barra (12px alta)
+  // y=42-58: marca alvo e ticks
+  // y=60: label moeda
+  const yBarTop=26;
+  const yBarBottom=38;
+  const yBarMid=(yBarTop+yBarBottom)/2;
   
   return h2("div",{style:{width:"100%",position:"relative"}},
-    h2("svg",{viewBox:"0 0 "+w+" "+height,width:"100%",height:height,preserveAspectRatio:"none",style:{display:"block"}},
-      // Gradient definicoes
+    h2("svg",{viewBox:"0 0 "+w+" "+height,width:"100%",height:height,preserveAspectRatio:"xMidYMid meet",style:{display:"block",overflow:"visible"}},
       h2("defs",{},
         h2("linearGradient",{id:"reguaGrad",x1:"0%",y1:"0%",x2:"100%",y2:"0%"},
-          h2("stop",{offset:"0%",stopColor:"#E05252",stopOpacity:0.30}),
-          h2("stop",{offset:"30%",stopColor:"#E89060",stopOpacity:0.25}),
-          h2("stop",{offset:"50%",stopColor:"#E8C44A",stopOpacity:0.25}),
-          h2("stop",{offset:"70%",stopColor:"#8FBE3F",stopOpacity:0.25}),
-          h2("stop",{offset:"100%",stopColor:"#4CAF82",stopOpacity:0.30})
+          h2("stop",{offset:"0%",stopColor:"#E05252",stopOpacity:0.35}),
+          h2("stop",{offset:"30%",stopColor:"#E89060",stopOpacity:0.30}),
+          h2("stop",{offset:"50%",stopColor:"#E8C44A",stopOpacity:0.30}),
+          h2("stop",{offset:"70%",stopColor:"#8FBE3F",stopOpacity:0.30}),
+          h2("stop",{offset:"100%",stopColor:"#4CAF82",stopOpacity:0.35})
         )
       ),
       // Barra de fundo com gradiente
-      h2("rect",{x:padX,y:yMid-4,width:innerW,height:8,rx:4,fill:"url(#reguaGrad)",stroke:"rgba(255,255,255,0.08)",strokeWidth:0.5}),
-      // Marcas de referencia (ticks): 5%, 10%, 15%, 20%
+      h2("rect",{x:padX,y:yBarTop,width:innerW,height:yBarBottom-yBarTop,rx:6,fill:"url(#reguaGrad)",stroke:"rgba(255,255,255,0.10)",strokeWidth:0.6}),
+      // Ticks 5/10/15/20%
       [0.05,0.10,0.15,0.20].map((tick,i)=>{
         if(tick<tirMin||tick>tirMax)return null;
         const x=posX(tick);
         return h2("g",{key:"tick-"+i},
-          h2("line",{x1:x,y1:yMid+4,x2:x,y2:yMid+8,stroke:"rgba(255,255,255,0.20)",strokeWidth:0.6}),
-          h2("text",{x:x,y:yMid+18,fontSize:7,fill:"#7A7060",textAnchor:"middle",fontFamily:"monospace"},(tick*100).toFixed(0)+"%")
+          h2("line",{x1:x,y1:yBarBottom,x2:x,y2:yBarBottom+3,stroke:"rgba(255,255,255,0.22)",strokeWidth:0.7}),
+          h2("text",{x:x,y:yBarBottom+12,fontSize:9,fill:"#8A8070",textAnchor:"middle",fontFamily:"Georgia,serif"},(tick*100).toFixed(0)+"%")
         );
       }),
-      // Marca TIR alvo (linha vertical dourada solida)
+      // Marca TIR alvo (linha vertical tracejada dourada + label abaixo)
       tirAlvo!==null&&h2("g",{},
-        h2("line",{x1:posX(tirAlvo),y1:yMid-10,x2:posX(tirAlvo),y2:yMid+6,stroke:"#C8A96E",strokeWidth:2,strokeDasharray:"3,2"}),
-        h2("text",{x:posX(tirAlvo),y:yMid-12,fontSize:7,fill:"#C8A96E",textAnchor:"middle",fontFamily:"monospace",fontWeight:700},"ALVO "+(tirAlvo*100).toFixed(1)+"%")
+        h2("line",{x1:posX(tirAlvo),y1:yBarTop-2,x2:posX(tirAlvo),y2:yBarBottom+2,stroke:"#C8A96E",strokeWidth:2,strokeDasharray:"3,2",opacity:0.95}),
+        h2("text",{x:posX(tirAlvo),y:height-2,fontSize:9,fill:"#C8A96E",textAnchor:"middle",fontFamily:"Georgia,serif",fontWeight:700,fontStyle:"italic"},"alvo "+(tirAlvo*100).toFixed(1)+"%")
       ),
-      // Marca TIR atual (circulo grande colorido)
-      tirAtual!==null&&h2("g",{},
-        h2("circle",{cx:posX(tirAtual),cy:yMid,r:5,fill:corCirculo,stroke:"#1A1612",strokeWidth:1.5}),
-        h2("text",{x:posX(tirAtual),y:yMid-9,fontSize:8,fill:corCirculo,textAnchor:"middle",fontFamily:"monospace",fontWeight:700},(tirAtual*100).toFixed(1)+"%")
-      )
+      // Marca TIR atual (label + seta + circulo)
+      tirAtual!==null&&(function(){
+        const xa=posX(tirAtual);
+        // Decide se label vai a esquerda ou direita pra nao colidir com bordas
+        const labelX=xa<60?xa+20:(xa>w-60?xa-20:xa);
+        const labelAnchor=xa<60?"start":(xa>w-60?"end":"middle");
+        return h2("g",{key:"atual"},
+          // Label superior "TIR ATUAL X.X%"
+          h2("text",{x:labelX,y:9,fontSize:9,fill:corAtual,textAnchor:labelAnchor,fontFamily:"Georgia,serif",fontWeight:700,letterSpacing:0.3},"TIR atual "+(tirAtual*100).toFixed(1)+"%"),
+          // Seta vertical apontando do label ate o circulo na barra
+          h2("line",{x1:xa,y1:13,x2:xa,y2:yBarTop-3,stroke:corAtual,strokeWidth:1.5,opacity:0.85}),
+          // Ponta da seta (triangulo)
+          h2("polygon",{points:(xa-3)+","+(yBarTop-5)+" "+(xa+3)+","+(yBarTop-5)+" "+xa+","+(yBarTop-1),fill:corAtual}),
+          // Circulo grande na barra
+          h2("circle",{cx:xa,cy:yBarMid,r:6,fill:corAtual,stroke:"#1A1612",strokeWidth:2})
+        );
+      })()
     ),
-    // Label da moeda da TIR (canto inferior direito)
-    h2("div",{style:{fontSize:7.5,color:"#6A6050",fontFamily:"monospace",textAlign:"right",marginTop:1,letterSpacing:0.8,fontStyle:"italic"}},
+    // Label da moeda da TIR (abaixo do SVG, alinhado direita)
+    h2("div",{style:{fontSize:8.5,color:"#7A7060",fontFamily:"Georgia,serif",textAlign:"right",marginTop:2,fontStyle:"italic"}},
       "TIR real em "+moeda
     )
   );
@@ -8272,16 +8302,17 @@ function App(){
       const systemPrompt="Voce e um analista fundamentalista B&H rigoroso. Para cada ticker da lista, fornecer dados fundamentais OBJETIVOS + 2-3 metricas observaveis + drivers de retorno e risco. Retornar VIA TOOL submit_risco_retorno.\n\n"+
         "REGRAS CRITICAS:\n"+
         "1) Para CADA ticker fornecido neste batch, retornar uma entrada COMPLETA. NAO PULAR NENHUM ticker.\n"+
-        "2) DADOS FUNDAMENTAIS DEVEM SER ESTIMATIVAS ANCORADAS NO ULTIMO BALANCO PUBLICO conhecido. Indicar 'dataReferencia' (ano-mes). NUNCA inventar valores - se nao tem conhecimento real, faca estimativa conservadora baseada em pares/setor e mencione na observacao.\n"+
-        "3) Para ACOES: lpa_normalizado = lucro por acao MID-CYCLE (NAO extrapolar pico, NAO usar minimo - normalizar com media 5 anos para ciclicas, ou TTM para defensivas).\n"+
-        "4) Para FIIs: div_anual = dividendo anualizado (12m TTM, soma dos rendimentos pagos).\n"+
-        "5) Para REITs: affo_por_acao = AFFO por acao TTM.\n"+
-        "6) Para INFRA/AGRO (Brasil): div_anual = dividendo anualizado.\n"+
-        "7) 2-3 metricas: as MAIS RELEVANTES para a classe. Ex Acoes BR: P/L, P/VPA, DY. Ex FII: P/VP, DY 12m, Spread sobre NTN-B liq. Ex REIT: P/AFFO, DY, Spread sobre Treasury 10Y.\n"+
-        "8) Drivers retorno: 2-3 itens curtos (max 80 chars cada).\n"+
-        "9) Drivers risco: 2-3 itens curtos (max 80 chars cada).\n"+
-        "10) NIVEL de cada metrica: 'barato', 'justo', 'caro' ou 'neutro' - relativo a media historica/pares.\n"+
-        "11) IMPORTANTE: o batch tem no maximo 12 tickers - retorne TODOS no array ativos.\n";
+        "2) DADOS FUNDAMENTAIS DEVEM SER ESTIMATIVAS ANCORADAS NO ULTIMO BALANCO PUBLICO conhecido. Indicar 'dataReferencia' (ano-mes).\n"+
+        "3) Para ACOES (acoes_br, acoes_eua, acoes_mundo): lpa_normalizado = LUCRO POR ACAO em moeda nativa, MID-CYCLE. EXEMPLO: BBAS3 lpa_normalizado ~5.5 BRL (NAO confundir com lucro total da empresa em bilhoes). MSFT lpa_normalizado ~13 USD. WEGE3 lpa_normalizado ~1.85 BRL. Se voce nao tem certeza do LPA real, faca estimativa conservadora.\n"+
+        "4) Para FIIs: div_anual = DIVIDENDO ANUALIZADO POR COTA em BRL (soma dos rendimentos pagos nos ultimos 12m). EXEMPLO: HGLG11 div_anual ~10 BRL (NAO confundir com VPA ou valor da cota). ALZR11 div_anual ~7 BRL. RECR11 div_anual ~12 BRL. NUNCA confunda div_anual com VPA ou cotacao.\n"+
+        "5) Para REITs: affo_por_acao = AFFO POR ACAO em USD TTM. EXEMPLO: O affo_por_acao ~4.20 USD. NAO confundir com FFO ou EPS.\n"+
+        "6) Para INFRA/AGRO (Brasil): div_anual = DIVIDENDO ANUALIZADO POR COTA em BRL.\n"+
+        "7) SANIDADE OBRIGATORIA antes de retornar: para cada ticker, CALCULE mentalmente DY = div_anual/precoAtual ou EY = lpa/precoAtual. Se o resultado for >25%, voce ESTA ERRADO - revise os valores. DYs reais de FIIs estao entre 7-15%. EYs reais de acoes estao entre 3-15%. Se voce nao consegue ancorar em valor plausivel, use a observacao para indicar 'estimativa de baixa confianca' mas NUNCA forneca valor que gera DY/EY absurdo.\n"+
+        "8) 2-3 metricas: as MAIS RELEVANTES para a classe. Ex Acoes BR: P/L, P/VPA, DY. Ex FII: P/VP, DY 12m, Spread sobre NTN-B liq. Ex REIT: P/AFFO, DY, Spread sobre Treasury 10Y.\n"+
+        "9) Drivers retorno: 2-3 itens curtos (max 80 chars cada).\n"+
+        "10) Drivers risco: 2-3 itens curtos (max 80 chars cada).\n"+
+        "11) NIVEL de cada metrica: 'barato', 'justo', 'caro' ou 'neutro' - relativo a media historica/pares.\n"+
+        "12) IMPORTANTE: o batch tem no maximo 12 tickers - retorne TODOS no array ativos.\n";
       // Processa em batches de 12 tickers para evitar truncamento por max_tokens
       const BATCH_SIZE=12;
       const ativosObj={};
@@ -17854,6 +17885,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             margemSeg:tirInfo?tirInfo.margemSeg:null,
             parametros:tirInfo?tirInfo.parametros:null,
             fonteCalibracao:tirInfo?tirInfo.fonte:null,// 'custom'|'congelado'|'default'
+            tirInconsistente:tirInfo&&tirInfo.tirInconsistente,
             dadosIA,
             temDados:!!dadosIA
           });
@@ -17987,23 +18019,34 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
               h("div",{style:{marginBottom:tk.dadosIA?10:0}},
                 h(ReguaTIR,{tirAtual:tk.tirAtual,tirAlvo:tk.tirAlvo,moeda:tk.moeda})
               ),
-              // Diagnostico se TIR atual nao foi calculada (mostra qual dado falta)
+              // Diagnostico se TIR atual nao foi calculada
               tk.dadosIA&&tk.tirAtual===null?h("div",{style:{fontSize:8,color:"#E89060",fontFamily:"monospace",marginTop:-4,marginBottom:6,padding:"4px 7px",background:"rgba(232,144,96,0.06)",borderLeft:"2px solid rgba(232,144,96,0.35)",borderRadius:"0 3px 3px 0",lineHeight:1.5}},
-                "\u26A0 TIR nao calculada. Campos recebidos da IA: ",
-                (function(){
-                  const d=tk.dadosIA;
-                  const presentes=[];
-                  if(typeof d.lpa_normalizado==="number")presentes.push("lpa="+d.lpa_normalizado.toFixed(2));
-                  if(typeof d.div_anual==="number")presentes.push("div_anual="+d.div_anual.toFixed(2));
-                  if(typeof d.affo_por_acao==="number")presentes.push("affo="+d.affo_por_acao.toFixed(2));
-                  if(typeof d.vpa==="number")presentes.push("vpa="+d.vpa.toFixed(2));
-                  return presentes.length>0?presentes.join(", "):"NENHUM dos campos esperados (lpa_normalizado, div_anual, affo_por_acao)";
-                })(),
-                ". Esperado para "+tk.classe+": ",
-                (tk.classe==="acoes_br"||tk.classe==="acoes_eua"||tk.classe==="acoes_mundo")?"lpa_normalizado":
-                tk.classe==="fii"?"div_anual":
-                tk.classe==="reits"?"affo_por_acao":
-                (tk.classe==="infra"||tk.classe==="agro")?"div_anual":"-"
+                tk.tirInconsistente?(
+                  "\u26A0 Dado fundamental inconsistente da IA (TIR calculada >40% ou negativa). Provavel confusao entre LPA/dividendo e outro valor. Campos: "+(function(){
+                    const d=tk.dadosIA;
+                    const presentes=[];
+                    if(typeof d.lpa_normalizado==="number")presentes.push("lpa="+d.lpa_normalizado.toFixed(2));
+                    if(typeof d.div_anual==="number")presentes.push("div_anual="+d.div_anual.toFixed(2));
+                    if(typeof d.affo_por_acao==="number")presentes.push("affo="+d.affo_por_acao.toFixed(2));
+                    if(typeof d.vpa==="number")presentes.push("vpa="+d.vpa.toFixed(2));
+                    return presentes.join(", ");
+                  })()
+                ):(
+                  "\u26A0 TIR nao calculada. Campos recebidos da IA: "+(function(){
+                    const d=tk.dadosIA;
+                    const presentes=[];
+                    if(typeof d.lpa_normalizado==="number")presentes.push("lpa="+d.lpa_normalizado.toFixed(2));
+                    if(typeof d.div_anual==="number")presentes.push("div_anual="+d.div_anual.toFixed(2));
+                    if(typeof d.affo_por_acao==="number")presentes.push("affo="+d.affo_por_acao.toFixed(2));
+                    if(typeof d.vpa==="number")presentes.push("vpa="+d.vpa.toFixed(2));
+                    return presentes.length>0?presentes.join(", "):"NENHUM dos campos esperados";
+                  })()+". Esperado: "+(
+                    (tk.classe==="acoes_br"||tk.classe==="acoes_eua"||tk.classe==="acoes_mundo")?"lpa_normalizado":
+                    tk.classe==="fii"?"div_anual":
+                    tk.classe==="reits"?"affo_por_acao":
+                    (tk.classe==="infra"||tk.classe==="agro")?"div_anual":"-"
+                  )
+                )
               ):null,
               // Drivers retorno x risco + 3 metricas (so se IA carregou)
               tk.dadosIA?h("div",{style:{marginTop:10}},
