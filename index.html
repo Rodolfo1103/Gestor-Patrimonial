@@ -18499,12 +18499,21 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             h("strong",{style:{color:"#E89060",fontSize:9,letterSpacing:1,fontFamily:"monospace"}},"\u26A0 "+statusCount.semdados+" ATIVOS SEM DADOS - DIAGNOSTICO"),
             h("div",{style:{display:"flex",gap:6,flexWrap:"wrap"}},
               h("button",{onClick:()=>{
-                // Inclui: (a) sem dadosIA, (b) com dadosIA mas SEM metricasPreco/metricasQualidade (analise antiga)
+                // Inclui tickers com qualquer um destes problemas:
+                // (a) sem dadosIA
+                // (b) com dadosIA mas SEM metricasPreco/metricasQualidade completas
+                // (c) com dadosIA mas SEM tirEstimadaIA ou tirAlvoIA (regua TIR nao renderiza)
                 const semDadosArr=tickersAnalise.filter(t=>{
                   if(!t.dadosIA)return true;
                   const mP=Array.isArray(t.dadosIA.metricasPreco)?t.dadosIA.metricasPreco:[];
                   const mQ=Array.isArray(t.dadosIA.metricasQualidade)?t.dadosIA.metricasQualidade:[];
-                  return mP.length<3||mQ.length<3;
+                  if(mP.length<3||mQ.length<3)return true;
+                  // Treasuries usam _tirAtual/_tirAlvo (campos da analise dedicada)
+                  if(t.classe==="treasuries"){
+                    return !(typeof t.dadosIA._tirAtual==="number"&&typeof t.dadosIA._tirAlvo==="number");
+                  }
+                  // Demais classes: precisam de tirEstimadaIA + tirAlvoIA
+                  return !(typeof t.dadosIA.tirEstimadaIA==="number"&&typeof t.dadosIA.tirAlvoIA==="number");
                 });
                 const tickers=semDadosArr.map(t=>t.ticker);
                 if(tickers.length===0){alert("Nenhum ticker faltando dados (todos com analise completa)");return;}
