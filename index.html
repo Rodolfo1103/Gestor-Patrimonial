@@ -18807,6 +18807,42 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                   h("div",{style:{fontSize:8.5,color:corStatus,fontFamily:"monospace",letterSpacing:1,textTransform:"uppercase",fontWeight:700}},labelStatus)
                 )
               ),
+              // Linha 2: dataReferencia do balanco usado pela IA + observacao (fontes)
+              (function(){
+                if(!tk.dadosIA)return null;
+                const dRef=tk.dadosIA.dataReferencia;
+                const obs=tk.dadosIA.observacao;
+                if(!dRef&&!obs)return null;
+                // Calcular quantos meses faz desde a dataReferencia
+                let cor="#7A7060";let avisoFreshness="";
+                if(dRef){
+                  try{
+                    // Formato esperado: "2026-03", "2026-Q1", "2026-03-15"
+                    const m=String(dRef).match(/(\d{4})[-\/]?(\d{1,2}|Q\d)/);
+                    if(m){
+                      const ano=parseInt(m[1]);
+                      let mes;
+                      if(m[2].startsWith("Q")){
+                        const q=parseInt(m[2].slice(1));
+                        mes=q*3;// Q1=mar Q2=jun Q3=set Q4=dez
+                      }else{
+                        mes=parseInt(m[2]);
+                      }
+                      const dataRef=new Date(ano,mes-1,1);
+                      const hoje=new Date();
+                      const meses=(hoje.getFullYear()-ano)*12+(hoje.getMonth()+1-mes);
+                      if(meses<=4)cor="#4CAF82";// fresh: ate 4 meses
+                      else if(meses<=8)cor="#C8A96E";// envelhecendo: 4-8 meses
+                      else if(meses<=12){cor="#E89060";avisoFreshness=" \u26A0 envelhecido";}// envelhecido: 8-12 meses
+                      else{cor="#E05252";avisoFreshness=" \u26A0 desatualizado";}// desatualizado: >12 meses
+                    }
+                  }catch(e){}
+                }
+                return h("div",{style:{fontSize:8,fontFamily:"monospace",color:"#7A7060",marginBottom:8,paddingBottom:6,borderBottom:"1px dashed rgba(255,255,255,0.05)",display:"flex",gap:10,flexWrap:"wrap",alignItems:"baseline"}},
+                  dRef?h("span",{},h("span",{style:{color:"#7A7060",letterSpacing:0.5}},"BALANCO REF: "),h("span",{style:{color:cor,fontWeight:700}},dRef+avisoFreshness)):null,
+                  obs?h("span",{style:{color:"#7A7060",fontStyle:"italic",flex:1}},"\u2022 "+obs):null
+                );
+              })(),
               // Bloco PRECO-ALVO TIR (preco em que a TIR atual igualaria a TIR alvo)
               (function(){
                 if(!tk.dadosIA)return null;
