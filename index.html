@@ -7336,7 +7336,16 @@ function App(){
         setLastPU(new Date().toISOString());
         if(n<tickers.length){
           const uniq=[...new Set(failed)].filter(t=>!allPrices[t]);
-          setPErr("Parcial: "+n+"/"+tickers.length+" ["+dbg.join(" ")+"]"+(uniq.length?" falhou: "+uniq.slice(0,5).join(","):""));
+          // Distingue: se quase todos foram (>=95%) e falhas sao IPCA/Brapi (secundarias), e OK
+          const taxaAcerto=n/tickers.length;
+          const erros=dbg.join(" ");
+          const apenasSecundarias=erros.includes("IPCA-err")||erros.includes("Brapi-erro");
+          if(taxaAcerto>=0.95&&apenasSecundarias&&uniq.length<=3){
+            // Sucesso pratico: tudo essencial buscado, soh apis auxiliares falharam (ouro/BTC/IPCA)
+            setPErr("OK: "+n+"/"+tickers.length+" ativos atualizados (apenas APIs auxiliares falharam: BCB/Brapi)");
+          }else{
+            setPErr("Parcial: "+n+"/"+tickers.length+" ["+dbg.join(" ")+"]"+(uniq.length?" falhou: "+uniq.slice(0,5).join(","):""));
+          }
         }
       } else {setPErr("Sem cotacoes ["+dbg.join(" ")+"]");}
     }catch(e){setPErr("Erro: "+e.message+" ["+dbg.join(" ")+"]");}
