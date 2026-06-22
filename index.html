@@ -8514,7 +8514,13 @@ function App(){
           VTIP:"Vanguard Short-Term Inflation-Protected Securities ETF - TIPS curtos, duration ~2.5 anos"
         }[t]
       }));
-      const sys="Voce e analista de renda fixa US. Responda APENAS chamando a tool 'submit_treasuries_valuation' com dados quantitativos verificaveis dos 3 ETFs.";
+      const sys="Voce e analista de renda fixa US com acesso a web_search.\n\n"+
+        "USE web_search ATIVAMENTE para buscar os yields atuais dos Treasuries antes de responder:\n"+
+        "- Busque \"Treasury 10 year yield today\" para IEF\n"+
+        "- Busque \"Treasury 20 year yield today\" ou \"TLT yield current\" para TLT\n"+
+        "- Busque \"TIPS yield short term today\" ou \"VTIP yield current\" para VTIP\n"+
+        "- Limite ate 6 buscas. Confirme dados em sites como CNBC, Bloomberg, Investing.com, Treasury.gov.\n\n"+
+        "Apos buscar, responda chamando a tool 'submit_treasuries_valuation' com dados quantitativos verificaveis dos 3 ETFs.";
       const userMsg="Analisar valuation atual de TLT, IEF e VTIP. ETFs:\n"+JSON.stringify(etfs,null,2)+
         "\n\nPara CADA ETF retorne:\n"+
         "- yieldAtual: yield-to-maturity atual em fracao decimal (ex: 0.0445 para 4.45%). Para TLT/IEF use Treasury yield correspondente (TLT ~30yr, IEF ~10yr). Para VTIP use REAL yield (TIPS yield curto).\n"+
@@ -8565,11 +8571,15 @@ function App(){
           },
           required:["etfs"]
         }
+      },{
+        type:"web_search_20250305",
+        name:"web_search",
+        max_uses:6
       }];
       const resp=await fetch("https://api.anthropic.com/v1/messages",{
         method:"POST",
         headers:{"x-api-key":apiKey,"anthropic-version":"2023-06-01","content-type":"application/json","anthropic-dangerous-direct-browser-access":"true"},
-        body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:3000,system:sys,messages:[{role:"user",content:userMsg}],tools,tool_choice:{type:"tool",name:"submit_treasuries_valuation"}})
+        body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:4000,system:sys,messages:[{role:"user",content:userMsg}],tools,tool_choice:{type:"auto"}})
       });
       const data=await resp.json();
       if(data.error)throw new Error(data.error.message||"Erro API");
@@ -8709,9 +8719,17 @@ function App(){
         ntnbLiqMedia:typeof ntnbTaxas==="object"&&ntnbTaxas?(Object.values(ntnbTaxas).reduce((s,v)=>s+v,0)/Object.keys(ntnbTaxas).length*0.85):null,
       };
       const systemPrompt="Voce e um analista fundamentalista B&H rigoroso. Para cada ticker da lista, fornecer dados fundamentais OBJETIVOS + 3 metricas de PRECO + 3 metricas de QUALIDADE + drivers de retorno e risco. Retornar VIA TOOL submit_risco_retorno.\n\n"+
+        "USO DE WEB_SEARCH (CRITICO):\n"+
+        "- Voce tem acesso a ferramenta web_search. USE-A ATIVAMENTE para buscar os DADOS MAIS RECENTES de cada ticker antes de retornar a analise.\n"+
+        "- Para CADA ticker (ou grupo de 3-4 tickers similares), faca uma busca tipo: \"<ticker> resultados <ano>\" ou \"<ticker> earnings Q<X> <ano>\" ou \"<ticker> ultimo balanco\" ou \"<ticker> last quarterly results\". Para FIIs busque \"<ticker> rendimento dividendo <ano>\" ou \"<ticker> ultimo relatorio mensal\".\n"+
+        "- Priorize sites oficiais (RI da empresa, CVM, B3) e portais financeiros confiaveis (Status Invest, Funds Explorer, SeekingAlpha, Yahoo Finance, Investidor10).\n"+
+        "- Para Treasuries (TLT/IEF/VTIP), busque \"Treasury 10 year yield today\" ou \"<ticker> SEC filing yield\".\n"+
+        "- IMPORTANTE: a dataReferencia OBRIGATORIAMENTE deve refletir o periodo do balanco MAIS RECENTE que voce encontrou via web_search (ex: 2026-Q1, 2025-Q4). NUNCA usar dados antigos quando ha balanco posterior disponivel.\n"+
+        "- Limite ate ~25 buscas no total para o batch. Priorize tickers cujos dados de balanco voce nao tem certeza no conhecimento de treino.\n"+
+        "- Mencione no campo 'observacao' as fontes principais consultadas (ex: 'Dados via Status Invest 2026-Q1 + RI BBAS3').\n\n"+
         "REGRAS CRITICAS:\n"+
         "1) Para CADA ticker fornecido neste batch, retornar uma entrada COMPLETA. NAO PULAR NENHUM ticker.\n"+
-        "2) DADOS FUNDAMENTAIS DEVEM SER ESTIMATIVAS ANCORADAS NO ULTIMO BALANCO PUBLICO conhecido. Indicar 'dataReferencia' (ano-mes).\n"+
+        "2) DADOS FUNDAMENTAIS DEVEM SER ANCORADOS NO BALANCO MAIS RECENTE encontrado via web_search. Indicar 'dataReferencia' (ano-mes-Q ou ano-mes).\n"+
         "3) Para ACOES (acoes_br, acoes_eua, acoes_mundo): lpa_normalizado = LUCRO POR ACAO em moeda nativa, MID-CYCLE. EXEMPLO: BBAS3 lpa_normalizado ~5.5 BRL (NAO confundir com lucro total da empresa em bilhoes). MSFT lpa_normalizado ~13 USD. WEGE3 lpa_normalizado ~1.85 BRL. Se voce nao tem certeza do LPA real, faca estimativa conservadora.\n"+
         "4) Para FIIs: div_anual = DIVIDENDO ANUALIZADO POR COTA em BRL (soma dos rendimentos pagos nos ultimos 12m). EXEMPLO: HGLG11 div_anual ~10 BRL (NAO confundir com VPA ou valor da cota). ALZR11 div_anual ~7 BRL. RECR11 div_anual ~12 BRL. NUNCA confunda div_anual com VPA ou cotacao.\n"+
         "5) Para REITs: affo_por_acao = AFFO POR ACAO em USD TTM. EXEMPLO: O affo_por_acao ~4.20 USD. NAO confundir com FFO ou EPS.\n"+
@@ -8834,6 +8852,10 @@ function App(){
           },
           required:["ativos"]
         }
+      },{
+        type:"web_search_20250305",
+        name:"web_search",
+        max_uses:25
       }];
       // Processar batches sequencialmente
       for(let bi=0;bi<batches.length;bi++){
@@ -8861,7 +8883,7 @@ function App(){
               system:systemPrompt,
               messages:[{role:"user",content:userMessage}],
               tools,
-              tool_choice:{type:"tool",name:"submit_risco_retorno"}
+              tool_choice:{type:"auto"}
             })
           });
           if(!resp.ok){
