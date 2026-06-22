@@ -5522,6 +5522,8 @@ function App(){
   // Log de debug da ultima tentativa de gerar analise (visivel na tela)
   const [rrDebugLog,setRRDebugLog]=useState([]);
   const [rrMetodologiaAberta,setRRMetodologiaAberta]=useState(false);
+  // Conjunto de classes expandidas na aba RR (todas fechadas por padrao)
+  const [rrClassesAbertas,setRRClassesAbertas]=useState(new Set());
   // Acompanhamento de uso/gasto da API na sessao atual (zera ao recarregar pagina)
   // {totalUSD, chamadas:[{ts, model, inputTokens, outputTokens, custoUSD, contexto}]}
   const [apiUsageSession,setApiUsageSession]=useState({totalUSD:0,chamadas:[]});
@@ -18640,6 +18642,24 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           ),
           h("div",{style:{display:"flex",gap:6,flexWrap:"wrap"}},
             h("button",{onClick:gerarRiscoRetornoIA,disabled:riscoRetornoLoad,style:{padding:"8px 14px",background:(stale||portfolioMudou)?"linear-gradient(135deg,#C8A96E,#a8895a)":"rgba(255,255,255,0.05)",color:(stale||portfolioMudou)?"#1A1612":"#C8A96E",border:(stale||portfolioMudou)?"none":"1px solid rgba(200,169,110,0.30)",borderRadius:5,fontSize:10,fontFamily:"monospace",fontWeight:700,letterSpacing:1.2,cursor:riscoRetornoLoad?"not-allowed":"pointer",textTransform:"uppercase"}},riscoRetornoLoad?"gerando...":(tsRR>0?"atualizar analise":"gerar analise IA")),
+            // Botao diagnostico de precos: mostra estado de port[ticker].price para ativos sem preco
+            h("button",{onClick:()=>{
+              const semPrecoArr=tickersAnalise.filter(t=>!t.precoAtual||t.precoAtual<=0);
+              if(semPrecoArr.length===0){alert("Todos os tickers tem preco. Nenhum diagnostico necessario.");return;}
+              const linhas=semPrecoArr.map(t=>{
+                const p=port[t.ticker];
+                if(!p)return t.ticker+" ["+t.classe+"]: NAO existe em port (ticker em estudo nunca teve preco buscado)";
+                const partes=[];
+                partes.push("qty="+(p.qty||0));
+                partes.push("price="+(typeof p.price==="number"?p.price:"(undefined)"));
+                if(p.classId)partes.push("classId="+p.classId);
+                if(p.emEstudo)partes.push("emEstudo=true");
+                return t.ticker+" ["+t.classe+"]: "+partes.join(", ");
+              });
+              const txt="DIAGNOSTICO DE PRECOS ("+semPrecoArr.length+" sem preco):\n\n"+linhas.join("\n")+"\n\n---\nSOLUCAO: clique em ATUALIZAR PRECOS no header do app. Tickers em estudo (qty=0) so recebem preco quando refresh() roda. Se preco continuar undefined, ticker pode estar faltando no mapa YH ou ser BR sem coverage do Brapi.";
+              window.__rrDiagPrecos=txt;
+              alert(txt);
+            },style:{padding:"8px 14px",background:"rgba(232,144,96,0.10)",border:"1px solid rgba(232,144,96,0.35)",borderRadius:5,color:"#E89060",fontSize:10,fontFamily:"monospace",fontWeight:700,letterSpacing:1.2,cursor:"pointer",textTransform:"uppercase"}},"diag precos"),
             // BOTAO ANALISAR FALTANTES (sempre visivel) - detecta tickers sem dadosIA, analise incompleta, ou dataReferencia antiga
             tsRR>0?h("button",{onClick:()=>{
               const hoje=new Date();
@@ -18885,15 +18905,78 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             statusCount.semdados>0?h("button",{onClick:()=>setFiltroStatus_RR("semdados"),style:{padding:"3px 8px",background:filtroStatus_RR==="semdados"?"rgba(154,144,128,0.20)":"transparent",color:filtroStatus_RR==="semdados"?"#9A9080":"#7A7060",border:"1px solid "+(filtroStatus_RR==="semdados"?"rgba(154,144,128,0.40)":"rgba(255,255,255,0.10)"),borderRadius:3,fontSize:9,cursor:"pointer",fontFamily:"monospace"}},"sem dados ("+statusCount.semdados+")"):null
           )
         ):null,
-        // Lista de cards
+        // Lista de cards AGRUPADOS POR CLASSE em acordeao (clica no header da classe para expandir)
         tickersFiltered.length===0?h("div",{style:{textAlign:"center",padding:"36px 14px",color:"#7A7060",fontSize:11,fontStyle:"italic"}},
           tickersAnalise.length===0?"Nenhum ticker no portfolio para analisar.":"Nenhum ticker corresponde aos filtros."
-        ):h("div",{style:{display:"flex",flexDirection:"column",gap:10}},
-          tickersFiltered.map((tk,i)=>{
-            const semCalibracao=tk.fonteCalibracao==="default";
-            const corStatus=tk.margemSeg===null?"#9A9080":(tk.margemSeg>=0.03?"#4CAF82":tk.margemSeg>=-0.02?"#E8C44A":tk.margemSeg<-0.05?"#E05252":"#E89060");
-            const labelStatus=tk.margemSeg===null?"sem dados":(tk.margemSeg>=0.03?"oportunidade":tk.margemSeg>=-0.02?"na faixa":tk.margemSeg<-0.05?"muito caro":"caro");
-            return h("div",{key:tk.ticker,style:{background:"rgba(255,255,255,0.025)",border:"1px solid rgba(255,255,255,0.08)",borderLeft:"3px solid "+tk.classeColor,borderRadius:6,padding:"12px 14px"}},
+        ):(function(){
+          // Agrupa tickers por classe preservando a ordem original do array CL (que define a hierarquia)
+          const porClasse={};
+          tickersFiltered.forEach(tk=>{
+            if(!porClasse[tk.classe])porClasse[tk.classe]=[];
+            porClasse[tk.classe].push(tk);
+          });
+          // Ordem das classes seguindo CL (ordem do investidor) + extras (treasuries etc)
+          const ordemCL=CL.map(c=>c.id);
+          const classesOrdenadas=Object.keys(porClasse).sort((a,b)=>{
+            const ia=ordemCL.indexOf(a);const ib=ordemCL.indexOf(b);
+            if(ia===-1&&ib===-1)return a.localeCompare(b);
+            if(ia===-1)return 1;
+            if(ib===-1)return -1;
+            return ia-ib;
+          });
+          // Helper toggle
+          const toggleClasse=(cid)=>{
+            setRRClassesAbertas(prev=>{
+              const next=new Set(prev);
+              if(next.has(cid))next.delete(cid);
+              else next.add(cid);
+              return next;
+            });
+          };
+          // Helper abrir/fechar todos
+          const todasAbertas=classesOrdenadas.every(c=>rrClassesAbertas.has(c));
+          return h("div",{style:{display:"flex",flexDirection:"column",gap:12}},
+            // Controles abrir/fechar todos
+            h("div",{style:{display:"flex",justifyContent:"flex-end",gap:8,marginBottom:-4}},
+              h("button",{onClick:()=>{
+                if(todasAbertas)setRRClassesAbertas(new Set());
+                else setRRClassesAbertas(new Set(classesOrdenadas));
+              },style:{background:"rgba(122,160,181,0.08)",border:"1px solid rgba(122,160,181,0.25)",borderRadius:3,color:"#7AA0B5",fontSize:8.5,padding:"3px 10px",cursor:"pointer",fontFamily:"monospace",letterSpacing:1,fontWeight:700}},todasAbertas?"\u25C7 fechar todas":"\u25C6 abrir todas")
+            ),
+            // Acordeao por classe
+            classesOrdenadas.map(cid=>{
+              const cl=CL.find(c=>c.id===cid);
+              const corClasse=cl?.color||"#9A9080";
+              const nomeClasse=cl?.name||cid;
+              const tickersDaClasse=porClasse[cid];
+              const aberta=rrClassesAbertas.has(cid);
+              // Contagem de status na classe
+              const cOportunidade=tickersDaClasse.filter(t=>t.margemSeg!==null&&t.margemSeg>=0.03).length;
+              const cNaFaixa=tickersDaClasse.filter(t=>t.margemSeg!==null&&t.margemSeg>=-0.02&&t.margemSeg<0.03).length;
+              const cCaro=tickersDaClasse.filter(t=>t.margemSeg!==null&&t.margemSeg<-0.02).length;
+              const cSemDados=tickersDaClasse.filter(t=>t.margemSeg===null).length;
+              return h("div",{key:cid,style:{background:"rgba(255,255,255,0.02)",border:"1px solid "+corClasse+"33",borderLeft:"3px solid "+corClasse,borderRadius:6,overflow:"hidden"}},
+                // HEADER da classe (clicavel)
+                h("div",{onClick:()=>toggleClasse(cid),style:{padding:"10px 14px",cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,flexWrap:"wrap",background:aberta?"rgba(255,255,255,0.025)":"transparent",transition:"background 0.15s"}},
+                  h("div",{style:{display:"flex",alignItems:"baseline",gap:10,flexWrap:"wrap"}},
+                    h("div",{style:{fontSize:13,color:corClasse,fontFamily:"monospace",fontWeight:700,letterSpacing:1.5}},(aberta?"\u25BC ":"\u25B6 ")+nomeClasse.toUpperCase()),
+                    h("div",{style:{fontSize:9,color:"#9A9080",fontFamily:"monospace"}},tickersDaClasse.length+" ativo"+(tickersDaClasse.length===1?"":"s"))
+                  ),
+                  // Mini contadores de status por classe
+                  h("div",{style:{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}},
+                    cOportunidade>0?h("span",{style:{fontSize:9,color:"#4CAF82",fontFamily:"monospace",fontWeight:600}},"\u25CF "+cOportunidade+" oport."):null,
+                    cNaFaixa>0?h("span",{style:{fontSize:9,color:"#E8C44A",fontFamily:"monospace",fontWeight:600}},"\u25CF "+cNaFaixa+" faixa"):null,
+                    cCaro>0?h("span",{style:{fontSize:9,color:"#E05252",fontFamily:"monospace",fontWeight:600}},"\u25CF "+cCaro+" caro"):null,
+                    cSemDados>0?h("span",{style:{fontSize:9,color:"#9A9080",fontFamily:"monospace",fontWeight:600}},"\u25CF "+cSemDados+" s/dados"):null
+                  )
+                ),
+                // CARDS da classe (so quando aberta)
+                aberta?h("div",{style:{padding:"4px 12px 12px 12px",display:"flex",flexDirection:"column",gap:10}},
+                  tickersDaClasse.map((tk,i)=>{
+                    const semCalibracao=tk.fonteCalibracao==="default";
+                    const corStatus=tk.margemSeg===null?"#9A9080":(tk.margemSeg>=0.03?"#4CAF82":tk.margemSeg>=-0.02?"#E8C44A":tk.margemSeg<-0.05?"#E05252":"#E89060");
+                    const labelStatus=tk.margemSeg===null?"sem dados":(tk.margemSeg>=0.03?"oportunidade":tk.margemSeg>=-0.02?"na faixa":tk.margemSeg<-0.05?"muito caro":"caro");
+                    return h("div",{key:tk.ticker,style:{background:"rgba(255,255,255,0.025)",border:"1px solid rgba(255,255,255,0.08)",borderLeft:"3px solid "+tk.classeColor,borderRadius:6,padding:"12px 14px"}},
               // Linha 1: ticker | nome | classe | preco | status
               h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:10,flexWrap:"wrap"}},
                 h("div",{style:{display:"flex",alignItems:"baseline",gap:8,flexWrap:"wrap"}},
@@ -19070,8 +19153,12 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                 tk.dadosIA.dataReferencia?h("div",{style:{fontSize:7.5,color:"#5A5550",fontFamily:"monospace",marginTop:4,textAlign:"right"}},"dados de balanco: "+tk.dadosIA.dataReferencia):null
               ):null
             );
-          })
-        ),
+                  })
+                ):null
+              );
+            })
+          );
+        })(),
         // Footer info
         tickersAnalise.length>0?h("div",{style:{marginTop:18,padding:"10px 12px",background:"rgba(154,144,128,0.04)",borderLeft:"2px solid rgba(154,144,128,0.20)",borderRadius:"0 4px 4px 0",fontSize:8.5,color:"#7A7060",lineHeight:1.7}},
           h("div",{style:{marginBottom:3}},h("strong",{style:{color:"#9A9080"}},"Como interpretar: "),"o circulo colorido na regua marca a TIR atual no preco de mercado. A linha tracejada dourada marca a TIR alvo do ativo (parametro congelado). Verde = TIR atual >=3pp acima do alvo (oportunidade). Amarelo = na faixa do alvo. Vermelho = TIR atual >=2pp abaixo do alvo (caro)."),
