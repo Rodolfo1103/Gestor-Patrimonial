@@ -8578,8 +8578,8 @@ function App(){
       }];
       const resp=await fetch("https://api.anthropic.com/v1/messages",{
         method:"POST",
-        headers:{"x-api-key":apiKey,"anthropic-version":"2023-06-01","content-type":"application/json","anthropic-dangerous-direct-browser-access":"true"},
-        body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:4000,system:sys,messages:[{role:"user",content:userMsg}],tools,tool_choice:{type:"auto"}})
+        headers:{"x-api-key":apiKey,"anthropic-version":"2023-06-01","anthropic-beta":"web-search-2025-03-05","content-type":"application/json","anthropic-dangerous-direct-browser-access":"true"},
+        body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:6000,system:sys,messages:[{role:"user",content:userMsg}],tools,tool_choice:{type:"auto"}})
       });
       const data=await resp.json();
       if(data.error)throw new Error(data.error.message||"Erro API");
@@ -8875,11 +8875,12 @@ function App(){
               "Content-Type":"application/json",
               "x-api-key":apiKey,
               "anthropic-version":"2023-06-01",
+              "anthropic-beta":"web-search-2025-03-05",
               "anthropic-dangerous-direct-browser-access":"true"
             },
             body:JSON.stringify({
               model:"claude-sonnet-4-6",
-              max_tokens:12000,
+              max_tokens:16000,
               system:systemPrompt,
               messages:[{role:"user",content:userMessage}],
               tools,
@@ -8902,6 +8903,11 @@ function App(){
             custoChamada=(inTok*p.input+outTok*p.output+cacheRead*p.input*0.1)/1000000;
           }
           log("Batch "+(bi+1)+" stop="+(data.stop_reason||"?")+" custo=$"+custoChamada.toFixed(4));
+          // Conta web_searches feitas (instrumentacao para auditar uso da ferramenta)
+          const buscasWeb=(data.content||[]).filter(c=>c.type==="server_tool_use"&&c.name==="web_search").length;
+          const resultadosWeb=(data.content||[]).filter(c=>c.type==="web_search_tool_result").length;
+          if(buscasWeb>0||resultadosWeb>0)log("  Batch "+(bi+1)+" usou web_search: "+buscasWeb+" buscas, "+resultadosWeb+" resultados");
+          else log("  Batch "+(bi+1)+" NAO usou web_search (IA usou conhecimento de treino)");
           // Registra uso (sempre, mesmo se tool_use vier vazio - foi cobrado)
           registrarUsoAPI("claude-sonnet-4-6",data.usage,"Risco x Retorno batch "+(bi+1)+"/"+batches.length);
           const toolUse=(data.content||[]).find(c=>c.type==="tool_use"&&c.name==="submit_risco_retorno");
