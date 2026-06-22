@@ -8604,6 +8604,24 @@ function App(){
         });
         jaAdicionados.add(tk);
       });
+      // ATIVOS EM ESTUDO: tickers cadastrados em BASE+custom das classes elegiveis sem posicao em port
+      // (permite gerar analise IA mesmo antes de comprar)
+      classesElegiveis.forEach(cid=>{
+        const tickersDaClasse=[...(BASE[cid]||[]),...((custom[cid]||[]).map(a=>a.ticker))];
+        tickersDaClasse.forEach(tk=>{
+          if(jaAdicionados.has(tk))return;
+          if(apenasSet&&!apenasSet.has(tk))return;
+          tickersAnalisar.push({
+            ticker:tk,
+            classe:cid,
+            precoAtual:0,// sem preco - IA usa apenas fundamentais
+            moeda:BCCY[tk]||"BRL",
+            calibracao:PARAMETROS_CONGELADOS[tk]||calibracoesCustom[tk]||null,
+            emEstudo:true
+          });
+          jaAdicionados.add(tk);
+        });
+      });
       if(tickersAnalisar.length===0){
         log("ERRO: Nenhum ticker elegivel.");
         alert("Nenhum ticker elegivel encontrado.");
@@ -18307,6 +18325,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
       const classesElegiveisRR=["acoes_br","acoes_eua","acoes_mundo","fii","reits","treasuries","infra","agro"];
       // Coleta todos os tickers do portfolio nas classes elegiveis (com posicao ou zerados)
       const tickersAnalise=[];
+      const tickersJaColetados=new Set();
       Object.entries(port||{}).forEach(([tk,info])=>{
         if(info&&info.classId&&classesElegiveisRR.includes(info.classId)){
           const dadosIA=riscoRetornoData&&riscoRetornoData.ativos?riscoRetornoData.ativos[tk]:null;
@@ -18342,7 +18361,46 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             dadosIA,
             temDados:!!dadosIA
           });
+          tickersJaColetados.add(tk);
         }
+      });
+      // SEGUNDO LOOP: pega tickers cadastrados em BASE+custom das classes elegiveis que NAO estao em port
+      // (ativos "em estudo" - ainda sem posicao iniciada). Permite ver analise IA mesmo antes de comprar.
+      classesElegiveisRR.forEach(cid=>{
+        const tickersDaClasse=[...(BASE[cid]||[]),...((custom[cid]||[]).map(a=>a.ticker))];
+        tickersDaClasse.forEach(tk=>{
+          if(tickersJaColetados.has(tk))return;
+          // Sem preco em port - usa null (calcTIRImplicita retorna tirAtual=null)
+          const dadosIA=riscoRetornoData&&riscoRetornoData.ativos?riscoRetornoData.ativos[tk]:null;
+          const df={selic:typeof selicAtual==="number"?selicAtual:null};
+          if(dadosIA){
+            if(typeof dadosIA.lpa_normalizado==="number")df.lpa=dadosIA.lpa_normalizado;
+            if(typeof dadosIA.div_anual==="number")df.divAnual=dadosIA.div_anual;
+            if(typeof dadosIA.affo_por_acao==="number")df.affoPorAcao=dadosIA.affo_por_acao;
+            if(typeof dadosIA.yieldAtual==="number")df.yieldAtual=dadosIA.yieldAtual;
+          }
+          const tirInfo=calcTIRImplicita(tk,cid,null,df,calibracoesCustom);
+          tickersAnalise.push({
+            ticker:tk,
+            classe:cid,
+            classeNome:CL.find(c=>c.id===cid)?.name||cid,
+            classeColor:CL.find(c=>c.id===cid)?.color||"#9A9080",
+            precoAtual:null,
+            moeda:BCCY[tk]||"BRL",
+            qty:0,
+            pesoNoTotal:0,
+            tirAtual:tirInfo?tirInfo.tirAtual:null,
+            tirAlvo:tirInfo?tirInfo.tirAlvo:null,
+            margemSeg:tirInfo?tirInfo.margemSeg:null,
+            parametros:tirInfo?tirInfo.parametros:null,
+            fonteCalibracao:tirInfo?tirInfo.fonte:null,
+            tirInconsistente:tirInfo&&tirInfo.tirInconsistente,
+            dadosIA,
+            temDados:!!dadosIA,
+            emEstudo:true
+          });
+          tickersJaColetados.add(tk);
+        });
       });
       // Filtros do usuario (estados ja declarados no top do componente)
       const filtroClasse_RR=fRR_classe;
