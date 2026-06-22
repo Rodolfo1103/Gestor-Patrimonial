@@ -6942,7 +6942,20 @@ function App(){
   },[notifStatus,inited,hasPos,cw]);
 
   const refresh=useCallback(async()=>{
-    const tickers=Object.keys(port).filter(t=>hq(t,port[t])&&!VB.includes(t)&&!isImv(t));
+    // Coleta tickers com posicao
+    const tickersComPos=Object.keys(port).filter(t=>hq(t,port[t])&&!VB.includes(t)&&!isImv(t));
+    // Coleta tickers em estudo (BASE + custom) das classes elegiveis para analise
+    const classesElegiveisRR=["acoes_br","acoes_eua","acoes_mundo","fii","reits","treasuries","infra","agro"];
+    const tickersEmEstudo=[];
+    classesElegiveisRR.forEach(cid=>{
+      const lista=[...(BASE[cid]||[]),...((custom[cid]||[]).map(a=>a.ticker))];
+      lista.forEach(t=>{
+        if(!tickersComPos.includes(t)&&!VB.includes(t)&&!isImv(t)){
+          tickersEmEstudo.push(t);
+        }
+      });
+    });
+    const tickers=[...tickersComPos,...tickersEmEstudo];
     if(!tickers.length){setPErr("Nenhum ativo com quantidade cadastrada");return;}
     setLoadP(true);setPErr("");
     // Helper de fetch com timeout manual (compativel com todos os navegadores)
@@ -7087,7 +7100,8 @@ function App(){
       const YH={
         MSFT:"MSFT",APH:"APH",MU:"MU",AMAT:"AMAT",GOOGL:"GOOGL",WM:"WM",O:"O",FPI:"FPI",BRKB:"BRK-B",
         DHR:"DHR",PH:"PH",LIN:"LIN",ECL:"ECL",ADBE:"ADBE",PEP:"PEP",XOM:"XOM",AOS:"AOS",
-        PANW:"PANW",CTVA:"CTVA",NDIA:"NDIA",AAAU:"AAAU",
+        PANW:"PANW",CTVA:"CTVA",NDIA:"NDIA",AAAU:"AAAU",TSN:"TSN",ADM:"ADM",
+        TLT:"TLT",IEF:"IEF",VTIP:"VTIP",
         SIE:"SIE.DE",SAP:"SAP.DE",ASML:"ASML.AS",ABBN:"ABBN.SW",NSIS_B:"NOVO-B.CO",
         HLMA:"HLMA.L",KOG:"KOG.OL",GMEXICOB:"GMEXICOB.MX",
         TSE8058:"8058.T",TSE8031:"8031.T",REA:"REA.AX",WES:"WES.AX",
@@ -7259,6 +7273,25 @@ function App(){
                 delete upd.varDiaTs;
               }
               np[t]=upd;
+            }else{
+              // TICKER EM ESTUDO (sem posicao ainda): cria entrada com qty=0 so para registrar preco
+              // permite que aba RR mostre o preco mesmo antes do investidor comprar
+              const classId=(function(){
+                for(const cid of Object.keys(BASE)){
+                  if((BASE[cid]||[]).includes(t))return cid;
+                }
+                for(const cid of Object.keys(custom||{})){
+                  if((custom[cid]||[]).some(a=>a.ticker===t))return cid;
+                }
+                return null;
+              })();
+              if(classId){
+                np[t]={qty:0,price:v,classId,emEstudo:true};
+                if(typeof allVars[t]==="number"&&!isNaN(allVars[t])){
+                  np[t].varDia=allVars[t];
+                  np[t].varDiaTs=Date.now();
+                }
+              }
             }
           });
           return np;
@@ -7271,7 +7304,7 @@ function App(){
       } else {setPErr("Sem cotacoes ["+dbg.join(" ")+"]");}
     }catch(e){setPErr("Erro: "+e.message+" ["+dbg.join(" ")+"]");}
     setLoadP(false);
-  },[port,brapiKey]);
+  },[port,brapiKey,custom]);
 
   const openEdit=(ticker,classId)=>{
     const p=port[ticker]||{};setEditA({ticker,classId});
