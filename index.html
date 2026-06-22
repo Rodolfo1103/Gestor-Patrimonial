@@ -18630,7 +18630,28 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             })()
           ),
           h("div",{style:{display:"flex",gap:6,flexWrap:"wrap"}},
-            h("button",{onClick:gerarRiscoRetornoIA,disabled:riscoRetornoLoad,style:{padding:"8px 14px",background:(stale||portfolioMudou)?"linear-gradient(135deg,#C8A96E,#a8895a)":"rgba(255,255,255,0.05)",color:(stale||portfolioMudou)?"#1A1612":"#C8A96E",border:(stale||portfolioMudou)?"none":"1px solid rgba(200,169,110,0.30)",borderRadius:5,fontSize:10,fontFamily:"monospace",fontWeight:700,letterSpacing:1.2,cursor:riscoRetornoLoad?"not-allowed":"pointer",textTransform:"uppercase"}},riscoRetornoLoad?"gerando...":(tsRR>0?"atualizar analise":"gerar analise IA"))
+            h("button",{onClick:gerarRiscoRetornoIA,disabled:riscoRetornoLoad,style:{padding:"8px 14px",background:(stale||portfolioMudou)?"linear-gradient(135deg,#C8A96E,#a8895a)":"rgba(255,255,255,0.05)",color:(stale||portfolioMudou)?"#1A1612":"#C8A96E",border:(stale||portfolioMudou)?"none":"1px solid rgba(200,169,110,0.30)",borderRadius:5,fontSize:10,fontFamily:"monospace",fontWeight:700,letterSpacing:1.2,cursor:riscoRetornoLoad?"not-allowed":"pointer",textTransform:"uppercase"}},riscoRetornoLoad?"gerando...":(tsRR>0?"atualizar analise":"gerar analise IA")),
+            // BOTAO ANALISAR FALTANTES (sempre visivel) - detecta tickers sem dadosIA OU com analise incompleta OU sem data de balanco recente
+            tsRR>0?h("button",{onClick:()=>{
+              const semDadosArr=tickersAnalise.filter(t=>{
+                if(!t.dadosIA)return true;
+                const mP=Array.isArray(t.dadosIA.metricasPreco)?t.dadosIA.metricasPreco:[];
+                const mQ=Array.isArray(t.dadosIA.metricasQualidade)?t.dadosIA.metricasQualidade:[];
+                if(mP.length<3||mQ.length<3)return true;
+                // Treasuries usam _tirAtual/_tirAlvo
+                if(t.classe==="treasuries"){
+                  return !(typeof t.dadosIA._tirAtual==="number"&&typeof t.dadosIA._tirAlvo==="number");
+                }
+                // Demais classes: precisam ter ou tirEstimadaIA/tirAlvoIA OU dados fundamentais para calculo local
+                const temTirIA=typeof t.dadosIA.tirEstimadaIA==="number"&&typeof t.dadosIA.tirAlvoIA==="number";
+                const temFundamentais=typeof t.dadosIA.lpa_normalizado==="number"||typeof t.dadosIA.div_anual==="number"||typeof t.dadosIA.affo_por_acao==="number";
+                return !temTirIA&&!temFundamentais;
+              });
+              const tickers=semDadosArr.map(t=>t.ticker);
+              if(tickers.length===0){alert("Nenhum ticker faltando dados (todos com analise completa)");return;}
+              if(!confirm("Rodar analise APENAS para "+tickers.length+" tickers com dados faltantes/incompletos? Inclui: ("+tickers.slice(0,8).join(", ")+(tickers.length>8?", ...":"")+"). Custo estimado: ~$"+(tickers.length*0.06).toFixed(2)+" USD (com web_search)"))return;
+              gerarRiscoRetornoIA(tickers);
+            },disabled:riscoRetornoLoad,style:{padding:"8px 14px",background:riscoRetornoLoad?"rgba(76,175,130,0.05)":"linear-gradient(135deg,rgba(76,175,130,0.25),rgba(76,175,130,0.10))",border:"1px solid rgba(76,175,130,0.45)",borderRadius:5,color:"#4CAF82",fontSize:10,fontFamily:"monospace",fontWeight:700,letterSpacing:1.2,cursor:riscoRetornoLoad?"not-allowed":"pointer",textTransform:"uppercase"}},riscoRetornoLoad?"aguarde...":"\u21BB analisar apenas faltantes"):null
           )
         ),
         // Resumo da analise
@@ -18837,9 +18858,17 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                   tk.parametros&&tk.parametros.tipo?h("div",{style:{fontSize:8,color:"#9A9080",fontStyle:"italic"}},"\u2022 "+tk.parametros.tipo):null,
                   semCalibracao?h("button",{onClick:()=>handleCalibrar(tk.ticker),style:{padding:"2px 6px",background:"rgba(232,144,96,0.12)",color:"#E89060",border:"1px solid rgba(232,144,96,0.35)",borderRadius:3,fontSize:8,cursor:"pointer",fontFamily:"monospace",letterSpacing:0.5}},"\u26A0 CALIBRAR"):null
                 ),
-                h("div",{style:{display:"flex",alignItems:"baseline",gap:8}},
-                  h("div",{style:{fontSize:11,color:"#E8E2D5",fontFamily:"monospace",fontWeight:600}},(tk.moeda!=="BRL"?tk.moeda+" ":"R$ ")+(tk.precoAtual?tk.precoAtual.toFixed(2):"--")),
-                  h("div",{style:{fontSize:8.5,color:corStatus,fontFamily:"monospace",letterSpacing:1,textTransform:"uppercase",fontWeight:700}},labelStatus)
+                h("div",{style:{display:"flex",alignItems:"center",gap:8}},
+                  h("div",{style:{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:2}},
+                    h("div",{style:{fontSize:11,color:"#E8E2D5",fontFamily:"monospace",fontWeight:600}},(tk.moeda!=="BRL"?tk.moeda+" ":"R$ ")+(tk.precoAtual?tk.precoAtual.toFixed(2):"--")),
+                    h("div",{style:{fontSize:8.5,color:corStatus,fontFamily:"monospace",letterSpacing:1,textTransform:"uppercase",fontWeight:700}},labelStatus)
+                  ),
+                  // Botao re-analisar APENAS este ticker (1 chamada IA com web_search)
+                  h("button",{onClick:()=>{
+                    if(riscoRetornoLoad)return;
+                    if(!confirm("Re-analisar "+tk.ticker+" via IA com web_search?\n\nVai buscar dados do ultimo balanco e atualizar metricas (custo ~$0.06 USD)."))return;
+                    gerarRiscoRetornoIA([tk.ticker]);
+                  },disabled:riscoRetornoLoad,title:"Re-analisar este ticker (~$0.06 USD)",style:{padding:"6px 9px",background:riscoRetornoLoad?"rgba(76,175,130,0.05)":"linear-gradient(135deg,rgba(76,175,130,0.20),rgba(76,175,130,0.08))",border:"1px solid rgba(76,175,130,0.40)",borderRadius:4,color:"#4CAF82",fontSize:11,cursor:riscoRetornoLoad?"not-allowed":"pointer",fontFamily:"monospace",fontWeight:700,minWidth:32,lineHeight:1}},"\u21BB")
                 )
               ),
               // Linha 2: dataReferencia do balanco usado pela IA + observacao (fontes)
