@@ -8138,29 +8138,47 @@ function App(){
                 if(typeof d.lpa_normalizado==="number")dfTk.lpa=d.lpa_normalizado;
                 if(typeof d.div_anual==="number")dfTk.divAnual=d.div_anual;
                 if(typeof d.affo_por_acao==="number")dfTk.affoPorAcao=d.affo_por_acao;
+                if(typeof d.yieldAtual==="number")dfTk.yieldAtual=d.yieldAtual;
                 // Para NTN-B, passar taxa real liquida ja convertida
                 if(c.id==="rfipca"&&ntnbTaxas&&ntnbTaxas[tk]){
                   dfTk.taxaLiqRealNTNB=taxaLiquidaIR(ntnbTaxas[tk].taxaBrutaVenda);
                 }
-                const tirInfo=calcTIRImplicita(tk,c.id,precoTk,dfTk,calibracoesCustom);
-                if(tirInfo){
+                // PRIORIDADE para Treasuries: campos dedicados _tirAtual/_tirAlvo salvos pela funcao gerarValuationTreasuriesIA
+                let tirA=null,tirAlvo=null,fonte=null;
+                if(c.id==="treasuries"&&typeof d._tirAtual==="number"&&typeof d._tirAlvo==="number"){
+                  tirA=d._tirAtual;
+                  tirAlvo=d._tirAlvo;
+                  fonte="iaDirecta";
+                }else{
+                  // Fallback para o calculo padrao via calcTIRImplicita
+                  const tirInfo=calcTIRImplicita(tk,c.id,precoTk,dfTk,calibracoesCustom);
+                  if(tirInfo){
+                    tirA=tirInfo.tirAtual;
+                    tirAlvo=tirInfo.tirAlvo;
+                    fonte=tirInfo.fonte;
+                  }
+                }
+                if(tirA!==null||tirAlvo!==null){
                   const moedaTk=BCCY[tk]||"BRL";
-                  const tirA=tirInfo.tirAtual;
-                  const tirAlvo=tirInfo.tirAlvo;
                   obj.tir={};
                   if(typeof tirA==="number"&&isFinite(tirA)){
-                    obj.tir.estimada=(tirA*100).toFixed(1)+"% em "+moedaTk;
+                    obj.tir.estimada=(tirA*100).toFixed(2)+"% em "+moedaTk;
                   }
                   if(typeof tirAlvo==="number"&&isFinite(tirAlvo)){
-                    obj.tir.alvo=(tirAlvo*100).toFixed(1)+"% em "+moedaTk;
+                    obj.tir.alvo=(tirAlvo*100).toFixed(2)+"% em "+moedaTk;
                   }
                   // Spread e adequacao (decisor)
                   if(typeof tirA==="number"&&typeof tirAlvo==="number"&&isFinite(tirA)&&isFinite(tirAlvo)){
                     const spread=(tirA-tirAlvo)*100;
-                    obj.tir.spread=(spread>=0?"+":"")+spread.toFixed(1)+"pp";
+                    obj.tir.spread=(spread>=0?"+":"")+spread.toFixed(2)+"pp";
                     obj.tir.adequacao=spread>=0?"ADEQUADO (TIR supera alvo)":"INADEQUADO (TIR abaixo do alvo)";
                   }
-                  if(tirInfo.fonte)obj.tir.fonteCalibracao=tirInfo.fonte;
+                  if(fonte)obj.tir.fonteCalibracao=fonte;
+                }
+                // Drivers de Treasuries (motivos do yield + riscos): contexto adicional para a IA do Aporte
+                if(c.id==="treasuries"){
+                  if(Array.isArray(d.driversRetorno)&&d.driversRetorno.length>0)obj.driversRetorno=d.driversRetorno;
+                  if(Array.isArray(d.driversRisco)&&d.driversRisco.length>0)obj.driversRisco=d.driversRisco;
                 }
               }catch(eT){}
               if(obj.preco||obj.qualidade||obj.tir){
@@ -8172,15 +8190,17 @@ function App(){
           if(nDados>0){
             blocoQualidadeRR="\\n\\n=== FUNDAMENTAIS POR TICKER (da aba Risco x Retorno) ===\\n"+
               "Dados quantitativos das 6 metricas calculadas pela analise fundamentalista + TIR estimada vs alvo:\\n"+
-              "  - preco.m1, m2, m3 = metricas de VALUATION: P/L, P/VPA, DY (acoes) ou P/VP, DY, Spread (FII/REIT/Infra/Agro). nivel: 'barato'|'justo'|'caro'|'neutro'.\\n"+
-              "  - qualidade.alav = alavancagem (Divida/EBITDA, Basileia, LTV, etc). nivel: 'forte'|'adequado'|'fraco'.\\n"+
-              "  - qualidade.rent = rentabilidade do capital (ROE/ROIC TTM). nivel: 'forte'|'adequado'|'fraco'.\\n"+
-              "  - qualidade.moat = nota 1-10 de sustentabilidade do moat. nivel: 'forte'(>=8)|'adequado'(6-7)|'fraco'(<=5).\\n"+
-              "  - tir.estimada = TIR esperada no preco ATUAL, na moeda nativa do ativo (BRL para BR, USD para EUA, etc).\\n"+
-              "  - tir.alvo = TIR minima exigida (do PARAMETROS_CONGELADOS ou calibracao custom do investidor), na MESMA moeda.\\n"+
+              "  - preco.m1, m2, m3 = metricas de VALUATION: P/L, P/VPA, DY (acoes) ou P/VP, DY, Spread (FII/REIT/Infra/Agro) ou YTM/Premio vs Cash/Duration-yield (Treasuries TLT/IEF/VTIP). nivel: 'barato'|'justo'|'caro'|'neutro'.\\n"+
+              "  - qualidade.alav = alavancagem (Divida/EBITDA, Basileia, LTV, etc). nivel: 'forte'|'adequado'|'fraco'. (NAO se aplica a Treasuries - omitido)\\n"+
+              "  - qualidade.rent = rentabilidade do capital (ROE/ROIC TTM). nivel: 'forte'|'adequado'|'fraco'. (NAO se aplica a Treasuries - omitido)\\n"+
+              "  - qualidade.moat = nota 1-10 de sustentabilidade do moat. nivel: 'forte'(>=8)|'adequado'(6-7)|'fraco'(<=5). (NAO se aplica a Treasuries - omitido)\\n"+
+              "  - tir.estimada = TIR esperada no preco ATUAL, na moeda nativa do ativo (BRL para BR, USD para EUA/Treasuries). Para Treasuries (TLT/IEF/VTIP): yield-to-maturity ATUAL retornado pela IA dedicada de valuation.\\n"+
+              "  - tir.alvo = yield justo de referencia. Para Treasuries: TLT/IEF ~4.5% (Treasury historico), VTIP ~2.0% (real yield neutro).\\n"+
+              "  - tir.spread = diferenca atual - alvo, em pp. Para Treasuries: spread positivo significa yield ACIMA do justo (oportunidade); negativo significa caro.\\n"+
+              "  - driversRetorno/driversRisco (so para Treasuries): motivos do yield atual + riscos relevantes - use no porque_essa_posicao.\\n"+
               "  - tir.spread = diferenca tir.estimada - tir.alvo, em pp. POSITIVO = ativo oferece premio sobre exigencia; NEGATIVO = preco esticado.\\n"+
               "  - tir.adequacao = 'ADEQUADO' (TIR supera alvo) ou 'INADEQUADO' (TIR abaixo do alvo).\\n"+
-              "  - tir.fonteCalibracao = 'custom' (definido pelo investidor) | 'congelado' (PARAMETROS_CONGELADOS calibrados) | 'default' (DEFAULTS_POR_CLASSE).\\n"+
+              "  - tir.fonteCalibracao = 'custom' (definido pelo investidor) | 'congelado' (PARAMETROS_CONGELADOS calibrados) | 'default' (DEFAULTS_POR_CLASSE) | 'iaDirecta' (so para Treasuries: yield retornado diretamente pela analise IA dedicada).\\n"+
               "\\n"+
               "REGRAS DE USO (CRITICAS):\\n"+
               "1) PARA RANKING DE 3 ATIVOS POR CLASSE: use ESTES dados como insumo principal de PRECO e QUALIDADE alem dos criterios gerais. Cite explicitamente no 'metricas' do ativo (ex: 'P/L 8.5 barato, ROE 19% forte, Moat 7/10, TIR 14.2% vs alvo 13% (+1.2pp)'). No campo 'tir_implicita' do ativo, USE o valor de tir.estimada (com moeda). No campo 'tir_minima_exigida', USE tir.alvo. No 'adequacao_risco_retorno', USE tir.adequacao + spread.\\n"+
@@ -8189,7 +8209,8 @@ function App(){
               "4) PREFERENCIA PARA TIR ADEQUADA: priorize ativos com tir.adequacao='ADEQUADO' (spread positivo). Ativos com tir.adequacao='INADEQUADO' (spread negativo) significam preco esticado - ainda podem ir no ranking mas SEMPRE com aviso no porque_essa_posicao (ex: 'spread -1.5pp indica preco esticado, mas qualidade compensa parcialmente').\\n"+
               "5) LIMITE 5% INVIOLAVEL: esta integracao NAO altera nem flexibiliza a regra de 5% por ativo. Mesmo que um ticker tenha tir.spread excelente +5pp e qualidade excepcional (alav forte + rent forte + Moat 10/10), se ja esta em 5% ou mais do patrimonio, NAO RECEBE APORTE. A regra de 5% e INDEPENDENTE de TIR, preco e qualidade - protege contra concentracao idiossincratica.\\n"+
               "6) MOEDA NATIVA: TIR e expressa na moeda do ativo (BRL para acoes BR/FII/Infra/Agro/NTN-B, USD para acoes EUA/REIT/Treasuries, etc). NAO converter ou comparar TIRs entre moedas diferentes sem ajustar por risco cambial.\\n"+
-              "7) COBERTURA: "+nDados+" tickers com dados. Tickers sem dados aqui usam apenas o framework geral - mencione isso quando aplicavel.\\n"+
+              "7) TREASURIES (TLT/IEF/VTIP) - REGRA ESPECIFICA: a classe tem ALOCACAO INTERNA FIXA (40% TLT + 20% IEF + 40% VTIP) definida pelo investidor. As metricas servem para ENCORPAR a decisao de QUANTO alocar NA CLASSE (vs Selic, NTN-B, equity), NAO para escolher qual ETF priorizar. Use tir.spread, driversRetorno e driversRisco para argumentar o peso da classe Treasuries no aporte mensal. No ranking dos 3 ETFs, distribua sempre seguindo 40/20/40 com ajustes para rebalanceamento se algum ETF estiver muito desviado do alvo interno. Cite no 'metricas' algo como 'YTM 4.45% USD (justo, spread +0pp vs alvo 4.5%); driversRetorno: corte Fed iminente, demanda institucional alta'.\\n"+
+              "8) COBERTURA: "+nDados+" tickers com dados. Tickers sem dados aqui usam apenas o framework geral - mencione isso quando aplicavel.\\n"+
               "\\nDados:\\n"+JSON.stringify(dadosMap,null,1).replace(/"/g,"'");
           }
         }
