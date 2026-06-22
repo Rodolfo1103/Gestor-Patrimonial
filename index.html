@@ -1749,7 +1749,17 @@ const SK_FRED="pat-fred-enc";// API key FRED (CPI EUA) criptografada
 // === Web Crypto helpers ===
 const _enc=new TextEncoder();
 const _dec=new TextDecoder();
-const _b64=(buf)=>btoa(String.fromCharCode(...new Uint8Array(buf)));
+const _b64=(buf)=>{
+  // Implementacao chunked para evitar stack overflow em buffers grandes (>~100k bytes)
+  // Spread em Uint8Array gigante estoura a pilha do JS. Solucao: processar em chunks de 8KB.
+  const u8=new Uint8Array(buf);
+  const CHUNK=0x2000;// 8KB - tamanho seguro para String.fromCharCode
+  let str="";
+  for(let i=0;i<u8.length;i+=CHUNK){
+    str+=String.fromCharCode.apply(null,u8.subarray(i,Math.min(i+CHUNK,u8.length)));
+  }
+  return btoa(str);
+};
 const _b64d=(s)=>{const bin=atob(s);const arr=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)arr[i]=bin.charCodeAt(i);return arr;};
 async function sha256Hex(s){
   const h=await crypto.subtle.digest("SHA-256",_enc.encode(s));
@@ -6083,7 +6093,9 @@ function App(){
         const obj={port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,selicAtual,metaMensalIF,cenarioIPCA,dataNascimento,insightRenda,insightRendaTs,insightRendaSnap,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,piCycle,nupl,goldSilver,goldSP500,realGoldZ,fx:{...FX},btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,insightSnap,infIPCA,infIGPM,infINCC,infCPI,infHICP,juroFed,juroECB,juroBoJ,ntnbTaxas,ntnbVNA,ntnbUpdTs,ntnbDataCotacao,ntnbDiasDefasagem,ntnbVencimentos:{...NTNB_VENCIMENTOS},cambialCash,rendaMotoraHist,rendaAuxiliarHist,aportesSimples,ativosEmEstudo,riscoRetornoData,calibracoesCustom,ntnbHistoricoTaxas};
         const enc=await aesEncrypt(aesKey,obj);
         localStorage.setItem(SK_ENC,enc);
-      }catch(e){}
+      }catch(e){
+        console.error("SAVE ENC falhou:",e&&e.message?e.message:e);
+      }
     })();
   },[port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,selicAtual,metaMensalIF,cenarioIPCA,dataNascimento,insightRenda,insightRendaTs,insightRendaSnap,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,piCycle,nupl,goldSilver,goldSP500,realGoldZ,btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,insightSnap,infIPCA,infIGPM,infINCC,infCPI,infHICP,juroFed,juroECB,juroBoJ,ntnbTaxas,ntnbVNA,ntnbUpdTs,cambialCash,rendaMotoraHist,rendaAuxiliarHist,aportesSimples,ativosEmEstudo,riscoRetornoData,calibracoesCustom,ntnbHistoricoTaxas,inited,aesKey]);
 
