@@ -5485,6 +5485,7 @@ function App(){
   const [calibrandoTicker_RR,setCalibrandoTicker_RR]=useState(null);
   // Log de debug da ultima tentativa de gerar analise (visivel na tela)
   const [rrDebugLog,setRRDebugLog]=useState([]);
+  const [rrMetodologiaAberta,setRRMetodologiaAberta]=useState(false);
   // Acompanhamento de uso/gasto da API na sessao atual (zera ao recarregar pagina)
   // {totalUSD, chamadas:[{ts, model, inputTokens, outputTokens, custoUSD, contexto}]}
   const [apiUsageSession,setApiUsageSession]=useState({totalUSD:0,chamadas:[]});
@@ -18387,16 +18388,46 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             moeda:BCCY[tk]||info.ccy||"BRL",
             qty:info.qty||0,
             pesoNoTotal,
-            // Prioridade: TIR direta IA > calculo local via calcTIRImplicita
-            tirAtual:(dadosIA&&typeof dadosIA.tirEstimadaIA==="number"&&isFinite(dadosIA.tirEstimadaIA))?dadosIA.tirEstimadaIA:(tirInfo?tirInfo.tirAtual:null),
-            tirAlvo:(dadosIA&&typeof dadosIA.tirAlvoIA==="number"&&isFinite(dadosIA.tirAlvoIA))?dadosIA.tirAlvoIA:(tirInfo?tirInfo.tirAlvo:null),
+            // Prioridade de TIR:
+            // - Treasuries: SEMPRE TIR direta IA (yieldAtual nao tem como ser calculado localmente)
+            // - Demais classes COM preco: cálculo local determinístico via calcTIRImplicita (estável entre rodadas)
+            // - Demais classes SEM preco (em estudo): TIR direta IA como fallback
+            tirAtual:(()=>{
+              const temPreco=typeof precoAtual==="number"&&precoAtual>0;
+              if(info.classId==="treasuries"&&dadosIA&&typeof dadosIA.tirEstimadaIA==="number"&&isFinite(dadosIA.tirEstimadaIA))return dadosIA.tirEstimadaIA;
+              if(temPreco&&tirInfo&&typeof tirInfo.tirAtual==="number")return tirInfo.tirAtual;
+              if(dadosIA&&typeof dadosIA.tirEstimadaIA==="number"&&isFinite(dadosIA.tirEstimadaIA))return dadosIA.tirEstimadaIA;
+              return tirInfo?tirInfo.tirAtual:null;
+            })(),
+            tirAlvo:(()=>{
+              const temPreco=typeof precoAtual==="number"&&precoAtual>0;
+              if(info.classId==="treasuries"&&dadosIA&&typeof dadosIA.tirAlvoIA==="number"&&isFinite(dadosIA.tirAlvoIA))return dadosIA.tirAlvoIA;
+              if(temPreco&&tirInfo&&typeof tirInfo.tirAlvo==="number")return tirInfo.tirAlvo;
+              if(dadosIA&&typeof dadosIA.tirAlvoIA==="number"&&isFinite(dadosIA.tirAlvoIA))return dadosIA.tirAlvoIA;
+              return tirInfo?tirInfo.tirAlvo:null;
+            })(),
             margemSeg:(()=>{
-              const ta=(dadosIA&&typeof dadosIA.tirEstimadaIA==="number")?dadosIA.tirEstimadaIA:(tirInfo?tirInfo.tirAtual:null);
-              const tv=(dadosIA&&typeof dadosIA.tirAlvoIA==="number")?dadosIA.tirAlvoIA:(tirInfo?tirInfo.tirAlvo:null);
+              const temPreco=typeof precoAtual==="number"&&precoAtual>0;
+              let ta,tv;
+              if(info.classId==="treasuries"&&dadosIA&&typeof dadosIA.tirEstimadaIA==="number"){
+                ta=dadosIA.tirEstimadaIA;tv=dadosIA.tirAlvoIA;
+              }else if(temPreco&&tirInfo){
+                ta=tirInfo.tirAtual;tv=tirInfo.tirAlvo;
+              }else if(dadosIA&&typeof dadosIA.tirEstimadaIA==="number"){
+                ta=dadosIA.tirEstimadaIA;tv=dadosIA.tirAlvoIA;
+              }else if(tirInfo){
+                ta=tirInfo.tirAtual;tv=tirInfo.tirAlvo;
+              }
               return (typeof ta==="number"&&typeof tv==="number")?(ta-tv):null;
             })(),
             parametros:tirInfo?tirInfo.parametros:null,
-            fonteCalibracao:(dadosIA&&typeof dadosIA.tirEstimadaIA==="number")?"iaDirecta":(tirInfo?tirInfo.fonte:null),
+            fonteCalibracao:(()=>{
+              const temPreco=typeof precoAtual==="number"&&precoAtual>0;
+              if(info.classId==="treasuries"&&dadosIA&&typeof dadosIA.tirEstimadaIA==="number")return "iaDirecta";
+              if(temPreco&&tirInfo)return tirInfo.fonte;
+              if(dadosIA&&typeof dadosIA.tirEstimadaIA==="number")return "iaDirecta";
+              return tirInfo?tirInfo.fonte:null;
+            })(),
             tirInconsistente:tirInfo&&tirInfo.tirInconsistente,
             dadosIA,
             temDados:!!dadosIA
@@ -18517,6 +18548,59 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           portfolioMudou?h("span",{style:{color:"#E89060",marginLeft:8}},"\u26A0 portfolio mudou - atualizar recomendado"):null
         ):h("div",{style:{background:"rgba(232,144,96,0.06)",border:"1px solid rgba(232,144,96,0.25)",padding:"10px 12px",borderRadius:6,marginBottom:14,fontSize:10,color:"#E89060",fontFamily:"monospace",lineHeight:1.6}},
           h("strong",{},"\u26A0 Sem analise IA ainda. "),"A regua TIR mostra os parametros alvo dos tickers calibrados, mas o calculo da TIR atual no preco de mercado precisa de dados fundamentais (lucro por acao, dividendo anual, AFFO) que vem da IA. Clique em ",h("strong",{},"\"gerar analise IA\"")," para popular tudo."
+        ),
+        // CARD METODOLOGIA - explica como TIR e classificacao funcionam
+        h("div",{style:{background:"rgba(122,160,181,0.05)",border:"1px solid rgba(122,160,181,0.25)",borderRadius:6,marginBottom:14}},
+          h("div",{onClick:()=>setRRMetodologiaAberta(!rrMetodologiaAberta),style:{padding:"10px 12px",cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"}},
+            h("div",{style:{fontSize:9,letterSpacing:1.5,color:"#7AA0B5",fontFamily:"monospace",fontWeight:700}},"\u25CF METODOLOGIA: COMO A CLASSIFICACAO E A TIR SAO CALCULADAS"),
+            h("div",{style:{fontSize:11,color:"#7AA0B5"}},rrMetodologiaAberta?"\u25BC":"\u25B6")
+          ),
+          rrMetodologiaAberta?h("div",{style:{padding:"0 14px 14px 14px",fontSize:9.5,color:"#9A9080",fontFamily:"monospace",lineHeight:1.65}},
+            h("div",{style:{marginTop:4,fontSize:9,letterSpacing:1.2,color:"#C8A96E",fontWeight:700,marginBottom:5}},"CLASSIFICACAO POR FAIXA TIR"),
+            h("div",{style:{marginBottom:4}},"A classificacao usa o ",h("strong",{style:{color:"#E8E2D5"}},"spread = TIR atual - TIR alvo"),":"),
+            h("ul",{style:{paddingLeft:18,margin:"4px 0 10px"}},
+              h("li",{},h("span",{style:{color:"#4CAF82",fontWeight:700}},"OPORTUNIDADE")," (verde): spread \u2265 +3pp - TIR pelo menos 3pp acima do alvo"),
+              h("li",{},h("span",{style:{color:"#C8A96E",fontWeight:700}},"NA FAIXA")," (dourado): -2pp \u2264 spread < +3pp - TIR proxima ao alvo"),
+              h("li",{},h("span",{style:{color:"#E05252",fontWeight:700}},"CARO")," (vermelho): spread < -2pp - TIR abaixo do exigido"),
+              h("li",{},h("span",{style:{color:"#7A7060",fontWeight:700}},"SEM DADOS"),": TIR ou alvo nulos (ativo precisa de analise IA)")
+            ),
+            h("div",{style:{fontSize:9,letterSpacing:1.2,color:"#C8A96E",fontWeight:700,marginBottom:5}},"CALCULO DA TIR ATUAL"),
+            h("div",{style:{marginBottom:4}},"Para ativos COM PRECO em mercado, a TIR e calculada LOCALMENTE (deterministico, estavel entre rodadas):"),
+            h("ul",{style:{paddingLeft:18,margin:"4px 0 10px"}},
+              h("li",{},h("strong",{style:{color:"#E8E2D5"}},"Acoes"),": Earnings Yield (LPA/preco) + crescimento real esperado. Ex: BBAS3 com P/L 6.8 e cresc 4% \u2192 TIR ~18.7%"),
+              h("li",{},h("strong",{style:{color:"#E8E2D5"}},"FIIs/Infra/Agro"),": DY 12m + crescimento real. Ex: HGLG11 DY 9.2% + cresc 2.6% \u2192 TIR ~11.8%"),
+              h("li",{},h("strong",{style:{color:"#E8E2D5"}},"REITs"),": AFFO yield + crescimento real"),
+              h("li",{},h("strong",{style:{color:"#E8E2D5"}},"NTN-B"),": taxa real liquida de IR (calculada da curva atual do Tesouro Direto)"),
+              h("li",{},h("strong",{style:{color:"#E8E2D5"}},"Treasuries TLT/IEF/VTIP"),": yield-to-maturity atual via IA dedicada (nao tem como ser calculado localmente)"),
+              h("li",{},h("strong",{style:{color:"#E8E2D5"}},"Ativos em estudo (sem preco)"),": TIR direta da IA usando yield/DY medio historico + crescimento")
+            ),
+            h("div",{style:{fontSize:9,letterSpacing:1.2,color:"#C8A96E",fontWeight:700,marginBottom:5}},"CALCULO DA TIR ALVO (calibracao por classe e qualidade)"),
+            h("div",{style:{marginBottom:4}},"A TIR alvo vem de PARAMETROS_CONGELADOS (calibracao por ticker, revisada anualmente) ou DEFAULTS_POR_CLASSE:"),
+            h("ul",{style:{paddingLeft:18,margin:"4px 0 10px"}},
+              h("li",{},"Acoes BR ciclicas sem moat (KLBN4, CMIN3): ",h("strong",{style:{color:"#E8E2D5"}},"18-20%")," (premio alto pela volatilidade)"),
+              h("li",{},"Acoes BR compounders (WEGE3, EGIE3, ITUB3): ",h("strong",{style:{color:"#E8E2D5"}},"13-15%")),
+              h("li",{},"Acoes BR financeiras (BBAS3, PSSA3): ",h("strong",{style:{color:"#E8E2D5"}},"14-16%")),
+              h("li",{},"Acoes EUA/Mundo value (PEP, XOM, BRKB): ",h("strong",{style:{color:"#E8E2D5"}},"10-12% USD")),
+              h("li",{},"Acoes EUA/Mundo growth qualidade (MSFT, GOOGL, ADBE): ",h("strong",{style:{color:"#E8E2D5"}},"12-14% USD")),
+              h("li",{},"FII tijolo qualidade: ",h("strong",{style:{color:"#E8E2D5"}},"11-12%")," (ja liquido, isento PF)"),
+              h("li",{},"FII papel: ",h("strong",{style:{color:"#E8E2D5"}},"12-13%")),
+              h("li",{},"REITs: ",h("strong",{style:{color:"#E8E2D5"}},"~10% USD")),
+              h("li",{},"Infra (FI-Infra debentures incentivadas): ",h("strong",{style:{color:"#E8E2D5"}},"9.5%")," (isento PF)"),
+              h("li",{},"FIAGRO: ",h("strong",{style:{color:"#E8E2D5"}},"10.5%")),
+              h("li",{},"NTN-B por bucket: curta 5%, media 5.5%, longa/extra 6% (real liquida)"),
+              h("li",{},"TLT/IEF: ",h("strong",{style:{color:"#E8E2D5"}},"4.5% USD")," (yield Treasury historico). VTIP: ",h("strong",{style:{color:"#E8E2D5"}},"2.0% USD real"))
+            ),
+            h("div",{style:{fontSize:9,letterSpacing:1.2,color:"#C8A96E",fontWeight:700,marginBottom:5}},"FONTE DOS DADOS (campo \"fonteCalibracao\")"),
+            h("ul",{style:{paddingLeft:18,margin:"4px 0 10px"}},
+              h("li",{},h("strong",{style:{color:"#E8E2D5"}},"custom"),": calibracao manual definida pelo investidor"),
+              h("li",{},h("strong",{style:{color:"#E8E2D5"}},"congelado"),": PARAMETROS_CONGELADOS (revisao anual por ticker)"),
+              h("li",{},h("strong",{style:{color:"#E8E2D5"}},"default"),": DEFAULTS_POR_CLASSE (fallback generico)"),
+              h("li",{},h("strong",{style:{color:"#E8E2D5"}},"iaDirecta"),": TIR vinda da IA (usado para Treasuries e ativos em estudo)")
+            ),
+            h("div",{style:{fontSize:9,letterSpacing:1.2,color:"#C8A96E",fontWeight:700,marginBottom:5}},"ESTABILIDADE ENTRE RODADAS"),
+            h("div",{style:{marginBottom:8}},"Ativos COM PRECO usam calculo LOCAL deterministico - duas rodadas dao o mesmo resultado, exceto se a IA atualizar LPA/dividendo nas metricas fundamentais. Apenas Treasuries e ativos em estudo dependem da estimativa da IA, que pode variar entre rodadas conforme premissas adotadas."),
+            h("div",{style:{fontSize:8.5,color:"#7A7060",fontStyle:"italic",borderTop:"1px solid rgba(255,255,255,0.06)",paddingTop:7,marginTop:4}},"Esta metodologia traduz a filosofia Quality at a Reasonable Price (Munger/Smith): a TIR alvo varia por qualidade do ativo, nao por classe genericamente. Compounders com moat exigem TIR menor; ciclicas sem moat exigem TIR maior. O spread mede a margem de seguranca que justifica investir agora vs aguardar.")
+          ):null
         ),
         // Painel de debug (log das ultimas tentativas)
         rrDebugLog.length>0?h("div",{style:{background:"rgba(91,143,212,0.04)",border:"1px solid rgba(91,143,212,0.25)",borderRadius:6,padding:"8px 10px",marginBottom:14,fontFamily:"monospace",fontSize:8.5,color:"#9ABFE5",lineHeight:1.5}},
