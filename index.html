@@ -1190,6 +1190,42 @@ function calcTIRImplicita(ticker,classeId,precoAtual,dadosFundamentais,calibraco
   return {tirAtual,tirAlvo,margemSeg,parametros:p,fonte:ef.fonte,tirInconsistente};
 }
 
+// Inverso de calcTIRImplicita: dado o tirAlvo, retorna o preco-teto (preco em que TIR atual = TIR alvo)
+// Para ACOES: precoAlvo = LPA / (tirAlvo - crescReal)
+// Para FII/INFRA/AGRO: precoAlvo = divAnual / (tirAlvo - crescReal)
+// Para REIT: precoAlvo = affoPorAcao / (tirAlvo - crescReal)
+// Para TREASURIES/NTNB: nao se aplica (yield e a propria TIR, nao ha multiplo)
+// Retorna {precoAlvo, descontoVsAtual} ou null se nao calculavel
+function calcPrecoAlvoTIR(ticker,classeId,precoAtual,dadosFundamentais,calibracoesCustom){
+  if(!classeId||classeId==="treasuries"||classeId==="rfipca"||classeId==="selic"||classeId==="ouro"||classeId==="bitcoin")return null;
+  const df=dadosFundamentais||{};
+  const ef=getParametrosEfetivos(ticker,classeId,calibracoesCustom);
+  const p=ef.parametros;
+  if(!p)return null;
+  const tirAlvo=typeof p.tirMin==="number"?p.tirMin:null;
+  const crescReal=typeof p.crescReal==="number"?p.crescReal:0;
+  if(typeof tirAlvo!=="number"||!isFinite(tirAlvo))return null;
+  // Yield esperado = tirAlvo - crescReal (precisa ser positivo para fazer sentido)
+  const yieldAlvo=tirAlvo-crescReal;
+  if(yieldAlvo<=0.001)return null;// abaixo de 0.1% nao tem ancoragem
+  let valorRendimento=null;// LPA, divAnual ou affo
+  if(classeId==="acoes_br"||classeId==="acoes_eua"||classeId==="acoes_mundo"){
+    if(typeof df.lpa==="number"&&df.lpa>0)valorRendimento=df.lpa;
+  }else if(classeId==="fii"||classeId==="infra"||classeId==="agro"){
+    if(typeof df.divAnual==="number"&&df.divAnual>0)valorRendimento=df.divAnual;
+  }else if(classeId==="reits"){
+    if(typeof df.affoPorAcao==="number"&&df.affoPorAcao>0)valorRendimento=df.affoPorAcao;
+  }
+  if(valorRendimento===null)return null;
+  const precoAlvo=valorRendimento/yieldAlvo;
+  if(!isFinite(precoAlvo)||precoAlvo<=0)return null;
+  let descontoVsAtual=null;
+  if(typeof precoAtual==="number"&&precoAtual>0){
+    descontoVsAtual=((precoAlvo-precoAtual)/precoAtual)*100;
+  }
+  return {precoAlvo,descontoVsAtual,fonte:ef.fonte,tirAlvo,crescReal,yieldAlvo};
+}
+
 // Componente ReguaTIR - barra horizontal SVG com marca TIR alvo e atual
 // Props: {tirAtual, tirAlvo, height (default 64), tirMin (default 0), tirMax (default 0.25), moeda (default 'BRL')}
 function ReguaTIR({tirAtual,tirAlvo,height,tirMin,tirMax,moeda}){
@@ -18590,6 +18626,14 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
               h("li",{},"NTN-B por bucket: curta 5%, media 5.5%, longa/extra 6% (real liquida)"),
               h("li",{},"TLT/IEF: ",h("strong",{style:{color:"#E8E2D5"}},"4.5% USD")," (yield Treasury historico). VTIP: ",h("strong",{style:{color:"#E8E2D5"}},"2.0% USD real"))
             ),
+            h("div",{style:{fontSize:9,letterSpacing:1.2,color:"#C8A96E",fontWeight:700,marginBottom:5}},"PRECO-TETO (preco em que TIR atual = TIR alvo)"),
+            h("div",{style:{marginBottom:4}},"Mostrado no card de cada ativo (exceto Treasuries e NTN-B, onde yield ja e a propria TIR):"),
+            h("ul",{style:{paddingLeft:18,margin:"4px 0 10px"}},
+              h("li",{},h("strong",{style:{color:"#E8E2D5"}},"Acoes"),": preco-teto = LPA / (TIR_alvo - cresc_real). Ex: BBAS3 LPA R$ 5.5, alvo 15%, cresc 4% \u2192 preco-teto R$ 50"),
+              h("li",{},h("strong",{style:{color:"#E8E2D5"}},"FIIs/Infra/Agro"),": preco-teto = DivAnual / (TIR_alvo - cresc). Ex: HGLG11 div R$ 10, alvo 11.5%, cresc 2.6% \u2192 preco-teto R$ 112"),
+              h("li",{},h("strong",{style:{color:"#E8E2D5"}},"REITs"),": preco-teto = AFFO / (TIR_alvo - cresc)"),
+              h("li",{},h("strong",{style:{color:"#E8E2D5"}},"Margem"),": diferenca % vs preco atual. Positiva = ativo barato vs preco-teto; negativa = premio")
+            ),
             h("div",{style:{fontSize:9,letterSpacing:1.2,color:"#C8A96E",fontWeight:700,marginBottom:5}},"FONTE DOS DADOS (campo \"fonteCalibracao\")"),
             h("ul",{style:{paddingLeft:18,margin:"4px 0 10px"}},
               h("li",{},h("strong",{style:{color:"#E8E2D5"}},"custom"),": calibracao manual definida pelo investidor"),
@@ -18741,6 +18785,29 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                   h("div",{style:{fontSize:8.5,color:corStatus,fontFamily:"monospace",letterSpacing:1,textTransform:"uppercase",fontWeight:700}},labelStatus)
                 )
               ),
+              // Bloco PRECO-ALVO TIR (preco em que a TIR atual igualaria a TIR alvo)
+              (function(){
+                if(!tk.dadosIA)return null;
+                if(tk.classe==="treasuries"||tk.classe==="rfipca")return null;// nao se aplica (yield = TIR)
+                const df={selic:typeof selicAtual==="number"?selicAtual:null};
+                if(typeof tk.dadosIA.lpa_normalizado==="number")df.lpa=tk.dadosIA.lpa_normalizado;
+                if(typeof tk.dadosIA.div_anual==="number")df.divAnual=tk.dadosIA.div_anual;
+                if(typeof tk.dadosIA.affo_por_acao==="number")df.affoPorAcao=tk.dadosIA.affo_por_acao;
+                const pa=calcPrecoAlvoTIR(tk.ticker,tk.classe,tk.precoAtual,df,calibracoesCustom);
+                if(!pa||!pa.precoAlvo)return null;
+                const moedaTk=tk.moeda!=="BRL"?tk.moeda+" ":"R$ ";
+                const corDesc=pa.descontoVsAtual===null?"#9A9080":(pa.descontoVsAtual>=10?"#4CAF82":pa.descontoVsAtual>=0?"#8FBE3F":pa.descontoVsAtual>=-10?"#E8C44A":"#E89060");
+                return h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:6,padding:"6px 9px",background:"rgba(122,160,181,0.06)",border:"1px solid rgba(122,160,181,0.20)",borderRadius:4,marginBottom:8,fontFamily:"monospace"}},
+                  h("div",{style:{display:"flex",alignItems:"baseline",gap:6,flexWrap:"wrap"}},
+                    h("span",{style:{fontSize:7.5,color:"#7AA0B5",letterSpacing:1,fontWeight:700}},"PRECO-TETO TIR "+(pa.tirAlvo*100).toFixed(1)+"%"),
+                    h("span",{style:{fontSize:11,color:"#E8E2D5",fontWeight:700}},moedaTk+pa.precoAlvo.toFixed(2))
+                  ),
+                  pa.descontoVsAtual!==null?h("div",{style:{display:"flex",alignItems:"baseline",gap:5}},
+                    h("span",{style:{fontSize:7.5,color:"#7A7060"}},pa.descontoVsAtual>=0?"margem":"premio"),
+                    h("span",{style:{fontSize:10.5,color:corDesc,fontWeight:700}},(pa.descontoVsAtual>=0?"+":"")+pa.descontoVsAtual.toFixed(1)+"%")
+                  ):null
+                );
+              })(),
               // Regua TIR
               h("div",{style:{marginBottom:tk.dadosIA?10:0}},
                 h(ReguaTIR,{tirAtual:tk.tirAtual,tirAlvo:tk.tirAlvo,moeda:tk.moeda})
