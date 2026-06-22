@@ -18640,8 +18640,26 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           ),
           h("div",{style:{display:"flex",gap:6,flexWrap:"wrap"}},
             h("button",{onClick:gerarRiscoRetornoIA,disabled:riscoRetornoLoad,style:{padding:"8px 14px",background:(stale||portfolioMudou)?"linear-gradient(135deg,#C8A96E,#a8895a)":"rgba(255,255,255,0.05)",color:(stale||portfolioMudou)?"#1A1612":"#C8A96E",border:(stale||portfolioMudou)?"none":"1px solid rgba(200,169,110,0.30)",borderRadius:5,fontSize:10,fontFamily:"monospace",fontWeight:700,letterSpacing:1.2,cursor:riscoRetornoLoad?"not-allowed":"pointer",textTransform:"uppercase"}},riscoRetornoLoad?"gerando...":(tsRR>0?"atualizar analise":"gerar analise IA")),
-            // BOTAO ANALISAR FALTANTES (sempre visivel) - detecta tickers sem dadosIA OU com analise incompleta OU sem data de balanco recente
+            // BOTAO ANALISAR FALTANTES (sempre visivel) - detecta tickers sem dadosIA, analise incompleta, ou dataReferencia antiga
             tsRR>0?h("button",{onClick:()=>{
+              const hoje=new Date();
+              // Calcula quantos meses passaram desde uma dataReferencia (formato 2026-Q1, 2026-03, 2026-03-15)
+              const mesesDesdeRef=(dRef)=>{
+                if(!dRef)return 999;// sem data = considera muito antigo
+                try{
+                  const m=String(dRef).match(/(\d{4})[-\/]?(\d{1,2}|Q\d)/);
+                  if(!m)return 999;
+                  const ano=parseInt(m[1]);
+                  let mes;
+                  if(m[2].startsWith("Q")){
+                    const q=parseInt(m[2].slice(1));
+                    mes=q*3;
+                  }else{
+                    mes=parseInt(m[2]);
+                  }
+                  return (hoje.getFullYear()-ano)*12+(hoje.getMonth()+1-mes);
+                }catch(e){return 999;}
+              };
               const semDadosArr=tickersAnalise.filter(t=>{
                 if(!t.dadosIA)return true;
                 const mP=Array.isArray(t.dadosIA.metricasPreco)?t.dadosIA.metricasPreco:[];
@@ -18651,14 +18669,31 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                 if(t.classe==="treasuries"){
                   return !(typeof t.dadosIA._tirAtual==="number"&&typeof t.dadosIA._tirAlvo==="number");
                 }
-                // Demais classes: precisam ter ou tirEstimadaIA/tirAlvoIA OU dados fundamentais para calculo local
+                // Demais classes: precisam ter ou tirEstimadaIA/tirAlvoIA OU dados fundamentais
                 const temTirIA=typeof t.dadosIA.tirEstimadaIA==="number"&&typeof t.dadosIA.tirAlvoIA==="number";
                 const temFundamentais=typeof t.dadosIA.lpa_normalizado==="number"||typeof t.dadosIA.div_anual==="number"||typeof t.dadosIA.affo_por_acao==="number";
-                return !temTirIA&&!temFundamentais;
+                if(!temTirIA&&!temFundamentais)return true;
+                // NOVO: se dataReferencia esta antiga (>5 meses), tambem entra na re-analise para puxar balanco recente via web_search
+                const meses=mesesDesdeRef(t.dadosIA.dataReferencia);
+                if(meses>5)return true;
+                return false;
               });
               const tickers=semDadosArr.map(t=>t.ticker);
-              if(tickers.length===0){alert("Nenhum ticker faltando dados (todos com analise completa)");return;}
-              if(!confirm("Rodar analise APENAS para "+tickers.length+" tickers com dados faltantes/incompletos? Inclui: ("+tickers.slice(0,8).join(", ")+(tickers.length>8?", ...":"")+"). Custo estimado: ~$"+(tickers.length*0.06).toFixed(2)+" USD (com web_search)"))return;
+              if(tickers.length===0){alert("Nenhum ticker faltando dados (todos com analise completa e dataReferencia recente)");return;}
+              // Detalha por categoria
+              const semData=semDadosArr.filter(t=>!t.dadosIA).length;
+              const incompletos=semDadosArr.filter(t=>{
+                if(!t.dadosIA)return false;
+                const mP=Array.isArray(t.dadosIA.metricasPreco)?t.dadosIA.metricasPreco:[];
+                const mQ=Array.isArray(t.dadosIA.metricasQualidade)?t.dadosIA.metricasQualidade:[];
+                return mP.length<3||mQ.length<3;
+              }).length;
+              const desatualizados=semDadosArr.length-semData-incompletos;
+              const detalhes=[];
+              if(semData)detalhes.push(semData+" sem analise");
+              if(incompletos)detalhes.push(incompletos+" incompletos");
+              if(desatualizados)detalhes.push(desatualizados+" com balanco >5 meses");
+              if(!confirm("Rodar analise para "+tickers.length+" tickers ("+detalhes.join(", ")+")?\n\nInclui: "+tickers.slice(0,8).join(", ")+(tickers.length>8?", ...":"")+"\n\nCusto estimado: ~$"+(tickers.length*0.20).toFixed(2)+" USD (com web_search). Tempo: ~"+Math.ceil(tickers.length/12*3+(Math.ceil(tickers.length/12)-1)*70/60)+"min"))return;
               gerarRiscoRetornoIA(tickers);
             },disabled:riscoRetornoLoad,style:{padding:"8px 14px",background:riscoRetornoLoad?"rgba(76,175,130,0.05)":"linear-gradient(135deg,rgba(76,175,130,0.25),rgba(76,175,130,0.10))",border:"1px solid rgba(76,175,130,0.45)",borderRadius:5,color:"#4CAF82",fontSize:10,fontFamily:"monospace",fontWeight:700,letterSpacing:1.2,cursor:riscoRetornoLoad?"not-allowed":"pointer",textTransform:"uppercase"}},riscoRetornoLoad?"aguarde...":"\u21BB analisar apenas faltantes"):null
           )
