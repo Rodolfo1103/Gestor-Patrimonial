@@ -8858,6 +8858,10 @@ function App(){
         max_uses:25
       }];
       // Processar batches sequencialmente
+      // RATE LIMIT: web_search faz cada batch consumir ~25k tokens input. Limite Anthropic e 30k/min.
+      // Espera 70s entre batches para garantir que o token bucket renove. Retry com backoff em 429.
+      const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+      const ESPERA_ENTRE_BATCHES_MS=70000;// 70s
       for(let bi=0;bi<batches.length;bi++){
         const batch=batches[bi];
         log("Batch "+(bi+1)+"/"+batches.length+" ("+batch.length+" tickers): "+batch.map(b=>b.ticker).join(","));
@@ -8868,31 +8872,54 @@ function App(){
         const userMessage="BATCH "+(bi+1)+" DE "+batches.length+" - ANALISAR ESTES "+batch.length+" TICKERS:\n"+JSON.stringify(batch,null,2)+"\n\n"+
           "CONTEXTO MACRO ATUAL:\n"+JSON.stringify(ctxMacro,null,2)+blocoDesc+"\n\n"+
           "Chamar submit_risco_retorno UMA UNICA VEZ retornando array ativos com EXATAMENTE "+batch.length+" entradas (uma por ticker, na mesma ordem).";
-        try{
-          const resp=await fetch("https://api.anthropic.com/v1/messages",{
-            method:"POST",
-            headers:{
-              "Content-Type":"application/json",
-              "x-api-key":apiKey,
-              "anthropic-version":"2023-06-01",
-              "anthropic-beta":"web-search-2025-03-05",
-              "anthropic-dangerous-direct-browser-access":"true"
-            },
-            body:JSON.stringify({
-              model:"claude-sonnet-4-6",
-              max_tokens:16000,
-              system:systemPrompt,
-              messages:[{role:"user",content:userMessage}],
-              tools,
-              tool_choice:{type:"auto"}
-            })
-          });
-          if(!resp.ok){
-            const txt=await resp.text();
-            log("Batch "+(bi+1)+" ERRO HTTP "+resp.status+": "+txt.slice(0,200));
-            continue;// pula este batch, tenta proximo
+        // Retry com backoff em caso de 429 (rate limit)
+        let data=null,tentativas=0,maxTentativas=4;
+        while(tentativas<maxTentativas){
+          tentativas++;
+          try{
+            const resp=await fetch("https://api.anthropic.com/v1/messages",{
+              method:"POST",
+              headers:{
+                "Content-Type":"application/json",
+                "x-api-key":apiKey,
+                "anthropic-version":"2023-06-01",
+                "anthropic-beta":"web-search-2025-03-05",
+                "anthropic-dangerous-direct-browser-access":"true"
+              },
+              body:JSON.stringify({
+                model:"claude-sonnet-4-6",
+                max_tokens:16000,
+                system:systemPrompt,
+                messages:[{role:"user",content:userMessage}],
+                tools,
+                tool_choice:{type:"auto"}
+              })
+            });
+            if(resp.status===429){
+              const txt=await resp.text();
+              // Le quanto tempo esperar do header retry-after (em segundos)
+              const retryAfter=parseInt(resp.headers.get("retry-after")||"60");
+              const esperaSec=Math.min(retryAfter+5,180);// max 3 min
+              log("  Batch "+(bi+1)+" rate limit (tentativa "+tentativas+"/"+maxTentativas+"). Aguardando "+esperaSec+"s...");
+              await sleep(esperaSec*1000);
+              continue;// tenta de novo
+            }
+            if(!resp.ok){
+              const txt=await resp.text();
+              log("Batch "+(bi+1)+" ERRO HTTP "+resp.status+": "+txt.slice(0,200));
+              break;
+            }
+            data=await resp.json();
+            break;
+          }catch(eF){
+            log("  Batch "+(bi+1)+" falha rede (tentativa "+tentativas+"/"+maxTentativas+"): "+(eF.message||eF));
+            if(tentativas<maxTentativas)await sleep(15000);// 15s antes de retry
           }
-          const data=await resp.json();
+        }
+        if(!data){
+          log("Batch "+(bi+1)+" desistido apos "+maxTentativas+" tentativas. Pulando.");
+          continue;
+        }
           // Calcula custo desta chamada em USD
           let custoChamada=0;
           if(data.usage){
@@ -8995,9 +9022,11 @@ function App(){
             log("  Batch "+(bi+1)+" salvo em rrdata-v1 ("+Object.keys(mergeBatch).length+" tickers acumulados)");
           }catch(ePB){log("  Batch "+(bi+1)+" erro salvar: "+(ePB.message||ePB));}
           setRiscoRetornoData(estadoBatch);
-        }catch(e){
-          log("Batch "+(bi+1)+" EXCEPTION: "+(e&&e.message?e.message:String(e)));
-          // continua para proximo batch
+        // Espera entre batches para nao estourar rate limit (30k tokens/min com web_search)
+        // Pula a espera no ultimo batch
+        if(bi<batches.length-1){
+          log("  Aguardando "+(ESPERA_ENTRE_BATCHES_MS/1000)+"s antes do proximo batch (rate limit web_search)...");
+          await sleep(ESPERA_ENTRE_BATCHES_MS);
         }
       }
       const totalRetornado=Object.keys(ativosObj).length;
