@@ -10085,7 +10085,7 @@ Responda APENAS com o texto do insight, sem prefacio ou comentarios meta.`;
       xauBrl&&h("span",{style:{marginLeft:(lastPU||btcUsd)?8:0}},((lastPU||btcUsd)?" - ":"")),
       xauBrl&&h("span",{style:{color:"#E8C44A",fontWeight:700}},"Ouro R$ "+fN(xauBrl,2)+"/g"),
       xauBrl&&typeof xauVar==="number"&&h("span",{style:{marginLeft:4,color:xauVar>=0?"#4CAF82":"#E05252",fontWeight:700}},(xauVar>=0?"▲":"▼")+fN(Math.abs(xauVar),2)+"%"),
-      pErr&&h("span",{style:{color:"#E05252",marginLeft:8}},"Erro: "+pErr)
+      pErr&&h("span",{style:{color:pErr.startsWith("OK:")?"#4CAF82":"#E05252",marginLeft:8}},pErr.startsWith("OK:")?pErr:"Erro: "+pErr)
     ),
     // Linha de inflacao BR: IPCA + IGP-M + INCC (acumulado 12m + variacao do mes)
     (infIPCA||infIGPM||infINCC)&&h("div",{style:{fontSize:9,color:"#5A5550",marginTop:3,fontFamily:"monospace"}},
