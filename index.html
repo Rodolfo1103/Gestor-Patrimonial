@@ -8718,6 +8718,8 @@ function App(){
                   div_anual:{type:"number",description:"Dividendo anualizado em moeda nativa (FII/Infra/Agro)"},
                   affo_por_acao:{type:"number",description:"AFFO por acao TTM (REITs)"},
                   vpa:{type:"number",description:"Valor patrimonial por cota (FIIs)"},
+                  tirEstimadaIA:{type:"number",description:"OBRIGATORIO: TIR esperada para o ativo no preco atual, em fracao decimal (ex: 0.142 para 14.2%). Para ACOES = earnings yield (1/PL) + crescimento real esperado. Para FIIs/Infra/Agro = DY 12m + crescimento real esperado. Para REITs = AFFO yield + crescimento. Para Treasuries = yieldAtual. Para EM ESTUDO (sem precoAtual): use yield/DY medio historico da empresa + crescimento real. Calcular DIRETAMENTE - este e o valor que aparecera na regua TIR."},
+                  tirAlvoIA:{type:"number",description:"OBRIGATORIO: TIR minima exigida para esta classe/qualidade do ativo, em fracao decimal. ACOES BR ciclica: ~0.18-0.20. ACOES BR compounder: ~0.13-0.15. ACOES EUA/MUNDO value: ~0.10-0.12. ACOES EUA/MUNDO growth qualidade: ~0.12-0.14. FII tijolo: ~0.115. FII papel: ~0.13. REITs: ~0.10. Infra: ~0.095. Agro: ~0.105. Treasuries TLT/IEF: 0.045. VTIP: 0.020."},
                   yieldAtual:{type:"number",description:"OBRIGATORIO para Treasuries (TLT/IEF/VTIP): yield-to-maturity atual em fracao decimal. Ex: 0.0432 para 4.32%. Para TLT/IEF use Treasury yield correspondente (TLT~20yr, IEF~10yr). Para VTIP use yield REAL (TIPS yield, pode ser <2%). NAO usar campo para outras classes."},
                   metricasPreco:{
                     type:"array",
@@ -8756,7 +8758,7 @@ function App(){
                   dataReferencia:{type:"string",description:"Ano-mes do ultimo balanco (ex: 2026-03)"},
                   observacao:{type:"string",description:"Opcional, max 200 chars"}
                 },
-                required:["ticker","classe","metricasPreco","metricasQualidade","driversRetorno","driversRisco","dataReferencia"]
+                required:["ticker","classe","metricasPreco","metricasQualidade","driversRetorno","driversRisco","dataReferencia","tirEstimadaIA","tirAlvoIA"]
               }
             }
           },
@@ -18352,11 +18354,16 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             moeda:BCCY[tk]||info.ccy||"BRL",
             qty:info.qty||0,
             pesoNoTotal,
-            tirAtual:tirInfo?tirInfo.tirAtual:null,
-            tirAlvo:tirInfo?tirInfo.tirAlvo:null,
-            margemSeg:tirInfo?tirInfo.margemSeg:null,
+            // Prioridade: TIR direta IA > calculo local via calcTIRImplicita
+            tirAtual:(dadosIA&&typeof dadosIA.tirEstimadaIA==="number"&&isFinite(dadosIA.tirEstimadaIA))?dadosIA.tirEstimadaIA:(tirInfo?tirInfo.tirAtual:null),
+            tirAlvo:(dadosIA&&typeof dadosIA.tirAlvoIA==="number"&&isFinite(dadosIA.tirAlvoIA))?dadosIA.tirAlvoIA:(tirInfo?tirInfo.tirAlvo:null),
+            margemSeg:(()=>{
+              const ta=(dadosIA&&typeof dadosIA.tirEstimadaIA==="number")?dadosIA.tirEstimadaIA:(tirInfo?tirInfo.tirAtual:null);
+              const tv=(dadosIA&&typeof dadosIA.tirAlvoIA==="number")?dadosIA.tirAlvoIA:(tirInfo?tirInfo.tirAlvo:null);
+              return (typeof ta==="number"&&typeof tv==="number")?(ta-tv):null;
+            })(),
             parametros:tirInfo?tirInfo.parametros:null,
-            fonteCalibracao:tirInfo?tirInfo.fonte:null,// 'custom'|'congelado'|'default'
+            fonteCalibracao:(dadosIA&&typeof dadosIA.tirEstimadaIA==="number")?"iaDirecta":(tirInfo?tirInfo.fonte:null),
             tirInconsistente:tirInfo&&tirInfo.tirInconsistente,
             dadosIA,
             temDados:!!dadosIA
@@ -18389,11 +18396,15 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             moeda:BCCY[tk]||"BRL",
             qty:0,
             pesoNoTotal:0,
-            tirAtual:tirInfo?tirInfo.tirAtual:null,
-            tirAlvo:tirInfo?tirInfo.tirAlvo:null,
-            margemSeg:tirInfo?tirInfo.margemSeg:null,
+            tirAtual:(dadosIA&&typeof dadosIA.tirEstimadaIA==="number"&&isFinite(dadosIA.tirEstimadaIA))?dadosIA.tirEstimadaIA:(tirInfo?tirInfo.tirAtual:null),
+            tirAlvo:(dadosIA&&typeof dadosIA.tirAlvoIA==="number"&&isFinite(dadosIA.tirAlvoIA))?dadosIA.tirAlvoIA:(tirInfo?tirInfo.tirAlvo:null),
+            margemSeg:(()=>{
+              const ta=(dadosIA&&typeof dadosIA.tirEstimadaIA==="number")?dadosIA.tirEstimadaIA:(tirInfo?tirInfo.tirAtual:null);
+              const tv=(dadosIA&&typeof dadosIA.tirAlvoIA==="number")?dadosIA.tirAlvoIA:(tirInfo?tirInfo.tirAlvo:null);
+              return (typeof ta==="number"&&typeof tv==="number")?(ta-tv):null;
+            })(),
             parametros:tirInfo?tirInfo.parametros:null,
-            fonteCalibracao:tirInfo?tirInfo.fonte:null,
+            fonteCalibracao:(dadosIA&&typeof dadosIA.tirEstimadaIA==="number")?"iaDirecta":(tirInfo?tirInfo.fonte:null),
             tirInconsistente:tirInfo&&tirInfo.tirInconsistente,
             dadosIA,
             temDados:!!dadosIA,
