@@ -19348,17 +19348,22 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                     const dyAtual=divA/tk.precoAtual;
                     // Pegar NTN-B media liquida (usa a primeira NTN-B disponivel com taxa, ou referencia 6.0% bruta = 4.5% liq como fallback)
                     let ntnbLiq=null;
+                    let ntnbRefVenc=null;
                     if(ntnbTaxas){
-                      // Procura primeira NTN-B com taxa de venda valida (ordem dos vencimentos)
-                      // taxaBrutaVenda ja eh fracao decimal (ex: 0.06 = 6%), nao percentual
-                      for(const venc of Object.keys(NTNB_VENCIMENTOS)){
-                        if(ntnbTaxas[venc]&&typeof ntnbTaxas[venc].taxaBrutaVenda==="number"&&ntnbTaxas[venc].taxaBrutaVenda>0){
-                          ntnbLiq=taxaLiquidaIR(ntnbTaxas[venc].taxaBrutaVenda);
+                      // PREFERENCIA: NTN-B longa (2035/2045) como referencia para FIIs/Infra/Agro
+                      // (perpetuidades comparam melhor com taxa longa). NTN-B curta (2026) tem
+                      // distorcoes de curto prazo e nao serve como benchmark de renda perpetua.
+                      const refs=["NTNB-2035","NTNB-2040","NTNB-2045","NTNB-2032","NTNB-2050","NTNB-2029","NTNB-2026"];
+                      for(const venc of refs){
+                        const tx=ntnbTaxas[venc];
+                        if(tx&&typeof tx.taxaBrutaVenda==="number"&&tx.taxaBrutaVenda>0.01&&tx.taxaBrutaVenda<0.15){
+                          ntnbLiq=taxaLiquidaIR(tx.taxaBrutaVenda);
+                          ntnbRefVenc=venc.replace("NTNB-","");// "2035", "2040", etc
                           break;
                         }
                       }
                     }
-                    if(ntnbLiq===null)ntnbLiq=0.045;// fallback ~6%bruta = 4.5%liq
+                    if(ntnbLiq===null){ntnbLiq=0.0511;ntnbRefVenc="ref. 6%";}// fallback ~6%bruta = 5.11%liq
                     const spread=dyAtual-ntnbLiq;
                     const spreadPp=spread*100;
                     // Nivel: spread atrativo se >= +4pp (FIIs tijolo) ou >= +3.5pp (papel/CRA); justo entre 2-4pp; caro <2pp
@@ -19367,9 +19372,9 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                     else if(spreadPp>=2)nivel="justo";
                     else if(spreadPp<2)nivel="caro";
                     spreadCardCustom={
-                      label:"Spread DY-NTNB liq",
+                      label:"Spread vs NTNB "+ntnbRefVenc+" liq",
                       valor:(spreadPp>=0?"+":"")+spreadPp.toFixed(2)+"pp",
-                      interpretacao:"DY "+(dyAtual*100).toFixed(2)+"% \u2212 NTN-B liq "+(ntnbLiq*100).toFixed(2)+"%",
+                      interpretacao:"DY "+(dyAtual*100).toFixed(2)+"% \u2212 NTN-B "+ntnbRefVenc+" liq "+(ntnbLiq*100).toFixed(2)+"%",
                       nivel:nivel,
                       _isCustom:true
                     };
