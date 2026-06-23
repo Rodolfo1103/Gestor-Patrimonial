@@ -19342,7 +19342,10 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                   // para FIIs, infra e agro. Spread = (DY anual / preco) - NTN-B liquida media.
                   // Eh o numero que importa para investidor de renda: quanto o ativo paga ACIMA da
                   // alternativa livre de risco em renda real liquida.
+                  // TAMBEM substitui o card de DY (segundo card) pelo mesmo calculo deterministico
+                  // para evitar divergencia entre o DY mostrado e o DY usado no spread.
                   let spreadCardCustom=null;
+                  let dyCardCustom=null;
                   if((tk.classe==="fii"||tk.classe==="infra"||tk.classe==="agro")&&tk.precoAtual&&typeof tk.dadosIA.div_anual==="number"){
                     const divA=tk.dadosIA.div_anual;
                     const dyAtual=divA/tk.precoAtual;
@@ -19378,9 +19381,26 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                       nivel:nivel,
                       _isCustom:true
                     };
+                    // DY recalculado local - garante consistencia com o spread
+                    // Nivel do DY: alto >= 11% (barato/atrativo), 8-11% (justo), <8% (caro/baixo)
+                    let nivelDY="neutro";
+                    const dyPct=dyAtual*100;
+                    if(dyPct>=11)nivelDY="barato";
+                    else if(dyPct>=8)nivelDY="justo";
+                    else if(dyPct<8)nivelDY="caro";
+                    dyCardCustom={
+                      label:"DY 12m",
+                      valor:dyPct.toFixed(2)+"%",
+                      interpretacao:"R$ "+divA.toFixed(2)+"/cota \u00F7 R$ "+tk.precoAtual.toFixed(2),
+                      nivel:nivelDY,
+                      _isCustom:true
+                    };
                   }
-                  // Constroi lista final dos 3 cards: substitui terceiro se for fundo de renda com spread calculado
+                  // Constroi lista final dos 3 cards: substitui segundo (DY) e terceiro (spread) se for fundo de renda
                   const cardsPreco=mPreco.length>0?mPreco.slice():mLegacy.slice();
+                  if(dyCardCustom&&cardsPreco.length>=2){
+                    cardsPreco[1]=dyCardCustom;// substitui segundo card (DY)
+                  }
                   if(spreadCardCustom&&cardsPreco.length>=3){
                     cardsPreco[2]=spreadCardCustom;// substitui terceiro card (spread)
                   }else if(spreadCardCustom&&cardsPreco.length>0){
