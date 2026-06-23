@@ -18785,9 +18785,12 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                 const temTirIA=typeof t.dadosIA.tirEstimadaIA==="number"&&typeof t.dadosIA.tirAlvoIA==="number";
                 const temFundamentais=typeof t.dadosIA.lpa_normalizado==="number"||typeof t.dadosIA.div_anual==="number"||typeof t.dadosIA.affo_por_acao==="number";
                 if(!temTirIA&&!temFundamentais)return true;
-                // NOVO: se dataReferencia esta antiga (>5 meses), tambem entra na re-analise para puxar balanco recente via web_search
+                // Tickers de reporting anual (asiaticos/oceania): tolerar ate 12 meses
+                // Demais (BR/EUA com reporting trimestral): tolerar ate 5 meses
+                const reportingAnual=["J36","HKG0700","HKG1299","HKG0001","HKG0087","WES","REA","TSE8058","TSE8031"];
+                const limiteMeses=reportingAnual.includes(t.ticker)?12:5;
                 const meses=mesesDesdeRef(t.dadosIA.dataReferencia);
-                if(meses>5)return true;
+                if(meses>limiteMeses)return true;
                 return false;
               });
               const tickers=semDadosArr.map(t=>t.ticker);
@@ -19131,12 +19134,34 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                     }
                     if(ano&&mes){
                       const hoje=new Date();
-                      const meses=(hoje.getFullYear()-ano)*12+(hoje.getMonth()+1-mes);
-                      if(meses<=4)cor="#4CAF82";// fresh: ate 4 meses
-                      else if(meses<=8)cor="#C8A96E";// envelhecendo: 4-8 meses
-                      else if(meses<=12){cor="#E89060";avisoFreshness=" \u26A0 envelhecido";}// envelhecido: 8-12 meses
-                      else if(meses<=18){cor="#E07050";avisoFreshness=" \u26A0 anual antigo";}// anual antigo: 12-18 meses
-                      else{cor="#E05252";avisoFreshness=" \u26A0 desatualizado";}// desatualizado: >18 meses
+                      // mesesBrutos = quantos meses passaram desde o FIM do periodo do balanco
+                      const mesesBrutos=(hoje.getFullYear()-ano)*12+(hoje.getMonth()+1-mes);
+                      // AJUSTE DE PUBLICACAO: para reporting anual/semestral, ha defasagem entre
+                      // fim do periodo e publicacao do balanco. A "idade efetiva" e medida a partir
+                      // da publicacao, nao do fim do periodo.
+                      // - Trimestral (BR/EUA): publica ~45 dias apos = ~1.5 meses de defasagem
+                      // - Semestral (asiaticas H1/H2): publica ~2 meses apos
+                      // - Anual (FY): publica ~3 meses apos fim do ano fiscal
+                      // Heuristica para o ajuste:
+                      // - Se dataReferencia termina em mes 12 (FY ou H2) e ticker eh de reporting anual/semestral: descontar 3 meses
+                      // - Se termina em mes 6 (H1): descontar 2 meses
+                      // - Se Q1/Q2/Q3/Q4 trimestral: descontar 1.5 meses
+                      const reportingAnualTk=["J36","HKG0700","HKG1299","HKG0001","HKG0087","WES","REA","TSE8058","TSE8031"];
+                      const ehAnualSem=reportingAnualTk.includes(tk.ticker);
+                      let defasagemPub=1.5;// trimestral default
+                      if(ehAnualSem){
+                        if(mes===12)defasagemPub=3;// FY ou H2 (dezembro): publicado ~marco
+                        else if(mes===6)defasagemPub=2;// H1 (junho): publicado ~agosto
+                        else defasagemPub=2.5;
+                      }
+                      const meses=Math.max(0,mesesBrutos-defasagemPub);
+                      // Faixas calibradas pela idade EFETIVA (desde publicacao)
+                      if(meses<=3)cor="#4CAF82";// fresh: ate 3 meses desde publicacao
+                      else if(meses<=6)cor="#7DD17D";// recente: 3-6 meses
+                      else if(meses<=9)cor="#C8A96E";// envelhecendo: 6-9 meses
+                      else if(meses<=12){cor="#E89060";avisoFreshness=" \u26A0 envelhecido";}// 9-12 meses
+                      else if(meses<=15){cor="#E07050";avisoFreshness=" \u26A0 muito antigo";}// 12-15 meses
+                      else{cor="#E05252";avisoFreshness=" \u26A0 desatualizado";}// >15 meses
                     }
                   }catch(e){}
                 }
