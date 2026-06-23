@@ -19374,23 +19374,24 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                     if(spreadPp>=4)nivel="barato";
                     else if(spreadPp>=2)nivel="justo";
                     else if(spreadPp<2)nivel="caro";
+                    // Calcula spread vs CDI liquido separadamente
+                    const selicNum=typeof selicAtual==="number"&&selicAtual>0?selicAtual/100:null;
+                    let spreadCdiPp=null,cdiLiq=null;
+                    if(selicNum!==null){
+                      cdiLiq=selicNum*(1-0.15);
+                      spreadCdiPp=(dyAtual-cdiLiq)*100;
+                    }
                     spreadCardCustom={
-                      label:"Spread vs NTNB+CDI liq",
-                      valor:(spreadPp>=0?"+":"")+spreadPp.toFixed(2)+"pp",
+                      label:"Spread DY vs RF liquidas",
+                      valor:"NTNB "+(spreadPp>=0?"+":"")+spreadPp.toFixed(2)+"pp",
                       interpretacao:(function(){
-                        const linha1="NTNB-"+ntnbRefVenc+" liq "+(ntnbLiq*100).toFixed(2)+"%: "+(spreadPp>=0?"+":"")+spreadPp.toFixed(2)+"pp";
-                        // Spread vs CDI/Selic liquido (IR 15% longo prazo)
-                        const selicNum=typeof selicAtual==="number"&&selicAtual>0?selicAtual/100:null;
-                        let linha2="CDI liq: n/d";
-                        if(selicNum!==null){
-                          const selicLiq=selicNum*(1-0.15);
-                          const spreadCDI=(dyAtual-selicLiq)*100;
-                          linha2="CDI liq "+(selicLiq*100).toFixed(2)+"%: "+(spreadCDI>=0?"+":"")+spreadCDI.toFixed(2)+"pp";
-                        }
-                        return linha1+" | "+linha2;
+                        const lin1="\u25B8 vs NTNB-"+ntnbRefVenc+" liq "+(ntnbLiq*100).toFixed(2)+"%: "+(spreadPp>=0?"+":"")+spreadPp.toFixed(2)+"pp";
+                        const lin2=cdiLiq!==null?"\u25B8 vs CDI liq "+(cdiLiq*100).toFixed(2)+"%: "+(spreadCdiPp>=0?"+":"")+spreadCdiPp.toFixed(2)+"pp":"\u25B8 vs CDI liq: n/d";
+                        return lin1+"\n"+lin2;
                       })(),
                       nivel:nivel,
-                      _isCustom:true
+                      _isCustom:true,
+                      _multilinha:true
                     };
                     // DY recalculado local - garante consistencia com o spread
                     // Nivel do DY: alto >= 11% (barato/atrativo), 8-11% (justo), <8% (caro/baixo)
@@ -19428,7 +19429,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                           return h("div",{key:"mp"+k,style:{background:m._isCustom?"rgba(122,160,181,0.08)":"rgba(255,255,255,0.025)",border:"1px solid "+(m._isCustom?"#7AA0B555":corM+"33"),borderRadius:4,padding:"5px 7px"}},
                             h("div",{style:{fontSize:7.5,color:m._isCustom?"#7AA0B5":"#9A9080",fontFamily:"monospace",letterSpacing:0.8,marginBottom:1}},m.label),
                             h("div",{style:{fontSize:11,color:corM,fontFamily:"monospace",fontWeight:700,marginBottom:2}},m.valor),
-                            h("div",{style:{fontSize:7.5,color:"#7A7060",lineHeight:1.3,fontStyle:"italic"}},m.interpretacao)
+                            h("div",{style:{fontSize:7.5,color:"#7A7060",lineHeight:1.4,fontStyle:"italic",whiteSpace:m._multilinha?"pre-line":"normal"}},m.interpretacao)
                           );
                         })
                       )
