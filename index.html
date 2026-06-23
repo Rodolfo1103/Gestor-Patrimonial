@@ -19350,9 +19350,10 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                     let ntnbLiq=null;
                     if(ntnbTaxas){
                       // Procura primeira NTN-B com taxa de venda valida (ordem dos vencimentos)
+                      // taxaBrutaVenda ja eh fracao decimal (ex: 0.06 = 6%), nao percentual
                       for(const venc of Object.keys(NTNB_VENCIMENTOS)){
-                        if(ntnbTaxas[venc]&&typeof ntnbTaxas[venc].taxaBrutaVenda==="number"){
-                          ntnbLiq=taxaLiquidaIR(ntnbTaxas[venc].taxaBrutaVenda/100);
+                        if(ntnbTaxas[venc]&&typeof ntnbTaxas[venc].taxaBrutaVenda==="number"&&ntnbTaxas[venc].taxaBrutaVenda>0){
+                          ntnbLiq=taxaLiquidaIR(ntnbTaxas[venc].taxaBrutaVenda);
                           break;
                         }
                       }
