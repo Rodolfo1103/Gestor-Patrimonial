@@ -1070,7 +1070,7 @@ const DESCRICOES_FACTUAIS={
   AFHI11:"AF Invest CRI - FII de papel (CRIs IPCA+ e CDI+) - gestao AF Invest.",
   RECR11:"REC Recebiveis Imobiliarios - FII de papel (CRIs).",
   KNHY11:"Kinea High Yield CRI - FII de papel high yield (CRIs com taxas mais altas).",
-  KNUQ11:"Kinea Unique - FII de tijolo high-end (lajes premium em SP).",
+  KNUQ11:"Kinea Unique - FII de papel high yield (CRIs com taxas mais altas) - gestao Kinea.",
   KNIP11:"Kinea Indice Precos - FII de papel atrelado a IPCA+.",
   TRXF11:"TRX Real Estate - FII multissetorial (tijolo+papel).",
   ALZR11:"Alianza Trust - FII de tijolo (galpoes/centros logisticos).",
@@ -1134,12 +1134,16 @@ function calcTIRImplicita(ticker,classeId,precoAtual,dadosFundamentais,calibraco
       tirAtual=(lpa/precoAtual)+(p.crescReal||0);
     }
   }else if(classeId==="fii"){
-    // FIIs: TIR = DY_atual + crescReal_FII
+    // FIIs: comportamento DEPENDE DO SUBTIPO
+    // - FII de tijolo: TIR = DY_atual + crescReal (DY pode crescer com inflacao/aluguel)
+    // - FII de papel (CRI): TIR = DY_atual (sem crescimento, eh divida pura)
+    const subtipo=dadosFundamentais.subtipo||"";
+    const isPapel=subtipo==="papel";
     const divAnual=dadosFundamentais.divAnual;// dividendo anualizado
     if(typeof divAnual==="number"&&divAnual>0){
-      tirAtual=(divAnual/precoAtual)+(p.crescReal||0.025);
+      tirAtual=(divAnual/precoAtual)+(isPapel?0:(p.crescReal||0.025));
     }else if(typeof dadosFundamentais.dyAtual==="number"){
-      tirAtual=dadosFundamentais.dyAtual+(p.crescReal||0.025);
+      tirAtual=dadosFundamentais.dyAtual+(isPapel?0:(p.crescReal||0.025));
     }
   }else if(classeId==="reits"){
     // REITs: TIR = AFFO yield + crescReal
@@ -1150,12 +1154,17 @@ function calcTIRImplicita(ticker,classeId,precoAtual,dadosFundamentais,calibraco
       tirAtual=dadosFundamentais.affoYield+(p.crescReal||0.03);
     }
   }else if(classeId==="infra"||classeId==="agro"){
-    // Infra/Agro: TIR = DY liquido + crescReal
+    // Infra/Agro: comportamento DEPENDE DO SUBTIPO
+    // - fip_ie / fiagro_terras: EQUITY em real assets, somar crescimento real
+    // - debentureIncentivada / fiagro_papel: DIVIDA pura, NAO somar crescimento
+    const subtipo=dadosFundamentais.subtipo||"";
+    const isDivida=subtipo==="debentureIncentivada"||subtipo==="fiagro_papel";
+    const crescPadrao=p.crescReal||0.035;
     const dyAnual=dadosFundamentais.divAnual;
     if(typeof dyAnual==="number"&&dyAnual>0){
-      tirAtual=(dyAnual/precoAtual)+(p.crescReal||0.035);
+      tirAtual=(dyAnual/precoAtual)+(isDivida?0:crescPadrao);
     }else if(typeof dadosFundamentais.dyAtual==="number"){
-      tirAtual=dadosFundamentais.dyAtual+(p.crescReal||0.035);
+      tirAtual=dadosFundamentais.dyAtual+(isDivida?0:crescPadrao);
     }
   }else if(classeId==="rfipca"){
     // NTN-B: taxa real liquida ja informada
@@ -1205,11 +1214,18 @@ function calcPrecoAlvoTIR(ticker,classeId,precoAtual,dadosFundamentais,calibraco
   const tirAlvo=typeof p.tirMin==="number"?p.tirMin:null;
   // Default crescReal por classe - DEVE SER IDENTICO ao default usado em calcTIRImplicita
   // para garantir consistencia entre TIR atual mostrada e preco-teto calculado
+  const subtipo=df.subtipo||"";
   let crescRealDefault=0;
   if(classeId==="acoes_br"||classeId==="acoes_eua"||classeId==="acoes_mundo")crescRealDefault=0;// linha 1134
-  else if(classeId==="fii")crescRealDefault=0.025;// linha 1140
+  else if(classeId==="fii"){
+    // FII de tijolo: 2.5% crescimento. FII de papel: 0 (divida pura).
+    crescRealDefault=(subtipo==="papel")?0:0.025;
+  }
   else if(classeId==="reits")crescRealDefault=0.03;// linha 1148
-  else if(classeId==="infra"||classeId==="agro")crescRealDefault=0.035;// linha 1156
+  else if(classeId==="infra"||classeId==="agro"){
+    // FIP-IE/FIAGRO terras (equity real assets): 3.5%. Debenture/CRA (divida): 0.
+    crescRealDefault=(subtipo==="debentureIncentivada"||subtipo==="fiagro_papel")?0:0.035;
+  }
   const crescReal=typeof p.crescReal==="number"?p.crescReal:crescRealDefault;
   if(typeof tirAlvo!=="number"||!isFinite(tirAlvo))return null;
   // Yield esperado = tirAlvo - crescReal (precisa ser positivo para fazer sentido)
@@ -8239,6 +8255,10 @@ function App(){
                 if(typeof d.div_anual==="number")dfTk.divAnual=d.div_anual;
                 if(typeof d.affo_por_acao==="number")dfTk.affoPorAcao=d.affo_por_acao;
                 if(typeof d.yieldAtual==="number")dfTk.yieldAtual=d.yieldAtual;
+                if(typeof d.subtipo==="string")dfTk.subtipo=d.subtipo;
+                // Inclui composicao da carteira para fundos de divida (papel/debentures/CRA)
+                if(typeof d.composicaoCarteira==="string"&&d.composicaoCarteira.trim())obj.composicaoCarteira=d.composicaoCarteira;
+                if(typeof d.subtipo==="string"&&d.subtipo.trim())obj.subtipo=d.subtipo;
                 // Para NTN-B, passar taxa real liquida ja convertida
                 if(c.id==="rfipca"&&ntnbTaxas&&ntnbTaxas[tk]){
                   dfTk.taxaLiqRealNTNB=taxaLiquidaIR(ntnbTaxas[tk].taxaBrutaVenda);
@@ -8765,10 +8785,19 @@ function App(){
         "4) Para FIIs: div_anual = DIVIDENDO ANUALIZADO POR COTA em BRL (soma dos rendimentos pagos nos ultimos 12m). EXEMPLO: HGLG11 div_anual ~10 BRL (NAO confundir com VPA ou valor da cota). ALZR11 div_anual ~7 BRL. RECR11 div_anual ~12 BRL. NUNCA confunda div_anual com VPA ou cotacao.\n"+
         "5) Para REITs: affo_por_acao = AFFO POR ACAO em USD TTM. EXEMPLO: O affo_por_acao ~4.20 USD. NAO confundir com FFO ou EPS.\n"+
         "6) Para INFRA/AGRO (Brasil): div_anual = DIVIDENDO ANUALIZADO POR COTA em BRL.\n"+
-        "6b) Para TREASURIES (TLT, IEF, VTIP): yieldAtual OBRIGATORIO em fracao decimal (ex: 0.0432 para 4.32%). TLT/IEF = Treasury yield NOMINAL atual da duration correspondente (TLT ~20yr Treasury yield, IEF ~10yr Treasury yield). VTIP = yield REAL atual dos TIPS curtos (pode ser baixo, 0.5-2.5%). NAO retornar lpa/div_anual/affo para Treasuries.\n"+
+        "6a) SUBTIPO OBRIGATORIO para FII/infra/agro - identifica natureza do fundo (afeta como TIR e calculada):\n"+
+        "    - 'tijolo': FII com imoveis fisicos (lajes corporativas, logistica, shopping, varejo, residencial multifamily, galpoes, hospitais). Exemplos: HGRU11, ALZR11, HGLG11, XPML11, JFLL11 (multifamily), RBVA11, TRXF11, BTLG11, FIIB11, PVBI11, TEPP11, TGAR11, HSML11, XPIN11.\n"+
+        "    - 'papel': FII de CRIs (recebiveis imobiliarios) - puro instrumento de divida, retorno = yield contratado dos CRIs. Exemplos: KNHY11, KNUQ11, KNIP11, RECR11, AFHI11.\n"+
+        "    - 'fip_ie': FIP de Infraestrutura (Fundo de Participacoes em Infraestrutura) - EQUITY em projetos de infra como portos, energia, rodovias. NAO eh divida. Exemplo: BRZP11 (Briza Infra Portos com 22,9% indireto Porto Itapoa/SC).\n"+
+        "    - 'debentureIncentivada': FI-Infra de debentures incentivadas Lei 12.431 - divida pura isenta IR. Exemplos: AZIN11, KDIF11.\n"+
+        "    - 'fiagro_terras': FIAGRO de terras agricolas com arrendamento - equity de real assets. Exemplos: SNFZ11 (Suno Fazenda), RZTR11 (Riza Terrax).\n"+
+        "    - 'fiagro_papel': FIAGRO de CRAs (recebiveis do agronegocio) - puro instrumento de divida. Exemplo: KNCA11 (Kinea Credito Agronegocio).\n"+
+        "6b) COMPOSICAO_CARTEIRA OBRIGATORIA para subtipos 'papel', 'debentureIncentivada' e 'fiagro_papel' - descricao da composicao atual da carteira de titulos. Buscar via web_search no ultimo relatorio gerencial mensal. Formato: ex 'KNHY11: 70% CRI CDI+4.2% + 30% CRI IPCA+8.5%, yield blended esperado ~14.2% liquido' ou 'KDIF11: 100% debentures incentivadas, yield medio carteira IPCA+8.2% isento = ~11% liquido'.\n"+
+        "6c) Para TREASURIES (TLT, IEF, VTIP): yieldAtual OBRIGATORIO em fracao decimal (ex: 0.0432 para 4.32%). TLT/IEF = Treasury yield NOMINAL atual da duration correspondente (TLT ~20yr Treasury yield, IEF ~10yr Treasury yield). VTIP = yield REAL atual dos TIPS curtos (pode ser baixo, 0.5-2.5%). NAO retornar lpa/div_anual/affo para Treasuries.\n"+
         "   - metricasPreco para TLT/IEF: YTM nominal, Premio vs Cash Fed Funds, Duration-yield/PVBP (sensibilidade)\n"+
         "   - metricasPreco para VTIP: Yield REAL (real yield), Breakeven inflation, Duration-yield\n"+
-        "7) SANIDADE OBRIGATORIA antes de retornar: para cada ticker, CALCULE mentalmente DY = div_anual/precoAtual ou EY = lpa/precoAtual. Se o resultado for >25%, voce ESTA ERRADO - revise os valores. DYs reais de FIIs estao entre 7-15%. EYs reais de acoes estao entre 3-15%. Se voce nao consegue ancorar em valor plausivel, use a observacao para indicar 'estimativa de baixa confianca' mas NUNCA forneca valor que gera DY/EY absurdo.\n"+
+        "7) Para fundos de PAPEL/DIVIDA ('papel', 'debentureIncentivada', 'fiagro_papel'): a tirEstimadaIA deve refletir o YIELD BLENDED REAL ESPERADO da composicao atual da carteira (forward-looking, NAO o DY trailing 12m). Considerar indexador, isencao fiscal e spread atual sobre indexador. NAO somar 'crescimento real' a esse tipo de fundo - eles nao crescem, apenas pagam yield contratado.\n"+
+        "8) SANIDADE OBRIGATORIA antes de retornar: para cada ticker, CALCULE mentalmente DY = div_anual/precoAtual ou EY = lpa/precoAtual. Se o resultado for >25%, voce ESTA ERRADO - revise os valores. DYs reais de FIIs estao entre 7-15%. EYs reais de acoes estao entre 3-15%. Se voce nao consegue ancorar em valor plausivel, use a observacao para indicar 'estimativa de baixa confianca' mas NUNCA forneca valor que gera DY/EY absurdo.\n"+
         "\n"+
         "METRICAS DE PRECO (metricasPreco, EXATAMENTE 3):\n"+
         "   - Acoes BR: P/L, P/VPA, DY 12m\n"+
@@ -8875,9 +8904,11 @@ function App(){
                   driversRetorno:{type:"array",minItems:2,maxItems:3,items:{type:"string",description:"Max 80 chars"}},
                   driversRisco:{type:"array",minItems:2,maxItems:3,items:{type:"string",description:"Max 80 chars"}},
                   dataReferencia:{type:"string",description:"Ano-mes do ultimo balanco (ex: 2026-03)"},
-                  observacao:{type:"string",description:"Opcional, max 200 chars"}
+                  observacao:{type:"string",description:"Opcional, max 200 chars"},
+                  subtipo:{type:"string",description:"OBRIGATORIO para FII, infra e agro. Identifica a natureza do fundo: 'tijolo' (FII de imoveis fisicos: lajes, logistica, shopping, varejo, residencial, hospitais) | 'papel' (FII de CRI/recebiveis imobiliarios) | 'fip_ie' (FIP-IE: fundo de participacoes em infraestrutura, equity em projetos como portos, energia, rodovias) | 'debentureIncentivada' (FI-Infra de debentures incentivadas Lei 12.431) | 'fiagro_terras' (FIAGRO de terras agricolas com arrendamento) | 'fiagro_papel' (FIAGRO de CRA - recebiveis do agronegocio). Para acoes/REITs/treasuries deixar vazio ou omitir.",enum:["tijolo","papel","fip_ie","debentureIncentivada","fiagro_terras","fiagro_papel",""]},
+                  composicaoCarteira:{type:"string",description:"OPCIONAL mas RECOMENDADO para FIIs de papel, FI-Infra debentures, FIAGRO de papel. Descreve composicao atual da carteira de titulos com indexadores e yields liquidos esperados, ex: 'KNHY11: 70% CRI CDI+4.2% + 30% CRI IPCA+8.5%, yield blended esperado ~14.2% liquido', 'KDIF11: 100% debentures incentivadas Lei 12.431 isentas IR, yield medio carteira IPCA+8.2% isento = ~11% liquido'. Max 250 chars."}
                 },
-                required:["ticker","classe","metricasPreco","metricasQualidade","driversRetorno","driversRisco","dataReferencia","tirEstimadaIA","tirAlvoIA"]
+                required:["ticker","classe","metricasPreco","metricasQualidade","driversRetorno","driversRisco","dataReferencia","tirEstimadaIA","tirAlvoIA","subtipo"]
               }
             }
           },
@@ -18564,6 +18595,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             if(typeof dadosIA.lpa_normalizado==="number")df.lpa=dadosIA.lpa_normalizado;
             if(typeof dadosIA.div_anual==="number")df.divAnual=dadosIA.div_anual;
             if(typeof dadosIA.affo_por_acao==="number")df.affoPorAcao=dadosIA.affo_por_acao;
+            if(typeof dadosIA.subtipo==="string")df.subtipo=dadosIA.subtipo;
           }
           // Calcula TIR usando preco ATUAL (responde a mudancas de preco)
           const tirInfo=calcTIRImplicita(tk,info.classId,precoAtual,df,calibracoesCustom);
@@ -18641,6 +18673,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             if(typeof dadosIA.div_anual==="number")df.divAnual=dadosIA.div_anual;
             if(typeof dadosIA.affo_por_acao==="number")df.affoPorAcao=dadosIA.affo_por_acao;
             if(typeof dadosIA.yieldAtual==="number")df.yieldAtual=dadosIA.yieldAtual;
+            if(typeof dadosIA.subtipo==="string")df.subtipo=dadosIA.subtipo;
           }
           const tirInfo=calcTIRImplicita(tk,cid,null,df,calibracoesCustom);
           tickersAnalise.push({
