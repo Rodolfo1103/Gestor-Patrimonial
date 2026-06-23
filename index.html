@@ -18741,6 +18741,17 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
               window.__rrDiagPrecos=txt;
               alert(txt);
             },style:{padding:"8px 14px",background:"rgba(232,144,96,0.10)",border:"1px solid rgba(232,144,96,0.35)",borderRadius:5,color:"#E89060",fontSize:10,fontFamily:"monospace",fontWeight:700,letterSpacing:1.2,cursor:"pointer",textTransform:"uppercase"}},"diag precos"),
+            // Botao diagnostico de datas: mostra dataReferencia + observacao salvas pela IA
+            h("button",{onClick:()=>{
+              const tickers=["HKG1299","J36","HKG0001","HKG0087","WES","TLT","IEF","VTIP","FPI"];
+              const linhas=tickers.map(t=>{
+                const d=riscoRetornoData&&riscoRetornoData.ativos?riscoRetornoData.ativos[t]:null;
+                if(!d)return t+": (sem dadosIA)";
+                return t+": dataRef='"+(d.dataReferencia||"(vazio)")+"'\n   obs: "+(d.observacao||"(sem observacao)");
+              });
+              const txt="DIAGNOSTICO DE DATAS:\n\n"+linhas.join("\n\n")+"\n\n---\nValores esperados: '2026-H1' (sem.1/2026), '2025-H2' (sem.2/2025), '2026-Q1', '2026-Q2', '2026-03' etc. Se aparece '2025' puro, IA falhou em precisar o periodo.";
+              alert(txt);
+            },style:{padding:"8px 14px",background:"rgba(232,144,96,0.10)",border:"1px solid rgba(232,144,96,0.35)",borderRadius:5,color:"#E89060",fontSize:10,fontFamily:"monospace",fontWeight:700,letterSpacing:1.2,cursor:"pointer",textTransform:"uppercase"}},"diag datas"),
             // BOTAO ANALISAR FALTANTES (sempre visivel) - detecta tickers sem dadosIA, analise incompleta, ou dataReferencia antiga
             tsRR>0?h("button",{onClick:()=>{
               const hoje=new Date();
