@@ -1717,7 +1717,7 @@ function mptMonteCarlo(N,rf){
   }
   return out;
 }
-const SELIC_ANCORA=14.50;// Selic % a.a. considerada na premissa base (atualizada 2026)
+const SELIC_ANCORA=14.25;// Selic % a.a. considerada na premissa base (atualizada jun/2026 - Copom cortou para 14.25)
 // RR efetivo: comeca como base, depois eh recalibrado por Selic + IA
 // Mutavel apenas via funcao recalibrarRR (nao mutar diretamente)
 let RR={...RR_BASE};
@@ -4139,7 +4139,7 @@ function RiskChart({cw,selicAtual,calibracaoRR_TS,calibracaoRR_texto,calibracaoR
         h("div",{style:{padding:"7px 9px",marginBottom:9,background:"rgba(91,143,212,0.06)",borderLeft:"3px solid #5B8FD4",borderRadius:"0 5px 5px 0",fontSize:8,color:"#9A9080",lineHeight:1.55}},
           h("strong",{style:{color:"#5B8FD4",fontFamily:"monospace",letterSpacing:1,fontSize:7}},"\u2139 SOBRE ESTA METRICA"),
           h("div",{style:{marginTop:3}},"A ",h("strong",{},"Eficiencia Bruta R/R")," (",h("span",{style:{fontFamily:"monospace"}},"retorno teorico \u00f7 risco"),") mede se o portfolio captura mais retorno por unidade de risco. ",h("strong",{style:{color:"#E89060"}},"NAO desconta a Selic"),", entao SEMPRE da numero positivo se ha retorno esperado."),
-          h("div",{style:{marginTop:4}},"Para o ",h("strong",{style:{color:"#C8A96E"}},"Sharpe Esperado")," (teorico, baseado em premissas modeladas com Selic ",typeof selicAtual==="number"?selicAtual.toFixed(2)+"%":"~14.50%",") consulte a aba ",h("strong",{},"MPT"),". Para o ",h("strong",{style:{color:"#C8A96E"}},"Sharpe Realizado")," (a partir do historico real do seu portfolio) consulte a aba ",h("strong",{},"Analise"),".")
+          h("div",{style:{marginTop:4}},"Para o ",h("strong",{style:{color:"#C8A96E"}},"Sharpe Esperado")," (teorico, baseado em premissas modeladas com Selic ",typeof selicAtual==="number"?selicAtual.toFixed(2)+"%":"~14.25%",") consulte a aba ",h("strong",{},"MPT"),". Para o ",h("strong",{style:{color:"#C8A96E"}},"Sharpe Realizado")," (a partir do historico real do seu portfolio) consulte a aba ",h("strong",{},"Analise"),".")
         ),
         // === BARRA DE CALIBRACAO COM DIAGNOSTICO DE AFERICAO ===
         (()=>{
@@ -5315,7 +5315,7 @@ function PreviewRaciocinio({cw,total,selicAtual,ipcaAnual,ntnbTaxas,mvrvZ,piCycl
   // Helpers
   const fNum=(n,d=1)=>(typeof n==="number"&&isFinite(n))?n.toFixed(d):"-";
   const ipca=(typeof ipcaAnual==="number"&&ipcaAnual>0)?ipcaAnual:5.0;// fallback IPCA 5%
-  const sel=(typeof selicAtual==="number"&&selicAtual>0)?selicAtual:14.5;
+  const sel=(typeof selicAtual==="number"&&selicAtual>0)?selicAtual:14.25;
   const selicRealLiq=(sel*0.85)-ipca;// Selic real liquida aproximada em pp
   
   // ===== Detecta cenario AW dominante (calculado localmente) =====
@@ -6989,10 +6989,10 @@ function App(){
   // ===== MPT Monte Carlo cache (recalcula apenas quando cw ou Selic mudam) =====
   // Quantize pra evitar recalcular a cada centesimo de %
   const cwKey=MPT_CLS.map(cid=>Math.round((cw[cid]||0)*10)/10).join(",");
-  const rfKey=Math.round((selicAtual||14.50)*10)/10;
+  const rfKey=Math.round((selicAtual||14.25)*10)/10;
   const mptCache=useMemo(()=>{
     try{
-      const rf=(typeof selicAtual==="number"&&selicAtual>0?selicAtual:14.50)/100;
+      const rf=(typeof selicAtual==="number"&&selicAtual>0?selicAtual:14.25)/100;
       return mptMonteCarlo(8000,rf);
     }catch(e){console.error("Erro Monte Carlo:",e);return[];}
   },[cwKey,rfKey]);
@@ -7759,7 +7759,7 @@ function App(){
       const wAporte=MPT_CLS.map(cid=>(cw[cid]||0)/100);
       const somaAporte=wAporte.reduce((a,b)=>a+b,0);
       if(somaAporte>0)for(let i=0;i<wAporte.length;i++)wAporte[i]/=somaAporte;
-      const rfAporte=(typeof selicAtual==="number"&&selicAtual>0?selicAtual:14.50)/100;
+      const rfAporte=(typeof selicAtual==="number"&&selicAtual>0?selicAtual:14.25)/100;
       const statsAporte=mptStats(wAporte,rfAporte);
       const sharpeAporte=mptSharpe(statsAporte.ret,statsAporte.vol,rfAporte);
       // ===== FRONTEIRA EFICIENTE REAL (envelope superior, monotonico) =====
@@ -9581,7 +9581,7 @@ function App(){
     const wAtual=MPT_CLS.map(cid=>(cw[cid]||0)/100);
     const sNorm=wAtual.reduce((s,v)=>s+v,0);
     if(sNorm>0)for(let i=0;i<wAtual.length;i++)wAtual[i]/=sNorm;
-    const rfAtual=(typeof selicAtual==="number"&&selicAtual>0?selicAtual:14.50)/100;
+    const rfAtual=(typeof selicAtual==="number"&&selicAtual>0?selicAtual:14.25)/100;
     const stMPT=mptStats(wAtual,rfAtual);
     const sharpeEsp=mptSharpe(stMPT.ret,stMPT.vol,rfAtual);
     // HHI e ENB
@@ -9661,7 +9661,7 @@ function App(){
     const snapAtual={
       patrimonio:total,
       composicao:Object.fromEntries(CL.map(c=>[c.id,cw[c.id]||0])),
-      selic:typeof selicAtual==="number"?selicAtual:14.50,
+      selic:typeof selicAtual==="number"?selicAtual:14.25,
       ipca:ipcaAnual*100,
       ts:Date.now()
     };
@@ -9749,7 +9749,7 @@ function App(){
       }
     });
     // 3) Mudanca > 3pp na Selic (pra cima ou pra baixo)
-    const selicAgora=typeof selicAtual==="number"?selicAtual:14.50;
+    const selicAgora=typeof selicAtual==="number"?selicAtual:14.25;
     if(typeof insightSnap.selic==="number"){
       const dSelic=selicAgora-insightSnap.selic;
       if(Math.abs(dSelic)>3){
@@ -12424,7 +12424,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             return novoTotal>0?novoBRL/novoTotal:0;
           });
           // Stats pos-aporte
-          const rfPos=(typeof selicAtual==="number"&&selicAtual>0?selicAtual:14.50)/100;
+          const rfPos=(typeof selicAtual==="number"&&selicAtual>0?selicAtual:14.25)/100;
           const statsPos=mptStats(novosPesos,rfPos);
           const sharpePos=mptSharpe(statsPos.ret,statsPos.vol,rfPos);
           // ===== FRONTEIRA EFICIENTE REAL pos-aporte =====
@@ -12754,7 +12754,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
     });
     const somaA=wAlvo.reduce((a,b)=>a+b,0);
     if(somaA>0){for(let i=0;i<wAlvo.length;i++)wAlvo[i]/=somaA;}
-    const rfAtual=(typeof selicAtual==="number"&&selicAtual>0?selicAtual:14.50)/100;// taxa livre risco anual
+    const rfAtual=(typeof selicAtual==="number"&&selicAtual>0?selicAtual:14.25)/100;// taxa livre risco anual
     const statsAtual=mptStats(wAtual,rfAtual);
     const sharpeAtual=mptSharpe(statsAtual.ret,statsAtual.vol,rfAtual);
     const betaAtual=mptBeta(wAtual);
@@ -13377,7 +13377,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           ouro:0.10,bitcoin:0.10
         };
         const ANCORA=0.10;
-        const rfReal=(typeof selicAtual==="number"&&selicAtual>0?selicAtual:14.50)/100;
+        const rfReal=(typeof selicAtual==="number"&&selicAtual>0?selicAtual:14.25)/100;
         const deltaSelic=rfReal-ANCORA;
         // Calcula Sharpe individual de cada classe (standalone)
         const sharpesIndividuais=MPT_CLS.map(cid=>{
@@ -14635,7 +14635,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
       CL.forEach(c=>wAtual[c.id]=(cw[c.id]||0)/100);
       // Stats YPB (usa engine MPT)
       const wYPB_arr=MPT_CLS.map(cid=>YPB_W[cid]||0);
-      const rfAtualY=(typeof selicAtual==="number"&&selicAtual>0?selicAtual:14.50)/100;
+      const rfAtualY=(typeof selicAtual==="number"&&selicAtual>0?selicAtual:14.25)/100;
       const statsYPB=mptStats(wYPB_arr,rfAtualY);
       const sharpeYPB=mptSharpe(statsYPB.ret,statsYPB.vol,rfAtualY);
       // Stats atual
@@ -14851,7 +14851,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         return dd;
       };
       // VaR/CVaR parametrico (anual) baseado nos stats MPT
-      const rfStress=(typeof selicAtual==="number"&&selicAtual>0?selicAtual:14.50)/100;
+      const rfStress=(typeof selicAtual==="number"&&selicAtual>0?selicAtual:14.25)/100;
       const statsAtualSt=mptStats(wA,rfStress);
       const statsAWSt=mptStats(wAW,rfStress);
       // VaR 95% = 1.645 sigma, VaR 99% = 2.326 sigma
@@ -19375,9 +19375,20 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                     else if(spreadPp>=2)nivel="justo";
                     else if(spreadPp<2)nivel="caro";
                     spreadCardCustom={
-                      label:"Spread vs NTNB "+ntnbRefVenc+" liq",
+                      label:"Spread vs NTNB+CDI liq",
                       valor:(spreadPp>=0?"+":"")+spreadPp.toFixed(2)+"pp",
-                      interpretacao:"DY "+(dyAtual*100).toFixed(2)+"% \u2212 NTN-B "+ntnbRefVenc+" liq "+(ntnbLiq*100).toFixed(2)+"%",
+                      interpretacao:(function(){
+                        const linha1="NTNB-"+ntnbRefVenc+" liq "+(ntnbLiq*100).toFixed(2)+"%: "+(spreadPp>=0?"+":"")+spreadPp.toFixed(2)+"pp";
+                        // Spread vs CDI/Selic liquido (IR 15% longo prazo)
+                        const selicNum=typeof selicAtual==="number"&&selicAtual>0?selicAtual/100:null;
+                        let linha2="CDI liq: n/d";
+                        if(selicNum!==null){
+                          const selicLiq=selicNum*(1-0.15);
+                          const spreadCDI=(dyAtual-selicLiq)*100;
+                          linha2="CDI liq "+(selicLiq*100).toFixed(2)+"%: "+(spreadCDI>=0?"+":"")+spreadCDI.toFixed(2)+"pp";
+                        }
+                        return linha1+" | "+linha2;
+                      })(),
                       nivel:nivel,
                       _isCustom:true
                     };
