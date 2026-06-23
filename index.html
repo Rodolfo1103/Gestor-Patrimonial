@@ -13920,6 +13920,58 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           h("span",{style:{color:"#9B9B9B",fontWeight:700}},"\u25CB SELIC"),": livre risco. ",
           h("span",{style:{color:"#E05252",fontWeight:700}},"\u2716 gap"),": retorno faltante para fronteira."
         ),
+        // ===== REGUA HORIZONTAL DE EFICIENCIA C- a A+ =====
+        (function(){
+          // Subdivide a nota 0-100 em 8 zonas: F (<40), E (40-54), D- (55-59), D+ (60-64), C- (65-69), C+ (70-74), B- (75-79), B+ (80-84), A- (85-89), A+ (>=90)
+          // Para grafico mostra 8 zonas com cores: vermelho -> laranja -> dourado -> verde claro -> verde
+          const nota=notaFinal;
+          // Posicao 0-100% da bolinha (clamp para visual)
+          const posPct=Math.max(0,Math.min(100,nota));
+          // Determina label expandido C-/C+/B-/B+/A-/A+
+          let labelExp,corLabel;
+          if(nota>=92){labelExp="A+";corLabel="#2E8B57";}
+          else if(nota>=85){labelExp="A";corLabel="#4CAF82";}
+          else if(nota>=80){labelExp="A-";corLabel="#7DD17D";}
+          else if(nota>=77){labelExp="B+";corLabel="#A5D670";}
+          else if(nota>=75){labelExp="B";corLabel="#C8D85E";}
+          else if(nota>=70){labelExp="B-";corLabel="#E8D44A";}
+          else if(nota>=67){labelExp="C+";corLabel="#E8C44A";}
+          else if(nota>=65){labelExp="C";corLabel="#E8B040";}
+          else if(nota>=60){labelExp="C-";corLabel="#E89060";}
+          else if(nota>=55){labelExp="D";corLabel="#E07050";}
+          else if(nota>=40){labelExp="E";corLabel="#D05540";}
+          else {labelExp="F";corLabel="#E05252";}
+          return h("div",{style:{padding:"14px 12px",borderTop:"1px solid rgba(255,255,255,0.05)",background:"rgba(0,0,0,0.10)"}},
+            h("div",{style:{fontSize:8,letterSpacing:1.8,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,marginBottom:10}},"\u{1F321}\uFE0F TERMOMETRO DE EFICIENCIA DO PORTFOLIO"),
+            // Container da regua
+            h("div",{style:{position:"relative",height:50,marginTop:6}},
+              // Barra de gradiente (vermelho -> verde)
+              h("div",{style:{position:"absolute",top:18,left:0,right:0,height:14,borderRadius:7,background:"linear-gradient(90deg,#E05252 0%,#D05540 12%,#E07050 22%,#E89060 32%,#E8B040 42%,#E8C44A 52%,#E8D44A 62%,#C8D85E 72%,#A5D670 80%,#7DD17D 87%,#4CAF82 94%,#2E8B57 100%)",border:"1px solid rgba(255,255,255,0.10)"}}),
+              // Marcas verticais com labels nas zonas principais
+              [
+                {x:0,l:"F"},{x:47.5,l:"E"},{x:60,l:"D"},{x:67.5,l:"C"},
+                {x:75,l:"B"},{x:85,l:"A"},{x:96,l:"A+"}
+              ].map((m,i)=>h("div",{key:"mark"+i,style:{position:"absolute",left:m.x+"%",top:13,bottom:0,display:"flex",flexDirection:"column",alignItems:"center"}},
+                h("div",{style:{width:1,height:24,background:"rgba(255,255,255,0.25)"}}),
+                h("div",{style:{fontSize:8,color:"#7A7060",fontFamily:"monospace",marginTop:2,fontWeight:600}},m.l)
+              )),
+              // Bolinha indicadora da posicao atual
+              h("div",{style:{position:"absolute",left:"calc("+posPct+"% - 9px)",top:14,width:18,height:22,zIndex:5}},
+                // Triangulo apontador para baixo (acima da barra)
+                h("div",{style:{position:"absolute",left:1,top:-8,width:0,height:0,borderLeft:"8px solid transparent",borderRight:"8px solid transparent",borderTop:"10px solid "+corLabel,filter:"drop-shadow(0 2px 3px rgba(0,0,0,0.4))"}}),
+                // Circulo central
+                h("div",{style:{position:"absolute",left:0,top:0,width:18,height:18,borderRadius:"50%",background:corLabel,border:"2px solid #1A1612",boxShadow:"0 0 8px "+corLabel+"AA"}})
+              )
+            ),
+            // Linha com label da nota atual
+            h("div",{style:{marginTop:14,display:"flex",alignItems:"baseline",gap:8,flexWrap:"wrap"}},
+              h("span",{style:{fontSize:9,color:"#7A7060",fontFamily:"monospace"}},"Seu portfolio:"),
+              h("span",{style:{fontSize:18,color:corLabel,fontFamily:"monospace",fontWeight:700,letterSpacing:0.5}},labelExp),
+              h("span",{style:{fontSize:10,color:"#9A9080",fontFamily:"monospace"}},"("+nota.toFixed(1)+"/100)"),
+              h("span",{style:{fontSize:9,color:corConceito,fontFamily:"monospace",fontStyle:"italic",marginLeft:4}},"\u2022 "+descConceito)
+            )
+          );
+        })(),
         // ===== LEGENDA EXPLICATIVA EXPANDIDA =====
         (()=>{
           // Determina posicao relativa do portfolio atual
@@ -13933,7 +13985,17 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           // Eficiencia em % do otimo
           const ef=(sharpeAtual/bestSharpe.sharpe)*100;
           return h("div",{style:{background:"rgba(0,0,0,0.15)",borderTop:"1px solid rgba(255,255,255,0.05)",padding:"11px 12px",lineHeight:1.6}},
-            h("div",{style:{fontSize:8,letterSpacing:1.8,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,marginBottom:7}},"\u{1F4D6} COMO LER ESTE GRAFICO"),
+            h("div",{style:{fontSize:8,letterSpacing:1.8,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,marginBottom:7}},"\u{1F321}\uFE0F COMO LER O TERMOMETRO"),
+            h("p",{style:{fontSize:9,color:"#9A9080",margin:"0 0 8px",lineHeight:1.65}},
+              "A regua horizontal acima posiciona seu portfolio em uma escala 0-100 baseada em 3 componentes da Teoria Moderna do Portfolio (Markowitz): ",
+              h("strong",{style:{color:"#C8A96E"}},"35% Fronteira Eficiente"),
+              " (quanto do retorno teorico maximo voce captura para sua volatilidade), ",
+              h("strong",{style:{color:"#C8A96E"}},"45% Sharpe Ratio"),
+              " (posicao entre o pior e o melhor portfolio possivel) e ",
+              h("strong",{style:{color:"#C8A96E"}},"20% Diversificacao"),
+              " (anti-concentracao via HHI). A escala vai de F (alocacao ineficiente) ate A+ (praticamente na fronteira). Mire em B+ ou A - a partir desse ponto, ganhos adicionais sao marginais e exigem ajustes finos."
+            ),
+            h("div",{style:{fontSize:8,letterSpacing:1.8,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,marginBottom:7,marginTop:10}},"\u{1F4D6} COMO LER ESTE GRAFICO"),
             h("p",{style:{fontSize:9,color:"#9A9080",margin:"0 0 8px",lineHeight:1.65}},
               "Cada ponto representa um portfolio possivel: ",
               h("strong",{style:{color:"#E89060"}},"eixo X"),
