@@ -1203,7 +1203,14 @@ function calcPrecoAlvoTIR(ticker,classeId,precoAtual,dadosFundamentais,calibraco
   const p=ef.parametros;
   if(!p)return null;
   const tirAlvo=typeof p.tirMin==="number"?p.tirMin:null;
-  const crescReal=typeof p.crescReal==="number"?p.crescReal:0;
+  // Default crescReal por classe - DEVE SER IDENTICO ao default usado em calcTIRImplicita
+  // para garantir consistencia entre TIR atual mostrada e preco-teto calculado
+  let crescRealDefault=0;
+  if(classeId==="acoes_br"||classeId==="acoes_eua"||classeId==="acoes_mundo")crescRealDefault=0;// linha 1134
+  else if(classeId==="fii")crescRealDefault=0.025;// linha 1140
+  else if(classeId==="reits")crescRealDefault=0.03;// linha 1148
+  else if(classeId==="infra"||classeId==="agro")crescRealDefault=0.035;// linha 1156
+  const crescReal=typeof p.crescReal==="number"?p.crescReal:crescRealDefault;
   if(typeof tirAlvo!=="number"||!isFinite(tirAlvo))return null;
   // Yield esperado = tirAlvo - crescReal (precisa ser positivo para fazer sentido)
   const yieldAlvo=tirAlvo-crescReal;
