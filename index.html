@@ -12880,6 +12880,8 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         for(const w of wAtual_arr)hhiAtual+=w*w;
         const efDiv=Math.max(0,Math.min(100,((1-hhiAtual)/(1-1/MPT_CLS.length))*100));
         const notaFinal=calcNotaHibrida(statsAtual.ret,statsAtual.vol,sharpeAtual,wAtual_arr);
+        // Exporta para escopo externo (regua de eficiencia abaixo do grafico precisa desses valores)
+        window.__mptNotaFinal=notaFinal;
         // Funcao wrapper para portfolio do MC (recebe objeto com .ret .vol .sharpe .w)
         const calcNotaPortMC=(p)=>calcNotaHibrida(p.ret,p.vol,p.sharpe,p.w);
         // Conceito A-F estilo escolar (faixas calibradas: 5 pontos para A, depois 10pp ate D, 15pp E, <40 F)
@@ -12903,6 +12905,9 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           conceito="F";corConceito="#E05252";descConceito="Insatisfatorio";
           detalheConceito="Alocacao distante da fronteira eficiente. Risco assumido nao esta sendo compensado adequadamente em retorno esperado. Revisao profunda da estrutura recomendada - provavelmente excesso de concentracao em classes correlacionadas ou alocacao incoerente com o perfil.";
         }
+        // Exporta para regua de eficiencia (escopo externo da IIFE)
+        window.__mptCorConceito=corConceito;
+        window.__mptDescConceito=descConceito;
         // Distancia da fronteira (em retorno % - gap p/ capturar)
         const maxRetFronteira=retMaxAteVol(statsAtual.vol);
         const gapRet=(maxRetFronteira-statsAtual.ret)*100;
@@ -13922,9 +13927,10 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         ),
         // ===== REGUA HORIZONTAL DE EFICIENCIA C- a A+ =====
         (function(){
-          // Subdivide a nota 0-100 em 8 zonas: F (<40), E (40-54), D- (55-59), D+ (60-64), C- (65-69), C+ (70-74), B- (75-79), B+ (80-84), A- (85-89), A+ (>=90)
-          // Para grafico mostra 8 zonas com cores: vermelho -> laranja -> dourado -> verde claro -> verde
-          const nota=notaFinal;
+          // Le valores exportados pela IIFE do grafico Monte Carlo
+          const nota=typeof window.__mptNotaFinal==="number"?window.__mptNotaFinal:50;
+          const corConceitoExt=window.__mptCorConceito||"#9A9080";
+          const descConceitoExt=window.__mptDescConceito||"";
           // Posicao 0-100% da bolinha (clamp para visual)
           const posPct=Math.max(0,Math.min(100,nota));
           // Determina label expandido C-/C+/B-/B+/A-/A+
@@ -13968,7 +13974,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
               h("span",{style:{fontSize:9,color:"#7A7060",fontFamily:"monospace"}},"Seu portfolio:"),
               h("span",{style:{fontSize:18,color:corLabel,fontFamily:"monospace",fontWeight:700,letterSpacing:0.5}},labelExp),
               h("span",{style:{fontSize:10,color:"#9A9080",fontFamily:"monospace"}},"("+nota.toFixed(1)+"/100)"),
-              h("span",{style:{fontSize:9,color:corConceito,fontFamily:"monospace",fontStyle:"italic",marginLeft:4}},"\u2022 "+descConceito)
+              h("span",{style:{fontSize:9,color:corConceitoExt,fontFamily:"monospace",fontStyle:"italic",marginLeft:4}},"\u2022 "+descConceitoExt)
             )
           );
         })(),
