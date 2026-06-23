@@ -8745,11 +8745,12 @@ function App(){
         "USO DE WEB_SEARCH (CRITICO):\n"+
         "- Voce tem acesso a ferramenta web_search. USE-A ATIVAMENTE para buscar os DADOS MAIS RECENTES de cada ticker antes de retornar a analise.\n"+
         "- Para CADA ticker (ou grupo de 3-4 tickers similares), faca uma busca tipo: \"<ticker> resultados <ano>\" ou \"<ticker> earnings Q<X> <ano>\" ou \"<ticker> ultimo balanco\" ou \"<ticker> last quarterly results\". Para FIIs busque \"<ticker> rendimento dividendo <ano>\" ou \"<ticker> ultimo relatorio mensal\".\n"+
-        "- Priorize sites oficiais (RI da empresa, CVM, B3) e portais financeiros confiaveis (Status Invest, Funds Explorer, SeekingAlpha, Yahoo Finance, Investidor10).\n"+
-        "- Para Treasuries (TLT/IEF/VTIP), busque \"Treasury 10 year yield today\" ou \"<ticker> SEC filing yield\".\n"+
-        "- IMPORTANTE: a dataReferencia OBRIGATORIAMENTE deve refletir o periodo do balanco MAIS RECENTE que voce encontrou via web_search (ex: 2026-Q1, 2025-Q4). NUNCA usar dados antigos quando ha balanco posterior disponivel.\n"+
+        "- ATENCAO ESPECIAL para empresas ASIATICAS/OCEANIA: AIA Group (1299.HK), Jardine Matheson (J36.SI), CK Hutchison (0001.HK), Swire Pacific (0087.HK) reportam SEMESTRAL (H1 ~junho, H2 ~dezembro). Wesfarmers (WES.AX) tem ano fiscal australiano (jul-jun). Para esses tickers, busque ATIVAMENTE em ingles: \"<ticker name> interim results 2026\" ou \"<ticker name> half year report\" ou \"<ticker name> H1 2026\" ou \"<ticker name> latest earnings\". O resultado mais recente disponivel deve ser H1 2026 (publicado ago/2026) OU H2 2025 (publicado fev/2026). NUNCA usar dados 2024 ou anteriores se ha relatorio 2025/2026 disponivel.\n"+
+        "- Para Treasuries (TLT/IEF/VTIP), busque \"Treasury 10 year yield today\" ou \"<ticker> SEC filing yield\" - dataReferencia deve refletir o yield observado (ex: \"2026-06\" se yield foi observado agora).\n"+
+        "- Priorize sites oficiais (RI da empresa, CVM, B3, SEHK, ASX) e portais financeiros confiaveis (Status Invest, Funds Explorer, SeekingAlpha, Yahoo Finance, Investidor10, Reuters, Bloomberg).\n"+
+        "- IMPORTANTE: a dataReferencia OBRIGATORIAMENTE deve refletir o periodo do balanco MAIS RECENTE que voce encontrou via web_search (ex: 2026-Q1, 2026-H1, 2025-Q4, 2025-H2). NUNCA usar dados antigos quando ha balanco posterior disponivel. Se um ticker reporta semestralmente, use formato 'AAAA-H1' ou 'AAAA-H2'.\n"+
         "- Limite ate ~25 buscas no total para o batch. Priorize tickers cujos dados de balanco voce nao tem certeza no conhecimento de treino.\n"+
-        "- Mencione no campo 'observacao' as fontes principais consultadas (ex: 'Dados via Status Invest 2026-Q1 + RI BBAS3').\n\n"+
+        "- Mencione no campo 'observacao' as fontes principais consultadas E o periodo do balanco usado (ex: 'Dados via AIA H1 2026 interim report' ou 'Wesfarmers FY25 + H1 2026 outlook').\n\n"+
         "REGRAS CRITICAS:\n"+
         "1) Para CADA ticker fornecido neste batch, retornar uma entrada COMPLETA. NAO PULAR NENHUM ticker.\n"+
         "2) DADOS FUNDAMENTAIS DEVEM SER ANCORADOS NO BALANCO MAIS RECENTE encontrado via web_search. Indicar 'dataReferencia' (ano-mes-Q ou ano-mes).\n"+
@@ -19088,24 +19089,43 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                 let cor="#7A7060";let avisoFreshness="";
                 if(dRef){
                   try{
-                    // Formato esperado: "2026-03", "2026-Q1", "2026-03-15"
-                    const m=String(dRef).match(/(\d{4})[-\/]?(\d{1,2}|Q\d)/);
+                    // Aceita formatos: "2026-03", "2026-Q1", "2026-Q4", "2026-H1", "2026-H2", "2025-FY", "FY2025", "2026-03-15", "2026"
+                    const dStr=String(dRef).trim().toUpperCase();
+                    let ano=null,mes=null;
+                    // Tentativa 1: ANO-PERIODO (ex: 2026-Q1, 2026-03, 2025-FY, 2026-H1)
+                    let m=dStr.match(/(\d{4})[-\/ ]?(Q[1-4]|H[12]|FY|\d{1,2})/);
                     if(m){
-                      const ano=parseInt(m[1]);
-                      let mes;
-                      if(m[2].startsWith("Q")){
-                        const q=parseInt(m[2].slice(1));
+                      ano=parseInt(m[1]);
+                      const periodo=m[2];
+                      if(periodo.startsWith("Q")){
+                        const q=parseInt(periodo.slice(1));
                         mes=q*3;// Q1=mar Q2=jun Q3=set Q4=dez
+                      }else if(periodo.startsWith("H")){
+                        const h=parseInt(periodo.slice(1));
+                        mes=h===1?6:12;// H1 termina jun, H2 termina dez
+                      }else if(periodo==="FY"){
+                        mes=12;// Full year termina dez (ou ajustar para fiscal year australiano se necessario)
                       }else{
-                        mes=parseInt(m[2]);
+                        mes=parseInt(periodo);
                       }
-                      const dataRef=new Date(ano,mes-1,1);
+                    }else{
+                      // Tentativa 2: FYAAAA (ex: FY2025)
+                      m=dStr.match(/FY[- ]?(\d{4})/);
+                      if(m){ano=parseInt(m[1]);mes=12;}
+                      else{
+                        // Tentativa 3: so o ano (ex: 2025)
+                        m=dStr.match(/^(\d{4})$/);
+                        if(m){ano=parseInt(m[1]);mes=12;}
+                      }
+                    }
+                    if(ano&&mes){
                       const hoje=new Date();
                       const meses=(hoje.getFullYear()-ano)*12+(hoje.getMonth()+1-mes);
                       if(meses<=4)cor="#4CAF82";// fresh: ate 4 meses
                       else if(meses<=8)cor="#C8A96E";// envelhecendo: 4-8 meses
                       else if(meses<=12){cor="#E89060";avisoFreshness=" \u26A0 envelhecido";}// envelhecido: 8-12 meses
-                      else{cor="#E05252";avisoFreshness=" \u26A0 desatualizado";}// desatualizado: >12 meses
+                      else if(meses<=18){cor="#E07050";avisoFreshness=" \u26A0 anual antigo";}// anual antigo: 12-18 meses
+                      else{cor="#E05252";avisoFreshness=" \u26A0 desatualizado";}// desatualizado: >18 meses
                     }
                   }catch(e){}
                 }
