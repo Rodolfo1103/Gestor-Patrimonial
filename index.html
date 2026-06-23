@@ -1136,14 +1136,31 @@ function calcTIRImplicita(ticker,classeId,precoAtual,dadosFundamentais,calibraco
   }else if(classeId==="fii"){
     // FIIs: comportamento DEPENDE DO SUBTIPO
     // - FII de tijolo: TIR = DY_atual + crescReal (DY pode crescer com inflacao/aluguel)
-    // - FII de papel (CRI): TIR = DY_atual (sem crescimento, eh divida pura)
+    // - FII de papel (CRI): TIR = DY_atual + carry_to_par (puxa preco em direcao ao VP)
+    //   Carry-to-par = (1/duration) * ((vpa/preco) - 1)
+    //   Quando preco<VPA, ganho extra anualizado por amortizacao no nominal. Quando preco>VPA, perda.
     const subtipo=dadosFundamentais.subtipo||"";
     const isPapel=subtipo==="papel";
     const divAnual=dadosFundamentais.divAnual;// dividendo anualizado
+    let tirBase=null;
     if(typeof divAnual==="number"&&divAnual>0){
-      tirAtual=(divAnual/precoAtual)+(isPapel?0:(p.crescReal||0.025));
+      tirBase=(divAnual/precoAtual)+(isPapel?0:(p.crescReal||0.025));
     }else if(typeof dadosFundamentais.dyAtual==="number"){
-      tirAtual=dadosFundamentais.dyAtual+(isPapel?0:(p.crescReal||0.025));
+      tirBase=dadosFundamentais.dyAtual+(isPapel?0:(p.crescReal||0.025));
+    }
+    if(tirBase!==null){
+      tirAtual=tirBase;
+      // Carry-to-par para FII de papel
+      if(isPapel){
+        const vpa=dadosFundamentais.vpa;
+        const duration=dadosFundamentais.duration;
+        if(typeof vpa==="number"&&vpa>0&&typeof duration==="number"&&duration>0){
+          const carryAnual=(1/duration)*((vpa/precoAtual)-1);
+          // Cap defensivo: carry nao pode exceder +/-5pp anuais (sanity check)
+          const carryCap=Math.max(-0.05,Math.min(0.05,carryAnual));
+          tirAtual=tirBase+carryCap;
+        }
+      }
     }
   }else if(classeId==="reits"){
     // REITs: TIR = AFFO yield + crescReal
@@ -1156,15 +1173,29 @@ function calcTIRImplicita(ticker,classeId,precoAtual,dadosFundamentais,calibraco
   }else if(classeId==="infra"||classeId==="agro"){
     // Infra/Agro: comportamento DEPENDE DO SUBTIPO
     // - fip_ie / fiagro_terras: EQUITY em real assets, somar crescimento real
-    // - debentureIncentivada / fiagro_papel: DIVIDA pura, NAO somar crescimento
+    // - debentureIncentivada / fiagro_papel: DIVIDA pura, NAO somar crescimento mas SOMAR carry-to-par
     const subtipo=dadosFundamentais.subtipo||"";
     const isDivida=subtipo==="debentureIncentivada"||subtipo==="fiagro_papel";
     const crescPadrao=p.crescReal||0.035;
     const dyAnual=dadosFundamentais.divAnual;
+    let tirBase=null;
     if(typeof dyAnual==="number"&&dyAnual>0){
-      tirAtual=(dyAnual/precoAtual)+(isDivida?0:crescPadrao);
+      tirBase=(dyAnual/precoAtual)+(isDivida?0:crescPadrao);
     }else if(typeof dadosFundamentais.dyAtual==="number"){
-      tirAtual=dadosFundamentais.dyAtual+(isDivida?0:crescPadrao);
+      tirBase=dadosFundamentais.dyAtual+(isDivida?0:crescPadrao);
+    }
+    if(tirBase!==null){
+      tirAtual=tirBase;
+      // Carry-to-par para debentures e CRA
+      if(isDivida){
+        const vpa=dadosFundamentais.vpa;
+        const duration=dadosFundamentais.duration;
+        if(typeof vpa==="number"&&vpa>0&&typeof duration==="number"&&duration>0){
+          const carryAnual=(1/duration)*((vpa/precoAtual)-1);
+          const carryCap=Math.max(-0.05,Math.min(0.05,carryAnual));
+          tirAtual=tirBase+carryCap;
+        }
+      }
     }
   }else if(classeId==="rfipca"){
     // NTN-B: taxa real liquida ja informada
@@ -8256,9 +8287,14 @@ function App(){
                 if(typeof d.affo_por_acao==="number")dfTk.affoPorAcao=d.affo_por_acao;
                 if(typeof d.yieldAtual==="number")dfTk.yieldAtual=d.yieldAtual;
                 if(typeof d.subtipo==="string")dfTk.subtipo=d.subtipo;
+                if(typeof d.vpa==="number")dfTk.vpa=d.vpa;
+                if(typeof d.duration==="number")dfTk.duration=d.duration;
                 // Inclui composicao da carteira para fundos de divida (papel/debentures/CRA)
                 if(typeof d.composicaoCarteira==="string"&&d.composicaoCarteira.trim())obj.composicaoCarteira=d.composicaoCarteira;
                 if(typeof d.subtipo==="string"&&d.subtipo.trim())obj.subtipo=d.subtipo;
+                // VPA + duration vao para o prompt do Aporte tambem
+                if(typeof d.vpa==="number")obj.vpa=d.vpa;
+                if(typeof d.duration==="number")obj.duration=d.duration;
                 // Para NTN-B, passar taxa real liquida ja convertida
                 if(c.id==="rfipca"&&ntnbTaxas&&ntnbTaxas[tk]){
                   dfTk.taxaLiqRealNTNB=taxaLiquidaIR(ntnbTaxas[tk].taxaBrutaVenda);
@@ -8793,6 +8829,10 @@ function App(){
         "    - 'fiagro_terras': FIAGRO de terras agricolas com arrendamento - equity de real assets. Exemplos: SNFZ11 (Suno Fazenda), RZTR11 (Riza Terrax).\n"+
         "    - 'fiagro_papel': FIAGRO de CRAs (recebiveis do agronegocio) - puro instrumento de divida. Exemplo: KNCA11 (Kinea Credito Agronegocio).\n"+
         "6b) COMPOSICAO_CARTEIRA OBRIGATORIA para subtipos 'papel', 'debentureIncentivada' e 'fiagro_papel' - descricao da composicao atual da carteira de titulos. Buscar via web_search no ultimo relatorio gerencial mensal. Formato: ex 'KNHY11: 70% CRI CDI+4.2% + 30% CRI IPCA+8.5%, yield blended esperado ~14.2% liquido' ou 'KDIF11: 100% debentures incentivadas, yield medio carteira IPCA+8.2% isento = ~11% liquido'.\n"+
+        "6b2) VPA E DURATION OBRIGATORIOS para fundos de divida (subtipos 'papel', 'debentureIncentivada', 'fiagro_papel'). Buscar AMBOS via web_search no ultimo relatorio gerencial mensal:\n"+
+        "    - vpa = Valor Patrimonial por Cota em BRL (PL do fundo / numero de cotas). Ex: KNHY11 vpa ~95, KDIF11 vpa ~95, AFHI11 vpa ~100. Esse numero permite calcular P/VP atual (preco/vpa). Quando P/VP <1, o fundo esta abaixo do patrimonio (titulos comprados com desconto).\n"+
+        "    - duration = Duration media da carteira em ANOS (entre 2 e 7 tipicamente). Indica o tempo medio de recebimento dos fluxos. KNHY11 ~3.5, KDIF11 ~5, AFHI11 ~4.\n"+
+        "    Sites com esses dados: Funds Explorer (mostra VPA e duration), Status Invest, RI do fundo (relatorio mensal). Esses 2 dados sao CRITICOS para calculo correto da TIR quando ha desconto vs patrimonio.\n"+
         "6c) Para TREASURIES (TLT, IEF, VTIP): yieldAtual OBRIGATORIO em fracao decimal (ex: 0.0432 para 4.32%). TLT/IEF = Treasury yield NOMINAL atual da duration correspondente (TLT ~20yr Treasury yield, IEF ~10yr Treasury yield). VTIP = yield REAL atual dos TIPS curtos (pode ser baixo, 0.5-2.5%). NAO retornar lpa/div_anual/affo para Treasuries.\n"+
         "   - metricasPreco para TLT/IEF: YTM nominal, Premio vs Cash Fed Funds, Duration-yield/PVBP (sensibilidade)\n"+
         "   - metricasPreco para VTIP: Yield REAL (real yield), Breakeven inflation, Duration-yield\n"+
@@ -8906,7 +8946,9 @@ function App(){
                   dataReferencia:{type:"string",description:"Ano-mes do ultimo balanco (ex: 2026-03)"},
                   observacao:{type:"string",description:"Opcional, max 200 chars"},
                   subtipo:{type:"string",description:"OBRIGATORIO para FII, infra e agro. Identifica a natureza do fundo: 'tijolo' (FII de imoveis fisicos: lajes, logistica, shopping, varejo, residencial, hospitais) | 'papel' (FII de CRI/recebiveis imobiliarios) | 'fip_ie' (FIP-IE: fundo de participacoes em infraestrutura, equity em projetos como portos, energia, rodovias) | 'debentureIncentivada' (FI-Infra de debentures incentivadas Lei 12.431) | 'fiagro_terras' (FIAGRO de terras agricolas com arrendamento) | 'fiagro_papel' (FIAGRO de CRA - recebiveis do agronegocio). Para acoes/REITs/treasuries deixar vazio ou omitir.",enum:["tijolo","papel","fip_ie","debentureIncentivada","fiagro_terras","fiagro_papel",""]},
-                  composicaoCarteira:{type:"string",description:"OPCIONAL mas RECOMENDADO para FIIs de papel, FI-Infra debentures, FIAGRO de papel. Descreve composicao atual da carteira de titulos com indexadores e yields liquidos esperados, ex: 'KNHY11: 70% CRI CDI+4.2% + 30% CRI IPCA+8.5%, yield blended esperado ~14.2% liquido', 'KDIF11: 100% debentures incentivadas Lei 12.431 isentas IR, yield medio carteira IPCA+8.2% isento = ~11% liquido'. Max 250 chars."}
+                  composicaoCarteira:{type:"string",description:"OPCIONAL mas RECOMENDADO para FIIs de papel, FI-Infra debentures, FIAGRO de papel. Descreve composicao atual da carteira de titulos com indexadores e yields liquidos esperados, ex: 'KNHY11: 70% CRI CDI+4.2% + 30% CRI IPCA+8.5%, yield blended esperado ~14.2% liquido', 'KDIF11: 100% debentures incentivadas Lei 12.431 isentas IR, yield medio carteira IPCA+8.2% isento = ~11% liquido'. Max 250 chars."},
+                  vpa:{type:"number",description:"OBRIGATORIO para subtipos 'papel', 'debentureIncentivada', 'fiagro_papel'. Valor patrimonial por cota em BRL conforme ultimo relatorio gerencial (PL/numero de cotas). Buscar via web_search. Ex: KNHY11 ~95 BRL, KDIF11 ~95 BRL. Para outros subtipos deixar vazio/omitir."},
+                  duration:{type:"number",description:"OBRIGATORIO para subtipos 'papel', 'debentureIncentivada', 'fiagro_papel'. Duration media da carteira de titulos em ANOS conforme ultimo relatorio gerencial (geralmente entre 2 e 7 anos). Buscar via web_search no relatorio mensal. Ex: KNHY11 ~3.5 anos, KDIF11 ~5 anos, AFHI11 ~4 anos. Para outros subtipos deixar vazio/omitir."}
                 },
                 required:["ticker","classe","metricasPreco","metricasQualidade","driversRetorno","driversRisco","dataReferencia","tirEstimadaIA","tirAlvoIA","subtipo"]
               }
@@ -18596,6 +18638,8 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             if(typeof dadosIA.div_anual==="number")df.divAnual=dadosIA.div_anual;
             if(typeof dadosIA.affo_por_acao==="number")df.affoPorAcao=dadosIA.affo_por_acao;
             if(typeof dadosIA.subtipo==="string")df.subtipo=dadosIA.subtipo;
+            if(typeof dadosIA.vpa==="number")df.vpa=dadosIA.vpa;
+            if(typeof dadosIA.duration==="number")df.duration=dadosIA.duration;
           }
           // Calcula TIR usando preco ATUAL (responde a mudancas de preco)
           const tirInfo=calcTIRImplicita(tk,info.classId,precoAtual,df,calibracoesCustom);
@@ -18674,6 +18718,8 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             if(typeof dadosIA.affo_por_acao==="number")df.affoPorAcao=dadosIA.affo_por_acao;
             if(typeof dadosIA.yieldAtual==="number")df.yieldAtual=dadosIA.yieldAtual;
             if(typeof dadosIA.subtipo==="string")df.subtipo=dadosIA.subtipo;
+            if(typeof dadosIA.vpa==="number")df.vpa=dadosIA.vpa;
+            if(typeof dadosIA.duration==="number")df.duration=dadosIA.duration;
           }
           const tirInfo=calcTIRImplicita(tk,cid,null,df,calibracoesCustom);
           tickersAnalise.push({
@@ -18881,7 +18927,8 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             h("div",{style:{marginBottom:4}},"Para ativos COM PRECO em mercado, a TIR e calculada LOCALMENTE (deterministico, estavel entre rodadas):"),
             h("ul",{style:{paddingLeft:18,margin:"4px 0 10px"}},
               h("li",{},h("strong",{style:{color:"#E8E2D5"}},"Acoes"),": Earnings Yield (LPA/preco) + crescimento real esperado. Ex: BBAS3 com P/L 6.8 e cresc 4% \u2192 TIR ~18.7%"),
-              h("li",{},h("strong",{style:{color:"#E8E2D5"}},"FIIs/Infra/Agro"),": DY 12m + crescimento real. Ex: HGLG11 DY 9.2% + cresc 2.6% \u2192 TIR ~11.8%"),
+              h("li",{},h("strong",{style:{color:"#E8E2D5"}},"FII de papel / FI-Infra debentures / FIAGRO papel"),": TIR = DY 12m + ",h("strong",{style:{color:"#7AA0B5"}},"carry-to-par"),". Carry-to-par = (1/duration) \u00D7 ((VPA/preco) - 1). Quando preco < VPA, ha ganho extra anualizado por amortizacao dos titulos no valor nominal. Capeado em \u00B15pp/ano por sanidade. Ex: KNHY11 DY 14% + carry 2.5% (P/VP 0.92, duration 3.5a) = TIR 16.5%."),
+              h("li",{},h("strong",{style:{color:"#E8E2D5"}},"FII de tijolo / FIP-IE / FIAGRO terras"),": TIR = DY + crescimento real. Equity de real assets, principal cresce."),
               h("li",{},h("strong",{style:{color:"#E8E2D5"}},"REITs"),": AFFO yield + crescimento real"),
               h("li",{},h("strong",{style:{color:"#E8E2D5"}},"NTN-B"),": taxa real liquida de IR (calculada da curva atual do Tesouro Direto)"),
               h("li",{},h("strong",{style:{color:"#E8E2D5"}},"Treasuries TLT/IEF/VTIP"),": yield-to-maturity atual via IA dedicada (nao tem como ser calculado localmente)"),
