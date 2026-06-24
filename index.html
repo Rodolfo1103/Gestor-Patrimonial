@@ -3955,6 +3955,91 @@ function ModelosPortfolioMap({cw,selicAtual,hideVal}){
     ),
     // Veredito da posicao atual
     vereditoAtual?h("div",{style:{textAlign:"center",padding:"8px 10px",background:"rgba(0,0,0,0.18)",borderLeft:"2px solid "+vereditoAtual.cor,borderRadius:"0 5px 5px 0",marginBottom:10,fontFamily:"Georgia,serif",fontSize:10,fontStyle:"italic",color:vereditoAtual.cor}},vereditoAtual.texto):null,
+    // ============= LEGENDA INTERPRETATIVA DETALHADA =============
+    pAtual?(function(){
+      // Determina direcionamento Renda vs Crescimento
+      const dirRendaCresc=(()=>{
+        if(pAtual.scoreY>0.50)return{nome:"PREDOMINANTEMENTE RENDA",cor:"#4CAF82",desc:"a maior parte do portfolio gera renda passiva (dividendos, juros) - perfil cashflow-oriented"};
+        if(pAtual.scoreY>0.20)return{nome:"INCLINADO A RENDA",cor:"#7DD17D",desc:"vies para ativos pagadores de renda, com alguma alocacao em crescimento"};
+        if(pAtual.scoreY>-0.20)return{nome:"EQUILIBRADO",cor:"#C8A96E",desc:"balanceado entre renda passiva e potencial de valorizacao de capital"};
+        if(pAtual.scoreY>-0.50)return{nome:"INCLINADO A CRESCIMENTO",cor:"#E8C44A",desc:"vies para ganho de capital, apreciacao de patrimonio sobre cashflow"};
+        return{nome:"PREDOMINANTEMENTE CRESCIMENTO",cor:"#E89060",desc:"foco em apreciacao do principal, baixa geracao de renda corrente"};
+      })();
+      // Determina nivel de risco (conservador vs agressivo) baseado em vol esperada
+      const dirRisco=(()=>{
+        const vol=pAtual.vol*100;
+        if(vol<=8)return{nome:"CONSERVADOR",cor:"#4CAF82",desc:"vol esperada "+vol.toFixed(1)+"% a.a. - portfolio defensivo, baixa amplitude de oscilacao",retornoEsperado:"7-10% a.a. nominal"};
+        if(vol<=12)return{nome:"MODERADAMENTE CONSERVADOR",cor:"#7DD17D",desc:"vol esperada "+vol.toFixed(1)+"% a.a. - leve premio de risco sobre RF",retornoEsperado:"9-12% a.a. nominal"};
+        if(vol<=16)return{nome:"MODERADO",cor:"#C8A96E",desc:"vol esperada "+vol.toFixed(1)+"% a.a. - equilibrio classico entre estabilidade e crescimento",retornoEsperado:"11-14% a.a. nominal"};
+        if(vol<=20)return{nome:"MODERADAMENTE AGRESSIVO",cor:"#E8C44A",desc:"vol esperada "+vol.toFixed(1)+"% a.a. - drawdowns relevantes em crises (15-25%)",retornoEsperado:"13-16% a.a. nominal"};
+        return{nome:"AGRESSIVO",cor:"#E89060",desc:"vol esperada "+vol.toFixed(1)+"% a.a. - drawdowns severos possiveis (25%+ em crises)",retornoEsperado:"15-20% a.a. nominal"};
+      })();
+      // Calcula stats dos 4 modelos para comparacao (usa rfRP calculado anteriormente)
+      const rfComp=(typeof selicAtual==="number"&&selicAtual>0?selicAtual:14.25)*(1-IR_LONGO_PRAZO)/100;
+      const statsModelos={};
+      [{id:"atual",w:Object.values(wAtual)},{id:"aw",w:MPT_CLS.map(c=>AW_W[c]||0)},{id:"yale",w:MPT_CLS.map(c=>YPB_W[c]||0)},{id:"rp",w:wRP?MPT_CLS.map(c=>wRP[c]||0):null},{id:"mpt",w:wMPT?MPT_CLS.map(c=>wMPT[c]||0):null}].forEach(m=>{
+        if(!m.w||m.w.length!==MPT_CLS.length)return;
+        try{
+          const st=mptStats(m.w,rfComp);
+          const sh=mptSharpe(st.ret,st.vol,rfComp);
+          statsModelos[m.id]={ret:st.ret*100,vol:st.vol*100,sharpe:sh};
+        }catch(e){}
+      });
+      const mAtual=statsModelos.atual;
+      // Compara contra os 4 modelos
+      const comparacoes=[];
+      const mods=[{id:"aw",nome:"AW Brasil",cor:"#2EBFA5"},{id:"yale",nome:"Yale",cor:"#5B8FD4"},{id:"rp",nome:"Risk Parity",cor:"#7DD17D"},{id:"mpt",nome:"MPT Otimo",cor:"#C8A96E"}];
+      mods.forEach(m=>{
+        const s=statsModelos[m.id];
+        if(!s||!mAtual)return;
+        const deltaRet=mAtual.ret-s.ret;
+        const deltaVol=mAtual.vol-s.vol;
+        const deltaSharpe=mAtual.sharpe-s.sharpe;
+        comparacoes.push({...m,ret:s.ret,vol:s.vol,sharpe:s.sharpe,deltaRet,deltaVol,deltaSharpe});
+      });
+      return h("div",{style:{padding:"10px 12px",background:"rgba(0,0,0,0.20)",border:"1px solid rgba(255,255,255,0.05)",borderRadius:6,marginBottom:8}},
+        h("div",{style:{fontFamily:"Georgia,serif",fontSize:10,color:"#C8A96E",fontStyle:"italic",letterSpacing:0.3,marginBottom:9,textAlign:"center"}},"interpretacao do seu portfolio"),
+        // Linha 1: direcionamento Renda/Crescimento
+        h("div",{style:{marginBottom:9,padding:"7px 9px",background:"rgba(255,255,255,0.025)",borderLeft:"2px solid "+dirRendaCresc.cor,borderRadius:"0 4px 4px 0"}},
+          h("div",{style:{fontFamily:"Georgia,serif",fontSize:7.5,letterSpacing:1.3,color:"#7A7060",fontStyle:"italic",marginBottom:3}},"perfil de retorno"),
+          h("div",{style:{fontFamily:"Georgia,serif",fontSize:10,color:dirRendaCresc.cor,fontWeight:600,marginBottom:3,letterSpacing:0.3}},dirRendaCresc.nome),
+          h("div",{style:{fontFamily:"Georgia,serif",fontSize:8.5,color:"#9A9080",fontStyle:"italic",lineHeight:1.5}},dirRendaCresc.desc)
+        ),
+        // Linha 2: nivel de risco / agressividade
+        h("div",{style:{marginBottom:9,padding:"7px 9px",background:"rgba(255,255,255,0.025)",borderLeft:"2px solid "+dirRisco.cor,borderRadius:"0 4px 4px 0"}},
+          h("div",{style:{fontFamily:"Georgia,serif",fontSize:7.5,letterSpacing:1.3,color:"#7A7060",fontStyle:"italic",marginBottom:3}},"perfil de risco"),
+          h("div",{style:{fontFamily:"Georgia,serif",fontSize:10,color:dirRisco.cor,fontWeight:600,marginBottom:3,letterSpacing:0.3}},dirRisco.nome),
+          h("div",{style:{fontFamily:"Georgia,serif",fontSize:8.5,color:"#9A9080",fontStyle:"italic",lineHeight:1.5}},dirRisco.desc),
+          h("div",{style:{fontFamily:"Georgia,serif",fontSize:8.5,color:dirRisco.cor,fontStyle:"italic",marginTop:3,letterSpacing:0.2}},"retorno esperado: "+dirRisco.retornoEsperado)
+        ),
+        // Linha 3: comparativo direto com os 4 modelos
+        comparacoes.length>0?h("div",{style:{padding:"7px 9px",background:"rgba(255,255,255,0.025)",borderLeft:"2px solid #9A9080",borderRadius:"0 4px 4px 0"}},
+          h("div",{style:{fontFamily:"Georgia,serif",fontSize:7.5,letterSpacing:1.3,color:"#7A7060",fontStyle:"italic",marginBottom:6}},"voce vs modelos consagrados"),
+          // Mini tabela comparativa
+          h("div",{style:{display:"grid",gridTemplateColumns:"1.3fr 0.7fr 0.7fr 0.7fr",gap:5,fontFamily:"Georgia,serif",fontSize:8,color:"#7A7060",fontStyle:"italic",marginBottom:4,paddingBottom:4,borderBottom:"1px dotted rgba(255,255,255,0.06)"}},
+            h("div",{},"vs"),
+            h("div",{style:{textAlign:"right"}},"retorno"),
+            h("div",{style:{textAlign:"right"}},"risco"),
+            h("div",{style:{textAlign:"right"}},"sharpe")
+          ),
+          // Linha do VOCE como referencia
+          mAtual?h("div",{style:{display:"grid",gridTemplateColumns:"1.3fr 0.7fr 0.7fr 0.7fr",gap:5,fontFamily:"Georgia,serif",fontSize:9,padding:"3px 0",borderBottom:"1px solid rgba(255,255,255,0.04)"}},
+            h("div",{style:{color:"#E8E2D5",fontWeight:600,fontStyle:"italic"}},"voce"),
+            h("div",{style:{textAlign:"right",color:"#E8E2D5"}},mAtual.ret.toFixed(1)+"%"),
+            h("div",{style:{textAlign:"right",color:"#E8E2D5"}},mAtual.vol.toFixed(1)+"%"),
+            h("div",{style:{textAlign:"right",color:"#E8E2D5",fontWeight:600}},mAtual.sharpe.toFixed(2))
+          ):null,
+          comparacoes.map(c=>h("div",{key:c.id,style:{display:"grid",gridTemplateColumns:"1.3fr 0.7fr 0.7fr 0.7fr",gap:5,fontFamily:"Georgia,serif",fontSize:9,padding:"3px 0"}},
+            h("div",{style:{color:c.cor,fontStyle:"italic"}},c.nome),
+            h("div",{style:{textAlign:"right",color:"#9A9080"}},c.ret.toFixed(1)+"%",h("span",{style:{fontSize:7.5,color:c.deltaRet>=0?"#E89060":"#4CAF82",marginLeft:3}},"("+(c.deltaRet>=0?"+":"")+c.deltaRet.toFixed(1)+")")),
+            h("div",{style:{textAlign:"right",color:"#9A9080"}},c.vol.toFixed(1)+"%",h("span",{style:{fontSize:7.5,color:c.deltaVol>=0?"#E89060":"#4CAF82",marginLeft:3}},"("+(c.deltaVol>=0?"+":"")+c.deltaVol.toFixed(1)+")")),
+            h("div",{style:{textAlign:"right",color:"#9A9080"}},c.sharpe.toFixed(2),h("span",{style:{fontSize:7.5,color:c.deltaSharpe>=0?"#4CAF82":"#E89060",marginLeft:3}},"("+(c.deltaSharpe>=0?"+":"")+c.deltaSharpe.toFixed(2)+")"))
+          )),
+          h("div",{style:{fontFamily:"Georgia,serif",fontSize:7.5,color:"#5A5550",fontStyle:"italic",marginTop:6,lineHeight:1.4,textAlign:"center"}},"valores entre parentesis = diferenca vs voce. Verde = melhor; laranja = pior."),
+          h("div",{style:{fontFamily:"Georgia,serif",fontSize:7.5,color:"#5A5550",fontStyle:"italic",marginTop:3,lineHeight:1.4,textAlign:"center"}},"retornos esperados nominais a.a. com Selic liq. "+(rfComp*100).toFixed(2)+"%")
+        ):null
+      );
+    })():null,
     // Painel de detalhes (aparece quando algum ponto eh clicado)
     modeloSelecionado?h("div",{style:{padding:"10px 12px",background:"rgba(0,0,0,0.22)",borderLeft:"2px solid "+modeloSelecionado.cor,borderRadius:"0 5px 5px 0",marginBottom:8}},
       h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:5}},
