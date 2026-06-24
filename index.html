@@ -14612,6 +14612,285 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         )
       ),
 
+      // ========== INSIGHT: PORTFOLIO ATUAL vs FILOSOFIA AW ADAPTADA AO BRASIL ==========
+      (function(){
+        // Calcula diferencas por classe (atual vs AW alvo) e diagnostico macro
+        const diffs=MPT_CLS.map(cid=>({
+          cid,
+          cl:CL.find(c=>c.id===cid),
+          atual:(cw[cid]||0),
+          alvo:(AW_W[cid]||0)*100,
+          delta:(cw[cid]||0)-(AW_W[cid]||0)*100
+        })).filter(d=>d.cl);// remove classes sem definicao
+        // Maiores excessos e deficits (top 3 de cada)
+        const excessos=diffs.filter(d=>d.delta>3).sort((a,b)=>b.delta-a.delta).slice(0,3);
+        const deficits=diffs.filter(d=>d.delta<-3).sort((a,b)=>a.delta-b.delta).slice(0,3);
+        // Protecao por cenario (do portfolio atual)
+        const cenAtual=["c1","c2","c3","c4"].map(cen=>{
+          let prot=0;
+          MPT_CLS.forEach(cid=>{
+            const w=(cw[cid]||0)/100;
+            const p=AW_CEN[cid]?AW_CEN[cid][cen]||0:0;
+            prot+=w*p;
+          });
+          return prot;
+        });
+        const cenNomes=["Cresc\u2191+Infla\u2191","Cresc\u2191+Infla\u2193","Cresc\u2193+Infla\u2191","Cresc\u2193+Infla\u2193"];
+        const cenIcons=["\u{1F525}","\u{1F331}","\u26A1","\u2744"];
+        const cenCores=["#E89060","#4CAF82","#E05252","#5B8FD4"];
+        // Cenario mais protegido e mais vulneravel
+        const cenIdxMax=cenAtual.indexOf(Math.max(...cenAtual));
+        const cenIdxMin=cenAtual.indexOf(Math.min(...cenAtual));
+        // Equilibrio (desv pad das 4 protecoes)
+        const mediaCen=cenAtual.reduce((s,v)=>s+v,0)/4;
+        const desvCen=Math.sqrt(cenAtual.reduce((s,v)=>s+Math.pow(v-mediaCen,2),0)/4);
+        const equilibrio=Math.max(0,1-desvCen*4)*100;// 0-100%
+        // Sharpe e retorno comparados
+        const sharpeDif=sharpeAtualAW-sharpeAW;
+        const retDif=(statsAtualAW.ret-statsAW.ret)*100;
+        const volDif=(statsAtualAW.vol-statsAW.vol)*100;
+        // Veredito geral: equilibrio + Sharpe relativo + desvios das classes
+        const totalAjuste=excessos.reduce((s,d)=>s+d.delta,0)+Math.abs(deficits.reduce((s,d)=>s+d.delta,0));
+        let veredito,corVeredito,iconeVeredito;
+        if(equilibrio>=70&&Math.abs(sharpeDif)<0.15&&totalAjuste<30){
+          veredito="AW BRASIL ALINHADO";corVeredito="#4CAF82";iconeVeredito="\u2728";
+        }else if(equilibrio>=55&&totalAjuste<50){
+          veredito="DESVIOS MODERADOS";corVeredito="#C8A96E";iconeVeredito="\u26A1";
+        }else if(equilibrio>=40){
+          veredito="DESVIOS RELEVANTES";corVeredito="#E89060";iconeVeredito="\u26A0";
+        }else{
+          veredito="FORA DO ESPIRITO AW";corVeredito="#E05252";iconeVeredito="\u{1F6A8}";
+        }
+        // Componente narrativa por classe-chave (analise pragmatica adaptada ao Brasil)
+        const narrativasClasse=[];
+        diffs.forEach(d=>{
+          if(Math.abs(d.delta)<3)return;// ignora desvios pequenos
+          const acima=d.delta>0;
+          const cidN=d.cid;
+          let texto=null;
+          if(cidN==="bitcoin"&&acima)texto="BTC acima do alvo "+d.alvo.toFixed(0)+"% (atual "+d.atual.toFixed(1)+"%) - Dalio defende 1-2% como hedge antifragil. Acima disso vira aposta, nao seguro.";
+          else if(cidN==="acoes_br"&&!acima)texto="Acoes BR abaixo do alvo "+d.alvo.toFixed(0)+"% (atual "+d.atual.toFixed(1)+"%) - sao a apostagem natural ao cenario 1 (Cresc+Infla). Subexposicao deixa cenario inflacionario sem motor de retorno.";
+          else if(cidN==="acoes_br"&&acima)texto="Acoes BR acima do alvo "+d.alvo.toFixed(0)+"% (atual "+d.atual.toFixed(1)+"%) - bom premium ao Cresc+Infla mas concentra risco no Brasil. Avalie diversificacao geografica.";
+          else if(cidN==="selic"&&acima)texto="Selic acima do alvo "+d.alvo.toFixed(0)+"% (atual "+d.atual.toFixed(1)+"%) - ancora defensiva alem do necessario. Carrega bem mas perde para inflacao no longo prazo se mantido excesso.";
+          else if(cidN==="selic"&&!acima)texto="Selic abaixo do alvo "+d.alvo.toFixed(0)+"% (atual "+d.atual.toFixed(1)+"%) - reduz reserva tatica. Pode prejudicar capacidade de reforco em quedas.";
+          else if(cidN==="rfipca"&&!acima)texto="NTN-B abaixo do alvo "+d.alvo.toFixed(0)+"% (atual "+d.atual.toFixed(1)+"%) - perde protecao real direta ao cenario 3 (Cresc-Infla+). NTN-B substitui Treasury IPC americano na adaptacao BR.";
+          else if(cidN==="ouro"&&!acima)texto="Ouro abaixo do alvo "+d.alvo.toFixed(0)+"% (atual "+d.atual.toFixed(1)+"%) - hedge antifragil ao cenario 3. Dalio classifica como essencial: 5-7%.";
+          else if(cidN==="ouro"&&acima)texto="Ouro acima do alvo "+d.alvo.toFixed(0)+"% (atual "+d.atual.toFixed(1)+"%) - hedge bom mas nao remunera. Acima de 10% reduz Sharpe geral.";
+          else if(cidN==="fii"&&acima)texto="FIIs acima do alvo "+d.alvo.toFixed(0)+"% (atual "+d.atual.toFixed(1)+"%) - bom motor de renda BR. Mas excesso concentra em real estate BR (juros + risco-Brasil).";
+          else if(cidN==="fii"&&!acima)texto="FIIs abaixo do alvo "+d.alvo.toFixed(0)+"% (atual "+d.atual.toFixed(1)+"%) - perde motor de renda mensal isenta BR. Espinha dorsal da adaptacao AW Brasil para renda passiva.";
+          else if(cidN==="infra"&&!acima)texto="Infra abaixo do alvo "+d.alvo.toFixed(0)+"% (atual "+d.atual.toFixed(1)+"%) - perde protecao IPCA+ via debentures incentivadas. Substituto natural do Treasury Long no Brasil.";
+          else if(cidN==="treasuries"&&!acima)texto="Treasuries abaixo do alvo "+d.alvo.toFixed(0)+"% (atual "+d.atual.toFixed(1)+"%) - mantem peso original do AW Dalio para cenario 4 (deflacao USD) + hedge cambial.";
+          else if(cidN==="acoes_eua"&&!acima)texto="Acoes EUA abaixo do alvo "+d.alvo.toFixed(0)+"% (atual "+d.atual.toFixed(1)+"%) - diminui exposicao ao motor global de Cresc+Infla- (cenario 2 americano).";
+          else if(cidN==="reits"&&!acima)texto="REITs abaixo do alvo "+d.alvo.toFixed(0)+"% (atual "+d.atual.toFixed(1)+"%) - perde renda real USD com dividendos lastreados em imoveis no exterior.";
+          if(texto)narrativasClasse.push({cid:cidN,texto,delta:d.delta});
+        });
+        narrativasClasse.sort((a,b)=>Math.abs(b.delta)-Math.abs(a.delta));
+        const narrativasTop=narrativasClasse.slice(0,5);
+        
+        return h("div",{style:{background:"linear-gradient(135deg,rgba(46,191,165,0.06),rgba(46,191,165,0.02))",border:"1px solid rgba(46,191,165,0.30)",borderRadius:10,padding:"14px 14px",marginBottom:12}},
+          // HEADER
+          h("div",{style:{display:"flex",alignItems:"center",gap:10,marginBottom:12,paddingBottom:10,borderBottom:"1px solid rgba(46,191,165,0.15)"}},
+            h("div",{style:{fontSize:22}},iconeVeredito),
+            h("div",{style:{flex:1}},
+              h("div",{style:{fontSize:8.5,letterSpacing:2,color:"#2EBFA5",fontFamily:"monospace",fontWeight:700}},"\u25CF DIAGNOSTICO ALL WEATHER BRASIL"),
+              h("div",{style:{fontSize:13,color:corVeredito,fontFamily:"Georgia,serif",fontWeight:700,marginTop:2,letterSpacing:0.5}},veredito),
+              h("div",{style:{fontSize:8.5,color:"#7A7060",fontFamily:"monospace",marginTop:3,fontStyle:"italic"}},"Filosofia Dalio: portfolio que prospera em qualquer cenario macro (equilibrio entre 4 quadrantes)")
+            )
+          ),
+          // INDICADORES NUMERICOS
+          h("div",{style:{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:12}},
+            h("div",{style:{background:"rgba(0,0,0,0.18)",border:"1px solid rgba(46,191,165,0.20)",borderRadius:5,padding:"7px 9px"}},
+              h("div",{style:{fontSize:7.5,color:"#7A7060",fontFamily:"monospace",letterSpacing:1,marginBottom:2}},"EQUILIBRIO MACRO"),
+              h("div",{style:{fontSize:15,color:equilibrio>=70?"#4CAF82":equilibrio>=55?"#C8A96E":"#E89060",fontFamily:"Georgia,serif",fontWeight:700}},equilibrio.toFixed(0)+"%"),
+              h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",marginTop:2,fontStyle:"italic"}},equilibrio>=70?"4 cenarios cobertos":equilibrio>=55?"Cobertura razoavel":"Desequilibrio macro")
+            ),
+            h("div",{style:{background:"rgba(0,0,0,0.18)",border:"1px solid rgba(46,191,165,0.20)",borderRadius:5,padding:"7px 9px"}},
+              h("div",{style:{fontSize:7.5,color:"#7A7060",fontFamily:"monospace",letterSpacing:1,marginBottom:2}},"SHARPE vs AW"),
+              h("div",{style:{fontSize:15,color:sharpeDif>=0?"#4CAF82":"#E89060",fontFamily:"Georgia,serif",fontWeight:700}},(sharpeDif>=0?"+":"")+sharpeDif.toFixed(2)),
+              h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",marginTop:2,fontStyle:"italic"}},"voce: "+sharpeAtualAW.toFixed(2)+" / AW: "+sharpeAW.toFixed(2))
+            ),
+            h("div",{style:{background:"rgba(0,0,0,0.18)",border:"1px solid rgba(46,191,165,0.20)",borderRadius:5,padding:"7px 9px"}},
+              h("div",{style:{fontSize:7.5,color:"#7A7060",fontFamily:"monospace",letterSpacing:1,marginBottom:2}},"DESVIO TOTAL"),
+              h("div",{style:{fontSize:15,color:totalAjuste<30?"#4CAF82":totalAjuste<50?"#C8A96E":"#E89060",fontFamily:"Georgia,serif",fontWeight:700}},totalAjuste.toFixed(0)+"pp"),
+              h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",marginTop:2,fontStyle:"italic"}},"soma |delta| nas classes")
+            )
+          ),
+          // POSICAO NOS 4 CENARIOS
+          h("div",{style:{marginBottom:12}},
+            h("div",{style:{fontSize:8,letterSpacing:1.5,color:"#7AA0B5",fontFamily:"monospace",fontWeight:700,marginBottom:6}},"PROTECAO POR CENARIO MACRO"),
+            h("div",{style:{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6}},
+              cenAtual.map((v,i)=>{
+                const ehMax=i===cenIdxMax;const ehMin=i===cenIdxMin;
+                return h("div",{key:"c"+i,style:{background:ehMax?cenCores[i]+"25":ehMin?cenCores[i]+"10":"rgba(0,0,0,0.15)",border:"1px solid "+(ehMax||ehMin?cenCores[i]+"55":"rgba(255,255,255,0.06)"),borderRadius:4,padding:"6px 5px",textAlign:"center"}},
+                  h("div",{style:{fontSize:14,marginBottom:1}},cenIcons[i]),
+                  h("div",{style:{fontSize:7,color:"#9A9080",fontFamily:"monospace",fontWeight:600,marginBottom:2}},cenNomes[i]),
+                  h("div",{style:{fontSize:13,color:cenCores[i],fontFamily:"Georgia,serif",fontWeight:700}},(v*100).toFixed(0)+"%"),
+                  ehMax?h("div",{style:{fontSize:6.5,color:"#4CAF82",fontFamily:"monospace",marginTop:2,fontWeight:700}},"\u25C6 MAIS PROTEGIDO"):ehMin?h("div",{style:{fontSize:6.5,color:"#E05252",fontFamily:"monospace",marginTop:2,fontWeight:700}},"\u25C6 VULNERAVEL"):null
+                );
+              })
+            )
+          ),
+          // NARRATIVA POR CLASSE (top 5 desvios)
+          narrativasTop.length>0?h("div",{style:{marginBottom:12}},
+            h("div",{style:{fontSize:8,letterSpacing:1.5,color:"#7AA0B5",fontFamily:"monospace",fontWeight:700,marginBottom:6}},"PRINCIPAIS DESVIOS vs AW BRASIL"),
+            narrativasTop.map((n,i)=>{
+              const cl=CL.find(c=>c.id===n.cid);
+              const corCl=cl?.color||"#9A9080";
+              const sinal=n.delta>=0?"+":"";
+              return h("div",{key:"narr"+i,style:{display:"flex",gap:9,padding:"7px 9px",background:"rgba(0,0,0,0.15)",borderLeft:"2px solid "+corCl,borderRadius:"0 4px 4px 0",marginBottom:5}},
+                h("div",{style:{flexShrink:0,minWidth:50}},
+                  h("div",{style:{fontSize:9,color:corCl,fontFamily:"monospace",fontWeight:700}},cl?.name||n.cid),
+                  h("div",{style:{fontSize:9,color:n.delta>=0?"#E89060":"#5B8FD4",fontFamily:"monospace",fontWeight:700,marginTop:1}},sinal+n.delta.toFixed(1)+"pp")
+                ),
+                h("div",{style:{flex:1,fontSize:8.5,color:"#9A9080",lineHeight:1.45,fontStyle:"italic"}},n.texto)
+              );
+            })
+          ):h("div",{style:{padding:"9px 11px",background:"rgba(76,175,130,0.08)",border:"1px solid rgba(76,175,130,0.25)",borderRadius:6,marginBottom:12,fontSize:9,color:"#9A9080",fontStyle:"italic",lineHeight:1.5}},
+            "\u2728 Sua alocacao esta muito proxima do AW Brasil sugerido. Todos os desvios estao dentro de 3pp."
+          ),
+          // VEREDITO FILOSOFICO
+          h("div",{style:{padding:"10px 12px",background:"rgba(0,0,0,0.20)",borderLeft:"3px solid "+corVeredito,borderRadius:"0 6px 6px 0",fontSize:9,color:"#9A9080",lineHeight:1.6,fontStyle:"italic"}},
+            h("strong",{style:{color:corVeredito}},"\u{1F4D6} Visao filosofica: "),
+            equilibrio>=70?
+              "Sua carteira respeita o principio Dalio de equilibrio macro - todos os 4 cenarios tem protecao razoavel. Cenarios divergentes nao quebrarao a carteira. Continue rebalanceando dentro dos pequenos desvios.":
+            equilibrio>=55?
+              "Sua carteira captura parte da filosofia AW mas tem viesees claros - o cenario "+cenNomes[cenIdxMax]+" esta sobreprotegido ("+(cenAtual[cenIdxMax]*100).toFixed(0)+"%) enquanto "+cenNomes[cenIdxMin]+" ficaria exposto ("+(cenAtual[cenIdxMin]*100).toFixed(0)+"%). Dalio diria: voce esta apostando em UM cenario, nao se protegendo de TODOS.":
+            equilibrio>=40?
+              "Carteira distante do espirito All Weather. Concentra protecao em "+cenNomes[cenIdxMax]+" ("+(cenAtual[cenIdxMax]*100).toFixed(0)+"%) e fica vulneravel a "+cenNomes[cenIdxMin]+" ("+(cenAtual[cenIdxMin]*100).toFixed(0)+"%). Se sua tese sobre o cenario futuro estiver errada, paga caro. AW Brasil sugere rebalanceamento estrutural.":
+              "Carteira fora da filosofia All Weather. Possui aposta concentrada em um cenario macro especifico - o que pode brilhar se voce acertar, mas destroi capital se errar. Dalio defende: nao precisamos prever o futuro, apenas estar preparados para qualquer um. Rebalanceamento profundo recomendado para reduzir a fragilidade ao cenario "+cenNomes[cenIdxMin]+"."
+          )
+        );
+      })(),
+      // ========== INSIGHT: PORTFOLIO ATUAL vs FILOSOFIA AW ADAPTADA AO BRASIL ==========
+      (function(){
+        // Calcula desvios por classe vs AW ideal
+        const desviosPorClasse=MPT_CLS.map(cid=>{
+          const atual=(cw[cid]||0);
+          const ideal=(AW_W[cid]||0)*100;
+          return {cid,nome:CL.find(c=>c.id===cid)?.name||cid,atual,ideal,desvio:atual-ideal,absDesvio:Math.abs(atual-ideal)};
+        }).sort((a,b)=>b.absDesvio-a.absDesvio);
+        // Calcula protecao por cenario do portfolio atual
+        const cenarioAtualProt={};
+        ["c1","c2","c3","c4"].forEach(cen=>{
+          let prot=0;
+          MPT_CLS.forEach(cid=>{
+            const w=(cw[cid]||0)/100;
+            const p=AW_CEN[cid]?.[cen]||0;
+            prot+=w*p;
+          });
+          cenarioAtualProt[cen]=prot;
+        });
+        // Cenario mais e menos protegido
+        const cenArr=Object.entries(cenarioAtualProt).sort((a,b)=>b[1]-a[1]);
+        const maisProtegido=cenArr[0];
+        const menosProtegido=cenArr[cenArr.length-1];
+        const cenLabels={c1:"crescimento+ inflacao+ (commodities/agro/tijolo)",c2:"crescimento+ inflacao- (acoes growth/EUA)",c3:"crescimento- inflacao+ (ouro/IPCA+/treasuries)",c4:"crescimento- inflacao- (selic/treasuries longas)"};
+        // Sharpe atual vs AW ideal
+        const sharpeRatio=sharpeAW>0?(sharpeAtualAW/sharpeAW):1;
+        const sharpeRatioPct=(sharpeRatio*100);
+        // Diagnostico geral
+        const desvioTotalAbs=desviosPorClasse.reduce((s,d)=>s+d.absDesvio,0);
+        let nivelDiagnostico,corDiag,iconDiag;
+        if(desvioTotalAbs<=30){nivelDiagnostico="ALINHADO";corDiag="#4CAF82";iconDiag="\u2705";}
+        else if(desvioTotalAbs<=60){nivelDiagnostico="PARCIALMENTE ALINHADO";corDiag="#C8A96E";iconDiag="\u26A0\uFE0F";}
+        else if(desvioTotalAbs<=90){nivelDiagnostico="DESALINHADO";corDiag="#E89060";iconDiag="\u26A0\uFE0F";}
+        else {nivelDiagnostico="MUITO DESALINHADO";corDiag="#E05252";iconDiag="\u{1F6A8}";}
+        // 5 maiores desvios em termos de pp
+        const top5Desvios=desviosPorClasse.slice(0,5);
+        // Narrativas por classe
+        const narrativas={
+          fii:"FIIs proporcionam renda real BRL com protecao parcial a inflacao - sao o coracao do AW Brasileiro.",
+          acoes_br:"Acoes BR exigem cautela: ciclicas demais para representarem o equity-core do AW.",
+          acoes_eua:"Acoes EUA dao exposicao a crescimento global e moeda forte - excelente para cenario c2.",
+          acoes_mundo:"Diversificacao geografica complementar, especialmente Asia/Europa value.",
+          selic:"Selic posfixada eh o equivalente brasileiro de cash + short-term US Treasury de Dalio.",
+          treasuries:"Treasuries longas EUA = principal hedge a crises de equity global (cenario c4). Insubstituivel.",
+          rfipca:"NTN-B longa = protecao real a inflacao brasileira, equivalente das TIPS do AW original.",
+          ouro:"Ouro = hedge inflacionario classico e seguro contra desordem monetaria global.",
+          bitcoin:"BTC ainda controverso no AW; Dalio recomenda ate 2-5% como hedge a desordem fiat.",
+          infra:"FI-Infra/debentures isentas = renda IPCA+ liquida superior em PF, hedge inflacionario domestico.",
+          imoveis:"Imoveis fisicos = real asset historico, dificil de escalar mas importante na alocacao patrimonial.",
+          agro:"FIAGRO = real asset com renda; proximo de commodities + real estate misturados.",
+          reits:"REITs USD = renda em dolar com inflacao americana embutida; diversificacao essencial."
+        };
+        const insightNarrativos=top5Desvios.map(d=>{
+          const acao=d.desvio>0?"ACIMA do alvo":"ABAIXO do alvo";
+          const corAcao=d.desvio>0?"#E89060":"#7AA0B5";
+          const motivoFilo=narrativas[d.cid]||"";
+          return h("li",{style:{marginBottom:6,lineHeight:1.55}},
+            h("strong",{style:{color:CL.find(c=>c.id===d.cid)?.color||"#C8A96E"}},(d.nome||d.cid).toUpperCase()),": ",
+            d.atual.toFixed(1)+"% vs alvo "+d.ideal.toFixed(1)+"% ",
+            h("span",{style:{color:corAcao,fontWeight:700}},"("+(d.desvio>=0?"+":"")+d.desvio.toFixed(1)+"pp "+acao+")"),
+            motivoFilo?h("span",{style:{color:"#7A7060",fontStyle:"italic",fontSize:8.5}}," - "+motivoFilo):null
+          );
+        });
+        // Veredito final (mais espesso que o anterior)
+        let vereditoFinal;
+        if(desvioTotalAbs<=30){
+          vereditoFinal="Sua carteira esta em sintonia com a filosofia All Weather adaptada ao Brasil. Voce nao esta apostando em um cenario macro especifico - esta preparado para qualquer regime que venha. Continue rebalanceando dentro dos pequenos desvios mensais.";
+        }else if(desvioTotalAbs<=60){
+          vereditoFinal="Sua carteira captura partes importantes do AW Brasil mas tem vieses claros. Voce esta razoavelmente diversificado entre classes-fonte de retorno (acoes, real assets, renda fixa) mas faltam alguns ajustes para verdadeira robustez macro. O cenario "+cenLabels[menosProtegido[0]]+" precisa de mais protecao.";
+        }else if(desvioTotalAbs<=90){
+          vereditoFinal="Carteira distante do espirito AW. Voce tem apostas concentradas que pagam BEM em alguns cenarios mas destroem capital se errar. Dalio diria: \"voce nao precisa prever o futuro, apenas estar preparado para qualquer um\". O cenario "+cenLabels[menosProtegido[0]]+" precisa de reforco urgente.";
+        }else{
+          vereditoFinal="Carteira fora da filosofia All Weather. Possui aposta concentrada em um cenario macro especifico. Pode brilhar se voce acertar mas destroi capital se errar. Rebalanceamento profundo recomendado - comecar pelas 3 classes mais desviadas acima.";
+        }
+        return h("div",{style:{background:"linear-gradient(135deg,rgba(46,191,165,0.06),rgba(46,191,165,0.02))",border:"1px solid rgba(46,191,165,0.30)",borderLeft:"4px solid #2EBFA5",borderRadius:8,padding:"14px 16px",marginBottom:14}},
+          // Cabecalho
+          h("div",{style:{fontSize:9,letterSpacing:2.2,color:"#2EBFA5",fontFamily:"monospace",fontWeight:700,marginBottom:10}},"\u{1F9ED} INSIGHT: SEU PORTFOLIO vs ALL WEATHER BRASIL"),
+          // Diagnostico geral em 1 linha
+          h("div",{style:{display:"flex",alignItems:"center",gap:10,marginBottom:12,padding:"8px 10px",background:"rgba(0,0,0,0.20)",borderRadius:6,borderLeft:"3px solid "+corDiag}},
+            h("span",{style:{fontSize:18}},iconDiag),
+            h("div",{style:{flex:1}},
+              h("div",{style:{fontSize:8,color:"#9A9080",fontFamily:"monospace",letterSpacing:1.2,marginBottom:2}},"DIAGNOSTICO GERAL"),
+              h("div",{style:{fontSize:13,color:corDiag,fontWeight:700,fontFamily:"monospace",letterSpacing:0.5}},nivelDiagnostico),
+              h("div",{style:{fontSize:9,color:"#7A7060",marginTop:2,fontStyle:"italic"}},"Desvio total absoluto: "+desvioTotalAbs.toFixed(1)+"pp vs AW Brasil ideal")
+            )
+          ),
+          // Metricas rapidas em 3 colunas
+          h("div",{style:{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:12}},
+            h("div",{style:{padding:"7px 9px",background:"rgba(0,0,0,0.18)",borderRadius:5,textAlign:"center"}},
+              h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",letterSpacing:1,marginBottom:3}},"EQUILIBRIO MACRO"),
+              h("div",{style:{fontSize:14,color:corDiag,fontFamily:"monospace",fontWeight:700}},(100-desvioTotalAbs).toFixed(0)+"/100"),
+              h("div",{style:{fontSize:7,color:"#7A7060",fontStyle:"italic",marginTop:2}},"100 = AW ideal")
+            ),
+            h("div",{style:{padding:"7px 9px",background:"rgba(0,0,0,0.18)",borderRadius:5,textAlign:"center"}},
+              h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",letterSpacing:1,marginBottom:3}},"SHARPE vs AW"),
+              h("div",{style:{fontSize:14,color:sharpeRatio>=0.95?"#4CAF82":sharpeRatio>=0.80?"#C8A96E":"#E89060",fontFamily:"monospace",fontWeight:700}},sharpeRatioPct.toFixed(0)+"%"),
+              h("div",{style:{fontSize:7,color:"#7A7060",fontStyle:"italic",marginTop:2}},sharpeAtualAW.toFixed(2)+" / "+sharpeAW.toFixed(2))
+            ),
+            h("div",{style:{padding:"7px 9px",background:"rgba(0,0,0,0.18)",borderRadius:5,textAlign:"center"}},
+              h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",letterSpacing:1,marginBottom:3}},"DESVIO TOTAL"),
+              h("div",{style:{fontSize:14,color:desvioTotalAbs<=30?"#4CAF82":desvioTotalAbs<=60?"#C8A96E":"#E89060",fontFamily:"monospace",fontWeight:700}},desvioTotalAbs.toFixed(1)+"pp"),
+              h("div",{style:{fontSize:7,color:"#7A7060",fontStyle:"italic",marginTop:2}},"soma |desvios|")
+            )
+          ),
+          // Protecao por cenario
+          h("div",{style:{marginBottom:12,padding:"8px 10px",background:"rgba(0,0,0,0.15)",borderRadius:6}},
+            h("div",{style:{fontSize:8,color:"#9A9080",fontFamily:"monospace",letterSpacing:1.2,marginBottom:6}},"\u{1F30D} PROTECAO POR CENARIO MACROECONOMICO"),
+            h("div",{style:{fontSize:9,color:"#C8C2B0",lineHeight:1.6,marginBottom:4}},
+              "Cenario mais ",h("strong",{style:{color:"#4CAF82"}},"PROTEGIDO"),": ",
+              h("strong",{},cenLabels[maisProtegido[0]]),
+              " - protecao ",h("strong",{style:{color:"#4CAF82"}},(maisProtegido[1]*100).toFixed(0)+"%")
+            ),
+            h("div",{style:{fontSize:9,color:"#C8C2B0",lineHeight:1.6}},
+              "Cenario mais ",h("strong",{style:{color:"#E05252"}},"VULNERAVEL"),": ",
+              h("strong",{},cenLabels[menosProtegido[0]]),
+              " - protecao ",h("strong",{style:{color:"#E05252"}},(menosProtegido[1]*100).toFixed(0)+"%")
+            )
+          ),
+          // Top 5 desvios por classe
+          h("div",{style:{marginBottom:12}},
+            h("div",{style:{fontSize:8,color:"#9A9080",fontFamily:"monospace",letterSpacing:1.2,marginBottom:6}},"\u{1F4CA} TOP 5 DESVIOS DA ALOCACAO IDEAL"),
+            h("ul",{style:{fontSize:9,color:"#C8C2B0",lineHeight:1.5,paddingLeft:18,margin:0}},insightNarrativos)
+          ),
+          // Veredito filosofico final
+          h("div",{style:{padding:"10px 12px",background:"rgba(0,0,0,0.25)",borderLeft:"3px solid "+corDiag,borderRadius:"0 6px 6px 0"}},
+            h("div",{style:{fontSize:8,color:"#9A9080",fontFamily:"monospace",letterSpacing:1.2,marginBottom:5}},"\u{1F4D6} VEREDITO FILOSOFICO"),
+            h("div",{style:{fontSize:9.5,color:"#D5CDB8",lineHeight:1.65,fontStyle:"italic"}},vereditoFinal)
+          )
+        );
+      })(),
       // ========== AVISOS ==========
       h("div",{style:{background:"rgba(232,144,96,0.06)",border:"1px solid rgba(232,144,96,0.25)",borderRadius:8,padding:"11px 12px",marginBottom:8}},
         h("div",{style:{fontSize:8,letterSpacing:2,color:"#E89060",fontFamily:"monospace",marginBottom:6}},"CONSIDERACOES IMPORTANTES"),
