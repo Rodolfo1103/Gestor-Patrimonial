@@ -1653,6 +1653,106 @@ function mptBeta(w){
   for(let i=0;i<MPT_CLS.length;i++)covPortBR+=w[i]*cov[i][iBR];
   return covPortBR/varBR;
 }
+
+// ===========================================================================
+// RISK PARITY - Equal Risk Contribution (ERC)
+// ===========================================================================
+// Calcula pesos w tais que cada classe contribua igualmente para a variancia
+// do portfolio. Considera correlacoes (versao completa), nao apenas vols.
+//
+// Algoritmo: Cyclical Coordinate Descent (CCD) de Spinu (2013) - estavel,
+// converge em 50-200 iteracoes mesmo com 13 classes. Sem dependencias externas.
+//
+// Returns: {weights: [w_fii, w_br, ...], contributions: [c_fii, c_br, ...],
+//           converged: bool, iter: number}
+// ===========================================================================
+function calcRiskParity(opcoes){
+  const cov=mptCovar();
+  const n=MPT_CLS.length;
+  // Pesos iniciais: inverse-volatility (boa partida)
+  const w=new Array(n);
+  let somaInv=0;
+  for(let i=0;i<n;i++){
+    const vol=Math.sqrt(cov[i][i]);
+    w[i]=vol>0?1/vol:0;
+    somaInv+=w[i];
+  }
+  for(let i=0;i<n;i++)w[i]/=somaInv;
+  // Target de contribuicao igual: 1/n para cada classe
+  const target=1/n;
+  // Iteracao CCD: para cada i, ajusta w[i] para que sua contribuicao = target
+  // Formula de Spinu: w_i_novo = sqrt((target * vol_portfolio^2) / cov_marginal_i)
+  // onde cov_marginal_i = sum_j w_j * cov[i][j]
+  const MAX_ITER=opcoes?.maxIter||500;
+  const TOL=opcoes?.tol||1e-8;
+  let converged=false;
+  let iter=0;
+  for(iter=0;iter<MAX_ITER;iter++){
+    // Variancia atual do portfolio
+    let varPort=0;
+    for(let i=0;i<n;i++){
+      for(let j=0;j<n;j++)varPort+=w[i]*w[j]*cov[i][j];
+    }
+    if(varPort<=0)break;
+    // Maior erro de contribuicao
+    let maxErr=0;
+    // Para cada classe, recalcular w[i] mantendo target
+    for(let i=0;i<n;i++){
+      // Contribuicao marginal de i: sum_j w[j] * cov[i][j]
+      let margCov=0;
+      for(let j=0;j<n;j++)margCov+=w[j]*cov[i][j];
+      // Contribuicao atual de i: w[i] * margCov / varPort
+      const contribAtual=(w[i]*margCov)/varPort;
+      const err=Math.abs(contribAtual-target);
+      if(err>maxErr)maxErr=err;
+      // Atualiza w[i] usando formula de Spinu
+      // w[i] tal que w[i] * (sum_j!=i w[j]*cov[i][j] + w[i]*cov[i][i]) / varPort = target
+      // Resolve quadratica: cov[i][i]*w[i]^2 + b*w[i] - target*varPort = 0
+      // onde b = sum_j!=i w[j]*cov[i][j]
+      const b=margCov-w[i]*cov[i][i];
+      const a=cov[i][i];
+      if(a<=0)continue;
+      const c=-target*varPort;
+      // w[i] = (-b + sqrt(b^2 - 4*a*c)) / (2*a) - raiz positiva
+      const disc=b*b-4*a*c;
+      if(disc<0)continue;
+      const wNovo=(-b+Math.sqrt(disc))/(2*a);
+      if(wNovo>0&&isFinite(wNovo))w[i]=wNovo;
+    }
+    // Normaliza para somar 1
+    let soma=0;for(let i=0;i<n;i++)soma+=w[i];
+    if(soma>0)for(let i=0;i<n;i++)w[i]/=soma;
+    if(maxErr<TOL){converged=true;break;}
+  }
+  // Calcula contribuicoes finais para verificacao
+  let varPortFinal=0;
+  for(let i=0;i<n;i++)for(let j=0;j<n;j++)varPortFinal+=w[i]*w[j]*cov[i][j];
+  const contributions=new Array(n);
+  for(let i=0;i<n;i++){
+    let margCov=0;
+    for(let j=0;j<n;j++)margCov+=w[j]*cov[i][j];
+    contributions[i]=varPortFinal>0?(w[i]*margCov)/varPortFinal:0;
+  }
+  return {weights:w,contributions,converged,iter,target};
+}
+
+// ===========================================================================
+// VERSAO SIMPLES (Inverse Volatility) - usada como sanity check
+// ===========================================================================
+function calcInverseVolatility(){
+  const cov=mptCovar();
+  const n=MPT_CLS.length;
+  const w=new Array(n);
+  let soma=0;
+  for(let i=0;i<n;i++){
+    const vol=Math.sqrt(cov[i][i]);
+    w[i]=vol>0?1/vol:0;
+    soma+=w[i];
+  }
+  if(soma>0)for(let i=0;i<n;i++)w[i]/=soma;
+  return w;
+}
+
 // Monte Carlo: gera N portfolios aleatorios e retorna {ret, vol, sharpe, w}
 // rf eh a Selic decimal atual (ex: 0.145). Usada tambem como retorno modelado da Selic
 function mptMonteCarlo(N,rf){
@@ -7843,6 +7943,34 @@ function App(){
         const wAw=(AW_W[cid]||0)*100;
         return{classe:cid,atual_pct:Math.round(wAt*10)/10,alvo_aw_pct:Math.round(wAw*10)/10,diff_pp:Math.round((wAw-wAt)*10)/10};
       }).filter(x=>Math.abs(x.diff_pp)>=1).sort((a,b)=>Math.abs(b.diff_pp)-Math.abs(a.diff_pp));
+
+      // ===== RISK PARITY ERC: 4o modelo de comparacao =====
+      // Calcula pesos de equilibrio matematico de risco para comparar com atual/AW/Yale.
+      // Usado como FATOR DE DESEMPATE moderado - mostra concentracao de risco no portfolio atual.
+      let ajustesRP=[],contribRiscoAtual={};
+      try{
+        const rpA=calcRiskParity();
+        if(rpA&&rpA.weights){
+          ajustesRP=MPT_CLS.map((cid,i)=>{
+            const wAt=(cw[cid]||0);
+            const wRp=rpA.weights[i]*100;
+            return{classe:cid,atual_pct:Math.round(wAt*10)/10,alvo_rp_pct:Math.round(wRp*10)/10,diff_pp:Math.round((wRp-wAt)*10)/10};
+          }).filter(x=>Math.abs(x.diff_pp)>=1).sort((a,b)=>Math.abs(b.diff_pp)-Math.abs(a.diff_pp));
+          // Contribuicao ao risco do portfolio atual (para destacar concentracoes)
+          const covRP=mptCovar();
+          const wAtRP=MPT_CLS.map(cid=>(cw[cid]||0)/100);
+          const sRP=wAtRP.reduce((a,b)=>a+b,0);
+          if(sRP>0)for(let i=0;i<wAtRP.length;i++)wAtRP[i]/=sRP;
+          let varAt=0;
+          for(let i=0;i<MPT_CLS.length;i++)for(let j=0;j<MPT_CLS.length;j++)varAt+=wAtRP[i]*wAtRP[j]*covRP[i][j];
+          MPT_CLS.forEach((cid,i)=>{
+            let margCov=0;
+            for(let j=0;j<MPT_CLS.length;j++)margCov+=wAtRP[j]*covRP[i][j];
+            contribRiscoAtual[cid]=varAt>0?Math.round((wAtRP[i]*margCov)/varAt*1000)/10:0;
+          });
+        }
+      }catch(eRP){console.warn("Risk Parity falhou no Aporte:",eRP);}
+
       // Cenario com menor protecao (vulnerabilidade atual)
       const cenLabel={c1:"Crescimento alto + Inflacao alta",c2:"Crescimento alto + Inflacao baixa",c3:"Crescimento baixo + Inflacao alta",c4:"Crescimento baixo + Inflacao baixa"};
       const cenarioFraco=Object.entries(protCen).sort((a,b)=>a[1]-b[1])[0];
@@ -8110,12 +8238,19 @@ function App(){
         JSON.stringify(ajustesFronteira.slice(0,5))+"\\n\\n"+
         "AJUSTES SUGERIDOS PARA APROXIMAR DO ALL WEATHER (resiliencia macro):\\n"+
         JSON.stringify(ajustesAW.slice(0,5))+"\\n\\n"+
+        "RISK PARITY ERC (Equal Risk Contribution - 4o modelo comparativo):\\n"+
+        "  Modelo MATEMATICO que ignora opiniao macro e valuation. Aloca pesos para que cada classe contribua igualmente ("+(100/MPT_CLS.length).toFixed(1)+"%) para o RISCO total do portfolio (considera vols E correlacoes). Em pais de juros altos, tende a sobreponderar Selic/RFIPCA (vol baixa) e subponderar equities/cripto (vol alta).\\n"+
+        "  CONTRIBUICAO ATUAL DE CADA CLASSE AO RISCO DO PORTFOLIO: "+JSON.stringify(contribRiscoAtual)+"\\n"+
+        "  Classes com contribuicao >15% indicam CONCENTRACAO DE RISCO (uma classe domina a variancia do portfolio).\\n"+
+        "  AJUSTES SUGERIDOS PARA APROXIMAR DO RISK PARITY (equilibrio matematico de risco):\\n"+
+        "  "+JSON.stringify(ajustesRP.slice(0,5))+"\\n\\n"+
         "INSTRUCAO DE USO DESTES DADOS:\\n"+
         "1) Trate-os como FATOR DE DESEMPATE moderado, NAO como regra absoluta. Bandas alvo, qualidade dos ativos e margem de seguranca PERMANECEM PRIORIDADES PRIMARIAS.\\n"+
         "2) Quando dois ativos forem equivalentes em qualidade/preco, prefira o que reduz simultaneamente o gap MPT (fronteira), o gap AW (resiliencia macro) e o HHI (diversificacao).\\n"+
         "3) Se a Eficiencia de Diversificacao (HHI) estiver baixa (<70/100), o portfolio esta concentrado demais - PRIORIZAR aportes em classes com peso atual baixo (abaixo de 1/n = "+(hhiMinAP*100).toFixed(1)+"%).\\n"+
         "4) Se a Eficiencia de Sharpe Esperado estiver baixa (<50/100), o portfolio carrega risco sem retorno proporcional - reduzir exposicao em classes com Sharpe individual ruim no atual regime de Selic.\\n"+
-        "5) Voce DECIDE como balancear MPT (retorno otimo) vs AW (resiliencia macro) vs HHI (diversificacao) conforme o cenario atual - explique brevemente no campo 'estrategia_macro' do veredito.\\n";
+        "5) RISK PARITY como CONTRAPONTO MATEMATICO: se 2 ou mais modelos (MPT/AW/Yale/RP) convergem em uma classe, sinal forte. Se RP discorda dos outros, eh sinal de tradeoff filosofico - voce decide a aposta. RP NAO eh receita: em pais com Selic ~14%, RP recomenda muito peso em RF e o investidor B&H pode preferir aceitar mais risco para maior retorno real LP. Use RP especificamente para identificar CONCENTRACAO DE RISCO em classes voláteis (BTC, equities) que poderiam ser temperadas.\\n"+
+        "6) Voce DECIDE como balancear MPT (retorno otimo) vs AW (resiliencia macro) vs HHI (diversificacao) vs RP (equilibrio de risco) conforme o cenario atual - explique brevemente no campo 'estrategia_macro' do veredito.\\n";
 
       // ===== BLOCO DA SOLIDEZ PATRIMONIAL - 5O PILAR ESTRUTURAL =====
       // Pre-calculo: yield motora observado (override do YIELD_CLASSE para FII+Infra+Agro)
@@ -13773,6 +13908,239 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             h("p",{style:{fontSize:10,color:"#E8E2D5",lineHeight:1.55,margin:0,fontStyle:"italic"}},estrategia)
           )
         );
+      })(),
+
+      // ========== CARD EXPLICATIVO: ENTENDENDO RISK PARITY ==========
+      (()=>{
+        const [aberto,setAberto]=[(window.__rpExpAberto||false),(v)=>{window.__rpExpAberto=v;}];
+        return h("div",{style:{background:"rgba(125,209,125,0.04)",border:"1px solid rgba(125,209,125,0.20)",borderLeft:"3px solid #7DD17D",borderRadius:6,padding:"11px 13px",marginBottom:12}},
+          h("div",{style:{fontSize:8.5,letterSpacing:1.8,color:"#7DD17D",fontFamily:"monospace",fontWeight:700,marginBottom:9}},"\u{1F4D6} ENTENDENDO RISK PARITY (PRIMEIRA VEZ AQUI?)"),
+          
+          // O QUE EH
+          h("div",{style:{marginBottom:10}},
+            h("div",{style:{fontSize:9.5,color:"#C8C2B0",fontWeight:700,marginBottom:3,fontFamily:"monospace"}},"\u25B8 O QUE EH"),
+            h("p",{style:{fontSize:9,color:"#A8A090",lineHeight:1.65,margin:0}},
+              "Risk Parity (paridade de risco) eh um modelo matematico de alocacao desenvolvido nos anos 90 e popularizado pela Bridgewater. ",
+              "Diferente do 60/40 tradicional (onde 60% capital em acoes = 90% do risco do portfolio), Risk Parity busca que ",
+              h("strong",{style:{color:"#7DD17D"}},"cada classe de ativo contribua IGUALMENTE para o risco total"),
+              ". Em um portfolio de 13 classes, cada uma deveria contribuir ~7.7% (1/13) do risco - nem mais, nem menos."
+            )
+          ),
+          
+          // COMO FUNCIONA
+          h("div",{style:{marginBottom:10}},
+            h("div",{style:{fontSize:9.5,color:"#C8C2B0",fontWeight:700,marginBottom:3,fontFamily:"monospace"}},"\u25B8 COMO FUNCIONA NA PRATICA"),
+            h("p",{style:{fontSize:9,color:"#A8A090",lineHeight:1.65,margin:0,marginBottom:5}},
+              "Classes voláteis (BTC vol 55%, acoes vol 25%) recebem ",h("strong",{},"pesos menores"),
+              ", enquanto classes estaveis (Selic vol 1%, NTN-B vol 10%) recebem ",h("strong",{},"pesos maiores"),
+              ". Mas nao eh so vol: o algoritmo considera tambem as ",h("strong",{style:{color:"#7DD17D"}},"correlacoes entre classes"),
+              " - se duas classes andam juntas, elas concentram risco no mesmo evento e o sistema reduz a soma delas."
+            ),
+            h("p",{style:{fontSize:9,color:"#A8A090",lineHeight:1.65,margin:0,fontStyle:"italic"}},
+              "Exemplo: se voce tem 30% em acoes BR + 20% em acoes EUA (correlacao 0.55), Risk Parity ve isso como ~40% efetivos em equity-risk, nao 50% diversificados. Vai sugerir reduzir."
+            )
+          ),
+          
+          // CONCEITO DE CONTRIBUICAO AO RISCO
+          h("div",{style:{marginBottom:10}},
+            h("div",{style:{fontSize:9.5,color:"#C8C2B0",fontWeight:700,marginBottom:3,fontFamily:"monospace"}},"\u25B8 O QUE EH \"CONTRIBUICAO AO RISCO\" (COLUNA %RISCO)"),
+            h("p",{style:{fontSize:9,color:"#A8A090",lineHeight:1.65,margin:0,marginBottom:5}},
+              "Imagine que a volatilidade total do seu portfolio eh um bolo. A coluna %RISCO mostra qual fatia desse bolo cada classe representa. ",
+              "Se ",h("strong",{style:{color:"#E89060"}},"acoes BR aparecem com 35%"),", significa que mesmo tendo (digamos) so 14% do capital, elas estao gerando 35% da volatilidade total. ",
+              "Isso eh ",h("strong",{style:{color:"#E05252"}},"concentracao de risco"),": quando o mercado de acoes BR cai, seu portfolio sofre desproporcionalmente."
+            ),
+            h("div",{style:{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:5,marginTop:6}},
+              h("div",{style:{padding:"5px 7px",background:"rgba(76,175,130,0.10)",borderRadius:4,fontSize:7.5,color:"#4CAF82",textAlign:"center",border:"1px solid rgba(76,175,130,0.30)"}},
+                h("strong",{},"<10%"),": OK"
+              ),
+              h("div",{style:{padding:"5px 7px",background:"rgba(200,169,110,0.10)",borderRadius:4,fontSize:7.5,color:"#C8A96E",textAlign:"center",border:"1px solid rgba(200,169,110,0.30)"}},
+                h("strong",{},"10-15%"),": Aten\u00E7ao"
+              ),
+              h("div",{style:{padding:"5px 7px",background:"rgba(232,144,96,0.10)",borderRadius:4,fontSize:7.5,color:"#E89060",textAlign:"center",border:"1px solid rgba(232,144,96,0.30)"}},
+                h("strong",{},"15-25%"),": Concentracao"
+              ),
+              h("div",{style:{padding:"5px 7px",background:"rgba(232,82,82,0.10)",borderRadius:4,fontSize:7.5,color:"#E05252",textAlign:"center",border:"1px solid rgba(232,82,82,0.30)"}},
+                h("strong",{},">25%"),": Cr\u00EDtico"
+              )
+            )
+          ),
+          
+          // COMO LER A TABELA COMPARATIVA
+          h("div",{style:{marginBottom:10}},
+            h("div",{style:{fontSize:9.5,color:"#C8C2B0",fontWeight:700,marginBottom:3,fontFamily:"monospace"}},"\u25B8 COMO LER A TABELA COMPARATIVA DE PESOS"),
+            h("p",{style:{fontSize:9,color:"#A8A090",lineHeight:1.65,margin:0,marginBottom:5}},
+              "A tabela mostra ",h("strong",{},"4 portfolios lado a lado")," para a mesma classe:"
+            ),
+            h("ul",{style:{fontSize:9,color:"#A8A090",lineHeight:1.55,paddingLeft:18,margin:0}},
+              h("li",{style:{marginBottom:3}},h("strong",{style:{color:"#E8E2D5"}},"VOCE")," - seu peso atual nessa classe"),
+              h("li",{style:{marginBottom:3}},h("strong",{style:{color:"#7DD17D"}},"RP")," - o que Risk Parity matematicamente sugere"),
+              h("li",{style:{marginBottom:3}},h("strong",{style:{color:"#2EBFA5"}},"AW")," - o que All Weather Brasil (Dalio) sugere"),
+              h("li",{style:{marginBottom:3}},h("strong",{style:{color:"#5B8FD4"}},"YALE")," - o que Yale Endowment adaptado sugere"),
+            ),
+            h("p",{style:{fontSize:9,color:"#A8A090",lineHeight:1.6,margin:"5px 0 0 0",fontStyle:"italic"}},
+              h("strong",{style:{color:"#7DD17D"}},"REGRA DE OURO:")," se ",h("strong",{},"3+ modelos"),
+              " sugerem peso similar para uma classe, eh sinal forte de que voce deveria estar nesse range. ",
+              "Se os modelos ",h("strong",{},"discordam muito"),", eh um tradeoff filosofico - voce escolhe sua aposta."
+            )
+          ),
+          
+          // QUANDO USAR
+          h("div",{style:{marginBottom:10}},
+            h("div",{style:{fontSize:9.5,color:"#C8C2B0",fontWeight:700,marginBottom:3,fontFamily:"monospace"}},"\u25B8 QUANDO ESTE MODELO EH MAIS UTIL"),
+            h("ul",{style:{fontSize:9,color:"#A8A090",lineHeight:1.55,paddingLeft:18,margin:0}},
+              h("li",{style:{marginBottom:3}},"Para identificar ",h("strong",{},"concentracao oculta de risco")," (uma classe pequena em peso pode dominar o risco)"),
+              h("li",{style:{marginBottom:3}},"Para validar matematicamente se sua tese AW/Yale faz sentido em termos de equilibrio de variancia"),
+              h("li",{style:{marginBottom:3}},"Para entender quanto BTC/cripto realmente \"pesa\" no seu risco real (geralmente > do que voce imagina)"),
+              h("li",{style:{marginBottom:3}},"Como contraponto matematico ao seu instinto - se RP discorda fortemente, vale entender o porque")
+            )
+          ),
+          
+          // LIMITACOES
+          h("div",{},
+            h("div",{style:{fontSize:9.5,color:"#C8C2B0",fontWeight:700,marginBottom:3,fontFamily:"monospace"}},"\u25B8 LIMITACOES HONESTAS"),
+            h("ul",{style:{fontSize:9,color:"#A8A090",lineHeight:1.55,paddingLeft:18,margin:0}},
+              h("li",{style:{marginBottom:3}},h("strong",{},"Assume vol = risco."),
+                " Para B&H de longo prazo, drawdowns em crises e correlacoes em panico podem importar mais que vol cotidiana."),
+              h("li",{style:{marginBottom:3}},h("strong",{},"Ignora valuation."),
+                " Se acoes BR estao baratas mas volateis, RP aloca pouco. Voce (B&H rigoroso) talvez quisesse o contrario."),
+              h("li",{style:{marginBottom:3}},h("strong",{},"Em Brasil com Selic alta, recomenda muita RF."),
+                " Pode resultar em portfolios com 50-70% em Selic+NTN-B+Treasuries. Ironicamente isso reduz retorno real de longo prazo - razao pela qual investidor B&H pode aceitar mais risco que RP recomenda."),
+              h("li",{},h("strong",{},"Pesos mudam com regime de vol."),
+                " Em mercado calmo (vol baixa em acoes), RP recomenda mais equity. Em crise (vol alta), recomenda menos. Pode gerar trading se seguir cegamente.")
+            )
+          )
+        );
+      })(),
+
+      // ========== RISK PARITY ERC (Equal Risk Contribution) ==========
+      // 4o modelo de portfolio comparativo: aloca pesos tais que cada classe
+      // contribua igualmente para o risco (variancia) do portfolio.
+      (()=>{
+        try{
+          const rp=calcRiskParity();
+          if(!rp||!rp.weights||rp.weights.length===0)return null;
+          // Stats do portfolio Risk Parity
+          const rfRP=(typeof selicAtual==="number"&&selicAtual>0?selicAtual:14.25)*(1-IR_LONGO_PRAZO)/100;
+          const statsRP=mptStats(rp.weights,rfRP);
+          const sharpeRP=mptSharpe(statsRP.ret,statsRP.vol,rfRP);
+          // Stats do portfolio atual (recalcular para comparacao consistente)
+          const wAtualRP=MPT_CLS.map(cid=>(cw[cid]||0)/100);
+          const sN=wAtualRP.reduce((a,b)=>a+b,0);
+          if(sN>0)for(let i=0;i<wAtualRP.length;i++)wAtualRP[i]/=sN;
+          const statsAtRP=mptStats(wAtualRP,rfRP);
+          const sharpeAtRP=mptSharpe(statsAtRP.ret,statsAtRP.vol,rfRP);
+          // Pesos AW e Yale para comparacao lado a lado
+          const wAW_RP=MPT_CLS.map(cid=>AW_W[cid]||0);
+          const wYPB_RP=MPT_CLS.map(cid=>YPB_W[cid]||0);
+          const statsAW_RP=mptStats(wAW_RP,rfRP);
+          const statsYPB_RP=mptStats(wYPB_RP,rfRP);
+          const sharpeAW_RP=mptSharpe(statsAW_RP.ret,statsAW_RP.vol,rfRP);
+          const sharpeYPB_RP=mptSharpe(statsYPB_RP.ret,statsYPB_RP.vol,rfRP);
+          // Calcula contribuicao ao risco do portfolio atual para comparacao
+          const cov=mptCovar();
+          let varAtual=0;
+          for(let i=0;i<MPT_CLS.length;i++)for(let j=0;j<MPT_CLS.length;j++)varAtual+=wAtualRP[i]*wAtualRP[j]*cov[i][j];
+          const contribAtual=MPT_CLS.map((cid,i)=>{
+            let margCov=0;
+            for(let j=0;j<MPT_CLS.length;j++)margCov+=wAtualRP[j]*cov[i][j];
+            return varAtual>0?(wAtualRP[i]*margCov)/varAtual:0;
+          });
+          // Ranking de classes por divergencia entre pesos: atual vs RP, AW vs RP, Yale vs RP
+          const divergencias=MPT_CLS.map((cid,i)=>({
+            cid,
+            nome:CL.find(c=>c.id===cid)?.name||cid,
+            cor:CL.find(c=>c.id===cid)?.color||"#9A9080",
+            wAtual:wAtualRP[i]*100,
+            wRP:rp.weights[i]*100,
+            wAW:wAW_RP[i]*100,
+            wYPB:wYPB_RP[i]*100,
+            contribAtual:contribAtual[i]*100,
+            contribRP:rp.contributions[i]*100,
+            divAtualVsRP:Math.abs(wAtualRP[i]-rp.weights[i])
+          })).sort((a,b)=>b.divAtualVsRP-a.divAtualVsRP);
+          // Veredito comparativo
+          const divTotal=divergencias.reduce((s,d)=>s+d.divAtualVsRP,0)*100;
+          let nivelRP,corRP,iconRP,vereditoRP;
+          if(divTotal<=30){nivelRP="EQUILIBRADO";corRP="#4CAF82";iconRP="\u2696\uFE0F";vereditoRP="Sua alocacao esta proxima do equilibrio matematico de risco. Nenhuma classe domina excessivamente a variancia do portfolio.";}
+          else if(divTotal<=60){nivelRP="LEVES DESVIOS";corRP="#C8A96E";iconRP="\u2696\uFE0F";vereditoRP="Algumas classes contribuem mais que outras ao risco do portfolio - revisar concentracoes. Risk Parity sugere mais peso em renda fixa BR para equilibrar riscos.";}
+          else if(divTotal<=90){nivelRP="DESEQUILIBRADO";corRP="#E89060";iconRP="\u26A0\uFE0F";vereditoRP="Carteira concentra risco em poucas classes (provavelmente equities ou criptos). Risk Parity puro sugeriria reducao dessas exposicoes e aumento em renda fixa/ouro.";}
+          else {nivelRP="MUITO DESEQUILIBRADO";corRP="#E05252";iconRP="\u{1F6A8}";vereditoRP="Carteira tem risco fortemente concentrado em uma ou duas classes voláteis. Atencao: voce esta efetivamente apostando, nao se diversificando.";}
+          return h("div",{style:{background:"linear-gradient(135deg,rgba(125,209,125,0.06),rgba(125,209,125,0.02))",border:"1px solid rgba(125,209,125,0.30)",borderLeft:"4px solid #7DD17D",borderRadius:8,padding:"14px 16px",marginBottom:14}},
+            h("div",{style:{fontSize:9,letterSpacing:2.2,color:"#7DD17D",fontFamily:"monospace",fontWeight:700,marginBottom:8}},"\u2696\uFE0F RISK PARITY ERC: PORTFOLIO MATEMATICAMENTE EQUILIBRADO"),
+            h("p",{style:{fontSize:8.5,color:"#8A8070",lineHeight:1.55,marginBottom:10,fontStyle:"italic"}},
+              "Pesos que fazem cada classe contribuir igualmente (",(rp.target*100).toFixed(2),"%) para o risco do portfolio, considerando vols E correlacoes. Sem opiniao macro. ",
+              h("strong",{style:{color:"#9A9080"}},rp.converged?"\u2713 Convergido em "+rp.iter+" iter":"\u26A0 Nao convergiu plenamente")
+            ),
+            // Diagnostico
+            h("div",{style:{display:"flex",alignItems:"center",gap:10,marginBottom:11,padding:"8px 10px",background:"rgba(0,0,0,0.20)",borderRadius:6,borderLeft:"3px solid "+corRP}},
+              h("span",{style:{fontSize:18}},iconRP),
+              h("div",{style:{flex:1}},
+                h("div",{style:{fontSize:8,color:"#9A9080",fontFamily:"monospace",letterSpacing:1.2,marginBottom:2}},"DIAGNOSTICO RISK PARITY"),
+                h("div",{style:{fontSize:13,color:corRP,fontWeight:700,fontFamily:"monospace",letterSpacing:0.5}},nivelRP),
+                h("div",{style:{fontSize:9,color:"#7A7060",marginTop:2,fontStyle:"italic"}},"Divergencia total atual vs RP: "+divTotal.toFixed(1)+"pp")
+              )
+            ),
+            // Metricas: Sharpes comparativos (Atual, RP, AW, Yale)
+            h("div",{style:{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6,marginBottom:11}},
+              h("div",{style:{padding:"7px 6px",background:"rgba(0,0,0,0.18)",borderRadius:5,textAlign:"center"}},
+                h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",letterSpacing:1,marginBottom:3}},"SEU SHARPE"),
+                h("div",{style:{fontSize:13,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700}},sharpeAtRP.toFixed(2)),
+                h("div",{style:{fontSize:7,color:"#7A7060",marginTop:2}},"vol "+(statsAtRP.vol*100).toFixed(1)+"%")
+              ),
+              h("div",{style:{padding:"7px 6px",background:"rgba(125,209,125,0.08)",borderRadius:5,textAlign:"center",border:"1px solid rgba(125,209,125,0.30)"}},
+                h("div",{style:{fontSize:7,color:"#7DD17D",fontFamily:"monospace",letterSpacing:1,marginBottom:3}},"RISK PARITY"),
+                h("div",{style:{fontSize:13,color:"#7DD17D",fontFamily:"monospace",fontWeight:700}},sharpeRP.toFixed(2)),
+                h("div",{style:{fontSize:7,color:"#7A7060",marginTop:2}},"vol "+(statsRP.vol*100).toFixed(1)+"%")
+              ),
+              h("div",{style:{padding:"7px 6px",background:"rgba(46,191,165,0.06)",borderRadius:5,textAlign:"center",border:"1px solid rgba(46,191,165,0.25)"}},
+                h("div",{style:{fontSize:7,color:"#2EBFA5",fontFamily:"monospace",letterSpacing:1,marginBottom:3}},"AW BRASIL"),
+                h("div",{style:{fontSize:13,color:"#2EBFA5",fontFamily:"monospace",fontWeight:700}},sharpeAW_RP.toFixed(2)),
+                h("div",{style:{fontSize:7,color:"#7A7060",marginTop:2}},"vol "+(statsAW_RP.vol*100).toFixed(1)+"%")
+              ),
+              h("div",{style:{padding:"7px 6px",background:"rgba(91,143,212,0.06)",borderRadius:5,textAlign:"center",border:"1px solid rgba(91,143,212,0.25)"}},
+                h("div",{style:{fontSize:7,color:"#5B8FD4",fontFamily:"monospace",letterSpacing:1,marginBottom:3}},"YALE BR"),
+                h("div",{style:{fontSize:13,color:"#5B8FD4",fontFamily:"monospace",fontWeight:700}},sharpeYPB_RP.toFixed(2)),
+                h("div",{style:{fontSize:7,color:"#7A7060",marginTop:2}},"vol "+(statsYPB_RP.vol*100).toFixed(1)+"%")
+              )
+            ),
+            // Tabela comparativa de pesos por classe (top 6 mais divergentes)
+            h("div",{style:{marginBottom:10}},
+              h("div",{style:{fontSize:8,color:"#9A9080",fontFamily:"monospace",letterSpacing:1.2,marginBottom:6}},"\u{1F4CA} TOP 6 CLASSES COM MAIOR DIVERGENCIA"),
+              h("div",{style:{background:"rgba(0,0,0,0.18)",borderRadius:5,padding:"6px 8px",overflowX:"auto"}},
+                h("div",{style:{display:"grid",gridTemplateColumns:"1.3fr 0.7fr 0.7fr 0.7fr 0.7fr 0.9fr",gap:6,fontSize:7,color:"#7A7060",fontFamily:"monospace",letterSpacing:1,paddingBottom:5,borderBottom:"1px solid rgba(255,255,255,0.06)",marginBottom:4,fontWeight:700}},
+                  h("div",{},"CLASSE"),
+                  h("div",{style:{textAlign:"right"}},"VOCE"),
+                  h("div",{style:{textAlign:"right",color:"#7DD17D"}},"RP"),
+                  h("div",{style:{textAlign:"right",color:"#2EBFA5"}},"AW"),
+                  h("div",{style:{textAlign:"right",color:"#5B8FD4"}},"YALE"),
+                  h("div",{style:{textAlign:"right"}},"%RISCO")
+                ),
+                divergencias.slice(0,6).map((d,i)=>h("div",{key:i,style:{display:"grid",gridTemplateColumns:"1.3fr 0.7fr 0.7fr 0.7fr 0.7fr 0.9fr",gap:6,fontSize:9,fontFamily:"monospace",padding:"3px 0",borderBottom:i<5?"1px solid rgba(255,255,255,0.03)":"none",alignItems:"center"}},
+                  h("div",{style:{color:d.cor,fontWeight:600,fontSize:8.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},d.nome),
+                  h("div",{style:{textAlign:"right",color:"#E8E2D5"}},d.wAtual.toFixed(1)),
+                  h("div",{style:{textAlign:"right",color:"#7DD17D",fontWeight:700}},d.wRP.toFixed(1)),
+                  h("div",{style:{textAlign:"right",color:"#2EBFA5"}},d.wAW.toFixed(1)),
+                  h("div",{style:{textAlign:"right",color:"#5B8FD4"}},d.wYPB.toFixed(1)),
+                  h("div",{style:{textAlign:"right",color:d.contribAtual>15?"#E05252":d.contribAtual>10?"#E89060":"#9A9080",fontWeight:700,fontSize:8.5}},d.contribAtual.toFixed(1)+"%")
+                ))
+              ),
+              h("div",{style:{fontSize:7.5,color:"#7A7060",fontStyle:"italic",marginTop:4,lineHeight:1.4}},"\u25B8 Coluna %RISCO: contribuicao da classe ao risco do SEU portfolio (target RP = ",(rp.target*100).toFixed(1),"%). >15% = concentracao excessiva")
+            ),
+            // Veredito final
+            h("div",{style:{padding:"10px 12px",background:"rgba(0,0,0,0.25)",borderLeft:"3px solid "+corRP,borderRadius:"0 6px 6px 0"}},
+              h("div",{style:{fontSize:8,color:"#9A9080",fontFamily:"monospace",letterSpacing:1.2,marginBottom:5}},"\u{1F4D6} INTERPRETACAO"),
+              h("div",{style:{fontSize:9.5,color:"#D5CDB8",lineHeight:1.65,fontStyle:"italic",marginBottom:7}},vereditoRP),
+              h("div",{style:{fontSize:8.5,color:"#7A7060",lineHeight:1.55,marginTop:7,paddingTop:7,borderTop:"1px dashed rgba(255,255,255,0.06)"}},
+                h("strong",{style:{color:"#9A9080"}},"Sobre Risk Parity: "),
+                "Modelo matematico que ignora valuation e opiniao macro - aloca apenas por equilibrio de risco. Em pais de juros altos como Brasil, tende a sobreponderar renda fixa (Selic vol baixa = mais peso). Use como ",h("strong",{style:{color:"#9A9080"}},"contraponto matematico"),", nao como receita. Sua tese B&H, AW Brasil e Yale BR sao filtros complementares - se 2 ou mais modelos convergem em uma classe, sinal forte. Se divergem, voce escolhe sua aposta filosofica."
+              )
+            )
+          );
+        }catch(e){
+          return h("div",{style:{background:"rgba(232,82,82,0.06)",border:"1px solid rgba(232,82,82,0.30)",borderRadius:6,padding:"10px 12px",marginBottom:12,fontSize:9,color:"#E05252",fontFamily:"monospace"}},
+            "\u26A0 Risk Parity ERC nao pode ser calculado: "+(e&&e.message?e.message:String(e))
+          );
+        }
       })(),
 
       // ========== ASSET ALLOCATION: COMO APROXIMAR DA FRONTEIRA ==========
