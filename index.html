@@ -2634,7 +2634,7 @@ function SolidezCard({total,cw,port,metaMensalIF,setTab,fB,hideVal,dataNasciment
         // Contribuicao real = score * (peso/100). Penalizacao = peso - contribuicao.
         const dims=[
           {id:"tam",label:"\u{1F4B0} TAMANHO",cor:"#C8A96E",score:scoreTamanho,peso:22,detail:hideVal?"\u2022\u2022\u2022":multFIRE.toFixed(1)+"x meta anual",alvo:"alvo: "+fireCal.seguro.toFixed(0)+"x (FIRE seguro, "+fireCal.horizonte+"a horizonte)"},
-          {id:"ren",label:"\u{1F525} CAPACIDADE MAXIMA DE RENDA SUSTENTAVEL",cor:"#F7931A",score:scoreRenda,peso:22,detail:coberturaPct.toFixed(0)+"% da meta ("+fB(rendaRTE/12)+"/m\u00eas)",alvo:"alvo: \u2265150% (SWR "+(SWR_AJUSTADO*100).toFixed(2)+"% / horizonte "+fireCal.horizonte+"a)"},
+          {id:"ren",label:"\u{1F525} CAPACIDADE MAXIMA DE RENDA SUSTENTAVEL",cor:"#F7931A",score:scoreRenda,peso:22,detail:coberturaPct.toFixed(0)+"% da meta ("+(hideVal?"R$ ----":fB(rendaRTE/12))+"/m\u00eas)",alvo:"alvo: \u2265150% (SWR "+(SWR_AJUSTADO*100).toFixed(2)+"% / horizonte "+fireCal.horizonte+"a)"},
           {id:"res",label:"\u{1F6E1} RESILI\u00caNCIA",cor:"#5B8FD4",score:scoreResi,peso:22,detail:"dd "+ddPiorPct.toFixed(1)+"% (70%) + camb "+(pctCambialAtual*100).toFixed(0)+"% (30%)",alvo:"alvo: dd \u2265-5% E camb \u2265"+(bandasCamb.alvo*100).toFixed(0)+"%"},
           {id:"div",label:"\u{1F517} DIVERSIF.",cor:"#9C7DC2",score:scoreDiv,peso:17,detail:"corr m\u00e9dia "+corrMediaPond.toFixed(2),alvo:"alvo: corr \u22640.0 (descorrel.)"},
           {id:"camb",label:"\u{1F4B5} BLINDAGEM CAMBIAL",cor:"#3DA17C",score:scoreBlindagem,peso:17,detail:hideVal?"\u2022\u2022\u2022":(pctCambialAtual*100).toFixed(1)+"% em moedas fortes",alvo:"alvo: "+(bandasCamb.alvo*100).toFixed(0)+"% ("+(bandasCamb.min*100).toFixed(0)+"-"+(bandasCamb.max*100).toFixed(0)+"%), idade "+idadeAtual+"a"}
@@ -10636,6 +10636,32 @@ Responda APENAS com o texto do insight, sem prefacio ou comentarios meta.`;
 
   const MV=v=>hideVal?"----":v;
 
+  // MTV (Mask Text Values): mascara valores monetarios dentro de textos longos (gerados pela IA)
+  // quando hideVal eh true, para apresentacao a terceiros.
+  // Padroes mascarados:
+  //   - "R$ 1.234.567,89", "R$1.234.567", "R$ 50 mil", "R$ 2,5 mi", "R$ 1,2 milhao"
+  //   - "1.234.567,89 reais", "1.5MM BRL", "USD 50.000", "$ 1,000.00"
+  //   - Mantem percentuais (%) e numeros pequenos sem moeda (eg "8% a.a.", "3 anos")
+  const MTV=(texto)=>{
+    if(!hideVal||typeof texto!=="string")return texto;
+    let t=texto;
+    // R$ seguido de numero (com opcionais milhares/decimais e sufixos como "mil", "mi", "M", "MM", "milhao")
+    t=t.replace(/R\$\s?[\d.,]+(\s*(mil|mi|MM|M|milh[oõ]es?|milh[aã]o|bilh[oõ]es?|bilh[aã]o))?/gi,"R$ ----");
+    // USD/US$/$ seguido de numero
+    t=t.replace(/(US\$|USD|\$)\s?[\d.,]+(\s*(mil|mi|MM|M|million|billion|bn|k))?/gi,"$1 ----");
+    // EUR/GBP/JPY/etc com numero
+    t=t.replace(/(EUR|GBP|JPY|CHF|HKD|SGD|AUD|CNY)\s?[\d.,]+(\s*(mil|mi|MM|M|million|billion|bn|k))?/gi,"$1 ----");
+    // Numeros longos seguidos de "reais", "milhoes de reais", etc
+    t=t.replace(/[\d.,]+\s+(mil reais|milh[oõ]es de reais|reais|milh[oõ]es|milh[aã]o de reais)/gi,"---- $1");
+    // Patrimonio/saldo/total/aporte seguido de numero sem moeda (cuidado: nao casar "10%")
+    t=t.replace(/(patrim[oô]nio|saldo|total|aporte|posic[aã]o|valor)(\s+(?:atual|total|mensal|de))?\s*(?:em|de|:)?\s*[\d.,]+(?!\s*%)/gi,(m)=>{
+      // Mantem a primeira palavra-chave e mascara o numero
+      const pre=m.replace(/[\d.,]+$/,"").trim();
+      return pre+" ----";
+    });
+    return t;
+  };
+
   // HEADER
   // Calcular valor em BRL nativo vs convertido (de moedas estrangeiras)
   let valorBRLnativo=0,valorEstrangeiroBRL=0;
@@ -11122,7 +11148,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
               h("div",{style:{padding:"6px 0",color:"#E05252",fontSize:10,fontFamily:"monospace",marginBottom:6}},"Erro: "+insightErr),
               insightErr.toLowerCase().includes("api")||insightErr.toLowerCase().includes("key")?h("div",{style:{fontSize:10,color:"#8A8070",lineHeight:1.5,padding:"6px 0"}},"A chave parece invalida ou expirada. Clique em ",h("b",{style:{color:"#C8A96E"}},"chave")," acima para inserir uma nova."):null
             ):
-            insight?h("div",{style:{fontSize:12,color:"#C8C0B0",lineHeight:1.7,whiteSpace:"pre-wrap"}},insight):
+            insight?h("div",{style:{fontSize:12,color:"#C8C0B0",lineHeight:1.7,whiteSpace:"pre-wrap"}},MTV(insight)):
             h("div",{style:{fontSize:11,color:"#8A8070",fontStyle:"italic",lineHeight:1.6,padding:"6px 0"}},"Gerando primeiro insight automaticamente...")
           )
         )
@@ -11177,7 +11203,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         insightMensalErr?h("div",{style:{fontSize:11,color:"#E05252",fontStyle:"italic"}},"Erro: "+insightMensalErr):
         !apiKey?h("div",{style:{fontSize:11,color:"#7A7570",fontStyle:"italic"}},"Cadastre sua chave API Anthropic (botao API no topo) para gerar insights mensais automaticos no fechamento de cada mes."):
         insightMensalLoad?h("div",{style:{fontSize:11,color:"#7A7570",fontStyle:"italic"}},"Analisando desempenho do mes..."):
-        insightMensal&&insightMensal.texto?h("div",{style:{fontSize:11,color:"#C8C0B0",lineHeight:1.7,whiteSpace:"pre-wrap"}},insightMensal.texto):
+        insightMensal&&insightMensal.texto?h("div",{style:{fontSize:11,color:"#C8C0B0",lineHeight:1.7,whiteSpace:"pre-wrap"}},MTV(insightMensal.texto)):
         h("div",{style:{fontSize:11,color:"#7A7570",fontStyle:"italic"}},"Sera gerado automaticamente no fechamento do proximo mes. Ou clique em atualizar para forcar agora.")
       ):null;
       // Data do dia formatada em portugues - discreta e elegante
@@ -11247,7 +11273,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           row("Quantidade",inp(eQty,setEQty,"0")),
           row("Cotacao atual ("+cc+")",inp(ePrice,setEPrice,"0,00"))
         ),
-        totBRL>0&&!isVB&&h("div",{style:{padding:"8px 11px",background:"rgba(200,169,110,0.05)",border:"1px solid rgba(200,169,110,0.15)",borderRadius:6,marginBottom:14}},h("span",{style:{fontSize:10,color:"#8A8070"}},isGB?"Valor estimado: ":"Valor BRL: "),h("span",{style:{fontFamily:"monospace",fontSize:14,color:"#C8A96E"}},fB(totBRL))),
+        totBRL>0&&!isVB&&h("div",{style:{padding:"8px 11px",background:"rgba(200,169,110,0.05)",border:"1px solid rgba(200,169,110,0.15)",borderRadius:6,marginBottom:14}},h("span",{style:{fontSize:10,color:"#8A8070"}},isGB?"Valor estimado: ":"Valor BRL: "),h("span",{style:{fontFamily:"monospace",fontSize:14,color:"#C8A96E"}},MV(fB(totBRL)))),
         h("button",{onClick:saveEdit,style:{width:"100%",padding:"11px",background:"linear-gradient(135deg,"+(cl?cl.color:"#C8A96E")+","+(cl?cl.color:"#A8893E")+")",border:"none",borderRadius:6,color:"#0D0F14",fontSize:12,fontWeight:700,letterSpacing:2,textTransform:"uppercase",cursor:"pointer",marginBottom:24}},"Salvar"),
         h("div",{style:{display:"flex",gap:7,paddingTop:14,borderTop:"1px solid rgba(255,255,255,0.05)"}},
           h("button",{onClick:()=>{if(isHid){toggleHide(ticker);}else{if(window.confirm("Ocultar "+ticker+" da lista? (a posicao sera preservada, apenas escondida da visualizacao)"))toggleHide(ticker);}},style:{flex:1,padding:"9px",background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:6,color:"#8A8070",fontSize:10,cursor:"pointer"}},isHid?"Mostrar na lista":"Ocultar da lista"),
@@ -12864,7 +12890,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
     } else if(step==="done"){
       const done=Object.entries(execE).filter(([,v])=>v.done&&pN(v.qty)>0&&pN(v.price)>0);
       const tot=done.reduce((s,[,v])=>s+pN(v.qty)*pN(v.price),0);
-      content=h("div",{style:{textAlign:"center",padding:"18px 0"}},h("div",{style:{fontSize:42,marginBottom:12}},"\u2705"),h("div",{style:{fontSize:9,letterSpacing:3,color:"#4CAF82",fontFamily:"monospace",textTransform:"uppercase",marginBottom:5}},"Aporte registrado"),h("div",{style:{fontSize:24,color:"#F0EAD8",fontFamily:"monospace",fontWeight:700,marginBottom:4}},fB(tot)),h("p",{style:{color:"#8A8070",fontSize:11,fontStyle:"italic",marginBottom:18}},done.length+" ativo(s) atualizado(s)."),h("div",{style:{display:"flex",gap:7}},h("button",{onClick:()=>{setTab("dashboard");setApR(null);setStep("r");setApV("");setExecE({});},style:{flex:1,padding:"11px",background:"linear-gradient(135deg,#C8A96E,#A8893E)",border:"none",borderRadius:6,color:"#0D0F14",fontSize:12,fontWeight:700,cursor:"pointer"}},"Dashboard"),h("button",{onClick:()=>{setApR(null);setStep("r");setApV("");setExecE({});},style:{flex:1,padding:"11px",background:"transparent",border:"1px solid rgba(200,169,110,0.3)",borderRadius:6,color:"#C8A96E",fontSize:12,cursor:"pointer"}},"Novo aporte")));
+      content=h("div",{style:{textAlign:"center",padding:"18px 0"}},h("div",{style:{fontSize:42,marginBottom:12}},"\u2705"),h("div",{style:{fontSize:9,letterSpacing:3,color:"#4CAF82",fontFamily:"monospace",textTransform:"uppercase",marginBottom:5}},"Aporte registrado"),h("div",{style:{fontSize:24,color:"#F0EAD8",fontFamily:"monospace",fontWeight:700,marginBottom:4}},MV(fB(tot))),h("p",{style:{color:"#8A8070",fontSize:11,fontStyle:"italic",marginBottom:18}},done.length+" ativo(s) atualizado(s)."),h("div",{style:{display:"flex",gap:7}},h("button",{onClick:()=>{setTab("dashboard");setApR(null);setStep("r");setApV("");setExecE({});},style:{flex:1,padding:"11px",background:"linear-gradient(135deg,#C8A96E,#A8893E)",border:"none",borderRadius:6,color:"#0D0F14",fontSize:12,fontWeight:700,cursor:"pointer"}},"Dashboard"),h("button",{onClick:()=>{setApR(null);setStep("r");setApV("");setExecE({});},style:{flex:1,padding:"11px",background:"transparent",border:"1px solid rgba(200,169,110,0.3)",borderRadius:6,color:"#C8A96E",fontSize:12,cursor:"pointer"}},"Novo aporte")));
     } else if(step==="confirm"&&apR){
       const byClass={};
       (apR.classes||[]).forEach(cl2=>{(cl2.ativos||[]).forEach(a=>{if(!byClass[cl2.id])byClass[cl2.id]={meta:CL.find(c=>c.id===cl2.id),ativos:[],valor:cl2.valor};byClass[cl2.id].ativos.push(a.ticker);});});
@@ -12875,7 +12901,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         h("button",{onClick:()=>setStep("r"),style:{background:"none",border:"none",color:"#8A8070",cursor:"pointer",fontSize:12,padding:0,marginBottom:12}},"<- Voltar"),
         h("div",{style:{background:"rgba(76,175,130,0.05)",border:"1px solid rgba(76,175,130,0.2)",borderRadius:8,padding:"10px 12px",marginBottom:14}},h("p",{style:{margin:0,fontSize:11,color:"#B0A890",lineHeight:1.6}},"Marque os ativos comprados, informe quantidade e preco pago.")),
         ...Object.entries(byClass).map(([cid,{meta,ativos,valor}])=>h("div",{key:cid,style:{marginBottom:14}},
-          h("div",{style:{display:"flex",alignItems:"center",gap:6,marginBottom:7,padding:"6px 9px",background:(meta?meta.color:"#888")+"0A",border:"1px solid "+(meta?meta.color:"#888")+"22",borderRadius:6}},h("span",{style:{color:meta?meta.color:"#888",fontSize:11,fontWeight:600,flex:1}},(meta?meta.name:cid)),h("span",{style:{fontFamily:"monospace",fontSize:10,color:"#8A8070"}},fB(valor))),
+          h("div",{style:{display:"flex",alignItems:"center",gap:6,marginBottom:7,padding:"6px 9px",background:(meta?meta.color:"#888")+"0A",border:"1px solid "+(meta?meta.color:"#888")+"22",borderRadius:6}},h("span",{style:{color:meta?meta.color:"#888",fontSize:11,fontWeight:600,flex:1}},(meta?meta.name:cid)),h("span",{style:{fontFamily:"monospace",fontSize:10,color:"#8A8070"}},MV(fB(valor)))),
           ...ativos.map(ticker=>{
             const e=execE[ticker]||{qty:"",price:"",done:false},cc=ccy[ticker]||"BRL",sub=pN(e.qty)*pN(e.price);
             const setF=(f,v2)=>setExecE(prev=>({...prev,[ticker]:{...prev[ticker],[f]:v2}}));
@@ -12883,7 +12909,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
               h("div",{style:{display:"flex",alignItems:"center",gap:8,marginBottom:e.done?7:0}},
                 h("div",{onClick:()=>setF("done",!e.done),style:{width:20,height:20,borderRadius:4,border:"2px solid "+(e.done?"#4CAF82":"#3A3830"),background:e.done?"#4CAF82":"transparent",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0}},e.done&&h("span",{style:{color:"#0D0F14",fontSize:12,fontWeight:700}},"OK")),
                 h("div",{style:{flex:1}},h("span",{style:{fontFamily:"monospace",fontSize:11,color:e.done?"#F0EAD8":"#8A8070"}},ticker),h("div",{style:{fontSize:8,color:"#5A5550",fontFamily:"monospace"}},cc)),
-                sub>0&&h("span",{style:{fontFamily:"monospace",fontSize:10,color:"#C8A96E"}},fB(sub*(FX[cc]||1)))
+                sub>0&&h("span",{style:{fontFamily:"monospace",fontSize:10,color:"#C8A96E"}},MV(fB(sub*(FX[cc]||1))))
               ),
               e.done&&h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}},
                 h("div",{},h("div",{style:{fontSize:7,color:"#5A5570",fontFamily:"monospace",textTransform:"uppercase",marginBottom:2}},"Qtd comprada"),h("input",{type:"text",value:e.qty,placeholder:"0",onChange:ev=>setF("qty",ev.target.value.replace(/[^0-9.,]/g,"")),style:inpS(meta)})),
@@ -12893,7 +12919,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           })
         )),
         h("div",{style:{position:"sticky",bottom:0,background:"#0D0F14",borderTop:"1px solid rgba(200,169,110,0.15)",paddingTop:9,paddingBottom:5}},
-          tot2>0&&h("div",{style:{display:"flex",justifyContent:"space-between",marginBottom:7,padding:"5px 9px",background:"rgba(200,169,110,0.06)",border:"1px solid rgba(200,169,110,0.15)",borderRadius:6}},h("span",{style:{fontSize:10,color:"#8A8070"}},"Total a registrar"),h("span",{style:{fontFamily:"monospace",fontSize:15,color:"#C8A96E",fontWeight:700}},fB(tot2))),
+          tot2>0&&h("div",{style:{display:"flex",justifyContent:"space-between",marginBottom:7,padding:"5px 9px",background:"rgba(200,169,110,0.06)",border:"1px solid rgba(200,169,110,0.15)",borderRadius:6}},h("span",{style:{fontSize:10,color:"#8A8070"}},"Total a registrar"),h("span",{style:{fontFamily:"monospace",fontSize:15,color:"#C8A96E",fontWeight:700}},MV(fB(tot2)))),
           h("button",{onClick:applyExec,disabled:!any,style:{width:"100%",padding:"11px",background:any?"linear-gradient(135deg,#4CAF82,#2A8F62)":"#1A2018",border:"none",borderRadius:8,color:any?"#0D0F14":"#3A5040",fontSize:12,fontWeight:700,letterSpacing:2,textTransform:"uppercase",cursor:any?"pointer":"not-allowed"}},any?"Aplicar ao portfolio":"Marque ao menos uma compra")
         )
       );
@@ -12917,7 +12943,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
       const notaColor=n=>{n=(n||"").toUpperCase();if(n==="OTIMO")return"#4CAF82";if(n==="BOM")return"#7AC4A0";if(n==="REGULAR")return"#E8C44A";return"#E05252";};
       content=h("div",{},
         h("button",{onClick:()=>{setApR(null);setStep("r");},style:{background:"none",border:"none",color:"#8A8070",cursor:"pointer",fontSize:12,padding:0,marginBottom:12}},"<- Novo aporte"),
-        h("div",{style:{background:"linear-gradient(135deg,rgba(200,169,110,0.08),rgba(200,169,110,0.02))",border:"1px solid rgba(200,169,110,0.2)",borderRadius:9,padding:"14px",marginBottom:12}},h("div",{style:{fontSize:8,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:5}},"Analise Fundamentalista"),h("div",{style:{fontSize:22,color:"#F0EAD8",marginBottom:7}},fB(apR.apValue)),h("p",{style:{margin:0,fontSize:11,color:"#B0A890",fontStyle:"italic",lineHeight:1.7}},apR.resumo)),
+        h("div",{style:{background:"linear-gradient(135deg,rgba(200,169,110,0.08),rgba(200,169,110,0.02))",border:"1px solid rgba(200,169,110,0.2)",borderRadius:9,padding:"14px",marginBottom:12}},h("div",{style:{fontSize:8,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:5}},"Analise Fundamentalista"),h("div",{style:{fontSize:22,color:"#F0EAD8",marginBottom:7}},MV(fB(apR.apValue))),h("p",{style:{margin:0,fontSize:11,color:"#B0A890",fontStyle:"italic",lineHeight:1.7}},MTV(apR.resumo))),
 
         // ===== IMPACTO NA NOTA MPT (antes / projetado) =====
         apR.mptSnapshot&&(()=>{
@@ -13062,7 +13088,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                   ),
                   h("div",{style:{fontSize:8,color:"#5A5550",fontFamily:"monospace"}},"Atual "+pc(w)+" - Alvo "+meta.min+"-"+meta.max+"%")
                 ),
-                h("div",{style:{textAlign:"right"}},h("div",{style:{fontFamily:"monospace",fontSize:13,color:"#F0EAD8",fontWeight:700}},fB(cl2.valor)),h("div",{style:{fontSize:8,color:meta.color,fontFamily:"monospace"}},(cl2.pct||0).toFixed(1)+"% do aporte"))
+                h("div",{style:{textAlign:"right"}},h("div",{style:{fontFamily:"monospace",fontSize:13,color:"#F0EAD8",fontWeight:700}},MV(fB(cl2.valor))),h("div",{style:{fontSize:8,color:meta.color,fontFamily:"monospace"}},(cl2.pct||0).toFixed(1)+"% do aporte"))
               ),
               h("p",{style:{margin:"5px 0 0",fontSize:10,color:"#8A8070",fontStyle:"italic",lineHeight:1.5}},cl2.justificativa),
               isPiso&&h("div",{style:{fontSize:8,color:"#E89060",lineHeight:1.55,margin:"7px 0 0",padding:"6px 8px",background:"rgba(232,144,96,0.06)",borderLeft:"3px solid #E89060",borderRadius:"0 4px 4px 0",fontStyle:"italic"}},
@@ -13094,7 +13120,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                   rankLabel&&h("span",{style:{fontSize:7,color:rankColor,fontFamily:"monospace",fontWeight:700,letterSpacing:1.5,padding:"1px 5px",border:"1px solid "+rankColor+"55",borderRadius:3}},rankLabel),
                   h("span",{style:{background:meta.color,color:"#0D0F14",fontSize:8,fontWeight:700,padding:"2px 6px",borderRadius:3,fontFamily:"monospace"}},a.ticker),
                   a.score&&h("span",{style:{fontSize:9,color:a.score.toUpperCase().includes("FORTE")?"#4CAF82":"#C8A96E",fontFamily:"monospace",fontWeight:700}},a.score),
-                  a.valor>0&&h("span",{style:{marginLeft:"auto",fontFamily:"monospace",fontSize:10,color:"#C8A96E",fontWeight:700}},fB(a.valor))
+                  a.valor>0&&h("span",{style:{marginLeft:"auto",fontFamily:"monospace",fontSize:10,color:"#C8A96E",fontWeight:700}},MV(fB(a.valor)))
                 ),
                 a.metricas&&h("div",{style:{fontFamily:"monospace",fontSize:9,color:"#C8A96E",marginBottom:3,lineHeight:1.6}},a.metricas),
                 a.porque_essa_posicao&&h("div",{style:{fontSize:9,color:"#9A9080",lineHeight:1.5,marginBottom:4,borderLeft:"2px solid "+rankColor+"55",paddingLeft:6,fontStyle:"italic"}},a.porque_essa_posicao),
@@ -13158,7 +13184,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           ):h("div",{style:{maxHeight:340,overflowY:"auto",paddingRight:4,display:"flex",flexDirection:"column",gap:8}},
             debateMsgs.map((m,i)=>h("div",{key:i,style:{display:"flex",flexDirection:"column",alignItems:m.role==="user"?"flex-end":"flex-start"}},
               h("div",{style:{maxWidth:"92%",padding:"8px 11px",background:m.role==="user"?"rgba(91,143,212,0.12)":"rgba(255,255,255,0.04)",border:"1px solid "+(m.role==="user"?"rgba(91,143,212,0.30)":"rgba(255,255,255,0.08)"),borderRadius:m.role==="user"?"10px 10px 3px 10px":"10px 10px 10px 3px"}},
-                h("div",{style:{fontSize:11,color:m.role==="user"?"#C8D8E8":"#C8C0B0",lineHeight:1.65,whiteSpace:"pre-wrap"}},m.content)
+                h("div",{style:{fontSize:11,color:m.role==="user"?"#C8D8E8":"#C8C0B0",lineHeight:1.65,whiteSpace:"pre-wrap"}},MTV(m.content))
               ),
               h("div",{style:{fontSize:8,color:"#3A3830",marginTop:2,fontFamily:"monospace",letterSpacing:1}},m.role==="user"?"voce":"analista")
             )),
@@ -16373,8 +16399,9 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         });
       });
 
-      // Helper formato compacto
+      // Helper formato compacto - respeita ocultacao de valores
       const fmtBRComp=v=>{
+        if(hideVal)return"R$ ----";
         if(v>=1e9)return"R$ "+(v/1e9).toFixed(2)+"B";
         if(v>=1e6)return"R$ "+(v/1e6).toFixed(2)+"M";
         if(v>=1e3)return"R$ "+(v/1e3).toFixed(0)+"k";
@@ -17711,9 +17738,9 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
               h("strong",{style:{color:"#E8E2D5"}},"R$ "+(FX.USD||0).toFixed(4)),
               h("span",{style:{color:"#7A7060"}},"\u2022"),
               h("span",{},h("strong",{style:{color:"#4CAF82"}},tickersUSD)," tickers em USD = "),
-              h("strong",{style:{color:"#E8E2D5"}},"US$ "+patrimUSD_emUSD.toLocaleString("pt-BR",{maximumFractionDigits:0})),
+              h("strong",{style:{color:"#E8E2D5"}},"US$ "+(hideVal?"----":patrimUSD_emUSD.toLocaleString("pt-BR",{maximumFractionDigits:0}))),
               h("span",{},"\u2192 "),
-              h("strong",{style:{color:"#4CAF82"}},fB(patrimUSD_emBRL)," BRL"),
+              h("strong",{style:{color:"#4CAF82"}},MV(fB(patrimUSD_emBRL))," BRL"),
               h("span",{style:{color:"#7A7060"}}," (",pctUSD.toFixed(1),"% do portfolio)")
             );
           })()
@@ -17774,25 +17801,25 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginBottom:8}},
               h("div",{style:{background:"rgba(76,175,130,0.10)",borderLeft:"2px solid #4CAF82",borderRadius:4,padding:"7px 9px"}},
                 h("div",{style:{fontSize:7,color:"#4CAF82",fontFamily:"monospace",fontWeight:700,letterSpacing:1.2}},"MOTORA"),
-                h("div",{style:{fontSize:12,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700,marginTop:2}},fB(rMotMensal)),
+                h("div",{style:{fontSize:12,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700,marginTop:2}},MV(fB(rMotMensal))),
                 h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",marginTop:1}},"/m\u00eas m\u00e9dio")
               ),
               h("div",{style:{background:"rgba(91,143,212,0.10)",borderLeft:"2px solid #5B8FD4",borderRadius:4,padding:"7px 9px"}},
                 h("div",{style:{fontSize:7,color:"#5B8FD4",fontFamily:"monospace",fontWeight:700,letterSpacing:1.2}},"AUXILIAR"),
-                h("div",{style:{fontSize:12,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700,marginTop:2}},fB(rAuxMensal)),
+                h("div",{style:{fontSize:12,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700,marginTop:2}},MV(fB(rAuxMensal))),
                 h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",marginTop:1}},"/m\u00eas m\u00e9dio")
               ),
               h("div",{style:{background:"rgba(200,169,110,0.10)",borderLeft:"2px solid #C8A96E",borderRadius:4,padding:"7px 9px"}},
                 h("div",{style:{fontSize:7,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,letterSpacing:1.2}},"TOTAL"),
-                h("div",{style:{fontSize:12,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700,marginTop:2}},fB(rTotalMensal)),
+                h("div",{style:{fontSize:12,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700,marginTop:2}},MV(fB(rTotalMensal))),
                 h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",marginTop:1}},"/m\u00eas m\u00e9dio")
               )
             ),
             // Mensagem contextual
             deficitMensal>0?h("div",{style:{fontSize:9.5,color:"#9A9080",lineHeight:1.5,padding:"6px 9px",background:"rgba(0,0,0,0.15)",borderRadius:4,fontFamily:"monospace"}},
-              "Faltam ",h("strong",{style:{color:"#E89060"}},fB(deficitMensal)+"/m\u00eas")," para atingir 100% da meta com renda observada (m\u00e9dia "+labelMediaUDM(nMesesObs)+")."
+              "Faltam ",h("strong",{style:{color:"#E89060"}},MV(fB(deficitMensal))+"/m\u00eas")," para atingir 100% da meta com renda observada (m\u00e9dia "+labelMediaUDM(nMesesObs)+")."
             ):h("div",{style:{fontSize:9.5,color:"#9A9080",lineHeight:1.5,padding:"6px 9px",background:"rgba(76,175,130,0.10)",borderRadius:4,fontFamily:"monospace"}},
-              h("strong",{style:{color:"#4CAF82"}},"\u2713 Meta coberta")," pela renda realizada com folga de ",fB(rTotalMensal-metaMensalIF),"/m\u00eas (",((rTotalMensal-metaMensalIF)/metaMensalIF*100).toFixed(0),"% acima)."
+              h("strong",{style:{color:"#4CAF82"}},"\u2713 Meta coberta")," pela renda realizada com folga de ",MV(fB(rTotalMensal-metaMensalIF)),"/m\u00eas (",((rTotalMensal-metaMensalIF)/metaMensalIF*100).toFixed(0),"% acima)."
             )
           );
         })(),
@@ -17817,7 +17844,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             // Ultimo registro
             ultRegistro?h("div",{style:{background:"rgba(200,169,110,0.08)",borderLeft:"3px solid #C8A96E",padding:"8px 10px",borderRadius:"0 4px 4px 0"}},
               h("div",{style:{fontSize:7,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,letterSpacing:1.2,marginBottom:3}},"ULTIMO REGISTRO"),
-              h("div",{style:{fontSize:11,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700}},fB(ultRegistro.renda)),
+              h("div",{style:{fontSize:11,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700}},MV(fB(ultRegistro.renda))),
               h("div",{style:{fontSize:7.5,color:"#7A7060",fontFamily:"monospace",marginTop:2}},ultRegistro.mes," \u2022 yield anual ",(ultRegistro.yieldAnualLiq*100).toFixed(1),"%")
             ):null,
             // Total de registros
@@ -17911,13 +17938,13 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                   // Media mensal BR
                   h("div",{style:{background:"rgba(76,175,130,0.10)",borderLeft:"2px solid #4CAF82",padding:"7px 9px",borderRadius:"0 4px 4px 0"}},
                     h("div",{style:{fontSize:7,color:"#4CAF82",fontFamily:"monospace",fontWeight:700,letterSpacing:1.2,marginBottom:2}},"MEDIA MENSAL"),
-                    h("div",{style:{fontSize:12,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700}},fB(auxObs.brMedio)),
+                    h("div",{style:{fontSize:12,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700}},MV(fB(auxObs.brMedio))),
                     h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",marginTop:2}},labelMediaUDM(auxObs.n))
                   ),
                   // Ultimo mes BR
                   h("div",{style:{background:"rgba(200,169,110,0.08)",borderLeft:"2px solid #C8A96E",padding:"7px 9px",borderRadius:"0 4px 4px 0"}},
                     h("div",{style:{fontSize:7,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,letterSpacing:1.2,marginBottom:2}},"ULTIMO MES"),
-                    h("div",{style:{fontSize:12,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700}},fB(ultBR)),
+                    h("div",{style:{fontSize:12,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700}},MV(fB(ultBR))),
                     h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",marginTop:2}},ultMes||"-")
                   )
                 )
@@ -17932,13 +17959,13 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                   // Media mensal EXTERIOR (BRL)
                   h("div",{style:{background:"rgba(91,143,212,0.10)",borderLeft:"2px solid #5B8FD4",padding:"7px 9px",borderRadius:"0 4px 4px 0"}},
                     h("div",{style:{fontSize:7,color:"#5B8FD4",fontFamily:"monospace",fontWeight:700,letterSpacing:1.2,marginBottom:2}},"MEDIA MENSAL"),
-                    h("div",{style:{fontSize:12,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700}},fB(auxObs.totalExteriorBrlMedio)),
+                    h("div",{style:{fontSize:12,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700}},MV(fB(auxObs.totalExteriorBrlMedio))),
                     h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",marginTop:2}},labelMediaUDM(auxObs.n))
                   ),
                   // Ultimo mes EXTERIOR (BRL)
                   h("div",{style:{background:"rgba(200,169,110,0.08)",borderLeft:"2px solid #C8A96E",padding:"7px 9px",borderRadius:"0 4px 4px 0"}},
                     h("div",{style:{fontSize:7,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,letterSpacing:1.2,marginBottom:2}},"ULTIMO MES"),
-                    h("div",{style:{fontSize:12,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700}},fB(ultEXT)),
+                    h("div",{style:{fontSize:12,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700}},MV(fB(ultEXT))),
                     h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",marginTop:2}},ultMes||"-")
                   )
                 ),
@@ -17968,7 +17995,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                 h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}},
                   h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"baseline",padding:"4px 0"}},
                     h("span",{style:{fontSize:8,color:"#9A9080",fontFamily:"monospace"}},"Media mensal:"),
-                    h("span",{style:{fontSize:12,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700}},fB(auxObs.totalBrlMedio))
+                    h("span",{style:{fontSize:12,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700}},MV(fB(auxObs.totalBrlMedio)))
                   ),
                   h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"baseline",padding:"4px 0"}},
                     h("span",{style:{fontSize:8,color:"#9A9080",fontFamily:"monospace"}},"\u00daltimo m\u00eas:"),
@@ -19252,7 +19279,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             ),
             // Insight gerado
             insightRenda&&!insightRendaLoad&&h("div",{},
-              h("div",{style:{background:"rgba(0,0,0,0.20)",borderRadius:7,padding:"14px 18px",fontFamily:"Georgia,serif",fontSize:11.5,color:"#E8E2D5",lineHeight:1.85,whiteSpace:"pre-wrap"}},insightRenda),
+              h("div",{style:{background:"rgba(0,0,0,0.20)",borderRadius:7,padding:"14px 18px",fontFamily:"Georgia,serif",fontSize:11.5,color:"#E8E2D5",lineHeight:1.85,whiteSpace:"pre-wrap"}},MTV(insightRenda)),
               insightRendaTs&&h("div",{style:{fontSize:8,color:"#7A7060",marginTop:8,fontFamily:"monospace",textAlign:"right",fontStyle:"italic"}},"\u{1F550} Gerado em ",tsFormatado)
             )
           );
