@@ -21636,6 +21636,77 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           h("div",{style:{fontSize:13,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700}},aportesSimples.length)
         )
       ):null,
+      // ===== INSIGHT DE CAPACIDADE NOMINAL DE APORTE (>=5 aportes) =====
+      aportesSimples.length>=5?(function(){
+        // Pega os 5 ultimos aportes (mais recentes)
+        const ultimos5=aportesSimples.slice().sort((a,b)=>b.date.localeCompare(a.date)).slice(0,5);
+        const mediaUlt5=ultimos5.reduce((s,a)=>s+a.valor,0)/5;
+        const maxAp=Math.max(...ultimos5.map(a=>a.valor));
+        const minAp=Math.min(...ultimos5.map(a=>a.valor));
+        // Calcula % medio do patrimonio
+        const pctMedio=(typeof total==="number"&&total>0)?(mediaUlt5/total)*100:null;
+        // Classifica capacidade nominal por faixas de % patrimonio
+        // (essas faixas sao referencias gerais - investidor com 7-8MM e capacidade media-alta com 0.5-1% mensal)
+        let categoria,corCat,iconCat,explicCat,velocidade;
+        if(pctMedio===null){
+          categoria="INDETERMINADA";corCat="#9A9080";iconCat="\u2753";explicCat="Patrimonio total nao disponivel - cadastre posicoes para analisar.";velocidade="";
+        }else if(pctMedio>=1.5){
+          categoria="ALTA";corCat="#4CAF82";iconCat="\u{1F680}";
+          explicCat="Capacidade muito acima da media. Aporte mensal proximo de 1.5%+ do patrimonio acelera composicao em ciclo curto.";
+          velocidade="Em ritmo atual, patrimonio dobra em ~10-12 anos (sem rentabilidade) ou ~6-7 anos (com 8% real).";
+        }else if(pctMedio>=0.8){
+          categoria="MEDIA-ALTA";corCat="#7DD17D";iconCat="\u{1F4C8}";
+          explicCat="Capacidade saudavel. Faixa tipica de quem mantem 30-40% da renda como aporte mensal sobre patrimonio em formacao.";
+          velocidade="Em ritmo atual, patrimonio dobra em ~14-18 anos (sem rentabilidade) ou ~8-10 anos (com 8% real).";
+        }else if(pctMedio>=0.4){
+          categoria="MEDIA";corCat="#C8A96E";iconCat="\u2696\uFE0F";
+          explicCat="Capacidade moderada. Composicao ainda funciona, mas peso da rentabilidade torna-se progressivamente maior que aportes.";
+          velocidade="Em ritmo atual, patrimonio dobra em ~25-35 anos por aporte, ou ~10-13 anos contando rentabilidade real.";
+        }else if(pctMedio>=0.15){
+          categoria="MEDIA-BAIXA";corCat="#E8C44A";iconCat="\u{1F540}";
+          explicCat="Patrimonio ja consolidado - rentabilidade real e o principal motor agora, aporte e fator marginal.";
+          velocidade="Em ritmo atual, rentabilidade real (8% a.a.) move ~20x mais que aportes. Foco em alocacao otima > volume aportado.";
+        }else{
+          categoria="BAIXA";corCat="#E89060";iconCat="\u{1F30A}";
+          explicCat="Patrimonio dominante sobre fluxo. Aporte e residual - estrategia deve focar 95%+ em qualidade de alocacao.";
+          velocidade="Em ritmo atual, voce esta na fase 'patrimonio se sustenta' - foco em preservacao e renda real do estoque.";
+        }
+        // Variabilidade dos ultimos 5
+        const variabilidade=(maxAp-minAp)/mediaUlt5;
+        const consistencia=variabilidade<0.30?{nome:"alta consistencia",cor:"#4CAF82"}:variabilidade<0.70?{nome:"consistencia razoavel",cor:"#C8A96E"}:{nome:"variabilidade alta",cor:"#E89060"};
+        return h("div",{style:{background:"linear-gradient(135deg,"+corCat+"12,"+corCat+"04)",border:"1px solid "+corCat+"33",borderLeft:"4px solid "+corCat,borderRadius:8,padding:"12px 14px",marginBottom:14}},
+          h("div",{style:{fontFamily:"Georgia,serif",fontSize:10,color:corCat,fontStyle:"italic",letterSpacing:0.3,marginBottom:8,textAlign:"center"}},"insight de capacidade nominal de aporte"),
+          // Categoria principal
+          h("div",{style:{display:"flex",alignItems:"center",gap:10,marginBottom:10,padding:"8px 10px",background:"rgba(0,0,0,0.20)",borderRadius:6}},
+            h("span",{style:{fontSize:18}},iconCat),
+            h("div",{style:{flex:1}},
+              h("div",{style:{fontSize:7.5,color:"#7A7060",fontFamily:"monospace",letterSpacing:1.5,marginBottom:2}},"CAPACIDADE NOMINAL"),
+              h("div",{style:{fontFamily:"Georgia,serif",fontSize:14,color:corCat,fontWeight:700,letterSpacing:0.5}},categoria),
+              pctMedio!==null?h("div",{style:{fontFamily:"Georgia,serif",fontSize:9,color:"#9A9080",fontStyle:"italic",marginTop:2}},"media de "+pctMedio.toFixed(2)+"% do patrimonio total por aporte (ultimos 5)"):null
+            )
+          ),
+          // Explicacao e velocidade
+          h("div",{style:{fontFamily:"Georgia,serif",fontSize:9.5,color:"#C8C2B0",fontStyle:"italic",lineHeight:1.65,marginBottom:7,paddingLeft:6,borderLeft:"1px dotted rgba(255,255,255,0.10)"}},explicCat),
+          velocidade?h("div",{style:{fontFamily:"Georgia,serif",fontSize:9,color:"#9A9080",fontStyle:"italic",lineHeight:1.55,marginBottom:9,paddingLeft:6,borderLeft:"1px dotted rgba(255,255,255,0.10)"}},velocidade):null,
+          // Stats em 3 colunas
+          h("div",{style:{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6,marginBottom:6}},
+            h("div",{style:{padding:"6px 8px",background:"rgba(0,0,0,0.18)",borderRadius:4,textAlign:"center"}},
+              h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",letterSpacing:0.8,marginBottom:2}},"MEDIA \u00DALT.5"),
+              h("div",{style:{fontFamily:"monospace",fontSize:10,color:"#E8E2D5",fontWeight:700}},MV(fB(mediaUlt5)))
+            ),
+            h("div",{style:{padding:"6px 8px",background:"rgba(0,0,0,0.18)",borderRadius:4,textAlign:"center"}},
+              h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",letterSpacing:0.8,marginBottom:2}},"AMPLITUDE"),
+              h("div",{style:{fontFamily:"monospace",fontSize:9.5,color:"#E8E2D5",fontWeight:700}},MV(fB(minAp))+" / "+MV(fB(maxAp)))
+            ),
+            h("div",{style:{padding:"6px 8px",background:"rgba(0,0,0,0.18)",borderRadius:4,textAlign:"center"}},
+              h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",letterSpacing:0.8,marginBottom:2}},"CONSISTENCIA"),
+              h("div",{style:{fontFamily:"Georgia,serif",fontSize:9.5,color:consistencia.cor,fontWeight:600,fontStyle:"italic"}},consistencia.nome)
+            )
+          ),
+          // Disclaimer
+          h("div",{style:{fontFamily:"Georgia,serif",fontSize:7.5,color:"#5A5550",fontStyle:"italic",marginTop:7,lineHeight:1.4,textAlign:"center"}},"baseado nos 5 aportes mais recentes. Categoria considera patrimonio total atual como referencia.")
+        );
+      })():null,
       // Lista de aportes simples
       aportesSimples.length===0?h("div",{style:{textAlign:"center",padding:"40px 16px",background:"rgba(232,196,74,0.06)",border:"1px dashed rgba(232,196,74,0.30)",borderRadius:8,color:"#E8C44A",fontFamily:"monospace",fontSize:11,lineHeight:1.6,marginBottom:14}},
         h("div",{style:{fontSize:24,marginBottom:8}},"\u{1F4DD}"),
@@ -21646,13 +21717,25 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         ...listaOrdenada.map(a=>{
           const dt=new Date(a.date+"T12:00:00");// meio-dia para evitar timezone shift
           const dateStr=isNaN(dt.getTime())?a.date:dt.toLocaleDateString("pt-BR",{day:"2-digit",month:"short",year:"numeric"});
+          // Calcula % do patrimonio atual (referencia: total patrimonio hoje)
+          const pctPatrim=(typeof total==="number"&&total>0)?(a.valor/total)*100:null;
+          // Cor do badge: alto >=2% , medio 1-2%, baixo <1%
+          let corPct="#9A9080",labelPct="";
+          if(pctPatrim!==null){
+            if(pctPatrim>=2){corPct="#4CAF82";labelPct="alto";}
+            else if(pctPatrim>=1){corPct="#C8A96E";labelPct="medio";}
+            else{corPct="#7AA0B5";labelPct="baixo";}
+          }
           return h("div",{key:a.id,style:{background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:6,padding:"10px 12px",marginBottom:6,display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}},
             h("div",{style:{display:"flex",flexDirection:"column",gap:2}},
               h("span",{style:{fontSize:10,color:"#C8C0B0",fontFamily:"monospace",fontWeight:700}},dateStr),
               h("span",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace"}},a.date)
             ),
-            h("div",{style:{display:"flex",alignItems:"center",gap:10}},
-              h("span",{style:{fontFamily:"monospace",fontSize:13,color:"#C8A96E",fontWeight:700}},MV(fB(a.valor))),
+            h("div",{style:{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",justifyContent:"flex-end"}},
+              h("div",{style:{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:1}},
+                h("span",{style:{fontFamily:"monospace",fontSize:13,color:"#C8A96E",fontWeight:700}},MV(fB(a.valor))),
+                pctPatrim!==null?h("span",{style:{fontFamily:"monospace",fontSize:8,color:corPct,fontWeight:600,letterSpacing:0.3}},pctPatrim.toFixed(2)+"% patrim. ("+labelPct+")"):null
+              ),
               h("button",{onClick:()=>removerAporte(a.id),title:"Remover",style:{padding:"4px 8px",background:"rgba(224,82,82,0.12)",color:"#E05252",border:"1px solid rgba(224,82,82,0.30)",borderRadius:4,fontSize:9,fontFamily:"monospace",fontWeight:700,cursor:"pointer"}},"\u2715")
             )
           );
