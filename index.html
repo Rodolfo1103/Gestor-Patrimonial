@@ -7519,6 +7519,118 @@ function App(){
     }catch{}
   },[notifStatus,inited,hasPos,cw]);
 
+  // ===== MARKET STATUS HELPER =====
+  // Retorna info do mercado para um ticker: aberto/fechado, exchange, minutos ate proximo evento
+  // Exchanges:
+  //   - B3 (BR): 10:00-17:00 BRT (UTC-3), seg-sex
+  //   - NYSE/NASDAQ (USA): 09:30-16:00 ET (UTC-5 padrao / UTC-4 DST) - simplificamos UTC-4 (DST ativo)
+  //   - Crypto/Forex: 24/7
+  const marketStatus=useCallback((ticker)=>{
+    if(!ticker)return{aberto:false,exchange:"?",label:""};
+    // Crypto
+    if(ticker==="BTC"||ticker==="BTCUSD"||ticker.startsWith("CRYPTO:"))return{aberto:true,exchange:"24/7",label:""};
+    // Ouro (XAU): trades praticamente 24/5 - simplificamos como 24/7
+    if(GB.includes(ticker)||ticker==="XAUUSD")return{aberto:true,exchange:"24/5",label:""};
+    // NTNB: Tesouro Direto opera 9h30-18h BRT seg-sex
+    if(isNTNB(ticker))return{aberto:false,exchange:"TD",label:""};
+    // BR: tickers que terminam em digitos 3/4/5/6/11 e nao tem sufixo de exchange
+    const isBR=/^[A-Z]{4}(3|4|5|6|11)$/.test(ticker)||/^[A-Z]{4}11B$/.test(ticker);
+    // Asia tickers: HKG/TSE/ASX prefix
+    const isAsia=/^(HKG|TSE|ASX|TYO)/i.test(ticker);
+    // Europe: REA (LSE), WES (XETRA) etc
+    const isEurope=ticker==="REA"||ticker==="J36";
+    // Default USA
+    const isUSA=!isBR&&!isAsia&&!isEurope;
+    const now=new Date();
+    const day=now.getUTCDay();// 0=dom 6=sab
+    const isWeekend=(day===0||day===6);
+    if(isWeekend){
+      const exchName=isBR?"B3":isAsia?"Asia":isEurope?"Europa":"NYSE";
+      return{aberto:false,exchange:exchName,label:"fim de semana"};
+    }
+    // Horario BRT (UTC-3)
+    const utcH=now.getUTCHours(),utcM=now.getUTCMinutes();
+    const brtH=(utcH-3+24)%24;
+    // Horario ET (USA, UTC-4 com DST ativo abril-novembro; aproximacao)
+    const month=now.getUTCMonth();// 0-11
+    const isDST=month>=2&&month<=10;// mar-nov
+    const etOffset=isDST?-4:-5;
+    const etH=(utcH+etOffset+24)%24;
+    if(isBR){
+      // B3: 10:00-17:00 BRT (cuidado: tem leilao pre 09:45 e after 17:25 que ignoramos)
+      const minBRT=brtH*60+utcM;
+      const aberto=minBRT>=600&&minBRT<1020;
+      return{aberto,exchange:"B3",label:aberto?"":(minBRT<600?"abre as 10h BRT":"fechou hoje")};
+    }
+    if(isUSA){
+      // NYSE/NASDAQ: 09:30-16:00 ET regular; pre 04:00-09:30; after 16:00-20:00
+      const minET=etH*60+utcM;
+      const regular=minET>=570&&minET<960;
+      const preMarket=minET>=240&&minET<570;
+      const afterHours=minET>=960&&minET<1200;
+      if(regular)return{aberto:true,exchange:"NYSE",label:""};
+      if(preMarket)return{aberto:false,exchange:"NYSE",label:"pre-market"};
+      if(afterHours)return{aberto:false,exchange:"NYSE",label:"after-hours"};
+      return{aberto:false,exchange:"NYSE",label:minET<240?"abre 04h ET":"fechou hoje"};
+    }
+    if(isAsia){
+      // Tokyo: 9:00-15:00 JST (UTC+9), HK: 9:30-16:00 HKT (UTC+8). Aprox UTC+9.
+      const asiaH=(utcH+9)%24,asiaM=utcM;
+      const minAsia=asiaH*60+asiaM;
+      const aberto=minAsia>=540&&minAsia<900;
+      return{aberto,exchange:"Asia",label:aberto?"":"fechado"};
+    }
+    if(isEurope){
+      // LSE/XETRA: 9:00-17:30 CET/GMT (UTC+1 ou +0 winter, +1 ou +2 summer). Aprox UTC+1.
+      const euH=(utcH+1)%24,euM=utcM;
+      const minEU=euH*60+euM;
+      const aberto=minEU>=540&&minEU<1050;
+      return{aberto,exchange:"Europa",label:aberto?"":"fechado"};
+    }
+    return{aberto:false,exchange:"?",label:""};
+  },[]);
+
+  // ===== FORMATADOR DE FRESCOR DE COTACAO =====
+  // Substitui o "[Nmin]" antigo por um indicador legivel do estado da cotacao
+  // Considera: status do mercado (aberto/fechado) + idade do tick
+  // Retorna {label, color, mostrar} - label="" significa nao mostrar nada
+  const formatStaleness=useCallback((ts,ticker)=>{
+    if(!ts)return{label:"",color:"#7A7060",mostrar:false};
+    const ageMin=Math.round((Date.now()-ts)/60000);
+    const mkt=marketStatus(ticker);
+    // Helper de formatacao de idade
+    const fmtIdade=(m)=>{
+      if(m<60)return m+"min";
+      if(m<60*24)return Math.round(m/60)+"h";
+      const d=Math.round(m/(60*24));
+      return d+"d";
+    };
+    // Mercado aberto: idade muito alta indica problema (deveria estar minutos)
+    if(mkt.aberto){
+      if(ageMin<5)return{label:"ao vivo",color:"#4CAF82",mostrar:true};
+      if(ageMin<20)return{label:fmtIdade(ageMin),color:"#4CAF82",mostrar:true};
+      if(ageMin<60)return{label:fmtIdade(ageMin),color:"#E8C44A",mostrar:true};
+      return{label:fmtIdade(ageMin)+" (atualize)",color:"#E89060",mostrar:true};
+    }
+    // Mercado fechado: defasagem natural. Idade legivel + nome do estado.
+    const idadeStr=fmtIdade(ageMin);
+    // Labels customizados por estado de mercado
+    let estado="";
+    if(mkt.label==="pre-market")estado="pre-mkt";
+    else if(mkt.label==="after-hours")estado="after-h";
+    else if(mkt.label==="fim de semana")estado="fim de semana";
+    else if(mkt.label==="fechou hoje")estado="fechou";
+    else if(mkt.label==="fechado")estado="fechado";
+    else estado="fechado";
+    // Quando muito velho (>3 dias) e mercado fechado, alerta visual
+    const muitoVelho=ageMin>60*24*3;
+    return{
+      label:idadeStr+" "+estado,
+      color:muitoVelho?"#E89060":"#7A7060",
+      mostrar:ageMin>30
+    };
+  },[marketStatus]);
+
   const refresh=useCallback(async()=>{
     // Coleta tickers com posicao
     const tickersComPos=Object.keys(port).filter(t=>hq(t,port[t])&&!VB.includes(t)&&!isImv(t));
@@ -7777,10 +7889,24 @@ function App(){
             const target="https://query1.finance.yahoo.com/v8/finance/chart/"+encodeURIComponent(sym)+"?interval=1d&range=2d";
             const d=await fetchViaProxy(target,15000);
             const res=d&&d.chart&&d.chart.result&&d.chart.result[0];
-            const p=res&&res.meta&&(res.meta.regularMarketPrice||res.meta.previousClose);
+            // PRE/POST MARKET: para tickers USA, prefere preco extended-hours mais recente quando regular ja fechou
+            // Ordem de prioridade: postMarketPrice > preMarketPrice > regularMarketPrice > previousClose
+            // Yahoo expõe `meta.postMarketPrice` e `meta.preMarketPrice` quando disponíveis
+            const meta=res&&res.meta;
+            let p=null;
+            if(meta){
+              // Considera extended-hours só se diferente de regularMarketPrice (caso contrário é só o regular)
+              const reg=meta.regularMarketPrice;
+              const post=meta.postMarketPrice;
+              const pre=meta.preMarketPrice;
+              if(typeof post==="number"&&post>0&&post!==reg){p=post;}
+              else if(typeof pre==="number"&&pre>0&&pre!==reg){p=pre;}
+              else if(typeof reg==="number"&&reg>0){p=reg;}
+              else if(typeof meta.previousClose==="number"&&meta.previousClose>0){p=meta.previousClose;}
+            }
             if(typeof p==="number"&&p>0){allPrices[t]=p;yhN++;}
             // Mesma logica robusta de variacao
-            const cur=res&&res.meta&&res.meta.regularMarketPrice;
+            const cur=p;
             let prevClose=null;
             try{
               const closes=res&&res.indicators&&res.indicators.quote&&res.indicators.quote[0]&&res.indicators.quote[0].close;
@@ -7892,6 +8018,38 @@ function App(){
     }catch(e){setPErr("Erro: "+e.message+" ["+dbg.join(" ")+"]");}
     setLoadP(false);
   },[port,brapiKey,custom]);
+
+  // ===== AUTO-REFRESH DE PRECOS =====
+  // Atualiza preços automaticamente a cada 15 minutos QUANDO:
+  //   - O app está aberto (tab visivel)
+  //   - Há algum mercado relevante aberto (B3 ou NYSE)
+  //   - Não está rodando outro refresh
+  //   - Já passou pelo menos 10min desde último refresh
+  useEffect(()=>{
+    if(!inited)return;
+    const tentarRefreshAuto=()=>{
+      // Só roda se app está visível (tab ativa)
+      if(typeof document!=="undefined"&&document.hidden)return;
+      if(loadP)return;
+      // Só se passou 10+ min desde último update
+      if(lastPU){
+        const lastTs=new Date(lastPU).getTime();
+        if(Date.now()-lastTs<10*60*1000)return;
+      }
+      // Só se algum mercado relevante está aberto (B3 ou NYSE)
+      const mktBR=marketStatus("PETR4");
+      const mktUSA=marketStatus("MSFT");
+      if(!mktBR.aberto&&!mktUSA.aberto)return;
+      // Só se tem ativos
+      const hasAtivos=Object.keys(port||{}).some(t=>hq(t,port[t])&&!VB.includes(t)&&!isImv(t));
+      if(!hasAtivos)return;
+      // Refresh silencioso
+      refresh();
+    };
+    // Tenta a cada 5min checar se deve refresh (refresh em si só a cada 10+ min)
+    const id=setInterval(tentarRefreshAuto,5*60*1000);
+    return ()=>clearInterval(id);
+  },[inited,loadP,lastPU,port,refresh,marketStatus]);
 
   const openEdit=(ticker,classId)=>{
     const p=port[ticker]||{};setEditA({ticker,classId});
@@ -10703,6 +10861,14 @@ Responda APENAS com o texto do insight, sem prefacio ou comentarios meta.`;
     ),
     (lastPU||pErr||btcUsd||xauBrl)&&h("div",{style:{fontSize:9,color:fxAntigo?"#E8C44A":"#5A5550",marginTop:3,fontFamily:"monospace"}},
       lastPU&&("Atualizado: "+new Date(lastPU).toLocaleString("pt-BR")+" - "),
+      // Status do mercado (B3 e NYSE)
+      lastPU&&(()=>{
+        const b3=marketStatus("PETR4"),nyse=marketStatus("MSFT");
+        const segB3=b3.aberto?"B3 aberto":(b3.label||"B3 fechado");
+        const segNY=nyse.aberto?"NYSE aberto":(nyse.label==="pre-market"?"NYSE pre":nyse.label==="after-hours"?"NYSE after":"NYSE fechado");
+        const cor=(b3.aberto||nyse.aberto)?"#4CAF82":"#7A7060";
+        return h("span",{style:{color:cor,marginRight:4}},"["+segB3+" / "+segNY+"] - ");
+      })(),
       lastPU&&h("span",{style:{color:"#5B8FD4",fontWeight:700}},"USD "+FX.USD.toFixed(4)),
       lastPU&&typeof usdVar==="number"&&h("span",{style:{marginLeft:4,color:usdVar>=0?"#4CAF82":"#E05252",fontWeight:700}},(usdVar>=0?"▲":"▼")+fN(Math.abs(usdVar),2)+"%"),
       lastPU&&fxAntigo&&h("span",{style:{color:"#E8C44A"}}," (cambio com "+fxIdadeMin+" min)"),
@@ -11314,8 +11480,8 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                 },
                   h("span",{style:{fontSize:7,lineHeight:1}},pos.varDia>=0?"\u25B2":"\u25BC"),
                   (pos.varDia>=0?"+":"")+pos.varDia.toFixed(2)+"%",
-                  // DEBUG: mostra idade em min se > 30 min (alerta visual de dado stale)
-                  pos.varDiaTs&&(Date.now()-pos.varDiaTs)>30*60*1000&&h("span",{style:{fontSize:6,color:"#E89060",fontWeight:400,marginLeft:2,opacity:0.7}},"["+Math.round((Date.now()-pos.varDiaTs)/60000)+"min]")
+                  // Indicador de frescor da cotacao (status do mercado + idade)
+                  (()=>{const st=formatStaleness(pos.varDiaTs,ticker);return st.mostrar?h("span",{style:{fontSize:7.5,color:st.color,fontWeight:400,marginLeft:3,opacity:0.9}},"["+st.label+"]"):null;})()
                 )
               ),
               isCustom?h("button",{onClick:e=>{e.stopPropagation();removeCustom(c.id,ticker);},style:{background:"none",border:"none",color:"#E05252",fontSize:15,cursor:"pointer",padding:"0 2px",flexShrink:0}},"x"):h("span",{style:{color:"#3A3830",fontSize:12}},">")
