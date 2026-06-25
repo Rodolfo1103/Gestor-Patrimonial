@@ -4040,6 +4040,108 @@ function ModelosPortfolioMap({cw,selicAtual,hideVal}){
         ):null
       );
     })():null,
+    // ============= PROS E CONTRAS DE CADA MODELO =============
+    pAtual?(function(){
+      // Recalcula stats no escopo deste IIFE
+      const rfComp=(typeof selicAtual==="number"&&selicAtual>0?selicAtual:14.25)*(1-IR_LONGO_PRAZO)/100;
+      const statsModelos={};
+      [{id:"atual",w:Object.values(wAtual)},{id:"aw",w:MPT_CLS.map(c=>AW_W[c]||0)},{id:"yale",w:MPT_CLS.map(c=>YPB_W[c]||0)},{id:"rp",w:wRP?MPT_CLS.map(c=>wRP[c]||0):null},{id:"mpt",w:wMPT?MPT_CLS.map(c=>wMPT[c]||0):null}].forEach(m=>{
+        if(!m.w||m.w.length!==MPT_CLS.length)return;
+        try{
+          const st=mptStats(m.w,rfComp);
+          const sh=mptSharpe(st.ret,st.vol,rfComp);
+          statsModelos[m.id]={ret:st.ret*100,vol:st.vol*100,sharpe:sh};
+        }catch(e){}
+      });
+      const mAtual=statsModelos.atual;
+      // Define os pros e contras de cada modelo
+      const modelosInfo=[
+        {
+          id:"aw",nome:"All Weather Brasil",cor:"#2EBFA5",
+          pros:["Robustez em 4 cenarios macro (cresc/infl)","Drawdowns historicos menores em crises","Filosofia consagrada por Dalio/Bridgewater"],
+          contras:["Retorno medio menor em mercados de alta","Heuristica (nao otimiza matematicamente)","Pode subponderar real assets brasileiros (FII/Infra)"]
+        },
+        {
+          id:"yale",nome:"Yale Endowment",cor:"#5B8FD4",
+          pros:["Alta diversificacao em real assets","Premio historico por iliquidez (Swensen)","Foco em ativos reais antiinflacionarios"],
+          contras:["Pesado em ativos pouco liquidos para PF","Vol e drawdowns elevados em crises","Modelo institucional, dificil replicar 100% no Brasil"]
+        },
+        {
+          id:"rp",nome:"Risk Parity ERC",cor:"#7DD17D",
+          pros:["Sem opiniao macro - puramente matematico","Equilibra exposicao ao risco de forma rigorosa","Detecta concentracoes ocultas no portfolio"],
+          contras:["Em pais de juros altos, sugere muito RF","Ignora valuation e oportunidades de longo prazo","Pode subaproveitar premios de risco de equities"]
+        },
+        {
+          id:"mpt",nome:"MPT Otimo",cor:"#C8A96E",
+          pros:["Maximiza Sharpe (retorno por unidade de risco)","Fundamento academico solido (Markowitz)","Otimo em regimes estaveis de longo prazo"],
+          contras:["Premissas de retorno esperado dificeis de calibrar","Sensivel a janela de medicao (instavel)","Pode concentrar em poucos ativos historicamente bons"]
+        }
+      ];
+      // Calcula como o portfolio atual mitiga ou reforca cada caracteristica
+      const analisarPosicao=(modelo)=>{
+        if(!mAtual)return null;
+        const s=statsModelos[modelo.id];
+        if(!s)return null;
+        const distancia=Math.sqrt(Math.pow(mAtual.ret-s.ret,2)+Math.pow(mAtual.vol-s.vol,2));
+        const alinhado=distancia<3;// proximo do modelo
+        const melhorRet=mAtual.ret>s.ret;
+        const melhorVol=mAtual.vol<s.vol;
+        const melhorSharpe=mAtual.sharpe>s.sharpe;
+        let textos=[];
+        if(modelo.id==="aw"){
+          if(alinhado)textos.push(["#4CAF82","Carteira proxima da AW - voce captura a robustez macro do modelo."]);
+          else if(melhorRet&&!melhorVol)textos.push(["#E89060","Voce assume mais risco que AW para mais retorno - abre mao de parte da robustez em crises."]);
+          else if(melhorVol)textos.push(["#4CAF82","Voce esta mais defensivo que AW - reforca protecao em cenarios adversos."]);
+          if(pAtual.scoreY>0.30)textos.push(["#4CAF82","Vies em renda atende ao espirito AW de geracao consistente de fluxo."]);
+        }
+        if(modelo.id==="yale"){
+          const wReal=(cw.fii||0)+(cw.infra||0)+(cw.agro||0)+(cw.imoveis||0)+(cw.reits||0);
+          if(wReal>30)textos.push(["#4CAF82","Sua exposicao a real assets ("+wReal.toFixed(0)+"%) ressoa com a filosofia Swensen."]);
+          else textos.push(["#E89060","Real assets em "+wReal.toFixed(0)+"% - abaixo do peso Yale (~35-40%). Premio de iliquidez subaproveitado."]);
+          if(melhorVol)textos.push(["#4CAF82","Voce esta menos volatil que Yale - mitiga drawdowns historicos do modelo."]);
+        }
+        if(modelo.id==="rp"){
+          const wRF=(cw.selic||0)+(cw.rfipca||0)+(cw.treasuries||0);
+          if(wRF>40)textos.push(["#4CAF82","Renda fixa em "+wRF.toFixed(0)+"% - proximo do que RP recomenda para Selic alta."]);
+          else if(wRF<25)textos.push(["#E89060","Renda fixa em "+wRF.toFixed(0)+"% - bem abaixo do que RP sugere; voce aceita mais risco para retorno real LP."]);
+          const wRisco=(cw.acoes_br||0)+(cw.acoes_eua||0)+(cw.acoes_mundo||0)+(cw.bitcoin||0);
+          if(wRisco>35)textos.push(["#E89060","Equities+cripto em "+wRisco.toFixed(0)+"% - RP detecta concentracao de risco. Valida se ha conviccao filosofica."]);
+        }
+        if(modelo.id==="mpt"){
+          if(melhorSharpe)textos.push(["#4CAF82","Seu Sharpe ("+mAtual.sharpe.toFixed(2)+") supera o MPT teorico - alocacao real captura premio nao previsto."]);
+          else if(!melhorSharpe&&mAtual.sharpe>=s.sharpe*0.85)textos.push(["#C8A96E","Sharpe em "+(mAtual.sharpe/s.sharpe*100).toFixed(0)+"% do MPT - aceitavel para B&H rigoroso."]);
+          else textos.push(["#E89060","Sharpe abaixo do MPT em "+(100-mAtual.sharpe/s.sharpe*100).toFixed(0)+"% - existe espaco para reotimizar sem aumentar risco."]);
+        }
+        return textos;
+      };
+      return h("div",{style:{padding:"10px 12px",background:"rgba(0,0,0,0.20)",border:"1px solid rgba(255,255,255,0.05)",borderRadius:6,marginBottom:8}},
+        h("div",{style:{fontFamily:"Georgia,serif",fontSize:10,color:"#C8A96E",fontStyle:"italic",letterSpacing:0.3,marginBottom:9,textAlign:"center"}},"pros, contras e seu posicionamento"),
+        modelosInfo.map(m=>{
+          const analise=analisarPosicao(m);
+          return h("div",{key:"pc"+m.id,style:{marginBottom:11,padding:"8px 10px",background:"rgba(255,255,255,0.018)",borderLeft:"2px solid "+m.cor,borderRadius:"0 4px 4px 0"}},
+            // Nome do modelo
+            h("div",{style:{fontFamily:"Georgia,serif",fontSize:10,color:m.cor,fontWeight:600,fontStyle:"italic",letterSpacing:0.3,marginBottom:6}},m.nome),
+            // Pros e contras em 2 colunas
+            h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:6}},
+              h("div",{},
+                h("div",{style:{fontFamily:"Georgia,serif",fontSize:7.5,color:"#4CAF82",letterSpacing:0.5,marginBottom:3,fontStyle:"italic"}},"\u002B forcas"),
+                m.pros.map((p,i)=>h("div",{key:"pro"+i,style:{fontFamily:"Georgia,serif",fontSize:8,color:"#9A9080",fontStyle:"italic",lineHeight:1.5,marginBottom:2}},"\u00B7 "+p))
+              ),
+              h("div",{},
+                h("div",{style:{fontFamily:"Georgia,serif",fontSize:7.5,color:"#E89060",letterSpacing:0.5,marginBottom:3,fontStyle:"italic"}},"\u2212 fraquezas"),
+                m.contras.map((c,i)=>h("div",{key:"con"+i,style:{fontFamily:"Georgia,serif",fontSize:8,color:"#9A9080",fontStyle:"italic",lineHeight:1.5,marginBottom:2}},"\u00B7 "+c))
+              )
+            ),
+            // Como meu portfolio se posiciona
+            analise&&analise.length>0?h("div",{style:{paddingTop:6,borderTop:"1px dotted rgba(255,255,255,0.06)"}},
+              h("div",{style:{fontFamily:"Georgia,serif",fontSize:7.5,color:"#7A7060",letterSpacing:0.5,marginBottom:4,fontStyle:"italic"}},"sua posicao"),
+              analise.map((t,i)=>h("div",{key:"an"+i,style:{fontFamily:"Georgia,serif",fontSize:8.5,color:t[0],fontStyle:"italic",lineHeight:1.5,marginBottom:2,paddingLeft:4}},"\u25B8 "+t[1]))
+            ):null
+          );
+        }),
+        h("div",{style:{fontFamily:"Georgia,serif",fontSize:7.5,color:"#5A5550",fontStyle:"italic",marginTop:6,lineHeight:1.4,textAlign:"center"}},"verde mitiga a fraqueza do modelo / laranja a reforca")
+      );
+    })():null,
     // Painel de detalhes (aparece quando algum ponto eh clicado)
     modeloSelecionado?h("div",{style:{padding:"10px 12px",background:"rgba(0,0,0,0.22)",borderLeft:"2px solid "+modeloSelecionado.cor,borderRadius:"0 5px 5px 0",marginBottom:8}},
       h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:5}},
