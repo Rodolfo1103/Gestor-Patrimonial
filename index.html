@@ -2369,6 +2369,8 @@ function BackfillModalAuxiliar({meses,moedasAtivas,fx,onSave,onClose,fB}){
 }
 
 function SolidezCard({total,cw,port,metaMensalIF,setTab,fB,hideVal,dataNascimento,cambialCash,rendaMotoraHist,rendaAuxiliarHist,FX}){
+  // Estado: qual dimensao esta expandida (null=nenhuma)
+  const [dimExpand,setDimExpand]=React.useState(null);
   try{
     if(!total||total<=0)return null;
     // ============== CALIBRACAO POR IDADE/HORIZONTE (CIENTIFICO) ==============
@@ -2668,22 +2670,50 @@ function SolidezCard({total,cw,port,metaMensalIF,setTab,fB,hideVal,dataNasciment
               const perdido=d.peso-contrib;// quanto perdeu desta dimensao (0 a peso)
               const corScore=d.score>=65?"#4CAF82":d.score>=35?"#E8C44A":"#E89060";
               const isGargalo=d.id===gargalo.id;
-              return h("div",{key:k,style:{padding:"7px 9px",background:isGargalo?d.cor+"15":"rgba(255,255,255,0.02)",borderLeft:"3px solid "+d.cor,borderRadius:"0 4px 4px 0",position:"relative"}},
+              const isOpen=dimExpand===d.id;
+              // Explicacoes especificas de cada dimensao (curtas e diretas)
+              const explicacoes={
+                tam:{
+                  titulo:"O que mede",
+                  texto:"Tamanho do patrimonio em multiplos da sua meta anual de renda. Conceito FIRE: quanto maior o multiplicador, mais anos de gastos voce tem garantidos sem precisar trabalhar.",
+                  comoMelhorar:"Aporte mensal disciplinado + tempo (juros compostos). Score 80 = FIRE seguro robusto, calibrado para sua idade ("+idadeAtual+"a) e horizonte ("+fireCal.horizonte+"a) com margens BR/senilidade aplicadas."
+                },
+                ren:{
+                  titulo:"O que mede",
+                  texto:"Capacidade de gerar renda mensal sustentavel via SWR ("+(SWR_AJUSTADO*100).toFixed(2)+"% a.a. ajustado ao seu horizonte). Inclui dividendos efetivos das motoras (FII/Infra/Agro) e proventos auxiliares. Score 100 = >=150% da meta coberta.",
+                  comoMelhorar:"Aumentar exposicao em ativos pagadores: FII, FI-Infra, FIAGRO papel, REITs. Cuidado para nao concentrar tudo em renda - o tamanho tambem precisa crescer."
+                },
+                res:{
+                  titulo:"O que mede",
+                  texto:"Score hibrido (70% drawdown stress + 30% blindagem cambial). O drawdown simula crise de -30% em equities, -20% em real assets, -50% BTC. Cambio protege contra crises BR (queda do BRL).",
+                  comoMelhorar:"Reduzir concentracao em equity BR + aumentar exposicao internacional (USD/EUR). Renda fixa (Selic, NTN-B) e Treasuries (TLT, IEF, VTIP) amortecem drawdowns. Score 100 = dd <=-5% E camb >="+(bandasCamb.alvo*100).toFixed(0)+"%."
+                },
+                div:{
+                  titulo:"O que mede",
+                  texto:"Correlacao media ponderada entre classes. Mede quao independentes sao seus retornos. Correlacao 0.5+ = classes andam juntas (concentracao oculta). Correlacao <=0 = diversificacao genuina.",
+                  comoMelhorar:"Adicionar classes descorrelacionadas: Bitcoin (~0 com tudo), Treasuries longos (negativo com equity), ouro (positivo com NTN-B mas defensivo). Reduzir duplicacao em real assets (FII+Infra+Agro)."
+                },
+                camb:{
+                  titulo:"O que mede",
+                  texto:"% do patrimonio em moedas fortes (USD/EUR/GBP/JPY/CHF). Calibrado por idade - aos "+idadeAtual+"a, alvo "+(bandasCamb.alvo*100).toFixed(0)+"% (faixa "+(bandasCamb.min*100).toFixed(0)+"-"+(bandasCamb.max*100).toFixed(0)+"%). Hedge contra crises soberanas BR (1986, 1990, 1999, 2002, 2015).",
+                  comoMelhorar:"Aportes regulares em USD: Acoes EUA, REITs, Treasuries (TLT/IEF/VTIP). MUNDO diversifica moedas (EUR, JPY, HKD). Cuidado com excesso: >40% perde do premio Brasil quando BRL forte."
+                }
+              };
+              const exp=explicacoes[d.id];
+              return h("div",{key:k,style:{padding:"7px 9px",background:isGargalo?d.cor+"15":"rgba(255,255,255,0.02)",borderLeft:"3px solid "+d.cor,borderRadius:"0 4px 4px 0",position:"relative",cursor:"pointer"},onClick:()=>setDimExpand(isOpen?null:d.id)},
                 // Badge GARGALO
                 isGargalo&&h("div",{style:{position:"absolute",top:5,right:7,fontSize:6.5,letterSpacing:1,color:"#E89060",fontFamily:"monospace",fontWeight:700,padding:"1px 5px",background:"rgba(232,144,96,0.18)",border:"1px solid rgba(232,144,96,0.50)",borderRadius:2}},"\u26A0 GARGALO"),
-                // Linha 1: label + score + peso
+                // Linha 1: label + score + peso + seta expansao
                 h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:3,paddingRight:isGargalo?60:0}},
                   h("div",{style:{display:"flex",alignItems:"baseline",gap:5}},
+                    h("span",{style:{fontFamily:"monospace",fontSize:9,color:"#7A7060",transition:"transform 0.2s",display:"inline-block",transform:isOpen?"rotate(90deg)":"rotate(0deg)"}},"\u25B6"),
                     h("span",{style:{fontSize:8,color:d.cor,fontFamily:"monospace",letterSpacing:0.6,fontWeight:700}},d.label),
                     h("span",{style:{fontSize:6.5,color:"#7A7060",fontFamily:"monospace",letterSpacing:0.5}},"(peso "+d.peso+"%)")
                   ),
                   h("span",{style:{fontSize:10,color:corScore,fontFamily:"monospace",fontWeight:700}},d.score.toFixed(0),h("span",{style:{fontSize:7,color:"#7A7060",fontWeight:400}},"/100"))
                 ),
-                // Linha 2: contribuicao e penalizacao (escala do peso, nao 25)
+                // Linha 2: contribuicao e penalizacao
                 h("div",{style:{display:"flex",alignItems:"center",gap:6,marginBottom:3}},
-                  // Barra horizontal: cor dimensao (contrib) + vermelha (perdido)
-                  // Largura total da barra = peso/100 do espaco disponivel (visualiza tamanho relativo)
-                  // Dentro da barra: contrib/peso = qto preenchido (0-100% interno)
                   h("div",{style:{flex:1,display:"flex",height:6,borderRadius:2,overflow:"hidden",background:"rgba(0,0,0,0.30)"}},
                     h("div",{style:{width:(contrib/d.peso*100)+"%",background:d.cor,opacity:0.85}}),
                     h("div",{style:{width:(perdido/d.peso*100)+"%",background:"#E05252",opacity:0.30}})
@@ -2695,7 +2725,18 @@ function SolidezCard({total,cw,port,metaMensalIF,setTab,fB,hideVal,dataNasciment
                 h("div",{style:{display:"flex",justifyContent:"space-between",fontSize:7,color:"#7A7060",fontFamily:"monospace",letterSpacing:0.3}},
                   h("span",{},d.detail),
                   h("span",{style:{fontStyle:"italic",opacity:0.75}},d.alvo)
-                )
+                ),
+                // Explicacao expansivel quando clicado
+                isOpen&&exp?h("div",{style:{marginTop:8,paddingTop:8,borderTop:"1px dashed rgba(255,255,255,0.10)",fontSize:8.5,color:"#C8C0B0",lineHeight:1.6,fontFamily:"Georgia,serif"}},
+                  h("div",{style:{marginBottom:6}},
+                    h("strong",{style:{color:d.cor,fontFamily:"monospace",fontSize:7.5,letterSpacing:0.8}},"O QUE MEDE: "),
+                    h("span",{style:{fontStyle:"italic"}},exp.texto)
+                  ),
+                  h("div",{},
+                    h("strong",{style:{color:"#4CAF82",fontFamily:"monospace",fontSize:7.5,letterSpacing:0.8}},"COMO MELHORAR: "),
+                    h("span",{style:{fontStyle:"italic"}},exp.comoMelhorar)
+                  )
+                ):null
               );
             })
           ),
@@ -3811,6 +3852,9 @@ function BolsasCard({port,cls}){
 // ===========================================================================
 function ModelosPortfolioMap({cw,selicAtual,hideVal}){
   const [selecionado,setSelecionado]=React.useState(null);
+  // Estados de expansao dos cards explicativos (default: collapsed)
+  const [expandInterp,setExpandInterp]=React.useState(false);
+  const [expandPC,setExpandPC]=React.useState(false);
   // Pesos de cada modelo como Map{classeId: peso decimal}
   const wAtual={};CL.forEach(c=>{wAtual[c.id]=(cw[c.id]||0)/100;});
   const wAW=AW_W;
@@ -3997,8 +4041,14 @@ function ModelosPortfolioMap({cw,selicAtual,hideVal}){
         const deltaSharpe=mAtual.sharpe-s.sharpe;
         comparacoes.push({...m,ret:s.ret,vol:s.vol,sharpe:s.sharpe,deltaRet,deltaVol,deltaSharpe});
       });
-      return h("div",{style:{padding:"10px 12px",background:"rgba(0,0,0,0.20)",border:"1px solid rgba(255,255,255,0.05)",borderRadius:6,marginBottom:8}},
-        h("div",{style:{fontFamily:"Georgia,serif",fontSize:10,color:"#C8A96E",fontStyle:"italic",letterSpacing:0.3,marginBottom:9,textAlign:"center"}},"interpretacao do seu portfolio"),
+      return h("div",{style:{marginBottom:8,background:"rgba(0,0,0,0.20)",border:"1px solid rgba(255,255,255,0.05)",borderRadius:6,overflow:"hidden"}},
+        // Header clicavel
+        h("div",{onClick:()=>setExpandInterp(!expandInterp),style:{cursor:"pointer",padding:"10px 12px",display:"flex",justifyContent:"space-between",alignItems:"center",userSelect:"none"}},
+          h("div",{style:{fontFamily:"Georgia,serif",fontSize:10,color:"#C8A96E",fontStyle:"italic",letterSpacing:0.3}},"interpretacao do seu portfolio"),
+          h("span",{style:{fontFamily:"monospace",fontSize:11,color:"#7A7060",transition:"transform 0.2s",transform:expandInterp?"rotate(90deg)":"rotate(0deg)",display:"inline-block"}},"\u25B6")
+        ),
+        // Conteudo expansivel
+        expandInterp?h("div",{style:{padding:"0 12px 10px"}},
         // Linha 1: direcionamento Renda/Crescimento
         h("div",{style:{marginBottom:9,padding:"7px 9px",background:"rgba(255,255,255,0.025)",borderLeft:"2px solid "+dirRendaCresc.cor,borderRadius:"0 4px 4px 0"}},
           h("div",{style:{fontFamily:"Georgia,serif",fontSize:7.5,letterSpacing:1.3,color:"#7A7060",fontStyle:"italic",marginBottom:3}},"perfil de retorno"),
@@ -4037,6 +4087,7 @@ function ModelosPortfolioMap({cw,selicAtual,hideVal}){
           )),
           h("div",{style:{fontFamily:"Georgia,serif",fontSize:7.5,color:"#5A5550",fontStyle:"italic",marginTop:6,lineHeight:1.4,textAlign:"center"}},"valores entre parentesis = diferenca vs voce. Verde = melhor; laranja = pior."),
           h("div",{style:{fontFamily:"Georgia,serif",fontSize:7.5,color:"#5A5550",fontStyle:"italic",marginTop:3,lineHeight:1.4,textAlign:"center"}},"retornos esperados nominais a.a. com Selic liq. "+(rfComp*100).toFixed(2)+"%")
+        ):null
         ):null
       );
     })():null,
@@ -4114,8 +4165,14 @@ function ModelosPortfolioMap({cw,selicAtual,hideVal}){
         }
         return textos;
       };
-      return h("div",{style:{padding:"10px 12px",background:"rgba(0,0,0,0.20)",border:"1px solid rgba(255,255,255,0.05)",borderRadius:6,marginBottom:8}},
-        h("div",{style:{fontFamily:"Georgia,serif",fontSize:10,color:"#C8A96E",fontStyle:"italic",letterSpacing:0.3,marginBottom:9,textAlign:"center"}},"pros, contras e seu posicionamento"),
+      return h("div",{style:{marginBottom:8,background:"rgba(0,0,0,0.20)",border:"1px solid rgba(255,255,255,0.05)",borderRadius:6,overflow:"hidden"}},
+        // Header clicavel
+        h("div",{onClick:()=>setExpandPC(!expandPC),style:{cursor:"pointer",padding:"10px 12px",display:"flex",justifyContent:"space-between",alignItems:"center",userSelect:"none"}},
+          h("div",{style:{fontFamily:"Georgia,serif",fontSize:10,color:"#C8A96E",fontStyle:"italic",letterSpacing:0.3}},"pros, contras e seu posicionamento"),
+          h("span",{style:{fontFamily:"monospace",fontSize:11,color:"#7A7060",transition:"transform 0.2s",transform:expandPC?"rotate(90deg)":"rotate(0deg)",display:"inline-block"}},"\u25B6")
+        ),
+        // Conteudo expansivel
+        expandPC?h("div",{style:{padding:"0 12px 10px"}},
         modelosInfo.map(m=>{
           const analise=analisarPosicao(m);
           return h("div",{key:"pc"+m.id,style:{marginBottom:11,padding:"8px 10px",background:"rgba(255,255,255,0.018)",borderLeft:"2px solid "+m.cor,borderRadius:"0 4px 4px 0"}},
@@ -4140,6 +4197,7 @@ function ModelosPortfolioMap({cw,selicAtual,hideVal}){
           );
         }),
         h("div",{style:{fontFamily:"Georgia,serif",fontSize:7.5,color:"#5A5550",fontStyle:"italic",marginTop:6,lineHeight:1.4,textAlign:"center"}},"verde mitiga a fraqueza do modelo / laranja a reforca")
+        ):null
       );
     })():null,
     // Painel de detalhes (aparece quando algum ponto eh clicado)
@@ -11396,7 +11454,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         )
       );
 
-      content=h("div",{},dateHeader,h(BolsasCard,{port,cls}),h(SolidezCard,{total,cw,port,metaMensalIF,setTab,fB,hideVal,dataNascimento,cambialCash,rendaMotoraHist,rendaAuxiliarHist,FX}),h(ModelosPortfolioMap,{cw,selicAtual,hideVal}),aporteCard,insightCard,h(AllocChart,{cw,ct,fB,MV,hideVal}),h(DiversificationCard,{cw,setTab}),h(RiskChart,{cw,selicAtual,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,recalibrarRR_viaIA,calibracaoLoad,calibracaoErr,hasAjustesIA:!!ajustesRR_IA,apiKey}),h(EvolChart,{histMensal,hist,showUSD,setShowUSD,hideVal}),h(ComparativoChart,{histMensal,idxMensal,hideVal}),insightMensalCard,h(HeatmapChart,{hist,histMensal}),h(CurrencyChart,{port,cls,hideVal,cambialCash}),topPos);
+      content=h("div",{},dateHeader,h(BolsasCard,{port,cls}),h(SolidezCard,{total,cw,port,metaMensalIF,setTab,fB,hideVal,dataNascimento,cambialCash,rendaMotoraHist,rendaAuxiliarHist,FX}),h(ModelosPortfolioMap,{cw,selicAtual,hideVal}),aporteCard,insightCard,h(AllocChart,{cw,ct,fB,MV,hideVal}),h(DiversificationCard,{cw,setTab}),h(EvolChart,{histMensal,hist,showUSD,setShowUSD,hideVal}),h(ComparativoChart,{histMensal,idxMensal,hideVal}),insightMensalCard,h(HeatmapChart,{hist,histMensal}),h(CurrencyChart,{port,cls,hideVal,cambialCash}),topPos);
     }
   }  // POSITIONS
   if(tab==="positions"||tab==="correlacao"){
@@ -20001,6 +20059,8 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
       const handleCalibrar=(tk)=>setCalibrandoTicker_RR(tk);
       
       content=h("div",{},
+        // GRAFICO DE RISCO X RETORNO AGREGADO (movido do dashboard)
+        h(RiskChart,{cw,selicAtual,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,recalibrarRR_viaIA,calibracaoLoad,calibracaoErr,hasAjustesIA:!!ajustesRR_IA,apiKey}),
         // Header da aba
         h("div",{style:{display:"flex",alignItems:"baseline",justifyContent:"space-between",flexWrap:"wrap",gap:10,marginBottom:14}},
           h("div",{},
