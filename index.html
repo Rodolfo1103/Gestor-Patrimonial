@@ -9810,7 +9810,7 @@ function App(){
   // - Drivers de retorno (3-4 pontos)
   // - Drivers de risco (3-4 pontos)
   // Cache: ts + versaoPortfolio. Se portfolio muda ou >14 dias, sugere refresh.
-  const gerarRiscoRetornoIA=useCallback(async(apenasTickers)=>{
+  const gerarRiscoRetornoIA=useCallback(async(apenasTickers,modoProfundo)=>{
     if(!apiKey){alert("Configure sua chave API Anthropic primeiro.");return;}
     if(riscoRetornoLoad)return;
     if(!hasPos){alert("Adicione posicoes ao portfolio primeiro.");return;}
@@ -9822,7 +9822,8 @@ function App(){
       setRRDebugLog([...logs]);
       console.log("[RiscoRetorno]",msg);
     };
-    const modo=Array.isArray(apenasTickers)&&apenasTickers.length>0?"PARCIAL ("+apenasTickers.length+" tickers)":"COMPLETO";
+    const ehProfundo=modoProfundo===true;
+    const modo=Array.isArray(apenasTickers)&&apenasTickers.length>0?"PARCIAL ("+apenasTickers.length+" tickers"+(ehProfundo?", PROFUNDO":"")+")":"COMPLETO"+(ehProfundo?" PROFUNDO":"");
     log("Inicio - modo: "+modo);
     try{
       // Coleta TODOS os tickers do portfolio com classId valido
@@ -9929,6 +9930,7 @@ function App(){
         ntnbLiqMedia:typeof ntnbTaxas==="object"&&ntnbTaxas?(Object.values(ntnbTaxas).reduce((s,v)=>s+v,0)/Object.keys(ntnbTaxas).length*0.85):null,
       };
       const systemPrompt="Voce e um analista fundamentalista B&H rigoroso. Para cada ticker da lista, fornecer dados fundamentais OBJETIVOS + 3 metricas de PRECO + 3 metricas de QUALIDADE + drivers de retorno e risco. Retornar VIA TOOL submit_risco_retorno.\n\n"+
+        (ehProfundo?"=== MODO ANALISE PROFUNDA ATIVADO ===\nO INVESTIDOR SOLICITOU EXPLICITAMENTE ANALISE PROFUNDA. Isto significa:\n1. Para TODO ticker que tiver campo 'docs' nao vazio: USE web_fetch OBRIGATORIAMENTE em ate 3 documentos por ticker (priorize por data mais recente). Nao limite-se a metadados, LEIA O CONTEUDO REAL dos PDFs/paginas.\n2. Cite NUMEROS ESPECIFICOS extraidos do documento (ex: 'Receita liquida 3T26 R$ 12.4 bi conforme ITR pagina 8', 'AGE 15/04/2026 aprovou Capex R$ 1.2bi para 2027', 'fato relevante 22/05/2026 informa default PORTOCEM PTCE11 R$ 180MM').\n3. No campo 'observacao' liste EXPLICITAMENTE quais docs voce leu via fetch e o que extraiu de cada um (ex: 'Analise profunda: ITR 3T26 (receita +12% YoY pagina 5), RG Mar/2026 (composicao 68% CRI IPCA+ pagina 3), FR 22/05 (default PORTOCEM)').\n4. Conteudo extraido dos docs tem PRIORIDADE sobre qualquer estimativa - se ITR diz LPA 5.82, use 5.82 (nao estimativa).\n5. As notas do investidor sao ANCORAS DE CONTEXTO - confirme se docs corroboram ou contradizem o que ele anotou.\n=== FIM INSTRUCOES MODO PROFUNDO ===\n\n":"")+
         "USO DE WEB_SEARCH (CRITICO):\n"+
         "- Voce tem acesso a ferramenta web_search. USE-A ATIVAMENTE para buscar os DADOS MAIS RECENTES de cada ticker antes de retornar a analise.\n"+
         "- Para CADA ticker (ou grupo de 3-4 tickers similares), faca uma busca tipo: \"<ticker> resultados <ano>\" ou \"<ticker> earnings Q<X> <ano>\" ou \"<ticker> ultimo balanco\" ou \"<ticker> last quarterly results\". Para FIIs busque \"<ticker> rendimento dividendo <ano>\" ou \"<ticker> ultimo relatorio mensal\".\n"+
@@ -10112,7 +10114,15 @@ function App(){
       const ESPERA_ENTRE_BATCHES_MS=70000;// 70s
       for(let bi=0;bi<batches.length;bi++){
         const batch=batches[bi];
-        log("Batch "+(bi+1)+"/"+batches.length+" ("+batch.length+" tickers): "+batch.map(b=>b.ticker).join(","));
+        // Conta docs/notas/resumos enviados neste batch para log
+        let nDocsBatch=0,nNotasBatch=0,nResumosBatch=0;
+        batch.forEach(b=>{
+          nDocsBatch+=Array.isArray(b.docs)?b.docs.length:0;
+          nNotasBatch+=Array.isArray(b.notas)?b.notas.length:0;
+          nResumosBatch+=Array.isArray(b.resumos)?b.resumos.length:0;
+        });
+        const sufixo=(nDocsBatch+nNotasBatch+nResumosBatch>0)?(" [historico: "+nDocsBatch+" docs, "+nNotasBatch+" notas, "+nResumosBatch+" resumos]"):"";
+        log("Batch "+(bi+1)+"/"+batches.length+" ("+batch.length+" tickers"+(ehProfundo?", MODO PROFUNDO":"")+"): "+batch.map(b=>b.ticker).join(",")+sufixo);
         // Filtra descricoes factuais dos tickers deste batch
         const descBatch={};
         batch.forEach(b=>{if(DESCRICOES_FACTUAIS[b.ticker])descBatch[b.ticker]=DESCRICOES_FACTUAIS[b.ticker];});
@@ -10136,7 +10146,7 @@ function App(){
               },
               body:JSON.stringify({
                 model:"claude-sonnet-4-6",
-                max_tokens:16000,
+                max_tokens:ehProfundo?32000:16000,
                 system:systemPrompt,
                 messages:[{role:"user",content:userMessage}],
                 tools,
@@ -10277,7 +10287,7 @@ function App(){
           try{
             const tickersComResposta=Object.keys(ativosObj);// tickers que IA retornou neste batch
             const tsEnvio=Date.now();
-            const tipoAnalise="normal";// Fase 2 = analise normal; Fase 3 trara "profunda"
+            const tipoAnalise=ehProfundo?"profunda":"normal";
             // Mapa: ticker -> {docIds:Set, notaIds:Set} enviados neste batch
             const enviadosPorTicker={};
             batch.forEach(b=>{
@@ -20972,7 +20982,24 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                     }
                     if(!confirm("Re-analisar "+tk.ticker+" via IA com web_search?\n\nVai buscar dados do ultimo balanco e atualizar metricas (custo ~$0.06 USD)."+extraInfo))return;
                     gerarRiscoRetornoIA([tk.ticker]);
-                  },disabled:riscoRetornoLoad,title:"Re-analisar este ticker (~$0.06 USD)",style:{padding:"6px 9px",background:riscoRetornoLoad?"rgba(76,175,130,0.05)":"linear-gradient(135deg,rgba(76,175,130,0.20),rgba(76,175,130,0.08))",border:"1px solid rgba(76,175,130,0.40)",borderRadius:4,color:"#4CAF82",fontSize:11,cursor:riscoRetornoLoad?"not-allowed":"pointer",fontFamily:"monospace",fontWeight:700,minWidth:32,lineHeight:1}},"\u21BB")
+                  },disabled:riscoRetornoLoad,title:"Re-analisar este ticker (analise normal, ~$0.06 USD)",style:{padding:"6px 9px",background:riscoRetornoLoad?"rgba(76,175,130,0.05)":"linear-gradient(135deg,rgba(76,175,130,0.20),rgba(76,175,130,0.08))",border:"1px solid rgba(76,175,130,0.40)",borderRadius:4,color:"#4CAF82",fontSize:11,cursor:riscoRetornoLoad?"not-allowed":"pointer",fontFamily:"monospace",fontWeight:700,minWidth:32,lineHeight:1}},"\u21BB"),
+                  // Botao ANALISE PROFUNDA: forca web_fetch nos PDFs - so faz sentido se tem docs cadastrados
+                  (function(){
+                    const pInfo=port[tk.ticker]||{};
+                    const nDocs=Array.isArray(pInfo.docs)?pInfo.docs.filter(d=>d&&d.url&&!d.arquivado&&!d.consolidado).length:0;
+                    const nNotas=Array.isArray(pInfo.notas)?pInfo.notas.filter(n=>n&&n.texto&&!n.arquivado&&!n.consolidado).length:0;
+                    const habilitado=nDocs>0;
+                    return h("button",{onClick:()=>{
+                      if(riscoRetornoLoad)return;
+                      if(!habilitado){
+                        alert("Analise profunda requer documentos cadastrados.\n\nAdicione URLs de PDFs (ITR, fato relevante, RG, etc.) em \"Docs & Notas\" antes de usar este modo.");
+                        return;
+                      }
+                      const custoEstimado=(0.06+nDocs*0.40).toFixed(2);
+                      if(!confirm("ANALISE PROFUNDA de "+tk.ticker+"\n\nA IA fara web_fetch obrigatorio em ate 3 documentos (priorizados por data mais recente) e usara conteudo real dos PDFs na analise.\n\nDocumentos disponiveis: "+nDocs+"\nNotas disponiveis: "+nNotas+"\n\nCusto estimado: ~$"+custoEstimado+" USD\nTempo estimado: ~45-90 segundos\n\nConfirmar?"))return;
+                      gerarRiscoRetornoIA([tk.ticker],true);
+                    },disabled:riscoRetornoLoad||!habilitado,title:habilitado?"Analise PROFUNDA: IA faz fetch real dos PDFs cadastrados (~$"+(0.06+nDocs*0.40).toFixed(2)+" USD)":"Cadastre documentos para habilitar analise profunda",style:{padding:"6px 9px",background:!habilitado?"rgba(255,255,255,0.02)":(riscoRetornoLoad?"rgba(156,125,194,0.05)":"linear-gradient(135deg,rgba(156,125,194,0.20),rgba(156,125,194,0.08))"),border:"1px solid "+(habilitado?"rgba(156,125,194,0.40)":"rgba(255,255,255,0.10)"),borderRadius:4,color:habilitado?"#9C7DC2":"#5A5550",fontSize:11,cursor:(riscoRetornoLoad||!habilitado)?"not-allowed":"pointer",fontFamily:"monospace",fontWeight:700,minWidth:32,lineHeight:1,marginLeft:4,opacity:habilitado?1:0.5}},"\u21BB\u21BB");
+                  })()
                 )
               ),
               // Linha 2: dataReferencia do balanco usado pela IA + observacao (fontes)
