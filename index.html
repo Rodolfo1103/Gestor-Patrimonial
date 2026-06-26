@@ -10530,20 +10530,54 @@ function App(){
         "2. Mudancas devem ser FUNDAMENTADAS pelo cenario, nao opinioes pessoais.\\n"+
         "3. Mantenha logica relativa: BTC continua sendo classe de maior risco; SEL continua a de menor risco; FII tem retorno moderado-alto via DY; etc.\\n"+
         "4. Buy&Hold de longo prazo: nao reaja a movimentos de curto prazo. Atualize premissas estruturais.\\n"+
-        "5. Sem markdown. Sem texto extra. APENAS JSON valido:\\n"+
+        "5. FORMATO DE SAIDA - LEIA COM ATENCAO:\\n"+
+        "   - Responda APENAS com JSON puro valido. Sem markdown, sem ```json, sem texto antes ou depois.\\n"+
+        "   - Use APENAS aspas duplas ASCII (\") - NUNCA aspas tipograficas (curvas).\\n"+
+        "   - NAO use trailing commas (virgula antes de } ou ]).\\n"+
+        "   - NAO inclua comentarios // ou /* */.\\n"+
+        "   - O JSON DEVE ser parseavel direto via JSON.parse().\\n"+
+        "   - Campo 'explicacao' deve ser uma string simples (sem quebras de linha literais, sem aspas internas nao escapadas).\\n\\n"+
+        "ESTRUTURA EXATA (use estas mesmas chaves, apenas atualize os valores numericos e o texto):\\n"+
         "{\"ajustes\":{\"fii\":{\"r\":3.5,\"e\":7.5},\"acoes_br\":{\"r\":6.5,\"e\":8.5},\"acoes_eua\":{\"r\":5.5,\"e\":8.0},\"acoes_mundo\":{\"r\":5.5,\"e\":7.8},\"reits\":{\"r\":4.5,\"e\":7.2},\"selic\":{\"r\":1.0,\"e\":4.5},\"ouro\":{\"r\":4.0,\"e\":5.5},\"bitcoin\":{\"r\":9.5,\"e\":9.0},\"infra\":{\"r\":2.5,\"e\":7.0},\"imoveis\":{\"r\":2.0,\"e\":6.0},\"agro\":{\"r\":3.0,\"e\":8.0}},\"explicacao\":\"Texto curto (max 60 palavras) explicando por que os scores foram ajustados conforme o cenario macro.\"}";
       const txt=await callAPI([{role:"user",content:prompt}],apiKey);
-      // Tenta extrair JSON da resposta
+      // Tenta extrair JSON da resposta com varias estrategias de limpeza
       let parsed;
-      try{
-        parsed=JSON.parse(txt);
-      }catch(e1){
-        // Tenta extrair JSON entre as primeiras e ultimas chaves
-        const m=txt.match(/\{[\s\S]*\}/);
-        if(m)parsed=JSON.parse(m[0]);
-        else throw new Error("Resposta nao eh JSON valido");
+      // Funcao de limpeza: remove markdown, aspas tipograficas, comentarios, trailing commas
+      const limpaJSON=(s)=>{
+        if(!s)return s;
+        let out=String(s);
+        // Remove cercas markdown (```json ... ```)
+        out=out.replace(/^[\s\S]*?```(?:json)?\s*/i,"").replace(/```[\s\S]*$/,"");
+        // Substitui aspas tipograficas por ASCII
+        out=out.replace(/[\u201C\u201D\u201E\u201F]/g,'"').replace(/[\u2018\u2019\u201A\u201B]/g,"'");
+        // Remove BOM e caracteres de controle no inicio
+        out=out.replace(/^\uFEFF/,"").trim();
+        // Remove comentarios de linha // (cuidado para nao remover dentro de strings - aproximacao)
+        out=out.replace(/^\s*\/\/.*$/gm,"");
+        // Remove trailing commas antes de } ou ]
+        out=out.replace(/,(\s*[\}\]])/g,"$1");
+        return out;
+      };
+      const tentaParse=(s)=>{
+        // Sequencia de tentativas: bruto -> limpo -> match das chaves
+        try{return JSON.parse(s);}catch(_){}
+        const limpo=limpaJSON(s);
+        try{return JSON.parse(limpo);}catch(_){}
+        const m=limpo.match(/\{[\s\S]*\}/);
+        if(m){
+          try{return JSON.parse(m[0]);}catch(_){}
+          // Ultima tentativa: aplica limpa novamente apos extracao
+          try{return JSON.parse(limpaJSON(m[0]));}catch(_){}
+        }
+        return null;
+      };
+      parsed=tentaParse(txt);
+      if(!parsed){
+        // Diagnostico: pega primeiros 200 chars da resposta para ajudar no debug
+        const preview=String(txt||"").slice(0,200).replace(/\s+/g," ");
+        throw new Error("IA retornou resposta nao parseavel como JSON. Resposta inicial: "+preview);
       }
-      if(!parsed||!parsed.ajustes)throw new Error("Resposta sem campo 'ajustes'");
+      if(!parsed.ajustes)throw new Error("Resposta sem campo 'ajustes'");
       setAjustesRR_IA(parsed.ajustes);
       setCalibracaoRR_TS(Date.now());
       setCalibracaoRR_texto(parsed.explicacao||"");
