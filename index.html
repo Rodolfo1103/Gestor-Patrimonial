@@ -21609,7 +21609,27 @@ h("button",{onClick:async()=>{
                 precisa?("\u26A0 ANUAL DUE: "+mesesPassados+"m desde "+maisAntiga+" - revisar PARAMETROS_CONGELADOS no codigo"):
                 ("\u2713 Calibracao: "+total+" tickers (ultima rev. "+maisAntiga+")")
               );
-            })()
+            })(),
+            // Legenda discreta dos marcadores de docs/notas
+            h("div",{style:{display:"flex",flexWrap:"wrap",gap:8,marginTop:5,fontSize:7.5,color:"#6A6055",fontFamily:"monospace",alignItems:"center"}},
+              h("span",{style:{color:"#5A5550",letterSpacing:0.5}},"legenda dos marcadores em Docs & Notas:"),
+              h("span",{style:{display:"inline-flex",alignItems:"center",gap:3}},
+                h("span",{style:{color:"#9C7DC2",fontWeight:700,letterSpacing:0.5}},"[IA]"),
+                h("span",{},"enviado em analise normal (\u21BB)")
+              ),
+              h("span",{style:{display:"inline-flex",alignItems:"center",gap:3}},
+                h("span",{style:{color:"#9C7DC2",fontWeight:700,letterSpacing:0.5}},"[IA+]"),
+                h("span",{},"enviado em analise profunda (\u21BB\u21BB)")
+              ),
+              h("span",{style:{display:"inline-flex",alignItems:"center",gap:3}},
+                h("span",{style:{color:"#9C7DC2",fontWeight:700,letterSpacing:0.5}},"[IA-a]"),
+                h("span",{},"enviado em Aporte")
+              ),
+              h("span",{style:{display:"inline-flex",alignItems:"center",gap:3}},
+                h("span",{style:{color:"#C8A96E",fontWeight:700,letterSpacing:0.5}},"[\u03A3]"),
+                h("span",{},"consolidado em resumo semestral")
+              )
+            )
           ),
           h("div",{style:{display:"flex",gap:6,flexWrap:"wrap"}},
             h("button",{onClick:gerarRiscoRetornoIA,disabled:riscoRetornoLoad,style:{padding:"8px 14px",background:(stale||portfolioMudou)?"linear-gradient(135deg,#C8A96E,#a8895a)":"rgba(255,255,255,0.05)",color:(stale||portfolioMudou)?"#1A1612":"#C8A96E",border:(stale||portfolioMudou)?"none":"1px solid rgba(200,169,110,0.30)",borderRadius:5,fontSize:10,fontFamily:"monospace",fontWeight:700,letterSpacing:1.2,cursor:riscoRetornoLoad?"not-allowed":"pointer",textTransform:"uppercase"}},riscoRetornoLoad?"gerando...":(tsRR>0?"atualizar analise":"gerar analise IA")),
