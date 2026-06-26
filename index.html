@@ -7263,8 +7263,18 @@ function App(){
   const [execE,setExecE]=useState({});
   const [step,setStep]=useState("r");
   const [hist,setHist]=useState([]);
-  // Aportes simples: registros manuais [{id, date, valor, ts}] - registro independente dos snapshots automaticos
+  // Aportes simples: registros manuais [{id, date, valor, ts, classes?:{fii,acoes_br,...}}]
+  // classes (opcional): decomposicao por classe quando o usuario quis detalhar. Quando ausente, aporte e "nao decomposto".
   const [aportesSimples,setAportesSimples]=useState([]);
+  // Form inline de aporte (expansivel na aba History)
+  const [formApAberto,setFormApAberto]=useState(false);
+  const [formApId,setFormApId]=useState(null);// id do aporte sendo editado (null = novo)
+  const [formApData,setFormApData]=useState("");
+  const [formApValor,setFormApValor]=useState("");
+  const [formApClasses,setFormApClasses]=useState({});// {classId: valorString}
+  const [formApErro,setFormApErro]=useState("");
+  // Ano selecionado para o card de resumo anual (default: ano corrente)
+  const [anoSelecionadoHist,setAnoSelecionadoHist]=useState(new Date().getFullYear());
   // Ativos em estudo: pre-selecao da IA dos candidatos para proxima janela de aporte
   // {ts, versaoPortfolio, proximaJanelaAporte, candidatos:[{classe,ticker,precoAtual,metricas:[],teseResumida,precoTeto,precoIdeal,catalisadores:[],riscos:[],confianca}], observacaoGlobal, erro}
   const [ativosEmEstudo,setAtivosEmEstudo]=useState(null);
@@ -23384,37 +23394,104 @@ h("button",{onClick:async()=>{
 
   if(tab==="history"){
     try{
-    // Handlers
-    const registrarAporte=()=>{
-      const hoje=new Date();
-      const isoHoje=hoje.toISOString().slice(0,10);// YYYY-MM-DD
-      const dataStr=window.prompt("Data do aporte (YYYY-MM-DD):",isoHoje);
-      if(dataStr===null)return;
-      const dataLimpa=String(dataStr).trim();
-      if(!/^\d{4}-\d{2}-\d{2}$/.test(dataLimpa)){alert("Formato invalido. Use YYYY-MM-DD (ex: 2026-06-15).");return;}
+    // Handlers (Q5b: formulario inline expansivel na propria aba)
+    const abrirFormNovoAporte=()=>{
+      setFormApId(null);
+      setFormApData(new Date().toISOString().slice(0,10));
+      setFormApValor("");
+      // Inicializa todas as 13 classes com valor 0
+      const inicial={};
+      CL.forEach(c=>{inicial[c.id]="";});
+      setFormApClasses(inicial);
+      setFormApErro("");
+      setFormApAberto(true);
+    };
+    const abrirFormEdicao=(aporte)=>{
+      setFormApId(aporte.id);
+      setFormApData(aporte.date);
+      setFormApValor(String(aporte.valor));
+      const inicial={};
+      CL.forEach(c=>{
+        const v=aporte.classes&&typeof aporte.classes[c.id]==="number"?aporte.classes[c.id]:0;
+        inicial[c.id]=v>0?String(v):"";
+      });
+      setFormApClasses(inicial);
+      setFormApErro("");
+      setFormApAberto(true);
+    };
+    const cancelarForm=()=>{
+      setFormApAberto(false);
+      setFormApErro("");
+    };
+    const parseValor=(s)=>{
+      if(!s)return 0;
+      const limp=String(s).trim().replace(/\s/g,"").replace(/\./g,"").replace(",",".");
+      const n=parseFloat(limp);
+      return isNaN(n)?0:n;
+    };
+    const submitForm=()=>{
+      setFormApErro("");
+      // Valida data
+      const dataLimpa=String(formApData).trim();
+      if(!/^\d{4}-\d{2}-\d{2}$/.test(dataLimpa)){setFormApErro("Data invalida. Use formato AAAA-MM-DD.");return;}
       const partes=dataLimpa.split("-").map(Number);
       const dtTest=new Date(partes[0],partes[1]-1,partes[2]);
       if(isNaN(dtTest.getTime())||dtTest.getFullYear()!==partes[0]||dtTest.getMonth()!==partes[1]-1||dtTest.getDate()!==partes[2]){
-        alert("Data invalida.");return;
+        setFormApErro("Data invalida.");return;
       }
-      const valorStr=window.prompt("Valor total aportado (R$):","");
-      if(valorStr===null)return;
-      const limp=String(valorStr).trim().replace(/\s/g,"").replace(/\./g,"").replace(",",".");
-      const valor=parseFloat(limp);
-      if(isNaN(valor)||valor<=0){alert("Valor invalido.");return;}
+      // Valida total
+      const valorTotal=parseValor(formApValor);
+      if(valorTotal<=0){setFormApErro("Valor total deve ser maior que zero.");return;}
+      // Soma classes preenchidas
+      const classesPreenchidas={};
+      let somaClasses=0;
+      let temAlguma=false;
+      CL.forEach(c=>{
+        const v=parseValor(formApClasses[c.id]);
+        if(v>0){
+          classesPreenchidas[c.id]=v;
+          somaClasses+=v;
+          temAlguma=true;
+        }
+      });
+      // Q2b: tolerancia de R$ 1 entre soma e total
+      const diff=Math.abs(somaClasses-valorTotal);
+      if(temAlguma&&diff>1){
+        setFormApErro("Soma das classes (R$ "+somaClasses.toFixed(2)+") nao bate com o total (R$ "+valorTotal.toFixed(2)+"). Diferenca de R$ "+diff.toFixed(2)+" excede tolerancia de R$ 1,00. Ajuste os valores ou deixe todas as classes em branco para registrar sem decomposicao.");
+        return;
+      }
+      // Constroi objeto do aporte
       const novo={
-        id:dataLimpa+"-"+Date.now().toString(36),
+        id:formApId||(dataLimpa+"-"+Date.now().toString(36)),
         date:dataLimpa,
-        valor,
-        ts:Date.now()
+        valor:valorTotal,
+        ts:formApId?aportesSimples.find(a=>a.id===formApId)?.ts||Date.now():Date.now()
       };
-      const novaLista=[...aportesSimples,novo].sort((a,b)=>a.date.localeCompare(b.date));
+      if(temAlguma)novo.classes=classesPreenchidas;
+      // Insere ou atualiza
+      let novaLista;
+      if(formApId){
+        novaLista=aportesSimples.map(a=>a.id===formApId?novo:a);
+      }else{
+        novaLista=[...aportesSimples,novo];
+      }
+      novaLista.sort((a,b)=>a.date.localeCompare(b.date));
       setAportesSimples(novaLista);
+      setFormApAberto(false);
     };
     const removerAporte=(id)=>{
       if(!window.confirm("Remover este aporte do historico?"))return;
       setAportesSimples(aportesSimples.filter(a=>a.id!==id));
     };
+    // Soma das classes preenchidas no form (atualizada em tempo real)
+    const somaClassesForm=(()=>{
+      let s=0;
+      CL.forEach(c=>{s+=parseValor(formApClasses[c.id]);});
+      return s;
+    })();
+    const valorTotalForm=parseValor(formApValor);
+    const diffForm=valorTotalForm>0?(somaClassesForm-valorTotalForm):0;
+
     // Listagem ordenada do mais recente ao mais antigo
     const listaOrdenada=aportesSimples.slice().sort((a,b)=>b.date.localeCompare(a.date));
     // ===== Grafico: agregado por mes-calendario, ult. 24 meses =====
@@ -23448,8 +23525,50 @@ h("button",{onClick:async()=>{
       // Header com botao de registrar
       h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,gap:10,flexWrap:"wrap"}},
         h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase"}},"Hist\u00f3rico de Aportes"),
-        h("button",{onClick:registrarAporte,style:{padding:"9px 16px",background:"linear-gradient(135deg,#C8A96E,#a8895a)",color:"#1A1612",border:"none",borderRadius:6,fontSize:11,fontFamily:"monospace",fontWeight:700,letterSpacing:1.2,cursor:"pointer",textTransform:"uppercase",boxShadow:"0 2px 6px rgba(200,169,110,0.20)"}},"+ Registrar Aporte")
+        h("button",{onClick:formApAberto?cancelarForm:abrirFormNovoAporte,style:{padding:"9px 16px",background:formApAberto?"transparent":"linear-gradient(135deg,#C8A96E,#a8895a)",color:formApAberto?"#9A9080":"#1A1612",border:formApAberto?"1px solid rgba(255,255,255,0.20)":"none",borderRadius:6,fontSize:11,fontFamily:"monospace",fontWeight:700,letterSpacing:1.2,cursor:"pointer",textTransform:"uppercase",boxShadow:formApAberto?"none":"0 2px 6px rgba(200,169,110,0.20)"}},formApAberto?"\u2715 Cancelar":"+ Registrar Aporte")
       ),
+      // FORM INLINE EXPANSIVEL (Q5b)
+      formApAberto?h("div",{style:{background:"linear-gradient(135deg,rgba(200,169,110,0.06),rgba(0,0,0,0.20))",border:"1px solid rgba(200,169,110,0.40)",borderRadius:8,padding:"14px 16px",marginBottom:18}},
+        h("div",{style:{fontSize:9,letterSpacing:2,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,marginBottom:10,textTransform:"uppercase"}},formApId?"editar aporte":"novo aporte"),
+        // Linha 1: Data + Total
+        h("div",{style:{display:"grid",gridTemplateColumns:"140px 1fr",gap:10,marginBottom:12}},
+          h("div",{},
+            h("label",{style:{display:"block",fontSize:8,color:"#7A7060",fontFamily:"monospace",letterSpacing:1,marginBottom:3,fontWeight:700}},"DATA"),
+            h("input",{type:"date",value:formApData,onChange:e=>setFormApData(e.target.value),style:{width:"100%",padding:"7px 9px",background:"rgba(0,0,0,0.35)",border:"1px solid rgba(255,255,255,0.18)",borderRadius:4,color:"#E8E2D5",fontSize:11,fontFamily:"monospace",boxSizing:"border-box"}})
+          ),
+          h("div",{},
+            h("label",{style:{display:"block",fontSize:8,color:"#7A7060",fontFamily:"monospace",letterSpacing:1,marginBottom:3,fontWeight:700}},"VALOR TOTAL (R$)"),
+            h("input",{type:"text",inputMode:"decimal",value:formApValor,onChange:e=>setFormApValor(e.target.value),placeholder:"ex: 50000,00",style:{width:"100%",padding:"7px 9px",background:"rgba(0,0,0,0.35)",border:"1px solid rgba(200,169,110,0.40)",borderRadius:4,color:"#C8A96E",fontSize:13,fontFamily:"monospace",fontWeight:700,boxSizing:"border-box"}})
+          )
+        ),
+        // Decomposicao por classe
+        h("div",{style:{marginBottom:10}},
+          h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:6,gap:6,flexWrap:"wrap"}},
+            h("label",{style:{fontSize:8,color:"#7A7060",fontFamily:"monospace",letterSpacing:1,fontWeight:700}},"DECOMPOSICAO POR CLASSE (opcional - todas em branco = sem decomposicao)"),
+            valorTotalForm>0?h("div",{style:{fontSize:8.5,fontFamily:"monospace",color:Math.abs(diffForm)<=1?"#4CAF82":(somaClassesForm>valorTotalForm?"#E05252":"#E0B458")}},
+              "Soma: R$ "+somaClassesForm.toFixed(2)+" / "+formApValor+(Math.abs(diffForm)<=1?" \u2713":" (\u0394 "+(diffForm>0?"+":"")+diffForm.toFixed(2)+")")
+            ):null
+          ),
+          h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fill, minmax(150px, 1fr))",gap:6}},
+            CL.map(c=>{
+              const v=parseValor(formApClasses[c.id]);
+              const ativo=v>0;
+              return h("div",{key:c.id,style:{background:ativo?c.color+"10":"rgba(255,255,255,0.02)",border:"1px solid "+(ativo?c.color+"50":"rgba(255,255,255,0.08)"),borderLeft:"3px solid "+c.color,borderRadius:4,padding:"6px 8px",transition:"all 0.15s"}},
+                h("div",{style:{fontSize:7.5,color:c.color,fontFamily:"monospace",letterSpacing:0.8,fontWeight:700,marginBottom:3}},c.tag),
+                h("div",{style:{fontSize:7.5,color:"#9A9080",fontFamily:"Georgia,serif",fontStyle:"italic",marginBottom:4,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}},c.name),
+                h("input",{type:"text",inputMode:"decimal",value:formApClasses[c.id]||"",onChange:e=>setFormApClasses({...formApClasses,[c.id]:e.target.value}),placeholder:"0",style:{width:"100%",padding:"4px 6px",background:"rgba(0,0,0,0.40)",border:"1px solid "+(ativo?c.color+"40":"rgba(255,255,255,0.12)"),borderRadius:3,color:ativo?c.color:"#7A7060",fontSize:10.5,fontFamily:"monospace",fontWeight:ativo?700:400,boxSizing:"border-box",textAlign:"right"}})
+              );
+            })
+          )
+        ),
+        // Mensagem de erro
+        formApErro?h("div",{style:{padding:"7px 10px",background:"rgba(224,82,82,0.10)",border:"1px solid rgba(224,82,82,0.30)",borderRadius:4,color:"#E05252",fontSize:9.5,fontFamily:"Georgia,serif",fontStyle:"italic",lineHeight:1.5,marginBottom:10}},"\u26A0 "+formApErro):null,
+        // Botoes
+        h("div",{style:{display:"flex",gap:8,justifyContent:"flex-end"}},
+          h("button",{onClick:cancelarForm,style:{padding:"7px 14px",background:"transparent",border:"1px solid rgba(255,255,255,0.20)",color:"#9A9080",fontSize:10,fontFamily:"monospace",letterSpacing:1,cursor:"pointer",borderRadius:4}},"cancelar"),
+          h("button",{onClick:submitForm,style:{padding:"7px 16px",background:"linear-gradient(135deg,#C8A96E,#a8895a)",color:"#1A1612",border:"none",borderRadius:4,fontSize:10,fontFamily:"monospace",fontWeight:700,letterSpacing:1,cursor:"pointer",textTransform:"uppercase"}},formApId?"salvar alteracoes":"salvar aporte")
+        )
+      ):null,
       // Estatisticas resumo (so se houver registros)
       aportesSimples.length>0?h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(120px,1fr))",gap:8,marginBottom:14}},
         h("div",{style:{background:"rgba(200,169,110,0.08)",borderLeft:"3px solid #C8A96E",padding:"8px 10px",borderRadius:"0 4px 4px 0"}},
@@ -23465,6 +23584,151 @@ h("button",{onClick:async()=>{
           h("div",{style:{fontSize:13,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700}},aportesSimples.length)
         )
       ):null,
+      // ===== CARD DE RESUMO ANUAL (Q4c) =====
+      aportesSimples.length>0?(function(){
+        // Coleta todos os anos com aportes
+        const anosComAporte=new Set();
+        aportesSimples.forEach(a=>{anosComAporte.add(parseInt(a.date.slice(0,4),10));});
+        const anosLista=Array.from(anosComAporte).sort((a,b)=>b-a);
+        const anoExibido=anosComAporte.has(anoSelecionadoHist)?anoSelecionadoHist:(anosLista[0]||new Date().getFullYear());
+        // Aportes do ano
+        const aportesDoAno=aportesSimples.filter(a=>parseInt(a.date.slice(0,4),10)===anoExibido);
+        const totalAno=aportesDoAno.reduce((s,a)=>s+a.valor,0);
+        // Breakdown por classe
+        const breakdownClasses={};
+        let semDecompAno=0;
+        aportesDoAno.forEach(a=>{
+          if(a.classes&&Object.keys(a.classes).length>0){
+            Object.entries(a.classes).forEach(([cid,v])=>{
+              breakdownClasses[cid]=(breakdownClasses[cid]||0)+v;
+            });
+          }else{
+            semDecompAno+=a.valor;
+          }
+        });
+        // Ordena classes por valor desc
+        const classesOrdenadas=CL.filter(c=>breakdownClasses[c.id]>0).sort((a,b)=>breakdownClasses[b.id]-breakdownClasses[a.id]);
+        const mesComAporte=new Set(aportesDoAno.map(a=>a.date.slice(0,7))).size;
+        const mediaMensalAno=mesComAporte>0?totalAno/mesComAporte:0;
+        return h("div",{style:{background:"linear-gradient(135deg,rgba(200,169,110,0.08),rgba(0,0,0,0.20))",border:"1px solid rgba(200,169,110,0.35)",borderRadius:8,padding:"12px 14px",marginBottom:14}},
+          // Header com select de ano
+          h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8,marginBottom:10}},
+            h("div",{style:{fontSize:10,letterSpacing:2,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,textTransform:"uppercase"}},"Resumo Anual"),
+            h("div",{style:{display:"flex",alignItems:"center",gap:6}},
+              h("label",{style:{fontSize:8,color:"#7A7060",fontFamily:"monospace",letterSpacing:1}},"ANO:"),
+              h("select",{value:anoExibido,onChange:e=>setAnoSelecionadoHist(parseInt(e.target.value,10)),style:{padding:"4px 8px",background:"rgba(0,0,0,0.35)",border:"1px solid rgba(200,169,110,0.40)",borderRadius:4,color:"#C8A96E",fontSize:10,fontFamily:"monospace",fontWeight:700,cursor:"pointer"}},
+                anosLista.map(a=>h("option",{key:a,value:a},a))
+              )
+            )
+          ),
+          // Total do ano em destaque
+          h("div",{style:{display:"flex",alignItems:"baseline",gap:10,padding:"10px 12px",background:"rgba(0,0,0,0.25)",borderRadius:6,marginBottom:10,flexWrap:"wrap"}},
+            h("div",{style:{flex:1,minWidth:140}},
+              h("div",{style:{fontSize:7.5,color:"#7A7060",fontFamily:"monospace",letterSpacing:1.5,marginBottom:3,fontWeight:700}},"TOTAL APORTADO EM "+anoExibido),
+              h("div",{style:{fontSize:20,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,letterSpacing:0.5}},MV(fB(totalAno)))
+            ),
+            h("div",{style:{display:"flex",gap:10,flexWrap:"wrap"}},
+              h("div",{},
+                h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",letterSpacing:0.8,marginBottom:2}},"MESES C/ APORTE"),
+                h("div",{style:{fontSize:11,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700}},mesComAporte+"/12")
+              ),
+              h("div",{},
+                h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",letterSpacing:0.8,marginBottom:2}},"MEDIA MENSAL"),
+                h("div",{style:{fontSize:11,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700}},MV(fB(mediaMensalAno)))
+              ),
+              h("div",{},
+                h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",letterSpacing:0.8,marginBottom:2}},"REGISTROS"),
+                h("div",{style:{fontSize:11,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700}},aportesDoAno.length)
+              )
+            )
+          ),
+          // Breakdown por classe
+          classesOrdenadas.length>0||semDecompAno>0?h("div",{},
+            h("div",{style:{fontSize:8,color:"#7A7060",fontFamily:"monospace",fontWeight:700,letterSpacing:1.5,marginBottom:7}},"DISTRIBUICAO POR CLASSE"),
+            // Barra horizontal de stack
+            h("div",{style:{display:"flex",height:14,borderRadius:3,overflow:"hidden",marginBottom:8,background:"rgba(0,0,0,0.25)"}},
+              ...classesOrdenadas.map(c=>{
+                const pct=(breakdownClasses[c.id]/totalAno)*100;
+                return h("div",{key:c.id,title:c.name+": "+MV(fB(breakdownClasses[c.id]))+" ("+pct.toFixed(1)+"%)",style:{flex:pct,background:c.color,minWidth:pct>0?2:0,cursor:"help"}});
+              }),
+              semDecompAno>0?h("div",{title:"sem decomposicao: "+MV(fB(semDecompAno))+" ("+((semDecompAno/totalAno)*100).toFixed(1)+"%)",style:{flex:(semDecompAno/totalAno)*100,background:"#5A5550",minWidth:2,cursor:"help"}}):null
+            ),
+            // Lista detalhada (grid responsivo)
+            h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fill, minmax(150px, 1fr))",gap:5}},
+              ...classesOrdenadas.map(c=>{
+                const v=breakdownClasses[c.id];
+                const pct=(v/totalAno)*100;
+                return h("div",{key:c.id,style:{background:c.color+"10",border:"1px solid "+c.color+"30",borderLeft:"3px solid "+c.color,borderRadius:3,padding:"5px 8px"}},
+                  h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:4}},
+                    h("span",{style:{fontSize:8,color:c.color,fontFamily:"monospace",fontWeight:700,letterSpacing:0.5}},c.tag),
+                    h("span",{style:{fontSize:8,color:"#9A9080",fontFamily:"monospace"}},pct.toFixed(1)+"%")
+                  ),
+                  h("div",{style:{fontSize:7,color:"#9A9080",fontFamily:"Georgia,serif",fontStyle:"italic",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",marginBottom:2}},c.name),
+                  h("div",{style:{fontSize:10.5,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700}},MV(fB(v)))
+                );
+              }),
+              semDecompAno>0?h("div",{style:{background:"rgba(90,85,80,0.15)",border:"1px solid rgba(90,85,80,0.40)",borderLeft:"3px solid #5A5550",borderRadius:3,padding:"5px 8px"}},
+                h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:4}},
+                  h("span",{style:{fontSize:8,color:"#9A9080",fontFamily:"monospace",fontWeight:700,letterSpacing:0.5}},"S/DEC"),
+                  h("span",{style:{fontSize:8,color:"#9A9080",fontFamily:"monospace"}},((semDecompAno/totalAno)*100).toFixed(1)+"%")
+                ),
+                h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"Georgia,serif",fontStyle:"italic",marginBottom:2}},"sem decomposicao"),
+                h("div",{style:{fontSize:10.5,color:"#C8C0B0",fontFamily:"monospace",fontWeight:700}},MV(fB(semDecompAno)))
+              ):null
+            )
+          ):h("div",{style:{fontSize:9,color:"#9A9080",fontFamily:"Georgia,serif",fontStyle:"italic",textAlign:"center",padding:"10px 0"}},"Nenhum aporte registrado em "+anoExibido)
+        );
+      })():null,
+      // ===== TABELA ANO-A-ANO (expansivel, mostra totais por classe ao longo dos anos) =====
+      aportesSimples.length>0?(function(){
+        const anosComAporte=new Set();
+        aportesSimples.forEach(a=>{anosComAporte.add(parseInt(a.date.slice(0,4),10));});
+        if(anosComAporte.size<2)return null;// so faz sentido se ha >=2 anos
+        const anosLista=Array.from(anosComAporte).sort((a,b)=>b-a);
+        // Para cada ano, calcula totais
+        const dadosAno=anosLista.map(ano=>{
+          const aportesAno=aportesSimples.filter(a=>parseInt(a.date.slice(0,4),10)===ano);
+          const total=aportesAno.reduce((s,a)=>s+a.valor,0);
+          const breakdown={};
+          let semDec=0;
+          aportesAno.forEach(a=>{
+            if(a.classes&&Object.keys(a.classes).length>0){
+              Object.entries(a.classes).forEach(([cid,v])=>{breakdown[cid]=(breakdown[cid]||0)+v;});
+            }else semDec+=a.valor;
+          });
+          return{ano,total,breakdown,semDec};
+        });
+        // Quais classes aparecem em algum ano (pra montar colunas)
+        const classesUsadas=new Set();
+        dadosAno.forEach(d=>Object.keys(d.breakdown).forEach(cid=>{if(d.breakdown[cid]>0)classesUsadas.add(cid);}));
+        const colunasClasses=CL.filter(c=>classesUsadas.has(c.id));
+        return h("details",{style:{marginBottom:14}},
+          h("summary",{style:{fontSize:9,letterSpacing:2,color:"#5B8FD4",fontFamily:"monospace",fontWeight:700,textTransform:"uppercase",cursor:"pointer",padding:"8px 12px",background:"rgba(91,143,212,0.08)",border:"1px solid rgba(91,143,212,0.25)",borderRadius:6,userSelect:"none"}},"Comparativo ano-a-ano ("+anosLista.length+" anos)"),
+          h("div",{style:{padding:"10px 0",overflowX:"auto"}},
+            h("table",{style:{borderCollapse:"collapse",fontSize:9,fontFamily:"monospace",minWidth:"100%"}},
+              h("thead",{},
+                h("tr",{style:{borderBottom:"2px solid rgba(255,255,255,0.15)"}},
+                  h("th",{style:{padding:"6px 8px",textAlign:"left",color:"#C8A96E",fontWeight:700,letterSpacing:1,position:"sticky",left:0,background:"rgba(0,0,0,0.85)"}},"ANO"),
+                  h("th",{style:{padding:"6px 8px",textAlign:"right",color:"#E8E2D5",fontWeight:700,letterSpacing:1}},"TOTAL"),
+                  ...colunasClasses.map(c=>h("th",{key:c.id,style:{padding:"6px 8px",textAlign:"right",color:c.color,fontWeight:700,letterSpacing:1}},c.tag)),
+                  classesUsadas.size>0&&dadosAno.some(d=>d.semDec>0)?h("th",{style:{padding:"6px 8px",textAlign:"right",color:"#9A9080",fontWeight:700,letterSpacing:1}},"S/DEC"):null
+                )
+              ),
+              h("tbody",{},
+                ...dadosAno.map(d=>h("tr",{key:d.ano,style:{borderBottom:"1px solid rgba(255,255,255,0.05)"}},
+                  h("td",{style:{padding:"5px 8px",color:"#E8E2D5",fontWeight:700,position:"sticky",left:0,background:"rgba(0,0,0,0.85)"}},d.ano),
+                  h("td",{style:{padding:"5px 8px",textAlign:"right",color:"#C8A96E",fontWeight:700}},hideVal?"----":fB(d.total)),
+                  ...colunasClasses.map(c=>{
+                    const v=d.breakdown[c.id]||0;
+                    return h("td",{key:c.id,style:{padding:"5px 8px",textAlign:"right",color:v>0?c.color:"#3A3530"}},v>0?(hideVal?"----":fB(v)):"-");
+                  }),
+                  classesUsadas.size>0&&dadosAno.some(dd=>dd.semDec>0)?h("td",{style:{padding:"5px 8px",textAlign:"right",color:d.semDec>0?"#9A9080":"#3A3530"}},d.semDec>0?(hideVal?"----":fB(d.semDec)):"-"):null
+                ))
+              )
+            )
+          )
+        );
+      })():null,
       // ===== INSIGHT DE CAPACIDADE NOMINAL DE APORTE (>=5 aportes) =====
       aportesSimples.length>=5?(function(){
         // Pega os 5 ultimos aportes (mais recentes)
@@ -23555,28 +23819,62 @@ h("button",{onClick:async()=>{
             else if(pctPatrim>=1){corPct="#C8A96E";labelPct="medio";}
             else{corPct="#7AA0B5";labelPct="baixo";}
           }
-          return h("div",{key:a.id,style:{background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:6,padding:"10px 12px",marginBottom:6,display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}},
-            h("div",{style:{display:"flex",flexDirection:"column",gap:2}},
-              h("span",{style:{fontSize:10,color:"#C8C0B0",fontFamily:"monospace",fontWeight:700}},dateStr),
-              h("span",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace"}},a.date)
-            ),
-            h("div",{style:{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",justifyContent:"flex-end"}},
-              h("div",{style:{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:1}},
-                h("span",{style:{fontFamily:"monospace",fontSize:13,color:"#C8A96E",fontWeight:700}},MV(fB(a.valor))),
-                pctPatrim!==null?h("span",{style:{fontFamily:"monospace",fontSize:8,color:corPct,fontWeight:600,letterSpacing:0.3}},pctPatrim.toFixed(2)+"% patrim. ("+labelPct+")"):null
+          return h("div",{key:a.id,style:{background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:6,padding:"10px 12px",marginBottom:6}},
+            // Linha principal: data + valor + acoes
+            h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}},
+              h("div",{style:{display:"flex",flexDirection:"column",gap:2}},
+                h("span",{style:{fontSize:10,color:"#C8C0B0",fontFamily:"monospace",fontWeight:700}},dateStr),
+                h("span",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace"}},a.date)
               ),
-              h("button",{onClick:()=>removerAporte(a.id),title:"Remover",style:{padding:"4px 8px",background:"rgba(224,82,82,0.12)",color:"#E05252",border:"1px solid rgba(224,82,82,0.30)",borderRadius:4,fontSize:9,fontFamily:"monospace",fontWeight:700,cursor:"pointer"}},"\u2715")
-            )
+              h("div",{style:{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",justifyContent:"flex-end"}},
+                h("div",{style:{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:1}},
+                  h("span",{style:{fontFamily:"monospace",fontSize:13,color:"#C8A96E",fontWeight:700}},MV(fB(a.valor))),
+                  pctPatrim!==null?h("span",{style:{fontFamily:"monospace",fontSize:8,color:corPct,fontWeight:600,letterSpacing:0.3}},pctPatrim.toFixed(2)+"% patrim. ("+labelPct+")"):null
+                ),
+                h("button",{onClick:()=>abrirFormEdicao(a),title:"Editar (adicionar/ajustar decomposicao)",style:{padding:"4px 8px",background:"rgba(91,143,212,0.12)",color:"#5B8FD4",border:"1px solid rgba(91,143,212,0.30)",borderRadius:4,fontSize:9,fontFamily:"monospace",fontWeight:700,cursor:"pointer"}},"\u270E"),
+                h("button",{onClick:()=>removerAporte(a.id),title:"Remover",style:{padding:"4px 8px",background:"rgba(224,82,82,0.12)",color:"#E05252",border:"1px solid rgba(224,82,82,0.30)",borderRadius:4,fontSize:9,fontFamily:"monospace",fontWeight:700,cursor:"pointer"}},"\u2715")
+              )
+            ),
+            // Linha de decomposicao (so se houver classes)
+            (a.classes&&Object.keys(a.classes).length>0)?h("div",{style:{display:"flex",flexWrap:"wrap",gap:4,marginTop:8,paddingTop:7,borderTop:"1px dashed rgba(255,255,255,0.08)"}},
+              CL.filter(c=>a.classes[c.id]>0).map(c=>{
+                const v=a.classes[c.id];
+                const pct=(v/a.valor)*100;
+                return h("div",{key:c.id,title:c.name+": "+MV(fB(v))+" ("+pct.toFixed(1)+"% do aporte)",style:{display:"inline-flex",alignItems:"center",gap:4,padding:"2px 6px",background:c.color+"15",border:"1px solid "+c.color+"40",borderLeft:"2px solid "+c.color,borderRadius:3,fontSize:8,fontFamily:"monospace",cursor:"help"}},
+                  h("span",{style:{color:c.color,fontWeight:700,letterSpacing:0.5}},c.tag),
+                  h("span",{style:{color:"#C8C0B0"}},MV(fB(v)))
+                );
+              })
+            ):h("div",{style:{marginTop:6,fontSize:7.5,color:"#5A5550",fontStyle:"italic",fontFamily:"Georgia,serif"}},"sem decomposicao - clique em \u270E para detalhar por classe")
           );
         })
       ),
-      // ===== GRAFICO DE BARRAS - APORTES MENSAIS (ULT. 24 MESES) =====
+      // ===== GRAFICO DE BARRAS EMPILHADO POR CLASSE - APORTES MENSAIS (ULT. 24 MESES) =====
       h("div",{style:{background:"linear-gradient(135deg,rgba(0,0,0,0.25),rgba(0,0,0,0.10))",border:"1px solid rgba(200,169,110,0.30)",borderRadius:8,padding:"12px 14px",marginBottom:14}},
         // Header
         h("div",{style:{display:"flex",alignItems:"baseline",justifyContent:"space-between",flexWrap:"wrap",gap:6,marginBottom:10}},
-          h("div",{style:{fontSize:10,letterSpacing:2,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,textTransform:"uppercase"}},"\u{1F4CA} Evolu\u00e7\u00e3o dos Aportes Mensais"),
-          h("div",{style:{fontSize:8,color:"#7A7060",fontFamily:"monospace"}},"\u00falt. 24 meses \u2022 agregado por m\u00eas-calend\u00e1rio")
+          h("div",{style:{fontSize:10,letterSpacing:2,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,textTransform:"uppercase"}},"Evolu\u00e7\u00e3o dos Aportes Mensais"),
+          h("div",{style:{fontSize:8,color:"#7A7060",fontFamily:"monospace"}},"\u00falt. 24 meses \u2022 empilhado por classe")
         ),
+        // Legenda das classes (so mostra as que aparecem na serie)
+        (()=>{
+          const classesAparecem=new Set();
+          serie.forEach(s=>s.aportes.forEach(a=>{
+            if(a.classes)Object.keys(a.classes).forEach(cid=>{if(a.classes[cid]>0)classesAparecem.add(cid);});
+            else classesAparecem.add("__sem_decomp__");
+          }));
+          if(classesAparecem.size===0)return null;
+          return h("div",{style:{display:"flex",flexWrap:"wrap",gap:5,marginBottom:10,paddingBottom:8,borderBottom:"1px dashed rgba(255,255,255,0.08)"}},
+            CL.filter(c=>classesAparecem.has(c.id)).map(c=>h("div",{key:c.id,style:{display:"inline-flex",alignItems:"center",gap:3,fontSize:7.5,color:"#9A9080",fontFamily:"monospace"}},
+              h("span",{style:{width:8,height:8,background:c.color,borderRadius:1,display:"inline-block"}}),
+              c.tag
+            )),
+            classesAparecem.has("__sem_decomp__")?h("div",{style:{display:"inline-flex",alignItems:"center",gap:3,fontSize:7.5,color:"#7A7060",fontFamily:"monospace",fontStyle:"italic"}},
+              h("span",{style:{width:8,height:8,background:"#5A5550",borderRadius:1,display:"inline-block"}}),
+              "sem decomp."
+            ):null
+          );
+        })(),
         // Area do grafico
         h("div",{style:{display:"flex",gap:6,marginBottom:6}},
           // Eixo Y (labels esquerda)
@@ -23592,37 +23890,64 @@ h("button",{onClick:async()=>{
             h("div",{style:{position:"relative",height:alturaPx,borderLeft:"1px solid rgba(255,255,255,0.15)",borderBottom:"1px solid rgba(255,255,255,0.15)",minWidth:Math.max(serie.length*22,300)+"px"}},
               // Linhas de grid horizontais
               ...[0.25,0.5,0.75].map((f,i)=>h("div",{key:"grid"+i,style:{position:"absolute",left:0,right:0,top:((1-f)*100)+"%",height:1,background:"rgba(255,255,255,0.04)",pointerEvents:"none"}})),
-              // Linha de media (se houver dados)
+              // Linha de media
               mediaAportada>0&&mediaAportada<maxValor?h("div",{style:{position:"absolute",left:0,right:0,top:((1-mediaAportada/maxValor)*100)+"%",height:0,borderTop:"1.5px dashed rgba(76,175,130,0.50)",pointerEvents:"none",zIndex:2}}):null,
               mediaAportada>0&&mediaAportada<maxValor?h("div",{style:{position:"absolute",right:4,top:"calc("+((1-mediaAportada/maxValor)*100)+"% - 12px)",fontSize:7,color:"#4CAF82",fontFamily:"monospace",fontWeight:700,zIndex:3}},"m\u00e9dia"):null,
-              // Barras (uma coluna por mes)
+              // Barras empilhadas
               h("div",{style:{display:"flex",alignItems:"flex-end",justifyContent:"space-around",gap:2,height:"100%",padding:"0 3px"}},
                 ...serie.map(s=>{
                   const hPct=s.total>0?(s.total/maxValor)*100:0;
-                  const cor=s.total>0?"#C8A96E":"transparent";
+                  // Agrega valores por classe neste mes (somando todos os aportes do mes)
+                  const agregClasses={};
+                  let semDecomp=0;
+                  s.aportes.forEach(a=>{
+                    if(a.classes&&Object.keys(a.classes).length>0){
+                      Object.entries(a.classes).forEach(([cid,v])=>{
+                        agregClasses[cid]=(agregClasses[cid]||0)+v;
+                      });
+                    }else{
+                      semDecomp+=a.valor;
+                    }
+                  });
+                  // Tooltip detalhado
                   const tooltipParts=[s.key];
                   if(s.aportes.length>0){
                     s.aportes.forEach(a=>tooltipParts.push("  "+a.date+": "+fB(a.valor)));
                     tooltipParts.push("Total: "+fB(s.total));
+                    if(Object.keys(agregClasses).length>0){
+                      tooltipParts.push("--- por classe ---");
+                      CL.forEach(c=>{
+                        if(agregClasses[c.id]>0)tooltipParts.push("  "+c.tag+": "+fB(agregClasses[c.id]));
+                      });
+                    }
+                    if(semDecomp>0)tooltipParts.push("  sem decomp.: "+fB(semDecomp));
                   }else{
                     tooltipParts.push("Sem aportes");
                   }
                   return h("div",{key:s.key,style:{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end",height:"100%",position:"relative",maxWidth:24}},
-                    // Valor total acima da barra (so se houver)
+                    // Valor total acima da barra
                     s.total>0?h("div",{style:{position:"absolute",bottom:hPct+"%",left:"50%",transform:"translateX(-50%) translateY(-2px)",fontSize:6.5,color:"#E8DCC0",fontFamily:"monospace",fontWeight:700,whiteSpace:"nowrap",pointerEvents:"none"}},(s.total/1000).toFixed(s.total>=10000?0:1)+"k"):null,
-                    // Barra
-                    h("div",{title:tooltipParts.join("\n"),style:{width:"80%",height:hPct+"%",background:s.total>0?"linear-gradient(180deg,#E0C088,#C8A96E)":"transparent",borderRadius:"3px 3px 0 0",boxShadow:s.total>0?"0 -1px 2px rgba(0,0,0,0.3)":"none",minHeight:s.total>0?2:0}})
+                    // Barra empilhada (segmentos por classe + sem_decomp)
+                    h("div",{title:tooltipParts.join("\n"),style:{width:"80%",height:hPct+"%",display:"flex",flexDirection:"column-reverse",borderRadius:"3px 3px 0 0",overflow:"hidden",boxShadow:s.total>0?"0 -1px 2px rgba(0,0,0,0.3)":"none",minHeight:s.total>0?2:0,background:s.total>0?"rgba(0,0,0,0.20)":"transparent"}},
+                      // Empilha: comeca de baixo, na ordem do CL (FII, BR, EUA, MND, REIT, SEL, TRE, NTNB, XAU, BTC, INF, IMV, AGRO)
+                      ...CL.filter(c=>agregClasses[c.id]>0).map(c=>{
+                        const fSeg=(agregClasses[c.id]/s.total)*100;
+                        return h("div",{key:c.id,style:{width:"100%",height:fSeg+"%",background:c.color,minHeight:1}});
+                      }),
+                      // Segmento "sem decomp" no topo (cinza)
+                      semDecomp>0?h("div",{style:{width:"100%",height:((semDecomp/s.total)*100)+"%",background:"linear-gradient(180deg,#5A5550,#3A3530)",minHeight:1}}):null
+                    )
                   );
                 })
               )
             ),
-            // Labels X (meses) - alinhados sob as barras
+            // Labels X (meses)
             h("div",{style:{display:"flex",justifyContent:"space-around",gap:2,padding:"4px 3px 0",minWidth:Math.max(serie.length*22,300)+"px"}},
               ...serie.map(s=>h("div",{key:"x"+s.key,style:{flex:1,fontSize:6.5,color:"#9A9080",fontFamily:"monospace",textAlign:"center",maxWidth:24,whiteSpace:"nowrap"}},s.label))
             )
           )
         ),
-        // Rodape com stats (so se houver dados)
+        // Rodape com stats
         valoresPositivos.length>0?h("div",{style:{display:"flex",justifyContent:"space-between",fontSize:8,color:"#7A7060",fontFamily:"monospace",marginTop:8,paddingTop:6,borderTop:"1px dashed rgba(255,255,255,0.08)"}},
           h("span",{},"min: ",fB(Math.min(...valoresPositivos))),
           h("span",{},"max: ",fB(Math.max(...valoresPositivos))),
