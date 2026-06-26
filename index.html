@@ -2371,6 +2371,8 @@ function BackfillModalAuxiliar({meses,moedasAtivas,fx,onSave,onClose,fB}){
 function SolidezCard({total,cw,port,metaMensalIF,setTab,fB,hideVal,dataNascimento,cambialCash,rendaMotoraHist,rendaAuxiliarHist,FX}){
   // Estado: qual dimensao esta expandida (null=nenhuma)
   const [dimExpand,setDimExpand]=React.useState(null);
+  // Estado: card todo colapsado (default: collapsed para enxugar dashboard)
+  const [cardExpand,setCardExpand]=React.useState(false);
   try{
     if(!total||total<=0)return null;
     // ============== CALIBRACAO POR IDADE/HORIZONTE (CIENTIFICO) ==============
@@ -2591,16 +2593,17 @@ function SolidezCard({total,cw,port,metaMensalIF,setTab,fB,hideVal,dataNasciment
     else interp="Portfolio estruturalmente insuficiente. Foco em acumulacao - dependencia de salario continua essencial.";
 
     return h("div",{style:{marginBottom:14,padding:"14px 16px",background:"linear-gradient(135deg,rgba(76,175,130,0.07),rgba(168,139,94,0.05))",border:"1px solid rgba(76,175,130,0.25)",borderRadius:10}},
-      // Header
-      h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:11,flexWrap:"wrap"}},
+      // Header (clicavel para expandir/colapsar todo o card)
+      h("div",{onClick:()=>setCardExpand(!cardExpand),style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:11,flexWrap:"wrap",cursor:"pointer",userSelect:"none"}},
         h("div",{style:{display:"flex",alignItems:"center",gap:7}},
+          h("span",{style:{fontFamily:"monospace",fontSize:11,color:"#7A7060",transition:"transform 0.2s",display:"inline-block",transform:cardExpand?"rotate(90deg)":"rotate(0deg)"}},"\u25B6"),
           h("span",{style:{fontSize:14}},"\u{1F3DB}\u{FE0F}"),
           h("div",{},
             h("div",{style:{fontSize:10,letterSpacing:2.5,color:"#4CAF82",fontFamily:"monospace",textTransform:"uppercase",fontWeight:700}},"Solidez Patrimonial"),
             h("div",{style:{fontSize:7,letterSpacing:1,color:"#6A6050",fontFamily:"monospace",marginTop:2}},"calibrado p/ "+idadeAtual+"a \u2022 horizonte "+fireCal.horizonte+"a \u2022 SWR "+(fireCal.swr*100).toFixed(2)+"%")
           )
         ),
-        h("a",{href:"#",onClick:(e)=>{e.preventDefault();setTab("renda");},style:{fontSize:8.5,color:"#9C7DC2",fontFamily:"monospace",textDecoration:"underline",letterSpacing:1}},"VER ABA RENDA \u2192")
+        h("a",{href:"#",onClick:(e)=>{e.preventDefault();e.stopPropagation();setTab("renda");},style:{fontSize:8.5,color:"#9C7DC2",fontFamily:"monospace",textDecoration:"underline",letterSpacing:1}},"VER ABA RENDA \u2192")
       ),
       // Score + banda
       h("div",{style:{display:"grid",gridTemplateColumns:"auto 1fr",gap:14,alignItems:"center"}},
@@ -2628,6 +2631,8 @@ function SolidezCard({total,cw,port,metaMensalIF,setTab,fB,hideVal,dataNasciment
           )
         )
       ),
+      // ===== CONTEUDO COLAPSAVEL (toda decomposicao, calculadora e diagnostico) =====
+      cardExpand?h("div",{},
       // Breakdown detalhado das 5 dimensoes com contribuicao e penalizacao (pesos diferenciados)
       (()=>{
         // Cada dimensao vale ate (peso) pontos do indice final.
@@ -3358,6 +3363,7 @@ function SolidezCard({total,cw,port,metaMensalIF,setTab,fB,hideVal,dataNasciment
           )
         );
       })()
+      ):null
     );
   }catch(e){console.error("Erro SolidezCard:",e);return null;}
 }
@@ -11298,11 +11304,33 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         }))
       );
 
+      // Filtra posicoes acima do teto de 5% do patrimonio (limite duro de risco idiossincratico)
+      const posAcima5pct=Object.entries(port).map(([t,p])=>({t,p,val:pv(t,p,ccy)}))
+        .filter(x=>x.val>0&&total>0&&(x.val/total)*100>=5)
+        .sort((a,b)=>b.val-a.val);
+
       const topPos=h("div",{},
-        h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:9,paddingTop:14,borderTop:"1px solid rgba(255,255,255,0.05)"}},"Maiores posicoes"),
-        ...Object.entries(port).map(([t,p])=>({t,p,val:pv(t,p,ccy)})).filter(x=>x.val>0).sort((a,b)=>b.val-a.val).slice(0,8).map(({t,p,val})=>{
-          const pp=total>0?(val/total)*100:0,cc=ccy[t]||"BRL",cl=CL.find(c=>c.id===(p.classId||cls[t]));
-          return h("div",{key:t,style:{display:"flex",alignItems:"center",padding:"6px 0",borderBottom:"1px solid rgba(255,255,255,0.04)"}},
+        // Header com alerta visual
+        h("div",{style:{display:"flex",alignItems:"center",gap:8,marginBottom:9,paddingTop:14,borderTop:"1px solid rgba(255,255,255,0.05)"}},
+          h("div",{style:{fontSize:9,letterSpacing:3,color:posAcima5pct.length>0?"#E89060":"#7A7060",fontFamily:"monospace",textTransform:"uppercase",display:"flex",alignItems:"center",gap:6}},
+            posAcima5pct.length>0?h("span",{style:{fontSize:13,color:"#E89060",lineHeight:1}},"\u26A0"):null,
+            "Posicoes acima de 5%"
+          ),
+          posAcima5pct.length>0?h("span",{style:{fontSize:8,color:"#E89060",fontFamily:"monospace",fontWeight:700,padding:"2px 6px",background:"rgba(232,144,96,0.12)",border:"1px solid rgba(232,144,96,0.40)",borderRadius:3,letterSpacing:0.5}},posAcima5pct.length+(posAcima5pct.length===1?" ativo":" ativos")):null
+        ),
+        // Explicacao da regra
+        posAcima5pct.length>0?h("div",{style:{fontSize:9,color:"#9A9080",fontStyle:"italic",lineHeight:1.5,marginBottom:9,padding:"7px 9px",background:"rgba(232,144,96,0.05)",border:"1px solid rgba(232,144,96,0.18)",borderRadius:5}},
+          h("strong",{style:{color:"#E89060"}},"Acima do teto inviolavel de 5% do patrimonio total. "),
+          "Estas posicoes ",h("strong",{},"nao receberao aportes")," ate retornarem para abaixo de 5% (via valorizacao das outras classes ou cisao). A regra protege contra risco idiossincratico concentrado, independente da qualidade do ativo."
+        ):h("div",{style:{fontSize:9,color:"#7A7060",fontStyle:"italic",lineHeight:1.5,padding:"7px 9px",background:"rgba(76,175,130,0.05)",border:"1px solid rgba(76,175,130,0.18)",borderRadius:5}},
+          h("strong",{style:{color:"#4CAF82"}},"\u2713 Nenhuma posicao acima de 5%. "),
+          "Risco idiossincratico sob controle - todos os ativos respeitam o teto de concentracao."
+        ),
+        // Lista
+        ...posAcima5pct.map(({t,p,val})=>{
+          const pp=total>0?(val/total)*100:0,cl=CL.find(c=>c.id===(p.classId||cls[t]));
+          const acimaPp=pp-5;
+          return h("div",{key:t,style:{display:"flex",alignItems:"center",padding:"7px 8px",borderBottom:"1px solid rgba(255,255,255,0.04)",background:"rgba(232,144,96,0.04)",borderLeft:"2px solid #E89060",marginBottom:2,borderRadius:"0 4px 4px 0"}},
             h("div",{style:{width:5,height:5,borderRadius:"50%",background:cl?cl.color:"#888",marginRight:7,flexShrink:0}}),
             h("div",{style:{flex:1,minWidth:0,marginRight:7}},
               h("div",{style:{fontFamily:"monospace",fontSize:11,color:"#F0EAD8",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}},isImv(t)?(p.desc||t).slice(0,28):t),
@@ -11310,7 +11338,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
             ),
             h("div",{style:{textAlign:"right",flexShrink:0}},
               h("div",{style:{fontFamily:"monospace",fontSize:11,color:"#F0EAD8"}},MV(fB(val))),
-              h("div",{style:{fontSize:9,color:"#5A5550",fontFamily:"monospace"}},pc(pp))
+              h("div",{style:{fontSize:9,color:"#E89060",fontFamily:"monospace",fontWeight:700}},pc(pp)," ",h("span",{style:{fontSize:7.5,color:"#E89060",opacity:0.8}},"(+"+acimaPp.toFixed(1)+"pp)"))
             )
           );
         })
@@ -11359,12 +11387,8 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           ),
           h("div",{style:{fontSize:8,color:"#7A7060",marginTop:6,paddingLeft:18,fontStyle:"italic"}},"Clique em ",h("strong",{style:{color:"#E8C44A"}},"atualizar")," para regenerar com os dados atuais.")
         ),
-        // ===== LAYOUT: ilustracao (lateral em desktop, topo em mobile) + texto =====
-        h("div",{style:{display:"flex",flexDirection:ehLargo?"row":"column",gap:ehLargo?16:12,alignItems:"flex-start"}},
-          // Coluna ilustracao
-          escalada?h("div",{style:{flex:ehLargo?"0 0 220px":"none",width:ehLargo?"auto":"100%",maxWidth:ehLargo?220:280,alignSelf:ehLargo?"flex-start":"center"}},
-            h(EscaladaPatrimonialIllust,{escalada,hideVal})
-          ):null,
+        // ===== LAYOUT: somente texto (ilustracao da montanha removida para enxugar dashboard) =====
+        h("div",{style:{width:"100%"}},
           // Coluna texto
           h("div",{style:{flex:1,minWidth:0,width:"100%"}},
             insightLoad&&!insight?h("div",{style:{padding:"12px 0",color:"#8A8070",fontSize:11,fontStyle:"italic",textAlign:"center"}},"Analisando portfolio..."):
@@ -11454,7 +11478,7 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
         )
       );
 
-      content=h("div",{},dateHeader,h(BolsasCard,{port,cls}),h(SolidezCard,{total,cw,port,metaMensalIF,setTab,fB,hideVal,dataNascimento,cambialCash,rendaMotoraHist,rendaAuxiliarHist,FX}),h(ModelosPortfolioMap,{cw,selicAtual,hideVal}),aporteCard,insightCard,h(AllocChart,{cw,ct,fB,MV,hideVal}),h(DiversificationCard,{cw,setTab}),h(EvolChart,{histMensal,hist,showUSD,setShowUSD,hideVal}),h(ComparativoChart,{histMensal,idxMensal,hideVal}),insightMensalCard,h(HeatmapChart,{hist,histMensal}),h(CurrencyChart,{port,cls,hideVal,cambialCash}),topPos);
+      content=h("div",{},dateHeader,h(BolsasCard,{port,cls}),h(SolidezCard,{total,cw,port,metaMensalIF,setTab,fB,hideVal,dataNascimento,cambialCash,rendaMotoraHist,rendaAuxiliarHist,FX}),h(ModelosPortfolioMap,{cw,selicAtual,hideVal}),aporteCard,insightCard,h(AllocChart,{cw,ct,fB,MV,hideVal}),h(DiversificationCard,{cw,setTab}),h(EvolChart,{histMensal,hist,showUSD,setShowUSD,hideVal}),h(ComparativoChart,{histMensal,idxMensal,hideVal}),insightMensalCard,h(HeatmapChart,{hist,histMensal}),topPos);
     }
   }  // POSITIONS
   if(tab==="positions"||tab==="correlacao"){
@@ -21698,6 +21722,9 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
           )
         )
       ),
+
+      // Grafico de Exposicao Cambial (movido do dashboard) - mostra distribuicao das exposicoes do portfolio total nas diferentes moedas
+      h(CurrencyChart,{port,cls,hideVal,cambialCash}),
 
       // Card grande com as linhas dinamicas de moedas do portfolio
       h("div",{style:{padding:"14px 16px",background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:10,marginBottom:14}},
