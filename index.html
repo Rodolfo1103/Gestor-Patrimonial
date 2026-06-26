@@ -6058,6 +6058,365 @@ function PreviewRaciocinio({cw,total,selicAtual,ipcaAnual,ntnbTaxas,mvrvZ,piCycl
   );
 }
 
+// ============== DOCS E NOTAS POR ATIVO (Fase 1) ==============
+// Componente expansivel que permite cadastrar URLs HTTPS de documentos
+// (ITR, DFP, RG, FR, AGO, Apresentacao, etc.) e anotacoes pessoais.
+// Constroi um historico cronologico do ativo ao longo dos anos.
+// Cada item tem: id (uuid), data, addedAt, arquivado, consolidado.
+// "Arquivado" remove da listagem padrao mas preserva.
+// "Consolidado" indica que o item ja foi absorvido em um resumo periodico
+// (sera usado em Fase 4 - resumo periodico semestral).
+function DocsNotasCard({ticker,port,setPort,hideVal}){
+  const pos=port[ticker]||{};
+  const docs=Array.isArray(pos.docs)?pos.docs:[];
+  const notas=Array.isArray(pos.notas)?pos.notas:[];
+  const resumos=Array.isArray(pos.resumos)?pos.resumos:[];
+
+  const [aberto,setAberto]=React.useState(false);
+  const [formTipo,setFormTipo]=React.useState(null);// "doc" | "nota" | null
+  const [filtro,setFiltro]=React.useState("ativos");// "ativos" | "arquivados" | "todos"
+
+  // Form de DOC
+  const [fUrl,setFUrl]=React.useState("");
+  const [fTitulo,setFTitulo]=React.useState("");
+  const [fTipo,setFTipo]=React.useState("ITR");
+  const [fData,setFData]=React.useState(()=>new Date().toISOString().slice(0,10));
+  const [fObs,setFObs]=React.useState("");
+  const [erroForm,setErroForm]=React.useState("");
+
+  // Form de NOTA
+  const [nTexto,setNTexto]=React.useState("");
+  const [nData,setNData]=React.useState(()=>new Date().toISOString().slice(0,10));
+
+  // Tipos disponiveis
+  const TIPOS_DOC=[
+    {id:"ITR",label:"ITR",cor:"#5B8FD4",desc:"Informacoes Trimestrais"},
+    {id:"DFP",label:"DFP",cor:"#5B8FD4",desc:"Demonstracoes Financeiras Padronizadas"},
+    {id:"RG",label:"RG",cor:"#4CAF82",desc:"Relatorio Gerencial (FII)"},
+    {id:"IM",label:"InfMensal",cor:"#4CAF82",desc:"Informe Mensal (FII)"},
+    {id:"FR",label:"FR",cor:"#E89060",desc:"Fato Relevante"},
+    {id:"AGO",label:"AGO/AGE",cor:"#C8A96E",desc:"Assembleia"},
+    {id:"APR",label:"Apresent.",cor:"#9C7DC2",desc:"Apresentacao Institucional"},
+    {id:"PR",label:"Press Rel.",cor:"#9C7DC2",desc:"Press Release"},
+    {id:"OUTRO",label:"Outro",cor:"#7A7060",desc:"Outro tipo"}
+  ];
+  const tipoInfo=(id)=>TIPOS_DOC.find(t=>t.id===id)||TIPOS_DOC[TIPOS_DOC.length-1];
+
+  // Helper: gerar UUID simples
+  const uuid=()=>"x"+Math.random().toString(36).slice(2,10)+Date.now().toString(36);
+
+  // Persistencia: atualiza port[ticker] preservando outros campos
+  const atualizaPort=(mods)=>{
+    setPort(prev=>({...prev,[ticker]:{...prev[ticker],...mods}}));
+  };
+
+  // === ADICIONAR DOC ===
+  const adicionarDoc=()=>{
+    setErroForm("");
+    const url=fUrl.trim();
+    const titulo=fTitulo.trim();
+    if(!url){setErroForm("URL obrigatoria");return;}
+    if(!url.toLowerCase().startsWith("https://")){
+      setErroForm("URL deve comecar com https:// (somente HTTPS por seguranca)");
+      return;
+    }
+    if(!titulo){setErroForm("Titulo obrigatorio");return;}
+    if(!fData){setErroForm("Data do documento obrigatoria");return;}
+    const novo={
+      id:uuid(),
+      url:url,
+      titulo:titulo,
+      tipo:fTipo,
+      data:fData,
+      obs:fObs.trim(),
+      addedAt:Date.now(),
+      arquivado:false,
+      consolidado:false
+    };
+    atualizaPort({docs:[...docs,novo]});
+    // Limpa form
+    setFUrl("");setFTitulo("");setFObs("");
+    setFData(new Date().toISOString().slice(0,10));
+    setFTipo("ITR");
+    setFormTipo(null);
+  };
+
+  // === ADICIONAR NOTA ===
+  const adicionarNota=()=>{
+    setErroForm("");
+    const texto=nTexto.trim();
+    if(!texto){setErroForm("Texto da nota obrigatorio");return;}
+    if(texto.length<5){setErroForm("Nota muito curta (min 5 caracteres)");return;}
+    if(!nData){setErroForm("Data obrigatoria");return;}
+    const novo={
+      id:uuid(),
+      texto:texto,
+      data:nData,
+      addedAt:Date.now(),
+      arquivado:false,
+      consolidado:false
+    };
+    atualizaPort({notas:[...notas,novo]});
+    setNTexto("");
+    setNData(new Date().toISOString().slice(0,10));
+    setFormTipo(null);
+  };
+
+  // === ARQUIVAR / DESARQUIVAR / DELETAR ===
+  const toggleArquivar=(tipo,id)=>{
+    if(tipo==="doc"){
+      const novo=docs.map(d=>d.id===id?{...d,arquivado:!d.arquivado}:d);
+      atualizaPort({docs:novo});
+    }else{
+      const novo=notas.map(n=>n.id===id?{...n,arquivado:!n.arquivado}:n);
+      atualizaPort({notas:novo});
+    }
+  };
+  const deletar=(tipo,id,label)=>{
+    if(!confirm("Deletar permanentemente "+label+"?\n\nIsso nao pode ser desfeito. Considere arquivar em vez de deletar para preservar o historico do ativo."))return;
+    if(tipo==="doc"){
+      atualizaPort({docs:docs.filter(d=>d.id!==id)});
+    }else{
+      atualizaPort({notas:notas.filter(n=>n.id!==id)});
+    }
+  };
+
+  // === EDICAO INLINE ===
+  // Estado de edicao: qual item esta sendo editado e o valor temporario
+  const [editandoId,setEditandoId]=React.useState(null);
+  const [editTitulo,setEditTitulo]=React.useState("");
+  const [editObs,setEditObs]=React.useState("");
+  const [editTexto,setEditTexto]=React.useState("");
+
+  const iniciarEdicao=(item)=>{
+    setEditandoId(item.id);
+    if(item.kind==="doc"){
+      setEditTitulo(item.titulo||"");
+      setEditObs(item.obs||"");
+    }else{
+      setEditTexto(item.texto||"");
+    }
+  };
+  const cancelarEdicao=()=>{
+    setEditandoId(null);
+    setEditTitulo("");setEditObs("");setEditTexto("");
+  };
+  const salvarEdicao=(tipo,id)=>{
+    if(tipo==="doc"){
+      const tit=editTitulo.trim();
+      if(!tit){alert("Titulo nao pode ficar vazio.");return;}
+      atualizaPort({docs:docs.map(d=>d.id===id?{...d,titulo:tit,obs:editObs.trim()}:d)});
+    }else{
+      const txt=editTexto.trim();
+      if(txt.length<5){alert("Texto da nota muito curto (min 5 caracteres).");return;}
+      atualizaPort({notas:notas.map(n=>n.id===id?{...n,texto:txt}:n)});
+    }
+    cancelarEdicao();
+  };
+
+  // === FORMATADOR DE DATA DE ENVIO PARA IA ===
+  // Recebe timestamp e retorna string legivel: "15/06/2026" ou "ha 3 dias"
+  const fmtEnvio=(ts)=>{
+    if(!ts)return"";
+    const d=new Date(ts);
+    const dias=Math.floor((Date.now()-ts)/(1000*60*60*24));
+    if(dias===0)return"hoje";
+    if(dias===1)return"ontem";
+    if(dias<7)return"ha "+dias+" dias";
+    return d.toLocaleDateString("pt-BR");
+  };
+
+  // === LISTA UNIFICADA (docs + notas) ordenada por data desc ===
+  const itensUnificados=(()=>{
+    const arr=[];
+    docs.forEach(d=>arr.push({kind:"doc",...d}));
+    notas.forEach(n=>arr.push({kind:"nota",...n}));
+    // Filtro
+    let filtrado=arr;
+    if(filtro==="ativos")filtrado=arr.filter(x=>!x.arquivado);
+    else if(filtro==="arquivados")filtrado=arr.filter(x=>x.arquivado);
+    // Ordenar por data desc
+    filtrado.sort((a,b)=>{
+      const da=a.data||"";const db=b.data||"";
+      if(da>db)return -1;if(da<db)return 1;
+      return (b.addedAt||0)-(a.addedAt||0);
+    });
+    return filtrado;
+  })();
+
+  const totalAtivos=docs.filter(d=>!d.arquivado).length+notas.filter(n=>!n.arquivado).length;
+  const totalArquivados=docs.filter(d=>d.arquivado).length+notas.filter(n=>n.arquivado).length;
+  const totalEnviados=docs.filter(d=>d.enviadoEm).length+notas.filter(n=>n.enviadoEm).length;
+  const totalConsolidados=docs.filter(d=>d.consolidado).length+notas.filter(n=>n.consolidado).length;
+  const temResumos=resumos.length>0;
+
+  return h("div",{style:{marginTop:8,background:"rgba(91,143,212,0.04)",border:"1px dashed rgba(91,143,212,0.20)",borderRadius:5,overflow:"hidden"}},
+    // Header clicavel
+    h("div",{onClick:()=>setAberto(!aberto),style:{cursor:"pointer",padding:"7px 10px",display:"flex",alignItems:"center",justifyContent:"space-between",userSelect:"none"}},
+      h("div",{style:{display:"flex",alignItems:"center",gap:7}},
+        h("span",{style:{fontFamily:"monospace",fontSize:9,color:"#7A7060",transition:"transform 0.2s",display:"inline-block",transform:aberto?"rotate(90deg)":"rotate(0deg)"}},"\u25B6"),
+        h("span",{style:{fontSize:11}},"\u{1F4CE}"),
+        h("span",{style:{fontSize:9,letterSpacing:1,color:"#5B8FD4",fontFamily:"monospace",fontWeight:700}},"DOCS & NOTAS"),
+        totalAtivos>0?h("span",{style:{fontSize:8,color:"#5B8FD4",fontFamily:"monospace",padding:"1px 5px",background:"rgba(91,143,212,0.12)",borderRadius:3}},totalAtivos+" ativos"):null,
+        totalArquivados>0?h("span",{style:{fontSize:8,color:"#7A7060",fontFamily:"monospace",padding:"1px 5px",background:"rgba(255,255,255,0.04)",borderRadius:3}},totalArquivados+" arq"):null,
+        totalEnviados>0?h("span",{title:totalEnviados+" item(ns) ja foram enviados a IA em alguma analise",style:{fontSize:8,color:"#9C7DC2",fontFamily:"monospace",padding:"1px 5px",background:"rgba(156,125,194,0.12)",borderRadius:3,cursor:"help"}},"\u{1F916} "+totalEnviados):null,
+        totalConsolidados>0?h("span",{title:totalConsolidados+" item(ns) ja foram consolidados em resumo periodico",style:{fontSize:8,color:"#C8A96E",fontFamily:"monospace",padding:"1px 5px",background:"rgba(200,169,110,0.12)",borderRadius:3,cursor:"help"}},"\u{1F4CB} "+totalConsolidados):null,
+        temResumos?h("span",{style:{fontSize:8,color:"#C8A96E",fontFamily:"monospace",padding:"1px 5px",background:"rgba(200,169,110,0.12)",borderRadius:3}},resumos.length+" resumos"):null
+      ),
+      h("span",{style:{fontSize:7.5,color:"#7A7060",fontFamily:"monospace",fontStyle:"italic"}},aberto?"clique para fechar":"clique para abrir")
+    ),
+    // Conteudo expansivel
+    aberto?h("div",{style:{padding:"0 10px 10px",borderTop:"1px solid rgba(91,143,212,0.15)"}},
+      // Barra de acoes (botoes + filtro)
+      h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:6,marginTop:8,marginBottom:8,flexWrap:"wrap"}},
+        h("div",{style:{display:"flex",gap:5}},
+          h("button",{onClick:()=>{setFormTipo(formTipo==="doc"?null:"doc");setErroForm("");},style:{padding:"4px 9px",background:formTipo==="doc"?"rgba(91,143,212,0.25)":"rgba(91,143,212,0.10)",border:"1px solid rgba(91,143,212,0.40)",color:"#9ABFE5",fontSize:9,cursor:"pointer",borderRadius:3,fontFamily:"monospace",letterSpacing:0.5}},"+ documento"),
+          h("button",{onClick:()=>{setFormTipo(formTipo==="nota"?null:"nota");setErroForm("");},style:{padding:"4px 9px",background:formTipo==="nota"?"rgba(200,169,110,0.25)":"rgba(200,169,110,0.10)",border:"1px solid rgba(200,169,110,0.40)",color:"#E0C896",fontSize:9,cursor:"pointer",borderRadius:3,fontFamily:"monospace",letterSpacing:0.5}},"+ nota")
+        ),
+        h("div",{style:{display:"flex",gap:3}},
+          ["ativos","arquivados","todos"].map(f=>h("button",{key:f,onClick:()=>setFiltro(f),style:{padding:"3px 7px",background:filtro===f?"rgba(255,255,255,0.10)":"transparent",border:"1px solid rgba(255,255,255,0.15)",color:filtro===f?"#E0D8C5":"#7A7060",fontSize:8,cursor:"pointer",borderRadius:3,fontFamily:"monospace"}},f))
+        )
+      ),
+
+      // FORM: adicionar DOCUMENTO
+      formTipo==="doc"?h("div",{style:{background:"rgba(91,143,212,0.06)",border:"1px solid rgba(91,143,212,0.25)",borderRadius:4,padding:"9px 10px",marginBottom:8}},
+        h("div",{style:{fontSize:8.5,color:"#9ABFE5",fontFamily:"monospace",letterSpacing:1,marginBottom:7}},"NOVO DOCUMENTO"),
+        // URL
+        h("div",{style:{marginBottom:6}},
+          h("label",{style:{display:"block",fontSize:8,color:"#7A7060",fontFamily:"monospace",marginBottom:2,letterSpacing:0.5}},"URL (https://...)"),
+          h("input",{type:"url",value:fUrl,onChange:e=>setFUrl(e.target.value),placeholder:"https://www.cvm.gov.br/...",style:{width:"100%",padding:"5px 7px",background:"rgba(0,0,0,0.30)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:3,color:"#E8E2D5",fontSize:10,fontFamily:"monospace",boxSizing:"border-box"}})
+        ),
+        // Titulo + tipo
+        h("div",{style:{display:"grid",gridTemplateColumns:"1fr 110px",gap:6,marginBottom:6}},
+          h("div",{},
+            h("label",{style:{display:"block",fontSize:8,color:"#7A7060",fontFamily:"monospace",marginBottom:2,letterSpacing:0.5}},"Titulo"),
+            h("input",{type:"text",value:fTitulo,onChange:e=>setFTitulo(e.target.value),placeholder:"ex: ITR 3T26",style:{width:"100%",padding:"5px 7px",background:"rgba(0,0,0,0.30)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:3,color:"#E8E2D5",fontSize:10,fontFamily:"monospace",boxSizing:"border-box"}})
+          ),
+          h("div",{},
+            h("label",{style:{display:"block",fontSize:8,color:"#7A7060",fontFamily:"monospace",marginBottom:2,letterSpacing:0.5}},"Tipo"),
+            h("select",{value:fTipo,onChange:e=>setFTipo(e.target.value),style:{width:"100%",padding:"5px 7px",background:"rgba(0,0,0,0.30)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:3,color:"#E8E2D5",fontSize:10,fontFamily:"monospace",boxSizing:"border-box"}},
+              TIPOS_DOC.map(t=>h("option",{key:t.id,value:t.id,title:t.desc},t.label))
+            )
+          )
+        ),
+        // Data + obs
+        h("div",{style:{display:"grid",gridTemplateColumns:"130px 1fr",gap:6,marginBottom:6}},
+          h("div",{},
+            h("label",{style:{display:"block",fontSize:8,color:"#7A7060",fontFamily:"monospace",marginBottom:2,letterSpacing:0.5}},"Data do doc"),
+            h("input",{type:"date",value:fData,onChange:e=>setFData(e.target.value),style:{width:"100%",padding:"5px 7px",background:"rgba(0,0,0,0.30)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:3,color:"#E8E2D5",fontSize:10,fontFamily:"monospace",boxSizing:"border-box"}})
+          ),
+          h("div",{},
+            h("label",{style:{display:"block",fontSize:8,color:"#7A7060",fontFamily:"monospace",marginBottom:2,letterSpacing:0.5}},"Obs (opcional)"),
+            h("input",{type:"text",value:fObs,onChange:e=>setFObs(e.target.value),placeholder:"ex: guidance Capex 2027",style:{width:"100%",padding:"5px 7px",background:"rgba(0,0,0,0.30)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:3,color:"#E8E2D5",fontSize:10,fontFamily:"monospace",boxSizing:"border-box"}})
+          )
+        ),
+        // Erro + acoes
+        erroForm?h("div",{style:{fontSize:8.5,color:"#E05252",marginBottom:6,fontStyle:"italic"}},"\u26A0 "+erroForm):null,
+        h("div",{style:{display:"flex",gap:6,justifyContent:"flex-end"}},
+          h("button",{onClick:()=>{setFormTipo(null);setErroForm("");},style:{padding:"4px 10px",background:"transparent",border:"1px solid rgba(255,255,255,0.15)",color:"#7A7060",fontSize:9,cursor:"pointer",borderRadius:3,fontFamily:"monospace"}},"cancelar"),
+          h("button",{onClick:adicionarDoc,style:{padding:"4px 12px",background:"rgba(91,143,212,0.25)",border:"1px solid rgba(91,143,212,0.50)",color:"#9ABFE5",fontSize:9,cursor:"pointer",borderRadius:3,fontFamily:"monospace",fontWeight:700,letterSpacing:0.5}},"adicionar")
+        )
+      ):null,
+
+      // FORM: adicionar NOTA
+      formTipo==="nota"?h("div",{style:{background:"rgba(200,169,110,0.06)",border:"1px solid rgba(200,169,110,0.25)",borderRadius:4,padding:"9px 10px",marginBottom:8}},
+        h("div",{style:{fontSize:8.5,color:"#E0C896",fontFamily:"monospace",letterSpacing:1,marginBottom:7}},"NOVA NOTA / ANOTACAO"),
+        // Data
+        h("div",{style:{marginBottom:6,maxWidth:160}},
+          h("label",{style:{display:"block",fontSize:8,color:"#7A7060",fontFamily:"monospace",marginBottom:2,letterSpacing:0.5}},"Data"),
+          h("input",{type:"date",value:nData,onChange:e=>setNData(e.target.value),style:{width:"100%",padding:"5px 7px",background:"rgba(0,0,0,0.30)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:3,color:"#E8E2D5",fontSize:10,fontFamily:"monospace",boxSizing:"border-box"}})
+        ),
+        // Texto
+        h("div",{style:{marginBottom:6}},
+          h("label",{style:{display:"block",fontSize:8,color:"#7A7060",fontFamily:"monospace",marginBottom:2,letterSpacing:0.5}},"Texto da anotacao"),
+          h("textarea",{value:nTexto,onChange:e=>setNTexto(e.target.value),placeholder:"Ex: Guidance de Capex 2027 reiterado em R$X bi. Empresa mencionou desafio com seca no MS, mas plantio iniciou conforme cronograma. Acompanhar volume de chuva nos proximos 60 dias.",rows:4,style:{width:"100%",padding:"6px 7px",background:"rgba(0,0,0,0.30)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:3,color:"#E8E2D5",fontSize:10,fontFamily:"Georgia,serif",lineHeight:1.5,resize:"vertical",boxSizing:"border-box"}})
+        ),
+        // Erro + acoes
+        erroForm?h("div",{style:{fontSize:8.5,color:"#E05252",marginBottom:6,fontStyle:"italic"}},"\u26A0 "+erroForm):null,
+        h("div",{style:{display:"flex",gap:6,justifyContent:"flex-end"}},
+          h("button",{onClick:()=>{setFormTipo(null);setErroForm("");},style:{padding:"4px 10px",background:"transparent",border:"1px solid rgba(255,255,255,0.15)",color:"#7A7060",fontSize:9,cursor:"pointer",borderRadius:3,fontFamily:"monospace"}},"cancelar"),
+          h("button",{onClick:adicionarNota,style:{padding:"4px 12px",background:"rgba(200,169,110,0.25)",border:"1px solid rgba(200,169,110,0.50)",color:"#E0C896",fontSize:9,cursor:"pointer",borderRadius:3,fontFamily:"monospace",fontWeight:700,letterSpacing:0.5}},"adicionar")
+        )
+      ):null,
+
+      // LISTA DE ITENS
+      itensUnificados.length===0?h("div",{style:{padding:"14px 8px",textAlign:"center",fontSize:9.5,color:"#7A7060",fontStyle:"italic",fontFamily:"Georgia,serif"}},
+        filtro==="ativos"?"Nenhum documento ou nota cadastrada. Comece adicionando o ultimo balanco trimestral.":
+        filtro==="arquivados"?"Nenhum item arquivado.":
+        "Nenhum item cadastrado."
+      ):h("div",{style:{display:"flex",flexDirection:"column",gap:5}},
+        itensUnificados.map(item=>{
+          const isArq=item.arquivado;
+          if(item.kind==="doc"){
+            const ti=tipoInfo(item.tipo);
+            const editando=editandoId===item.id;
+            return h("div",{key:item.id,style:{background:isArq?"rgba(0,0,0,0.20)":"rgba(91,143,212,0.05)",borderLeft:"2px solid "+(isArq?"#5A5550":ti.cor),borderRadius:"0 4px 4px 0",padding:"7px 9px",opacity:isArq?0.55:1}},
+              h("div",{style:{display:"flex",alignItems:"baseline",justifyContent:"space-between",gap:6,marginBottom:3,flexWrap:"wrap"}},
+                h("div",{style:{display:"flex",alignItems:"baseline",gap:6,flexWrap:"wrap"}},
+                  h("span",{style:{fontSize:8,padding:"1px 5px",background:ti.cor+"22",border:"1px solid "+ti.cor+"55",color:ti.cor,borderRadius:2,fontFamily:"monospace",fontWeight:700,letterSpacing:0.5}},ti.label),
+                  // Titulo (editavel inline)
+                  editando?h("input",{type:"text",value:editTitulo,onChange:e=>setEditTitulo(e.target.value),autoFocus:true,style:{padding:"2px 5px",background:"rgba(0,0,0,0.40)",border:"1px solid rgba(91,143,212,0.50)",borderRadius:2,color:"#E8E2D5",fontSize:10,fontFamily:"monospace",fontWeight:600,minWidth:140}}):h("span",{style:{fontSize:10,color:"#E8E2D5",fontFamily:"monospace",fontWeight:600}},hideVal?"----":item.titulo),
+                  h("span",{style:{fontSize:8,color:"#7A7060",fontFamily:"monospace"}},item.data),
+                  // Icones de status
+                  item.enviadoEm?h("span",{title:"Enviado a IA "+fmtEnvio(item.enviadoEm)+(item.enviadoTipo==="profunda"?" (analise profunda, conteudo do PDF lido via fetch)":" (analise normal, somente metadados)"),style:{fontSize:9.5,padding:"0 3px",cursor:"help"}},item.enviadoTipo==="profunda"?"\u{1F916}\u2728":"\u{1F916}"):null,
+                  item.consolidado?h("span",{title:"Consolidado em resumo periodico (Fase 4) - nao envia mais como cru no prompt, somente pelo resumo",style:{fontSize:9.5,padding:"0 3px",cursor:"help"}},"\u{1F4CB}"):null
+                ),
+                h("div",{style:{display:"flex",gap:3}},
+                  editando?[
+                    h("button",{key:"save",onClick:()=>salvarEdicao("doc",item.id),title:"Salvar",style:{background:"rgba(76,175,130,0.15)",border:"1px solid rgba(76,175,130,0.40)",color:"#4CAF82",fontSize:10,padding:"2px 6px",cursor:"pointer",borderRadius:2,fontFamily:"monospace",fontWeight:700}},"\u2713"),
+                    h("button",{key:"cancel",onClick:cancelarEdicao,title:"Cancelar",style:{background:"transparent",border:"1px solid rgba(255,255,255,0.15)",color:"#7A7060",fontSize:10,padding:"2px 6px",cursor:"pointer",borderRadius:2,fontFamily:"monospace"}},"\u00D7")
+                  ]:[
+                    h("button",{key:"edit",onClick:()=>iniciarEdicao(item),title:"Editar legenda",style:{background:"transparent",border:"1px solid rgba(255,255,255,0.10)",color:"#7A7060",fontSize:9,padding:"2px 5px",cursor:"pointer",borderRadius:2,fontFamily:"monospace"}},"\u270E"),
+                    h("button",{key:"arch",onClick:()=>toggleArquivar("doc",item.id),title:isArq?"Desarquivar":"Arquivar",style:{background:"transparent",border:"1px solid rgba(255,255,255,0.10)",color:"#7A7060",fontSize:9,padding:"2px 5px",cursor:"pointer",borderRadius:2,fontFamily:"monospace"}},isArq?"\u2191":"\u2193"),
+                    h("button",{key:"del",onClick:()=>deletar("doc",item.id,item.titulo),title:"Deletar",style:{background:"transparent",border:"1px solid rgba(224,82,82,0.20)",color:"#E05252",fontSize:9,padding:"2px 5px",cursor:"pointer",borderRadius:2,fontFamily:"monospace"}},"\u00D7")
+                  ]
+                )
+              ),
+              !hideVal?h("a",{href:item.url,target:"_blank",rel:"noopener noreferrer",style:{display:"block",fontSize:8.5,color:"#5B8FD4",fontFamily:"monospace",textDecoration:"none",wordBreak:"break-all",marginTop:2,opacity:0.85}},item.url.length>80?item.url.slice(0,77)+"...":item.url):h("div",{style:{fontSize:8.5,color:"#5A5550",fontStyle:"italic",marginTop:2}},"URL oculta (modo apresentacao)"),
+              // Legenda (obs) - editavel inline
+              editando?h("div",{style:{marginTop:4}},
+                h("label",{style:{display:"block",fontSize:7.5,color:"#7A7060",fontFamily:"monospace",marginBottom:2,letterSpacing:0.5}},"LEGENDA / OBS"),
+                h("input",{type:"text",value:editObs,onChange:e=>setEditObs(e.target.value),placeholder:"ex: guidance Capex 2027 reiterado, capa do balanco trimestral...",style:{width:"100%",padding:"4px 6px",background:"rgba(0,0,0,0.40)",border:"1px solid rgba(91,143,212,0.50)",borderRadius:2,color:"#E8E2D5",fontSize:9.5,fontFamily:"Georgia,serif",fontStyle:"italic",boxSizing:"border-box"}})
+              ):(item.obs?h("div",{style:{fontSize:9,color:"#9A9080",fontStyle:"italic",marginTop:3,fontFamily:"Georgia,serif",lineHeight:1.4}},hideVal?"----":item.obs):h("div",{style:{fontSize:8,color:"#5A5550",fontStyle:"italic",marginTop:3,fontFamily:"Georgia,serif",opacity:0.65}},"(sem legenda - clique em \u270E para adicionar)"))
+            );
+          }else{
+            // NOTA
+            const editando=editandoId===item.id;
+            return h("div",{key:item.id,style:{background:isArq?"rgba(0,0,0,0.20)":"rgba(200,169,110,0.05)",borderLeft:"2px solid "+(isArq?"#5A5550":"#C8A96E"),borderRadius:"0 4px 4px 0",padding:"7px 9px",opacity:isArq?0.55:1}},
+              h("div",{style:{display:"flex",alignItems:"baseline",justifyContent:"space-between",gap:6,marginBottom:3,flexWrap:"wrap"}},
+                h("div",{style:{display:"flex",alignItems:"baseline",gap:6,flexWrap:"wrap"}},
+                  h("span",{style:{fontSize:8,padding:"1px 5px",background:"rgba(200,169,110,0.18)",border:"1px solid rgba(200,169,110,0.40)",color:"#E0C896",borderRadius:2,fontFamily:"monospace",fontWeight:700,letterSpacing:0.5}},"NOTA"),
+                  h("span",{style:{fontSize:8,color:"#7A7060",fontFamily:"monospace"}},item.data),
+                  // Icones de status
+                  item.enviadoEm?h("span",{title:"Enviada a IA "+fmtEnvio(item.enviadoEm)+(item.enviadoTipo==="profunda"?" (analise profunda)":" (analise normal)"),style:{fontSize:9.5,padding:"0 3px",cursor:"help"}},item.enviadoTipo==="profunda"?"\u{1F916}\u2728":"\u{1F916}"):null,
+                  item.consolidado?h("span",{title:"Consolidada em resumo periodico (Fase 4)",style:{fontSize:9.5,padding:"0 3px",cursor:"help"}},"\u{1F4CB}"):null
+                ),
+                h("div",{style:{display:"flex",gap:3}},
+                  editando?[
+                    h("button",{key:"save",onClick:()=>salvarEdicao("nota",item.id),title:"Salvar",style:{background:"rgba(76,175,130,0.15)",border:"1px solid rgba(76,175,130,0.40)",color:"#4CAF82",fontSize:10,padding:"2px 6px",cursor:"pointer",borderRadius:2,fontFamily:"monospace",fontWeight:700}},"\u2713"),
+                    h("button",{key:"cancel",onClick:cancelarEdicao,title:"Cancelar",style:{background:"transparent",border:"1px solid rgba(255,255,255,0.15)",color:"#7A7060",fontSize:10,padding:"2px 6px",cursor:"pointer",borderRadius:2,fontFamily:"monospace"}},"\u00D7")
+                  ]:[
+                    h("button",{key:"edit",onClick:()=>iniciarEdicao(item),title:"Editar nota",style:{background:"transparent",border:"1px solid rgba(255,255,255,0.10)",color:"#7A7060",fontSize:9,padding:"2px 5px",cursor:"pointer",borderRadius:2,fontFamily:"monospace"}},"\u270E"),
+                    h("button",{key:"arch",onClick:()=>toggleArquivar("nota",item.id),title:isArq?"Desarquivar":"Arquivar",style:{background:"transparent",border:"1px solid rgba(255,255,255,0.10)",color:"#7A7060",fontSize:9,padding:"2px 5px",cursor:"pointer",borderRadius:2,fontFamily:"monospace"}},isArq?"\u2191":"\u2193"),
+                    h("button",{key:"del",onClick:()=>deletar("nota",item.id,"esta nota"),title:"Deletar",style:{background:"transparent",border:"1px solid rgba(224,82,82,0.20)",color:"#E05252",fontSize:9,padding:"2px 5px",cursor:"pointer",borderRadius:2,fontFamily:"monospace"}},"\u00D7")
+                  ]
+                )
+              ),
+              editando?h("textarea",{value:editTexto,onChange:e=>setEditTexto(e.target.value),autoFocus:true,rows:4,style:{width:"100%",padding:"6px 7px",background:"rgba(0,0,0,0.40)",border:"1px solid rgba(200,169,110,0.50)",borderRadius:3,color:"#E8E2D5",fontSize:10,fontFamily:"Georgia,serif",lineHeight:1.5,resize:"vertical",boxSizing:"border-box",marginTop:3}}):h("div",{style:{fontSize:9.5,color:"#C8C0B0",fontFamily:"Georgia,serif",lineHeight:1.5,marginTop:3,whiteSpace:"pre-wrap"}},hideVal?"----":item.texto)
+            );
+          }
+        })
+      ),
+
+      // Dica de uso
+      itensUnificados.length>0?h("div",{style:{marginTop:9,padding:"6px 8px",background:"rgba(91,143,212,0.04)",borderRadius:3,fontSize:8,color:"#7A7060",lineHeight:1.5,fontStyle:"italic",fontFamily:"Georgia,serif"}},
+        "\u{1F4A1} Construindo historico do ativo. A IA usara este conteudo nas proximas analises (Fase 2). Apos ~6 meses, voce podera gerar um resumo periodico que consolida docs e notas antigos (Fase 4)."
+      ):null
+    ):null
+  );
+}
+
+
 function App(){
   const [apiKey,setApiKeyS]=useState("");
   const [brapiKey,setBrapiKeyS]=useState("");
@@ -6112,6 +6471,8 @@ function App(){
   const [riscoRetornoData,setRiscoRetornoData]=useState(null);
   const [riscoRetornoLoad,setRiscoRetornoLoad]=useState(false);
   const [treasuriesValLoad,setTreasuriesValLoad]=useState(false);
+  // Docs por ticker (URLs de balancos/fatos relevantes/apresentacoes) - UI temporaria
+  // ===== END state cleanup =====
   // Calibracoes manuais de tickers fora da tabela PARAMETROS_CONGELADOS
   // {ticker:{tipo,tirMin,margem,crescReal,dyBase}}
   const [calibracoesCustom,setCalibracoesCustom]=useState({});
@@ -9483,6 +9844,19 @@ function App(){
             calibracao:PARAMETROS_CONGELADOS[tk]||calibracoesCustom[tk]||null
           });
           jaAdicionados.add(tk);
+          // === DOCS, NOTAS E RESUMOS para enriquecer historico do ativo ===
+          // Fase 2: envia metadados de docs (URL+titulo+tipo+data+obs), texto integral das notas
+          // e resumos consolidados (Fase 4). Janela movel: 8 docs + 10 notas + todos resumos.
+          const docsTk=Array.isArray(info.docs)?info.docs.filter(d=>d&&d.url&&!d.arquivado&&!d.consolidado):[];
+          const notasTk=Array.isArray(info.notas)?info.notas.filter(n=>n&&n.texto&&!n.arquivado&&!n.consolidado):[];
+          const resumosTk=Array.isArray(info.resumos)?info.resumos:[];
+          // Ordenar por data desc e limitar
+          docsTk.sort((a,b)=>(b.data||"").localeCompare(a.data||""));
+          notasTk.sort((a,b)=>(b.data||"").localeCompare(a.data||""));
+          const last=tickersAnalisar[tickersAnalisar.length-1];
+          if(docsTk.length>0)last.docs=docsTk.slice(0,8);
+          if(notasTk.length>0)last.notas=notasTk.slice(0,10);
+          if(resumosTk.length>0)last.resumos=resumosTk;
         }
       });
       // Garantir TLT/IEF/VTIP sempre presentes (estrategia core de treasuries, mesmo sem posicao em port)
@@ -9491,13 +9865,22 @@ function App(){
         if(apenasSet&&!apenasSet.has(tk))return;
         const info=port[tk]||{};
         const precoAtual=typeof info.price==="number"?info.price:null;
-        tickersAnalisar.push({
+        const docsTk=Array.isArray(info.docs)?info.docs.filter(d=>d&&d.url&&!d.arquivado&&!d.consolidado):[];
+        const notasTk=Array.isArray(info.notas)?info.notas.filter(n=>n&&n.texto&&!n.arquivado&&!n.consolidado):[];
+        const resumosTk=Array.isArray(info.resumos)?info.resumos:[];
+        docsTk.sort((a,b)=>(b.data||"").localeCompare(a.data||""));
+        notasTk.sort((a,b)=>(b.data||"").localeCompare(a.data||""));
+        const entry={
           ticker:tk,
           classe:"treasuries",
           precoAtual:precoAtual||0,
           moeda:"USD",
           calibracao:PARAMETROS_CONGELADOS[tk]||calibracoesCustom[tk]||null
-        });
+        };
+        if(docsTk.length>0)entry.docs=docsTk.slice(0,8);
+        if(notasTk.length>0)entry.notas=notasTk.slice(0,10);
+        if(resumosTk.length>0)entry.resumos=resumosTk;
+        tickersAnalisar.push(entry);
         jaAdicionados.add(tk);
       });
       // ATIVOS EM ESTUDO: tickers cadastrados em BASE+custom das classes elegiveis sem posicao em port
@@ -9507,14 +9890,25 @@ function App(){
         tickersDaClasse.forEach(tk=>{
           if(jaAdicionados.has(tk))return;
           if(apenasSet&&!apenasSet.has(tk))return;
-          tickersAnalisar.push({
+          // Mesmo em estudo, pode ter docs/notas cadastrados (via port[tk] criado proativamente)
+          const info=port[tk]||{};
+          const docsTk=Array.isArray(info.docs)?info.docs.filter(d=>d&&d.url&&!d.arquivado&&!d.consolidado):[];
+          const notasTk=Array.isArray(info.notas)?info.notas.filter(n=>n&&n.texto&&!n.arquivado&&!n.consolidado):[];
+          const resumosTk=Array.isArray(info.resumos)?info.resumos:[];
+          docsTk.sort((a,b)=>(b.data||"").localeCompare(a.data||""));
+          notasTk.sort((a,b)=>(b.data||"").localeCompare(a.data||""));
+          const entry={
             ticker:tk,
             classe:cid,
             precoAtual:0,// sem preco - IA usa apenas fundamentais
             moeda:BCCY[tk]||"BRL",
             calibracao:PARAMETROS_CONGELADOS[tk]||calibracoesCustom[tk]||null,
             emEstudo:true
-          });
+          };
+          if(docsTk.length>0)entry.docs=docsTk.slice(0,8);
+          if(notasTk.length>0)entry.notas=notasTk.slice(0,10);
+          if(resumosTk.length>0)entry.resumos=resumosTk;
+          tickersAnalisar.push(entry);
           jaAdicionados.add(tk);
         });
       });
@@ -9544,6 +9938,22 @@ function App(){
         "- IMPORTANTE: a dataReferencia OBRIGATORIAMENTE deve refletir o periodo do balanco MAIS RECENTE que voce encontrou via web_search (ex: 2026-Q1, 2026-H1, 2025-Q4, 2025-H2). NUNCA usar dados antigos quando ha balanco posterior disponivel. Se um ticker reporta semestralmente, use formato 'AAAA-H1' ou 'AAAA-H2'.\n"+
         "- Limite ate ~25 buscas no total para o batch. Priorize tickers cujos dados de balanco voce nao tem certeza no conhecimento de treino.\n"+
         "- Mencione no campo 'observacao' as fontes principais consultadas E o periodo do balanco usado (ex: 'Dados via AIA H1 2026 interim report' ou 'Wesfarmers FY25 + H1 2026 outlook').\n\n"+
+        "USO DE WEB_FETCH (PRIORITARIO QUANDO HOUVER docs[]):\n"+
+        "- Voce tambem tem a ferramenta web_fetch. Quando um ticker tiver o campo 'docs' (array de {url,titulo,tipo,data,obs}) preenchido, USE web_fetch para ler o conteudo desses documentos ANTES de fazer web_search. Esses sao documentos oficiais selecionados pelo investidor (balancos trimestrais da CVM/RI, fatos relevantes, apresentacoes, relatorios gerenciais de FIIs/FI-Infra/FIAGRO). Tem precedencia sobre fontes terceiras.\n"+
+        "- ORDEM DE PRIORIDADE: docs[].url do ticker > web_search em fontes oficiais (CVM, RI da empresa, SEHK, ASX) > web_search em portais (Status Invest, Funds Explorer, SeekingAlpha).\n"+
+        "- Limite ate 2-3 web_fetch por ticker para nao explodir tokens (priorize o doc mais recente). Use o campo 'data' do doc para identificar o mais novo.\n"+
+        "- Quando usar web_fetch nos docs[] do investidor, MENCIONE explicitamente no campo 'observacao' (ex: 'Dados extraidos do ITR 1T26 fornecido pelo investidor (Bradesco RI)' ou 'Composicao da carteira via Relatorio Gerencial Mar/2026 anexado').\n"+
+        "- Os documentos do investidor sao especialmente uteis para: composicao detalhada da carteira de FIIs de papel/FI-Infra/FIAGRO, notas explicativas de balancos (segmentacao de receita, breakdown de divida), guidance de Capex em apresentacoes, fatos relevantes que mudam tese (M&A, troca de gestao, default).\n"+
+        "- Cada doc tem o campo 'obs' que e a LEGENDA ESCRITA PELO INVESTIDOR explicando porque ele anexou aquele documento (ex: 'guidance Capex 2027 reiterado' ou 'fato relevante sobre default PORTOCEM'). USE essa legenda como guia do que extrair do documento.\n"+
+        "\n"+
+        "HISTORICO CONTEXTUAL DO ATIVO (CRITICO PARA ANALISE B&H DE LONGO PRAZO):\n"+
+        "Cada ticker pode ter 3 campos ADICIONAIS construidos pelo investidor ao longo do tempo:\n"+
+        "- 'docs' (descrito acima): URLs de documentos oficiais com legenda do investidor\n"+
+        "- 'notas': array de {data, texto} com ANOTACOES PESSOAIS do investidor (observacoes que ele extraiu de calls, leituras, conversas). Trate como CONTEXTO QUALITATIVO de quem acompanha o ativo de perto. Cite-as quando relevantes (ex: 'investidor anotou em 15/03/2026 que gestao reiterou guidance').\n"+
+        "- 'resumos': array de {periodo, texto, geradoEm, selicEpoca} com RESUMOS PERIODICOS consolidados de fases anteriores. Esses sintetizam a evolucao da tese ao longo dos semestres/anos. Use como BASELINE da tese estabelecida - sua analise atual deve dialogar com esses resumos (continuidade, mudancas, novidades).\n"+
+        "- COMO PRIORIZAR: resumos = baseline estrutural da tese; notas = adicoes qualitativas recentes; docs = fontes brutas com legenda; web_search = complementa lacunas.\n"+
+        "- Quando usar notas/resumos na analise, MENCIONE no campo 'observacao' (ex: 'Tese alinhada com resumo H1 2026; investidor anotou em 22/05/2026 preocupacao com seca em MS').\n"+
+        "\n"+
         "REGRAS CRITICAS:\n"+
         "1) Para CADA ticker fornecido neste batch, retornar uma entrada COMPLETA. NAO PULAR NENHUM ticker.\n"+
         "2) DADOS FUNDAMENTAIS DEVEM SER ANCORADOS NO BALANCO MAIS RECENTE encontrado via web_search. Indicar 'dataReferencia' (ano-mes-Q ou ano-mes).\n"+
@@ -9690,6 +10100,10 @@ function App(){
         type:"web_search_20250305",
         name:"web_search",
         max_uses:25
+      },{
+        type:"web_fetch_20250910",
+        name:"web_fetch",
+        max_uses:30
       }];
       // Processar batches sequencialmente
       // RATE LIMIT: web_search faz cada batch consumir ~25k tokens input. Limite Anthropic e 30k/min.
@@ -9717,7 +10131,7 @@ function App(){
                 "Content-Type":"application/json",
                 "x-api-key":apiKey,
                 "anthropic-version":"2023-06-01",
-                "anthropic-beta":"web-search-2025-03-05",
+                "anthropic-beta":"web-search-2025-03-05,web-fetch-2025-09-10",
                 "anthropic-dangerous-direct-browser-access":"true"
               },
               body:JSON.stringify({
@@ -9856,6 +10270,48 @@ function App(){
             log("  Batch "+(bi+1)+" salvo em rrdata-v1 ("+Object.keys(mergeBatch).length+" tickers acumulados)");
           }catch(ePB){log("  Batch "+(bi+1)+" erro salvar: "+(ePB.message||ePB));}
           setRiscoRetornoData(estadoBatch);
+
+          // === FASE 2: marcar docs/notas deste batch como enviados a IA ===
+          // Coleta IDs dos items que foram enviados neste batch (somente dos tickers que retornaram resposta)
+          // e marca-os com enviadoEm/enviadoTipo no port[ticker]
+          try{
+            const tickersComResposta=Object.keys(ativosObj);// tickers que IA retornou neste batch
+            const tsEnvio=Date.now();
+            const tipoAnalise="normal";// Fase 2 = analise normal; Fase 3 trara "profunda"
+            // Mapa: ticker -> {docIds:Set, notaIds:Set} enviados neste batch
+            const enviadosPorTicker={};
+            batch.forEach(b=>{
+              if(!tickersComResposta.includes(b.ticker))return;
+              const docIds=Array.isArray(b.docs)?b.docs.map(d=>d.id).filter(Boolean):[];
+              const notaIds=Array.isArray(b.notas)?b.notas.map(n=>n.id).filter(Boolean):[];
+              if(docIds.length>0||notaIds.length>0){
+                enviadosPorTicker[b.ticker]={docIds:new Set(docIds),notaIds:new Set(notaIds)};
+              }
+            });
+            const tickersAfetados=Object.keys(enviadosPorTicker);
+            if(tickersAfetados.length>0){
+              setPort(prev=>{
+                const novo={...prev};
+                tickersAfetados.forEach(tk=>{
+                  if(!novo[tk])return;
+                  const env=enviadosPorTicker[tk];
+                  const docsAt=Array.isArray(novo[tk].docs)?novo[tk].docs:[];
+                  const notasAt=Array.isArray(novo[tk].notas)?novo[tk].notas:[];
+                  novo[tk]={
+                    ...novo[tk],
+                    docs:docsAt.map(d=>env.docIds.has(d.id)?{...d,enviadoEm:tsEnvio,enviadoTipo:tipoAnalise}:d),
+                    notas:notasAt.map(n=>env.notaIds.has(n.id)?{...n,enviadoEm:tsEnvio,enviadoTipo:tipoAnalise}:n)
+                  };
+                });
+                return novo;
+              });
+              const totalDocs=Object.values(enviadosPorTicker).reduce((s,e)=>s+e.docIds.size,0);
+              const totalNotas=Object.values(enviadosPorTicker).reduce((s,e)=>s+e.notaIds.size,0);
+              log("  Marcados como enviados a IA: "+totalDocs+" docs + "+totalNotas+" notas em "+tickersAfetados.length+" tickers");
+            }
+          }catch(eFase2){
+            log("  Aviso: erro ao marcar docs/notas enviados (nao critico): "+(eFase2.message||eFase2));
+          }
         // Espera entre batches para nao estourar rate limit (30k tokens/min com web_search)
         // Pula a espera no ultimo batch
         if(bi<batches.length-1){
@@ -20506,7 +20962,15 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                   // Botao re-analisar APENAS este ticker (1 chamada IA com web_search)
                   h("button",{onClick:()=>{
                     if(riscoRetornoLoad)return;
-                    if(!confirm("Re-analisar "+tk.ticker+" via IA com web_search?\n\nVai buscar dados do ultimo balanco e atualizar metricas (custo ~$0.06 USD)."))return;
+                    // Conta docs/notas ativas para informar custo extra
+                    const pInfo=port[tk.ticker]||{};
+                    const nDocs=Array.isArray(pInfo.docs)?pInfo.docs.filter(d=>d&&d.url&&!d.arquivado&&!d.consolidado).length:0;
+                    const nNotas=Array.isArray(pInfo.notas)?pInfo.notas.filter(n=>n&&n.texto&&!n.arquivado&&!n.consolidado).length:0;
+                    let extraInfo="";
+                    if(nDocs>0||nNotas>0){
+                      extraInfo="\n\nIra incluir no prompt: "+nDocs+" doc(s) + "+nNotas+" nota(s) cadastradas para este ativo. IA podera usar web_fetch nos URLs (custo ~$0.10-0.20 adicional).";
+                    }
+                    if(!confirm("Re-analisar "+tk.ticker+" via IA com web_search?\n\nVai buscar dados do ultimo balanco e atualizar metricas (custo ~$0.06 USD)."+extraInfo))return;
                     gerarRiscoRetornoIA([tk.ticker]);
                   },disabled:riscoRetornoLoad,title:"Re-analisar este ticker (~$0.06 USD)",style:{padding:"6px 9px",background:riscoRetornoLoad?"rgba(76,175,130,0.05)":"linear-gradient(135deg,rgba(76,175,130,0.20),rgba(76,175,130,0.08))",border:"1px solid rgba(76,175,130,0.40)",borderRadius:4,color:"#4CAF82",fontSize:11,cursor:riscoRetornoLoad?"not-allowed":"pointer",fontFamily:"monospace",fontWeight:700,minWidth:32,lineHeight:1}},"\u21BB")
                 )
@@ -20786,7 +21250,9 @@ h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (s
                   "\u{1F4DD} ",tk.dadosIA.observacao
                 ):null,
                 tk.dadosIA.dataReferencia?h("div",{style:{fontSize:7.5,color:"#5A5550",fontFamily:"monospace",marginTop:4,textAlign:"right"}},"dados de balanco: "+tk.dadosIA.dataReferencia):null
-              ):null
+              ):null,
+              // === DOCS & NOTAS (Fase 1) - sempre visivel, mesmo sem analise da IA ===
+              h(DocsNotasCard,{ticker:tk.ticker,port,setPort,hideVal})
             );
                   })
                 ):null
