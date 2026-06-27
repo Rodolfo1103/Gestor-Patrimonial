@@ -22418,6 +22418,9 @@ h("button",{onClick:async()=>{
             const prior1=miraIA.ativos.filter(a=>a.prioridade===1).length;
             const prior2=miraIA.ativos.filter(a=>a.prioridade===2).length;
             const prior3=miraIA.ativos.filter(a=>a.prioridade===3).length;
+            // Detecta se RR foi atualizado APOS a mira ser gerada (sugere regerar)
+            const rrTs=(riscoRetornoData&&riscoRetornoData.ultimaAtualizacao)||0;
+            const rrMaisNovoQueMira=rrTs>0&&rrTs>miraIA.geradoEm;
             return h("div",{style:{marginBottom:14,padding:"10px 12px",background:"linear-gradient(135deg,rgba(232,144,96,0.12),rgba(232,144,96,0.04))",border:"1px solid rgba(232,144,96,0.45)",borderLeft:"3px solid rgba(232,144,96,0.80)",borderRadius:"0 4px 4px 0"}},
               h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,flexWrap:"wrap",marginBottom:6}},
                 h("div",{style:{fontSize:9.5,color:"#E89060",fontFamily:"monospace",fontWeight:700,letterSpacing:0.8,display:"flex",alignItems:"center",gap:6}},
@@ -22437,6 +22440,42 @@ h("button",{onClick:async()=>{
               ),
               h("div",{style:{marginTop:7,fontSize:8.5,color:"#9A8870",fontStyle:"italic",lineHeight:1.5}},
                 "\u{1F4CE} Suba PDFs/URLs nestes ativos antes de rodar Deep Dive. Janela termina dia 5 do mes."
+              ),
+              // ===== BOTAO REGENERAR MIRA + EXPLICACAO =====
+              h("div",{style:{marginTop:10,paddingTop:10,borderTop:"1px dashed rgba(232,144,96,0.25)"}},
+                rrMaisNovoQueMira?h("div",{style:{fontSize:8.5,color:"#FF9650",fontFamily:"monospace",marginBottom:6,fontWeight:700,letterSpacing:0.3}},
+                  "\u26A0 Dados RR foram atualizados depois da Mira - considere regerar"
+                ):null,
+                h("div",{style:{fontSize:8.5,color:"#9A8870",lineHeight:1.6,marginBottom:7}},
+                  h("strong",{style:{color:"#C8A96E"}},"Quando regerar a Mira:"),
+                  h("br",null),
+                  "\u2022 Voce atualizou a analise RR (\u201CREFRESH IA\u201D) e quer que a Mira reconsidere com dados frescos",h("br",null),
+                  "\u2022 Houve mudanca relevante de macro (Selic, IPCA, cambio) que muda a tese de algumas classes",h("br",null),
+                  "\u2022 Voce cadastrou novos resumos consolidados ou red flags em algum ativo apos a Mira ter rodado",h("br",null),
+                  "\u2022 Voce nao concorda com a selecao e quer uma segunda opiniao da IA",h("br",null),
+                  h("span",{style:{color:"#7A7060",fontStyle:"italic"}},"Cada regeneracao custa $0.10-0.20 USD. Use com criterio.")
+                ),
+                h("button",{
+                  onClick:()=>{
+                    if(!confirm("Regerar Mira "+janelaCorr+"?\n\nIsso vai descartar a selecao atual de "+miraIA.ativos.length+" ativos e rodar nova analise IA com os dados RR atuais.\n\nCusto: ~$0.10-0.20 USD\nTempo: ~30s\n\nConfirmar?"))return;
+                    if(candidatosMira.length===0){setMiraIAErro("Sem candidatos elegiveis no momento.");return;}
+                    const _ctxMacro={
+                      selic:typeof selicAtual==="number"?selicAtual.toFixed(2)+"%":null,
+                      ipca:typeof infIPCA==="object"&&infIPCA&&typeof infIPCA.anual==="number"?infIPCA.anual.toFixed(2)+"%":null,
+                      usdBrl:FX&&typeof FX.USD==="number"?FX.USD.toFixed(3):null,
+                      treasury10Y:typeof juroFed==="object"&&juroFed&&typeof juroFed.valor==="number"?juroFed.valor.toFixed(2)+"%":null,
+                      ntnbLiqMedia:typeof ntnbTaxas==="object"&&ntnbTaxas&&Object.keys(ntnbTaxas).length>0?(Object.values(ntnbTaxas).reduce((s,v)=>s+(v&&typeof v.taxaBrutaCompra==="number"?v.taxaBrutaCompra:0),0)/Object.keys(ntnbTaxas).length*0.85).toFixed(2)+"%":null
+                    };
+                    const _gapsYale={};
+                    CL.forEach(c=>{const peso=cw[c.id]||0;const alvo=(c.min+c.max)/2;_gapsYale[c.id]={pesoAtual:peso.toFixed(1)+"%",alvo:alvo.toFixed(1)+"%",gap:(peso-alvo).toFixed(1)+"pp"};});
+                    // Limpa flag de trigger automatico para permitir nova chamada
+                    if(typeof window!=="undefined")window.__miraTriggerTs=0;
+                    setMiraIA(null);// limpa selecao atual antes de regerar
+                    setTimeout(()=>gerarMiraIA(candidatosMira,{macro:_ctxMacro,gapsYale:_gapsYale}),100);
+                  },
+                  disabled:miraIALoad,
+                  style:{padding:"5px 11px",background:miraIALoad?"rgba(232,144,96,0.08)":(rrMaisNovoQueMira?"linear-gradient(135deg,rgba(255,150,80,0.25),rgba(255,150,80,0.10))":"rgba(232,144,96,0.12)"),border:"1px solid "+(rrMaisNovoQueMira?"rgba(255,150,80,0.55)":"rgba(232,144,96,0.40)"),color:rrMaisNovoQueMira?"#FF9650":"#E89060",fontSize:9,cursor:miraIALoad?"not-allowed":"pointer",borderRadius:3,fontFamily:"monospace",fontWeight:700,letterSpacing:0.5}
+                },miraIALoad?"regenerando...":"\u21BB Regerar Mira "+janelaCorr)
               )
             );
           }
