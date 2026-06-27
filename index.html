@@ -9793,7 +9793,7 @@ function App(){
             diasAtras:diasAtras,
             docsLidos:ddT.docsLidos||0,
             urlsLidas:ddT.urlsLidas||0,
-            conteudo:String(ddT.conteudo||"").slice(0,12000)// limite por seguranca
+            conteudo:String(ddT.conteudo||"").slice(0,6000)// reduzido de 12k para 6k chars (~1.5k tokens) para preservar janela
           };
         }
         return out;
@@ -10595,7 +10595,7 @@ function App(){
       const aporteContent=[{type:"text",text:msg+blocoFeaturesRecentes}];
       const pdfsAnexadosAporte=[];const idsEnviadosAporte=new Set();
       try{
-        const SAFEGUARD_BYTES_APORTE=25*1024*1024;
+        const SAFEGUARD_BYTES_APORTE=6*1024*1024;// 6MB base64 ~ 700k tokens para PDFs (limite janela 1M)
         // Coleta candidatos: percorre todas as classes do ci, pega ativos com historico.docs
         const candidatos=[];
         ci.forEach(cl=>{
@@ -10641,6 +10641,17 @@ function App(){
           });
         });
       }catch(ePdfsAp){console.warn("Erro anexando PDFs no Aporte:",ePdfsAp);}
+
+      // Estimativa de tokens antes de chamar API (PDFs + texto)
+      // PDF base64: ~40 tokens/KB no Sonnet (heuristica). Texto: ~0.25 tokens/char.
+      const textoTotalChars=aporteContent.filter(b=>b.type==="text").reduce((s,b)=>s+(b.text||"").length,0);
+      const bytesPdfsAprox=pdfsAnexadosAporte.reduce((s,p)=>s+(p.tamanho||0),0);
+      const tokensEstimados=Math.round((textoTotalChars*0.25)+((bytesPdfsAprox/1024)*40));
+      console.log("[Aporte] Tokens estimados: ~"+tokensEstimados.toLocaleString()+" (texto: "+Math.round(textoTotalChars*0.25).toLocaleString()+" tk / pdfs: "+Math.round((bytesPdfsAprox/1024)*40).toLocaleString()+" tk em "+pdfsAnexadosAporte.length+" arquivos)");
+      // Se estimativa > 950k, aborta antes de gastar
+      if(tokensEstimados>950000){
+        throw new Error("Prompt estimado em ~"+Math.round(tokensEstimados/1000)+"k tokens - acima do limite de 1M. Reduza PDFs anexados em DOCS&NOTAS de alguns ativos antes de tentar novamente.");
+      }
 
       // Tokens maiores quando ha PDFs/historico anexados (resposta tende a ser mais longa)
       const maxTokAporte=pdfsAnexadosAporte.length>0?8000:4000;
