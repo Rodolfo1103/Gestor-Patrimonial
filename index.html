@@ -7474,6 +7474,8 @@ function App(){
   const [miraIA,setMiraIA]=useState(null);
   const [miraIALoad,setMiraIALoad]=useState(false);
   const [miraIAErro,setMiraIAErro]=useState("");
+  // Para debugging: guarda resposta crua da IA quando ha erro de parse no Aporte
+  const [debugResposta,setDebugResposta]=useState(null);
   const [miraIAExpanded,setMiraIAExpanded]=useState({});// {ticker:true}
   // Docs por ticker (URLs de balancos/fatos relevantes/apresentacoes) - UI temporaria
   // ===== END state cleanup =====
@@ -10846,7 +10848,9 @@ function App(){
       }
       if(!res||!res.classes){
         console.error("[Aporte] Falha parse. Resposta integral:",txt);
-        throw new Error("IA retornou resposta nao-JSON ou sem 'classes'. Primeiros 200 chars: "+String(txt).slice(0,200));
+        // Guarda a resposta crua para mostrar modal copiavel na UI
+        setDebugResposta({contexto:"Aporte",timestamp:Date.now(),conteudo:String(txt||""),tamanho:String(txt||"").length});
+        throw new Error("IA retornou resposta nao-JSON. Toque em VER RESPOSTA COMPLETA abaixo do erro para copiar e enviar para diagnostico.");
       }
 
       // ===== VALIDACAO DA RESPOSTA DA IA (anti-alucinacao) =====
@@ -15921,7 +15925,42 @@ h("button",{onClick:async()=>{
           const inteiroFormatado=parteInteira.replace(/^0+(?=\d)/,"").replace(/\B(?=(\d{3})+(?!\d))/g,".");
           setApV(inteiroFormatado+","+parteDecimal);
         },style:{flex:1,background:"transparent",border:"none",outline:"none",color:"#F0EAD8",fontSize:26}})),
-        aErr&&h("div",{style:{color:"#E05252",fontSize:10,marginBottom:9,fontFamily:"monospace"}},"Erro: "+aErr),
+        aErr&&h("div",{style:{color:"#E05252",fontSize:10,marginBottom:9,fontFamily:"monospace",padding:"8px 10px",background:"rgba(224,82,82,0.06)",border:"1px solid rgba(224,82,82,0.25)",borderRadius:4}},
+          h("div",{style:{marginBottom:debugResposta?7:0,lineHeight:1.5}},"Erro: "+aErr),
+          debugResposta?h("div",{style:{borderTop:"1px dashed rgba(224,82,82,0.3)",paddingTop:7,marginTop:5}},
+            h("div",{style:{fontSize:9,color:"#A88060",marginBottom:5,letterSpacing:0.5,textTransform:"uppercase",fontWeight:700}},"Diagnostico ("+debugResposta.tamanho.toLocaleString()+" chars)"),
+            h("textarea",{
+              readOnly:true,
+              value:debugResposta.conteudo,
+              onClick:(e)=>{e.target.select();},
+              style:{width:"100%",minHeight:120,maxHeight:240,padding:"6px 8px",background:"#0B0D11",border:"1px solid rgba(232,144,96,0.25)",borderRadius:3,color:"#D8CFB8",fontSize:9,fontFamily:"monospace",lineHeight:1.4,resize:"vertical",outline:"none",boxSizing:"border-box"}
+            }),
+            h("div",{style:{display:"flex",gap:6,marginTop:6,flexWrap:"wrap"}},
+              h("button",{
+                onClick:async()=>{
+                  try{
+                    if(navigator.clipboard&&navigator.clipboard.writeText){
+                      await navigator.clipboard.writeText(debugResposta.conteudo);
+                      alert("Resposta copiada para a area de transferencia!\nCole na conversa com Claude para diagnostico.");
+                    }else{
+                      // Fallback: seleciona o textarea
+                      const ta=document.querySelector("textarea[readonly]");
+                      if(ta){ta.select();document.execCommand("copy");alert("Resposta copiada! Cole na conversa.");}
+                    }
+                  }catch(e){alert("Falha ao copiar. Selecione o texto manualmente acima.");}
+                },
+                style:{flex:1,minWidth:120,padding:"7px 10px",background:"linear-gradient(135deg,rgba(232,144,96,0.30),rgba(232,144,96,0.12))",border:"1px solid rgba(232,144,96,0.55)",borderRadius:3,color:"#E89060",fontSize:9.5,fontFamily:"monospace",fontWeight:700,letterSpacing:0.5,cursor:"pointer",textTransform:"uppercase"}
+              },"\u{1F4CB} copiar resposta"),
+              h("button",{
+                onClick:()=>setDebugResposta(null),
+                style:{padding:"7px 10px",background:"transparent",border:"1px solid rgba(255,255,255,0.15)",borderRadius:3,color:"#7A7060",fontSize:9.5,fontFamily:"monospace",cursor:"pointer"}
+              },"fechar")
+            ),
+            h("div",{style:{fontSize:8.5,color:"#7A7060",marginTop:6,fontStyle:"italic",lineHeight:1.4}},
+              "Toque no texto acima para selecionar, ou use o botao copiar. Cole na conversa com Claude para diagnostico."
+            )
+          ):null
+        ),
         h("button",{onClick:genAlloc,disabled:loadA,style:{width:"100%",padding:"13px",background:loadA?"#2A2820":"linear-gradient(135deg,#C8A96E,#A8893E)",border:loadA?"1px solid #C8A96E33":"none",borderRadius:9,color:loadA?"#C8A96E":"#0D0F14",fontSize:12,fontWeight:700,letterSpacing:3,textTransform:"uppercase",cursor:loadA?"not-allowed":"pointer"}},loadA?"Analisando...":"Gerar analise fundamentalista")
       );
     }
