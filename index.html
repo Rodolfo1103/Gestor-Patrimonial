@@ -10659,7 +10659,33 @@ function App(){
         tools:[{type:"web_search_20250305",name:"web_search",max_uses:8}],
         betas:["web-search-2025-03-05"]
       });
-      const res=JSON.parse(txt);
+      // Parser robusto: tolera preambulo, code fences, aspas curvas, trailing commas
+      const limpaJSONAporte=(s)=>{
+        let out=String(s||"");
+        // Remove preambulos antes do primeiro {
+        out=out.replace(/^[\s\S]*?(?=\{)/,"");
+        // Remove code fences
+        out=out.replace(/^[\s\S]*?```(?:json)?\s*/i,"").replace(/```[\s\S]*$/,"");
+        // Aspas curvas -> ASCII
+        out=out.replace(/[\u201C\u201D\u201E\u201F]/g,'"').replace(/[\u2018\u2019\u201A\u201B]/g,"'");
+        out=out.replace(/^\uFEFF/,"").trim();
+        // Remove trailing commas
+        out=out.replace(/,(\s*[\}\]])/g,"$1");
+        return out;
+      };
+      let res=null;
+      try{res=JSON.parse(txt);}catch(_){}
+      if(!res){try{res=JSON.parse(limpaJSONAporte(txt));}catch(_){}}
+      if(!res){
+        // Ultima tentativa: pega do primeiro { ate o ultimo } e tenta
+        const m=String(txt).match(/\{[\s\S]*\}/);
+        if(m){try{res=JSON.parse(limpaJSONAporte(m[0]));}catch(_){}}
+      }
+      if(!res){
+        // Log para diagnostico
+        console.error("[Aporte] Falha parse. Primeiros 500 chars da resposta:",String(txt).slice(0,500));
+        throw new Error("IA retornou resposta nao-JSON. Primeiros 200 chars: "+String(txt).slice(0,200));
+      }
 
       // ===== VALIDACAO DA RESPOSTA DA IA (anti-alucinacao) =====
       const validacaoAvisos=[];
