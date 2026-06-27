@@ -11295,9 +11295,149 @@ function App(){
           }
         }catch(_){}
       });
+      // ===== Calcula projecao MPT/AW para mostrar impacto =====
+      let mptSnapshot=null,mptSnapshotProj=null;
+      try{
+        const wAtualMPT=MPT_CLS.map(cid=>(cw[cid]||0)/100);
+        const somaAt=wAtualMPT.reduce((a,b)=>a+b,0);
+        if(somaAt>0)for(let i=0;i<wAtualMPT.length;i++)wAtualMPT[i]/=somaAt;
+        const rfA=(typeof selicAtual==="number"&&selicAtual>0?selicAtual:14.25)*(1-IR_LONGO_PRAZO)/100;
+        const statsAt=mptStats(wAtualMPT,rfA);
+        const sharpeAt=mptSharpe(statsAt.ret,statsAt.vol,rfA);
+        let hhiAt=0;for(const w of wAtualMPT)hhiAt+=w*w;
+        const protCenAt={c1:0,c2:0,c3:0,c4:0};
+        MPT_CLS.forEach((cid,i)=>{
+          const w=wAtualMPT[i]||0;
+          protCenAt.c1+=w*(AW_CEN[cid].c1||0);
+          protCenAt.c2+=w*(AW_CEN[cid].c2||0);
+          protCenAt.c3+=w*(AW_CEN[cid].c3||0);
+          protCenAt.c4+=w*(AW_CEN[cid].c4||0);
+        });
+        // ===== FRONTEIRA EFICIENTE (calculo identico ao genAlloc do fluxo antigo) =====
+        // Constroi envelope superior monotonico da fronteira a partir do mptCache
+        const N_BUCKETS_AP=40;
+        const todasVolsAP=mptCache&&mptCache.length>0?mptCache.map(p=>p.vol):[statsAt.vol];
+        const volMinAP=Math.min(...todasVolsAP);
+        const volMaxAP=Math.max(...todasVolsAP);
+        const bSizeAP=(volMaxAP-volMinAP)/N_BUCKETS_AP;
+        const fBucketsAP=[];
+        if(mptCache&&mptCache.length>0){
+          for(let b=0;b<N_BUCKETS_AP;b++){
+            const vL=volMinAP+b*bSizeAP,vH=vL+bSizeAP;
+            let maxR=-Infinity,best=null;
+            for(const p of mptCache){
+              if(p.vol>=vL&&p.vol<vH&&p.ret>maxR){maxR=p.ret;best=p;}
+            }
+            if(best)fBucketsAP.push({vol:vL+bSizeAP/2,maxRet:maxR,w:best.w});
+          }
+        }
+        let runMaxAP=-Infinity;
+        const fMonoAP=[];
+        for(const f of fBucketsAP){
+          if(f.maxRet>=runMaxAP){runMaxAP=f.maxRet;fMonoAP.push(f);}
+        }
+        const portoFronteiraAP=(volAlvo)=>{
+          let max=-Infinity,best=null;
+          for(const f of fMonoAP){
+            if(f.vol<=volAlvo&&f.maxRet>max){max=f.maxRet;best=f;}
+          }
+          return best||(fMonoAP.length>0?fMonoAP[fMonoAP.length-1]:null);
+        };
+        // Eficiencia de Fronteira ATUAL
+        const pFrontAt=portoFronteiraAP(statsAt.vol);
+        const maxRetMesmaVolAt=pFrontAt?pFrontAt.maxRet:statsAt.ret;
+        const efFronteiraAt=Math.max(0,Math.min(100,(statsAt.ret/Math.max(0.001,maxRetMesmaVolAt))*100));
+        const gapFronteiraPPAt=(maxRetMesmaVolAt-statsAt.ret)*100;
+        // Eficiencia de Sharpe ATUAL
+        let bestSharpeAP=mptCache&&mptCache[0]?mptCache[0].sharpe:sharpeAt;
+        let worstSharpeAP=mptCache&&mptCache[0]?mptCache[0].sharpe:sharpeAt;
+        if(mptCache)for(const p of mptCache){
+          if(p.sharpe>bestSharpeAP)bestSharpeAP=p.sharpe;
+          if(p.sharpe<worstSharpeAP)worstSharpeAP=p.sharpe;
+        }
+        const sharpeRangeAP=bestSharpeAP-worstSharpeAP;
+        const efSharpeAt=sharpeRangeAP>0?Math.max(0,Math.min(100,((sharpeAt-worstSharpeAP)/sharpeRangeAP)*100)):50;
+        // Eficiencia de Diversificacao ATUAL
+        const hhiMinAP=1/MPT_CLS.length;
+        const efDivAt=Math.max(0,Math.min(100,((1-hhiAt)/(1-hhiMinAP))*100));
+        // Nota hibrida ATUAL
+        const notaHibridaAt=efFronteiraAt*0.35+efSharpeAt*0.45+efDivAt*0.20;
+        const conceitoAt=notaHibridaAt>=85?"A":notaHibridaAt>=75?"B":notaHibridaAt>=65?"C":notaHibridaAt>=55?"D":notaHibridaAt>=40?"E":"F";
+        // Projetado
+        const novoTotal=(total||0)+valorAporte;
+        const wProj=MPT_CLS.map(cid=>{
+          const valAt=(cw[cid]||0)*total/100;
+          const dC=divisao.find(d=>d.id===cid);
+          const aporte=dC?dC.valor:0;
+          return novoTotal>0?(valAt+aporte)/novoTotal:0;
+        });
+        const somaProj=wProj.reduce((a,b)=>a+b,0);
+        if(somaProj>0)for(let i=0;i<wProj.length;i++)wProj[i]/=somaProj;
+        const statsProj=mptStats(wProj,rfA);
+        const sharpeProj=mptSharpe(statsProj.ret,statsProj.vol,rfA);
+        let hhiProj=0;for(const w of wProj)hhiProj+=w*w;
+        const protCenProj={c1:0,c2:0,c3:0,c4:0};
+        MPT_CLS.forEach((cid,i)=>{
+          const w=wProj[i]||0;
+          protCenProj.c1+=w*(AW_CEN[cid].c1||0);
+          protCenProj.c2+=w*(AW_CEN[cid].c2||0);
+          protCenProj.c3+=w*(AW_CEN[cid].c3||0);
+          protCenProj.c4+=w*(AW_CEN[cid].c4||0);
+        });
+        // Eficiencias PROJETADAS
+        const pFrontProj=portoFronteiraAP(statsProj.vol);
+        const maxRetMesmaVolProj=pFrontProj?pFrontProj.maxRet:statsProj.ret;
+        const efFronteiraProj=Math.max(0,Math.min(100,(statsProj.ret/Math.max(0.001,maxRetMesmaVolProj))*100));
+        const gapFronteiraPPProj=(maxRetMesmaVolProj-statsProj.ret)*100;
+        const efSharpeProj=sharpeRangeAP>0?Math.max(0,Math.min(100,((sharpeProj-worstSharpeAP)/sharpeRangeAP)*100)):50;
+        const efDivProj=Math.max(0,Math.min(100,((1-hhiProj)/(1-hhiMinAP))*100));
+        const notaHibridaProj=efFronteiraProj*0.35+efSharpeProj*0.45+efDivProj*0.20;
+        const conceitoProj=notaHibridaProj>=85?"A":notaHibridaProj>=75?"B":notaHibridaProj>=65?"C":notaHibridaProj>=55?"D":notaHibridaProj>=40?"E":"F";
+        // Yale buckets
+        const yaleMap={acoes_br:"equity",acoes_eua:"equity",acoes_mundo:"equity",reit:"equity",
+                      fii:"realAssets",infra:"realAssets",fiagros:"realAssets",imoveis:"realAssets",
+                      bitcoin:"altLiquid",ouro:"inflationHedge",rfipca:"inflationHedge",
+                      selic:"fixedNominal",treasuries:"fixedNominal",caixacambial:"fixedNominal"};
+        const yaleAt={equity:0,realAssets:0,altLiquid:0,inflationHedge:0,fixedNominal:0};
+        const yaleProj={equity:0,realAssets:0,altLiquid:0,inflationHedge:0,fixedNominal:0};
+        MPT_CLS.forEach((cid,i)=>{
+          const bucket=yaleMap[cid];
+          if(bucket){
+            yaleAt[bucket]+=wAtualMPT[i]||0;
+            yaleProj[bucket]+=wProj[i]||0;
+          }
+        });
+        mptSnapshot={
+          efFronteira:efFronteiraAt,efSharpe:efSharpeAt,efDiv:efDivAt,
+          notaHibrida:notaHibridaAt,conceito:conceitoAt,gapPP:gapFronteiraPPAt,
+          sharpe:sharpeAt,ret:statsAt.ret,vol:statsAt.vol,hhi:hhiAt,protCen:protCenAt
+        };
+        mptSnapshotProj={
+          efFronteira:efFronteiraProj,efSharpe:efSharpeProj,efDiv:efDivProj,
+          notaHibrida:notaHibridaProj,conceito:conceitoProj,gapPP:gapFronteiraPPProj,
+          sharpe:sharpeProj,ret:statsProj.ret,vol:statsProj.vol,hhi:hhiProj,protCen:protCenProj,
+          yaleBuckets:yaleProj,yaleBucketsAtual:yaleAt
+        };
+      }catch(eMPT){console.error("[Aporte Manual] Erro MPT:",eMPT);}
       // Monta prompt
-      const sysPrompt="Voce e analista Buy&Hold rigoroso (Charlie Munger, Terry Smith). O investidor MONTOU MANUALMENTE seu proprio aporte: ele decidiu a divisao por classe e os tickers. Sua tarefa: ANALISAR a proposta dele de forma OBJETIVA e CRITICA, sem repropor.\\n\\nFILOSOFIA DO INVESTIDOR (respeitar integralmente):\\n- Buy & Hold rigoroso, zero vendas\\n- Rebalanceamento exclusivamente via aportes mensais (Swensen/Yale)\\n- Quality at reasonable price\\n- Aceita preco justo, evita value traps\\n- 'Quando duas oportunidades empatam em qualidade/preco, preferir a que reduz mais a correlacao do portfolio'\\n\\nREGRAS QUE A PROPOSTA DEVE RESPEITAR (mencionar quando violadas):\\n1) PISO 3% por classe que receber aporte\\n2) TETO 8% para classes SOBREALLOCADAS (peso > max banda)\\n3) TETO 30% por classe de risco (Selic 2031 e excecao)\\n4) NENHUM ticker pode ultrapassar 5% do patrimonio TOTAL apos aporte\\n5) Bandas Yale do investidor: cada classe tem min/max definidos\\n6) Classes subrepresentadas (peso < min) DEVEM receber alocacao significativa se houver oportunidade\\n7) Soma da alocacao deve ser exatamente o valor do aporte\\n\\nREBALANCEAMENTO ESTRUTURAL - avalie como a proposta afeta as 3 dimensoes:\\n- MPT (Markowitz): a proposta melhora o Sharpe? Aproxima ou afasta da fronteira eficiente?\\n- ALL WEATHER (Dalio): qual cenario c1/c2/c3/c4 fica mais resiliente? Algum gap critico nao foi atacado?\\n- YALE (Swensen): a proposta aproxima os buckets dos alvos? (equity 44%, realAssets 33%, altLiquid 3%, inflationHedge 8%, fixedNominal 12%)\\n\\nSTATUS RR DOS TICKERS: cada ticker escolhido pode ter um statusRR: oportunidade (preco barato), na_faixa (justo) ou caro. Se o investidor escolheu um ticker CARO, MENCIONE como ponto de atencao - sugerir alternativa se houver, mas SEM ALOCAR voce mesmo.\\n\\nSEU OUTPUT (JSON ESTRITO, comecando com { e terminando com }, sem markdown nem narrativa antes):\\n{\\n  \\\"veredito\\\":\\\"OTIMO|BOM|REGULAR|RUIM|DESALINHADO\\\",\\n  \\\"sintese\\\":\\\"2-3 frases sumarizando o julgamento geral\\\",\\n  \\\"criticas\\\":[\\\"critica especifica 1\\\",\\\"critica 2\\\"...],\\n  \\\"pontos_positivos\\\":[\\\"ponto 1\\\",\\\"ponto 2\\\"...],\\n  \\\"comentarios_por_classe\\\":{\\\"classe_id\\\":\\\"comentario sobre essa classe (tica, ticker escolhido, alinhamento)\\\",...},\\n  \\\"impacto_mpt\\\":\\\"avaliacao do impacto na fronteira/Sharpe\\\",\\n  \\\"impacto_aw\\\":\\\"avaliacao da resiliencia macro em c1/c2/c3/c4\\\",\\n  \\\"impacto_yale\\\":\\\"avaliacao dos buckets Yale\\\",\\n  \\\"sugestoes_ajuste\\\":\\\"se houver ajustes recomendados em 2-3 frases. Se proposta esta boa, dizer 'sem ajustes necessarios'\\\"\\n}\\n\\nVeredito 'OTIMO': proposta plenamente alinhada com filosofia e regras. 'BOM': pequenos pontos a melhorar. 'REGULAR': viola 1-2 regras importantes ou tem gap estrutural. 'RUIM': viola multiplas regras. 'DESALINHADO': proposta contradiz fundamentos (ex: reforca sobreallocada com >15%).";
-      const userPrompt="CONTEXTO MACRO:\\n"+JSON.stringify(macroResumo)+"\\n\\nAPORTE TOTAL: R$ "+valorAporte.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})+"\\nSOMA DA PROPOSTA: R$ "+somaDivisao.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})+"\\nPATRIMONIO ATUAL: R$ "+Math.round(total).toLocaleString("pt-BR")+"\\n\\nPROPOSTA DO INVESTIDOR:\\n"+divisao.map(d=>"- "+d.name+" ("+d.id+"): R$ "+d.valor.toLocaleString("pt-BR",{minimumFractionDigits:2})+" ("+d.pct.toFixed(1)+"%) | ticker: "+d.ticker+" | situacao classe: "+d.situacao+" [banda "+d.bandaMin+"-"+d.bandaMax+", peso atual "+d.pesoAtualPortfolio+"]").join("\\n")+(tickerStatus.length>0?"\\n\\nSTATUS RR DOS TICKERS ESCOLHIDOS (analise risco x retorno):\\n"+JSON.stringify(tickerStatus,null,1):"")+(ticker5pct.length>0?"\\n\\nALERTA - TICKERS PROXIMOS/ACIMA DO LIMITE 5% APOS APORTE:\\n"+JSON.stringify(ticker5pct,null,1):"")+"\\n\\nANALISE esta proposta seguindo o framework e formato JSON definido. NAO refaca a alocacao - apenas critique a proposta do investidor.";
+      const sysPrompt="Voce e analista Buy&Hold rigoroso (Charlie Munger, Terry Smith). O investidor MONTOU MANUALMENTE seu proprio aporte: ele decidiu a divisao por classe e os tickers. Sua tarefa: ANALISAR a proposta dele de forma OBJETIVA e CRITICA, sem repropor.\\n\\nFILOSOFIA DO INVESTIDOR (respeitar integralmente):\\n- Buy & Hold rigoroso, zero vendas\\n- Rebalanceamento exclusivamente via aportes mensais (Swensen/Yale)\\n- Quality at reasonable price\\n- Aceita preco justo, evita value traps\\n- 'Quando duas oportunidades empatam em qualidade/preco, preferir a que reduz mais a correlacao do portfolio'\\n\\nREGRAS QUE A PROPOSTA DEVE RESPEITAR (mencionar quando violadas):\\n1) PISO 3% por classe que receber aporte\\n2) TETO 8% para classes SOBREALLOCADAS (peso > max banda)\\n3) TETO 30% por classe de risco (Selic 2031 e excecao)\\n4) NENHUM ticker pode ultrapassar 5% do patrimonio TOTAL apos aporte\\n5) Bandas Yale do investidor: cada classe tem min/max definidos\\n6) Classes subrepresentadas (peso < min) DEVEM receber alocacao significativa se houver oportunidade\\n7) Soma da alocacao deve ser exatamente o valor do aporte\\n\\nREBALANCEAMENTO ESTRUTURAL - avalie como a proposta afeta as 3 dimensoes USANDO OS NUMEROS CALCULADOS QUE EU TE ENVIO:\\n\\n- MPT (Markowitz/Fronteira Eficiente): voce recebera no contexto a NOTA HIBRIDA ATUAL e a NOTA HIBRIDA PROJETADA (apos aporte), bem como os componentes: efFronteira (eficiencia de fronteira), efSharpe (eficiencia de Sharpe vs Monte Carlo), efDiv (eficiencia de diversificacao HHI), gapPP (gap em pp ate a fronteira). COMPARE ANTES E DEPOIS explicitando os numeros. Ex: 'Eficiencia de Fronteira sobe de 78/100 para 82/100 (delta +4); Nota hibrida vai de 65/100 (conceito C) para 71/100 (conceito C). Movimento positivo modesto.'\\n\\n- ALL WEATHER (Dalio): voce recebera as coberturas ANTES e DEPOIS nos 4 cenarios c1/c2/c3/c4. EXPLICITE como a proposta afeta cada cenario. Ex: 'cobertura c3 (estagflacao) sai de 0.35 para 0.42 - melhora hedge em ambiente estagflacionario; c2 cai de 0.62 para 0.58 marginalmente.'\\n\\n- YALE (Swensen): voce recebera os buckets ANTES e DEPOIS. Compare com os alvos: equity 44%, realAssets 33%, altLiquid 3%, inflationHedge 8%, fixedNominal 12%. EXPLICITE a aproximacao ou afastamento. Ex: 'realAssets sai de 48% para 46% (alvo 33%, ainda 13pp acima); inflationHedge sobe de 2% para 5% (alvo 8%, faltando 3pp).'\\n\\n- DIVERSIFICACAO (HHI): voce recebera o HHI e a Eficiencia de Diversificacao (efDiv/100) ANTES e DEPOIS. HHI menor = mais diversificado. Comente a evolucao numericamente.\\n\\n- RESILIENCIA / RESISTENCIA A DRAWDOWNS: deriva da combinacao de Sharpe + Vol + cobertura AW + Diversificacao. Volatilidade menor + maior diversificacao + melhor cobertura em c3/c4 = MAIOR resistencia a drawdowns. Sintetize: a proposta tornou o portfolio MAIS ou MENOS resistente a quedas? Mencione numeros (queda de vol pp, ganho de cobertura c3/c4, queda de HHI).\\n\\nSTATUS RR DOS TICKERS: cada ticker escolhido pode ter um statusRR: oportunidade (preco barato), na_faixa (justo) ou caro. Se o investidor escolheu um ticker CARO, MENCIONE como ponto de atencao - sugerir alternativa se houver, mas SEM ALOCAR voce mesmo.\\n\\nSEU OUTPUT (JSON ESTRITO, comecando com { e terminando com }, sem markdown nem narrativa antes):\\n{\\n  \\\"veredito\\\":\\\"OTIMO|BOM|REGULAR|RUIM|DESALINHADO\\\",\\n  \\\"sintese\\\":\\\"2-3 frases sumarizando o julgamento geral\\\",\\n  \\\"criticas\\\":[\\\"critica especifica 1\\\",\\\"critica 2\\\"...],\\n  \\\"pontos_positivos\\\":[\\\"ponto 1\\\",\\\"ponto 2\\\"...],\\n  \\\"comentarios_por_classe\\\":{\\\"classe_id\\\":\\\"comentario sobre essa classe (tica, ticker escolhido, alinhamento)\\\",...},\\n  \\\"impacto_mpt\\\":\\\"COMPARATIVO NUMERICO ANTES/DEPOIS da fronteira eficiente e Sharpe. Ex: 'Nota hibrida sai de 65 para 71 (+6); Eficiencia de Fronteira de 78 para 82 (+4); gap a fronteira reduz de 1.8pp para 1.2pp. Proposta melhora marginalmente a otimizacao matematica.' SEMPRE com numeros.\\\",\\n  \\\"impacto_aw\\\":\\\"COMPARATIVO NUMERICO ANTES/DEPOIS da cobertura nos 4 cenarios c1/c2/c3/c4. SEMPRE com numeros (delta pp).\\\",\\n  \\\"impacto_yale\\\":\\\"COMPARATIVO NUMERICO ANTES/DEPOIS dos 5 buckets vs alvos. SEMPRE com numeros (delta pp e gap remanescente vs alvo).\\\",\\n  \\\"impacto_diversificacao\\\":\\\"COMPARATIVO NUMERICO ANTES/DEPOIS do HHI e Eficiencia de Diversificacao. Mais diversificado = HHI menor. SEMPRE com numeros.\\\",\\n  \\\"impacto_resiliencia\\\":\\\"AVALIE A RESISTENCIA A DRAWDOWNS combinando: vol ANTES vs DEPOIS, cobertura c3 e c4 ANTES vs DEPOIS, diversificacao ANTES vs DEPOIS. A proposta tornou o portfolio mais ou menos resistente a quedas? Em qual cenario especifico? Use numeros.\\\",\\n  \\\"sugestoes_ajuste\\\":\\\"se houver ajustes recomendados em 2-3 frases. Se proposta esta boa, dizer 'sem ajustes necessarios'\\\"\\n}\\n\\nIMPORTANTE: impacto_mpt, impacto_aw, impacto_yale, impacto_diversificacao e impacto_resiliencia DEVEM conter NUMEROS REAIS extraidos do snapshot ANTES e DEPOIS que voce recebera. NAO escreva analises abstratas sem numeros. NAO escreva 'melhora a fronteira' sem dizer DE QUANTO para QUANTO. NAO chute valores - use os fornecidos.\\n\\nVeredito 'OTIMO': proposta plenamente alinhada com filosofia e regras + nota hibrida sobe ou estavel. 'BOM': pequenos pontos a melhorar, nota hibrida estavel. 'REGULAR': viola 1-2 regras importantes ou nota hibrida cai modestamente. 'RUIM': viola multiplas regras ou nota hibrida cai significativamente. 'DESALINHADO': proposta contradiz fundamentos (ex: reforca sobreallocada com >15%) E nota hibrida piora.";
+      // Snapshots calculados para a IA fazer comparativo numerico ANTES vs DEPOIS
+      const snapshotAntesDepois=(mptSnapshot&&mptSnapshotProj)?{
+        MPT:{
+          antes:{notaHibrida:Math.round(mptSnapshot.notaHibrida*10)/10,conceito:mptSnapshot.conceito,efFronteira:Math.round(mptSnapshot.efFronteira*10)/10,efSharpe:Math.round(mptSnapshot.efSharpe*10)/10,efDiv:Math.round(mptSnapshot.efDiv*10)/10,sharpe:Math.round(mptSnapshot.sharpe*100)/100,vol:Math.round(mptSnapshot.vol*10000)/100+"%",ret:Math.round(mptSnapshot.ret*10000)/100+"%",gapPP:Math.round(mptSnapshot.gapPP*100)/100+"pp",hhi:Math.round(mptSnapshot.hhi*1000)/1000},
+          depois:{notaHibrida:Math.round(mptSnapshotProj.notaHibrida*10)/10,conceito:mptSnapshotProj.conceito,efFronteira:Math.round(mptSnapshotProj.efFronteira*10)/10,efSharpe:Math.round(mptSnapshotProj.efSharpe*10)/10,efDiv:Math.round(mptSnapshotProj.efDiv*10)/10,sharpe:Math.round(mptSnapshotProj.sharpe*100)/100,vol:Math.round(mptSnapshotProj.vol*10000)/100+"%",ret:Math.round(mptSnapshotProj.ret*10000)/100+"%",gapPP:Math.round(mptSnapshotProj.gapPP*100)/100+"pp",hhi:Math.round(mptSnapshotProj.hhi*1000)/1000}
+        },
+        AllWeather:{
+          antes:{c1:Math.round(mptSnapshot.protCen.c1*1000)/10+"%",c2:Math.round(mptSnapshot.protCen.c2*1000)/10+"%",c3:Math.round(mptSnapshot.protCen.c3*1000)/10+"%",c4:Math.round(mptSnapshot.protCen.c4*1000)/10+"%"},
+          depois:{c1:Math.round(mptSnapshotProj.protCen.c1*1000)/10+"%",c2:Math.round(mptSnapshotProj.protCen.c2*1000)/10+"%",c3:Math.round(mptSnapshotProj.protCen.c3*1000)/10+"%",c4:Math.round(mptSnapshotProj.protCen.c4*1000)/10+"%"}
+        },
+        YaleBuckets:mptSnapshotProj.yaleBucketsAtual?{
+          antes:{equity:Math.round(mptSnapshotProj.yaleBucketsAtual.equity*1000)/10+"%",realAssets:Math.round(mptSnapshotProj.yaleBucketsAtual.realAssets*1000)/10+"%",inflationHedge:Math.round(mptSnapshotProj.yaleBucketsAtual.inflationHedge*1000)/10+"%",fixedNominal:Math.round(mptSnapshotProj.yaleBucketsAtual.fixedNominal*1000)/10+"%",altLiquid:Math.round(mptSnapshotProj.yaleBucketsAtual.altLiquid*1000)/10+"%"},
+          depois:{equity:Math.round(mptSnapshotProj.yaleBuckets.equity*1000)/10+"%",realAssets:Math.round(mptSnapshotProj.yaleBuckets.realAssets*1000)/10+"%",inflationHedge:Math.round(mptSnapshotProj.yaleBuckets.inflationHedge*1000)/10+"%",fixedNominal:Math.round(mptSnapshotProj.yaleBuckets.fixedNominal*1000)/10+"%",altLiquid:Math.round(mptSnapshotProj.yaleBuckets.altLiquid*1000)/10+"%"},
+          alvos:"equity 44%, realAssets 33%, inflationHedge 8%, fixedNominal 12%, altLiquid 3%"
+        }:null
+      }:null;
+      const userPrompt="CONTEXTO MACRO:\\n"+JSON.stringify(macroResumo)+"\\n\\nAPORTE TOTAL: R$ "+valorAporte.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})+"\\nSOMA DA PROPOSTA: R$ "+somaDivisao.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})+"\\nPATRIMONIO ATUAL: R$ "+Math.round(total).toLocaleString("pt-BR")+"\\n\\nPROPOSTA DO INVESTIDOR:\\n"+divisao.map(d=>"- "+d.name+" ("+d.id+"): R$ "+d.valor.toLocaleString("pt-BR",{minimumFractionDigits:2})+" ("+d.pct.toFixed(1)+"%) | ticker: "+d.ticker+" | situacao classe: "+d.situacao+" [banda "+d.bandaMin+"-"+d.bandaMax+", peso atual "+d.pesoAtualPortfolio+"]").join("\\n")+(tickerStatus.length>0?"\\n\\nSTATUS RR DOS TICKERS ESCOLHIDOS (analise risco x retorno):\\n"+JSON.stringify(tickerStatus,null,1):"")+(ticker5pct.length>0?"\\n\\nALERTA - TICKERS PROXIMOS/ACIMA DO LIMITE 5% APOS APORTE:\\n"+JSON.stringify(ticker5pct,null,1):"")+(snapshotAntesDepois?"\\n\\n========== SNAPSHOT DE METRICAS ANTES VS DEPOIS DO APORTE (NUMEROS REAIS - USE-OS!) ==========\\nMPT (Fronteira Eficiente):\\n"+JSON.stringify(snapshotAntesDepois.MPT,null,2)+"\\n\\nAll Weather (Cobertura por Cenario):\\n"+JSON.stringify(snapshotAntesDepois.AllWeather,null,2)+(snapshotAntesDepois.YaleBuckets?"\\n\\nYale Buckets:\\n"+JSON.stringify(snapshotAntesDepois.YaleBuckets,null,2):"")+"\\n========================================================":"")+"\\n\\nANALISE esta proposta seguindo o framework. Em impacto_mpt, impacto_aw, impacto_yale, impacto_diversificacao e impacto_resiliencia, USE OS NUMEROS DO SNAPSHOT ACIMA para fazer comparativo ANTES vs DEPOIS. NAO refaca a alocacao - apenas critique a proposta do investidor citando os numeros reais.";
       // Chama API
       const resp=await fetch("https://api.anthropic.com/v1/messages",{
         method:"POST",
@@ -11331,62 +11471,6 @@ function App(){
         setDebugResposta({contexto:"Analise Manual",timestamp:Date.now(),conteudo:String(txt||""),tamanho:String(txt||"").length});
         throw new Error("IA nao retornou JSON valido. Toque em VER RESPOSTA COMPLETA para copiar.");
       }
-      // ===== Calcula projecao MPT/AW para mostrar impacto =====
-      let mptSnapshot=null,mptSnapshotProj=null;
-      try{
-        const wAtualMPT=MPT_CLS.map(cid=>(cw[cid]||0)/100);
-        const somaAt=wAtualMPT.reduce((a,b)=>a+b,0);
-        if(somaAt>0)for(let i=0;i<wAtualMPT.length;i++)wAtualMPT[i]/=somaAt;
-        const rfA=(typeof selicAtual==="number"&&selicAtual>0?selicAtual:14.25)*(1-IR_LONGO_PRAZO)/100;
-        const statsAt=mptStats(wAtualMPT,rfA);
-        const sharpeAt=mptSharpe(statsAt.ret,statsAt.vol,rfA);
-        let hhiAt=0;for(const w of wAtualMPT)hhiAt+=w*w;
-        const protCenAt={c1:0,c2:0,c3:0,c4:0};
-        MPT_CLS.forEach((cid,i)=>{
-          const w=wAtualMPT[i]||0;
-          protCenAt.c1+=w*(AW_CEN[cid].c1||0);
-          protCenAt.c2+=w*(AW_CEN[cid].c2||0);
-          protCenAt.c3+=w*(AW_CEN[cid].c3||0);
-          protCenAt.c4+=w*(AW_CEN[cid].c4||0);
-        });
-        // Projetado
-        const novoTotal=(total||0)+valorAporte;
-        const wProj=MPT_CLS.map(cid=>{
-          const valAt=(cw[cid]||0)*total/100;
-          const dC=divisao.find(d=>d.id===cid);
-          const aporte=dC?dC.valor:0;
-          return novoTotal>0?(valAt+aporte)/novoTotal:0;
-        });
-        const somaProj=wProj.reduce((a,b)=>a+b,0);
-        if(somaProj>0)for(let i=0;i<wProj.length;i++)wProj[i]/=somaProj;
-        const statsProj=mptStats(wProj,rfA);
-        const sharpeProj=mptSharpe(statsProj.ret,statsProj.vol,rfA);
-        let hhiProj=0;for(const w of wProj)hhiProj+=w*w;
-        const protCenProj={c1:0,c2:0,c3:0,c4:0};
-        MPT_CLS.forEach((cid,i)=>{
-          const w=wProj[i]||0;
-          protCenProj.c1+=w*(AW_CEN[cid].c1||0);
-          protCenProj.c2+=w*(AW_CEN[cid].c2||0);
-          protCenProj.c3+=w*(AW_CEN[cid].c3||0);
-          protCenProj.c4+=w*(AW_CEN[cid].c4||0);
-        });
-        // Yale buckets
-        const yaleMap={acoes_br:"equity",acoes_eua:"equity",acoes_mundo:"equity",reit:"equity",
-                      fii:"realAssets",infra:"realAssets",fiagros:"realAssets",imoveis:"realAssets",
-                      bitcoin:"altLiquid",ouro:"inflationHedge",rfipca:"inflationHedge",
-                      selic:"fixedNominal",treasuries:"fixedNominal",caixacambial:"fixedNominal"};
-        const yaleAt={equity:0,realAssets:0,altLiquid:0,inflationHedge:0,fixedNominal:0};
-        const yaleProj={equity:0,realAssets:0,altLiquid:0,inflationHedge:0,fixedNominal:0};
-        MPT_CLS.forEach((cid,i)=>{
-          const bucket=yaleMap[cid];
-          if(bucket){
-            yaleAt[bucket]+=wAtualMPT[i]||0;
-            yaleProj[bucket]+=wProj[i]||0;
-          }
-        });
-        mptSnapshot={sharpe:sharpeAt,ret:statsAt.ret,vol:statsAt.vol,hhi:hhiAt,protCen:protCenAt};
-        mptSnapshotProj={sharpe:sharpeProj,ret:statsProj.ret,vol:statsProj.vol,hhi:hhiProj,protCen:protCenProj,yaleBuckets:yaleProj,yaleBucketsAtual:yaleAt};
-      }catch(eMPT){console.error("[Aporte Manual] Erro MPT:",eMPT);}
       // Salva apR no formato compatível com a UI existente
       const novoApR={
         apValue:valorAporte,
@@ -16264,11 +16348,13 @@ h("button",{onClick:async()=>{
             apR.analiseIA.pontos_positivos.map((p,i)=>h("div",{key:i,style:{fontSize:11,color:"#A0D0B0",lineHeight:1.65,marginLeft:10,marginBottom:4,paddingLeft:5,borderLeft:"2px solid rgba(122,196,160,0.3)"}},"\u2022 "+p))
           ):null,
           // Impactos estruturais
-          (apR.analiseIA.impacto_mpt||apR.analiseIA.impacto_aw||apR.analiseIA.impacto_yale)?h("div",{style:{padding:"10px 12px",background:"rgba(91,143,212,0.05)",borderRadius:6,marginBottom:11}},
+          (apR.analiseIA.impacto_mpt||apR.analiseIA.impacto_aw||apR.analiseIA.impacto_yale||apR.analiseIA.impacto_diversificacao||apR.analiseIA.impacto_resiliencia)?h("div",{style:{padding:"10px 12px",background:"rgba(91,143,212,0.05)",borderRadius:6,marginBottom:11}},
             h("div",{style:{fontSize:9,color:"#7AB0E0",fontFamily:"monospace",fontWeight:700,letterSpacing:1.5,marginBottom:7,textTransform:"uppercase"}},"Impacto estrutural"),
             apR.analiseIA.impacto_mpt?h("div",{style:{fontSize:10.5,color:"#B8C8D8",marginBottom:5,lineHeight:1.6}},h("strong",{style:{color:"#7AB0E0"}},"MPT (fronteira): "),apR.analiseIA.impacto_mpt):null,
             apR.analiseIA.impacto_aw?h("div",{style:{fontSize:10.5,color:"#B8C8D8",marginBottom:5,lineHeight:1.6}},h("strong",{style:{color:"#7AB0E0"}},"All Weather: "),apR.analiseIA.impacto_aw):null,
-            apR.analiseIA.impacto_yale?h("div",{style:{fontSize:10.5,color:"#B8C8D8",lineHeight:1.6}},h("strong",{style:{color:"#7AB0E0"}},"Yale: "),apR.analiseIA.impacto_yale):null
+            apR.analiseIA.impacto_yale?h("div",{style:{fontSize:10.5,color:"#B8C8D8",marginBottom:5,lineHeight:1.6}},h("strong",{style:{color:"#7AB0E0"}},"Yale: "),apR.analiseIA.impacto_yale):null,
+            apR.analiseIA.impacto_diversificacao?h("div",{style:{fontSize:10.5,color:"#B8C8D8",marginBottom:5,lineHeight:1.6}},h("strong",{style:{color:"#7AB0E0"}},"Diversificacao: "),apR.analiseIA.impacto_diversificacao):null,
+            apR.analiseIA.impacto_resiliencia?h("div",{style:{fontSize:10.5,color:"#B8C8D8",lineHeight:1.6}},h("strong",{style:{color:"#7AB0E0"}},"Resistencia a drawdowns: "),apR.analiseIA.impacto_resiliencia):null
           ):null,
           // Sugestoes de ajuste
           apR.analiseIA.sugestoes_ajuste?h("div",{style:{padding:"9px 11px",background:"rgba(232,196,74,0.08)",borderLeft:"3px solid #E8C44A",borderRadius:"0 5px 5px 0"}},
@@ -16595,8 +16681,8 @@ h("button",{onClick:async()=>{
             }))
           );
         })),
-        // Veredito do Aporte
-        h("div",{style:{marginBottom:14,padding:"13px 15px",background:"linear-gradient(135deg,rgba(91,143,212,0.06),rgba(200,169,110,0.04))",border:"1px solid rgba(91,143,212,0.25)",borderRadius:10}},
+        // Veredito do Aporte (so para fluxo antigo da IA - aporte manual tem seu proprio bloco de analise mais acima)
+        !apR.aporteManual?h("div",{style:{marginBottom:14,padding:"13px 15px",background:"linear-gradient(135deg,rgba(91,143,212,0.06),rgba(200,169,110,0.04))",border:"1px solid rgba(91,143,212,0.25)",borderRadius:10}},
           h("div",{style:{fontSize:9,letterSpacing:3,color:"#5B8FD4",fontFamily:"monospace",textTransform:"uppercase",marginBottom:10}},"Veredito do Aporte"),
           // 1. Eficiencia de rebalanceamento
           h("div",{style:{marginBottom:9,paddingBottom:9,borderBottom:"1px solid rgba(255,255,255,0.05)"}},
@@ -16626,7 +16712,7 @@ h("button",{onClick:async()=>{
               ...violacoes5pct.map((v,i)=>h("div",{key:i,style:{fontSize:9,color:"#E05252",fontFamily:"monospace",marginLeft:8}},"- "+v.ticker+": "+v.pct.toFixed(2)+"%"))
             )
           )
-        ),
+        ):null,
         // [REMOVIDO POR PEDIDO DO USUARIO] Chat de debate inline com a IA sobre o aporte e botao "Registrar compras executadas".
         // Para reativar, restaurar o bloco h("button",{onClick:()=>setDebateAporteOpen(...)) e o bloco h("button",{onClick:()=>setStep("confirm"),...) do historico.
         // O usuario optou por cadastrar compras manualmente na tela de posicoes.
@@ -16761,12 +16847,14 @@ h("button",{onClick:async()=>{
                     an.pontos_positivos.forEach(p=>{html+='<li>'+String(p).replace(/</g,"&lt;").replace(/>/g,"&gt;")+'</li>';});
                     html+='</ul></div>';
                   }
-                  if(an.impacto_mpt||an.impacto_aw||an.impacto_yale){
+                  if(an.impacto_mpt||an.impacto_aw||an.impacto_yale||an.impacto_diversificacao||an.impacto_resiliencia){
                     html+='<div class="impacto-est">';
                     html+='<div style="font-size:10pt;font-weight:bold;color:#3D70B8;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px">Impacto Estrutural</div>';
-                    if(an.impacto_mpt)html+='<div style="font-size:10pt;color:#444;margin-bottom:4px"><strong>MPT:</strong> '+String(an.impacto_mpt).replace(/</g,"&lt;").replace(/>/g,"&gt;")+'</div>';
+                    if(an.impacto_mpt)html+='<div style="font-size:10pt;color:#444;margin-bottom:4px"><strong>MPT (fronteira):</strong> '+String(an.impacto_mpt).replace(/</g,"&lt;").replace(/>/g,"&gt;")+'</div>';
                     if(an.impacto_aw)html+='<div style="font-size:10pt;color:#444;margin-bottom:4px"><strong>All Weather:</strong> '+String(an.impacto_aw).replace(/</g,"&lt;").replace(/>/g,"&gt;")+'</div>';
-                    if(an.impacto_yale)html+='<div style="font-size:10pt;color:#444"><strong>Yale:</strong> '+String(an.impacto_yale).replace(/</g,"&lt;").replace(/>/g,"&gt;")+'</div>';
+                    if(an.impacto_yale)html+='<div style="font-size:10pt;color:#444;margin-bottom:4px"><strong>Yale:</strong> '+String(an.impacto_yale).replace(/</g,"&lt;").replace(/>/g,"&gt;")+'</div>';
+                    if(an.impacto_diversificacao)html+='<div style="font-size:10pt;color:#444;margin-bottom:4px"><strong>Diversificacao:</strong> '+String(an.impacto_diversificacao).replace(/</g,"&lt;").replace(/>/g,"&gt;")+'</div>';
+                    if(an.impacto_resiliencia)html+='<div style="font-size:10pt;color:#444"><strong>Resistencia a drawdowns:</strong> '+String(an.impacto_resiliencia).replace(/</g,"&lt;").replace(/>/g,"&gt;")+'</div>';
                     html+='</div>';
                   }
                   const sug=an.sugestoes_ajuste||an.ajuste_sugerido;
@@ -16928,13 +17016,26 @@ h("button",{onClick:async()=>{
                   h("div",{style:{fontSize:10.5,color:"#F0EAD8",fontFamily:"monospace",fontWeight:600}},c.name),
                   h("div",{style:{fontSize:8.5,color:"#7AB0E0",fontFamily:"monospace",marginTop:1}},"R$ "+valC.toLocaleString("pt-BR",{minimumFractionDigits:0,maximumFractionDigits:0}))
                 ),
-                h("input",{
-                  type:"text",
-                  placeholder:"Digite o ticker",
-                  value:tk,
-                  onChange:e=>setAporteTickers(v=>({...v,[c.id]:String(e.target.value).toUpperCase().trim()})),
-                  style:{background:"rgba(0,0,0,0.3)",border:"1px solid rgba(91,143,212,0.3)",borderRadius:5,padding:"6px 9px",color:"#F0EAD8",fontSize:11,fontFamily:"monospace",outline:"none",letterSpacing:0.5}
-                })
+                c.id==="ouro"?
+                  // Classe Ouro: 2 opcoes fixas (AAAU ou OURO FISICO)
+                  h("div",{style:{display:"flex",gap:6}},
+                    ["AAAU","OURO FISICO"].map(opt=>{
+                      const ativo=tk===opt;
+                      return h("button",{
+                        key:opt,
+                        onClick:()=>setAporteTickers(v=>({...v,[c.id]:ativo?"":opt})),
+                        style:{flex:1,padding:"7px 8px",background:ativo?"linear-gradient(135deg,rgba(200,169,110,0.25),rgba(200,169,110,0.10))":"rgba(0,0,0,0.3)",border:"1px solid "+(ativo?"#C8A96E":"rgba(91,143,212,0.25)"),borderRadius:5,color:ativo?"#E8C97A":"#8A8070",fontSize:10,fontFamily:"monospace",cursor:"pointer",letterSpacing:0.5,fontWeight:ativo?700:400,transition:"all 0.15s ease"}
+                      },opt);
+                    })
+                  ):
+                  // Demais classes: input de texto livre
+                  h("input",{
+                    type:"text",
+                    placeholder:"Digite o ticker",
+                    value:tk,
+                    onChange:e=>setAporteTickers(v=>({...v,[c.id]:String(e.target.value).toUpperCase().trim()})),
+                    style:{background:"rgba(0,0,0,0.3)",border:"1px solid rgba(91,143,212,0.3)",borderRadius:5,padding:"6px 9px",color:"#F0EAD8",fontSize:11,fontFamily:"monospace",outline:"none",letterSpacing:0.5}
+                  })
               );
             })
           ):null
