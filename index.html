@@ -6721,63 +6721,46 @@ function DocsNotasCard({ticker,port,setPort,hideVal,apiKey,selicAtual,registrarU
   // Verifica se ja existe resumo desse periodo
   const jaTemResumoDoPeriodo=resumos.some(r=>r.periodo===idPeriodoAlvo);
 
-  // === GERAR RESUMO CONSOLIDADO via IA ===
-  const gerarResumoConsolidado=async()=>{
-    setErroConsolidacao("");
-    if(!apiKey){setErroConsolidacao("Configure a chave API Anthropic primeiro.");return;}
-    if(consolidandoLoad)return;
-    // Filtrar docs e notas DENTRO do periodo alvo (e nao arquivados, nao consolidados)
-    const docsPeriodo=docs.filter(d=>!d.arquivado&&!d.consolidado&&dataEstaNoSemestre(d.data,periodoAlvo.ano,periodoAlvo.semestre));
-    const notasPeriodo=notas.filter(n=>!n.arquivado&&!n.consolidado&&dataEstaNoSemestre(n.data,periodoAlvo.ano,periodoAlvo.semestre));
+  // === CORE: consolidar 1 semestre (parametrizado por ano/semestre) ===
+  // Retorna {ok, mensagem, docs, notas} - nao mostra alert/confirm, apenas executa.
+  // Quem chama controla UI (botao normal mostra confirm/alert; loop mostra progresso agregado).
+  const consolidarSemestreCore=async(anoAlvo,semestreAlvo,opts)=>{
+    const optsx=opts||{};
+    const idAlvo=idSemestre(anoAlvo,semestreAlvo);
+    const docsPeriodo=docs.filter(d=>!d.arquivado&&!d.consolidado&&dataEstaNoSemestre(d.data,anoAlvo,semestreAlvo));
+    const notasPeriodo=notas.filter(n=>!n.arquivado&&!n.consolidado&&dataEstaNoSemestre(n.data,anoAlvo,semestreAlvo));
     if(docsPeriodo.length+notasPeriodo.length===0){
-      setErroConsolidacao("Nenhum doc ou nota encontrada no periodo "+idPeriodoAlvo+". Verifique as datas dos items.");
-      return;
+      return {ok:false,mensagem:"Nenhum doc ou nota encontrada no periodo "+idAlvo,docs:0,notas:0};
     }
-    // PDFs upload do periodo: anexa quantos couberem ate 25 MB de payload (margem vs 32 MB API)
+    // PDFs upload do periodo
     const candidatosPdf=docsPeriodo.filter(d=>d.fonte==="upload").sort((a,b)=>(b.data||"").localeCompare(a.data||""));
     // Resumos ANTERIORES (para continuidade narrativa)
-    const resumosAnteriores=resumos.filter(r=>r.periodo<idPeriodoAlvo).sort((a,b)=>a.periodo.localeCompare(b.periodo));
-    // Custo estimado para confirm (calculado depois da selecao real dos PDFs que vao caber)
-    const custoBase=0.20;
-    const custoPdfs=candidatosPdf.length*0.50;
-    const custoTotal=(custoBase+custoPdfs).toFixed(2);
-    const confirmaMsg="Consolidar "+idPeriodoAlvo+" de "+ticker+"?\n\n"+
-      "Items do periodo:\n"+
-      "  - "+docsPeriodo.length+" documento(s)"+(candidatosPdf.length>0?" (com "+candidatosPdf.length+" PDF(s) anexado(s) - serao incluidos enquanto couberem em ate 25 MB)":"")+"\n"+
-      "  - "+notasPeriodo.length+" nota(s)\n"+
-      (resumosAnteriores.length>0?"  + "+resumosAnteriores.length+" resumo(s) anterior(es) para continuidade narrativa\n":"")+
-      "\nCusto estimado: ate ~$"+custoTotal+" USD\n\n"+
-      "A IA vai gerar um resumo estruturado que substituira esses items no prompt das proximas analises (eles ficam como historico arquivado mas nao sao mais reenviados como cru).\n\nConfirmar?";
-    if(!confirm(confirmaMsg))return;
-    setConsolidandoLoad(true);
+    const resumosAnteriores=resumos.filter(r=>r.periodo<idAlvo).sort((a,b)=>a.periodo.localeCompare(b.periodo));
     try{
-      // Monta prompt
-      const limites=limitesSemestre(periodoAlvo.ano,periodoAlvo.semestre);
-      const systemPrompt="Voce eh um analista fundamentalista B&H rigoroso. Sua tarefa: CONSOLIDAR o historico do periodo "+idPeriodoAlvo+" ("+limites.inicio+" a "+limites.fim+") de "+ticker+" em um RESUMO estruturado.\n\n"+
+      const limites=limitesSemestre(anoAlvo,semestreAlvo);
+      const systemPrompt="Voce eh um analista fundamentalista B&H rigoroso. Sua tarefa: CONSOLIDAR o historico do periodo "+idAlvo+" ("+limites.inicio+" a "+limites.fim+") de "+ticker+" em um RESUMO estruturado.\n\n"+
         "OBJETIVO: o investidor mantem historico continuo deste ativo ao longo dos anos. Periodicamente, consolidamos docs e notas antigos em um resumo compacto para reduzir o ruido no prompt das analises futuras (preservando a essencia da tese).\n\n"+
         "REGRAS:\n"+
         "1. Resposta APENAS em JSON valido. Sem markdown, sem texto extra antes/depois.\n"+
         "2. Use APENAS aspas duplas ASCII. NAO use aspas tipograficas (curvas).\n"+
         "3. Sem trailing commas. Sem comentarios //.\n"+
         "4. O resumo deve ser FACTUAL e ESTRUTURAL - capturar a evolucao da tese, mudancas materiais, metricas-chave do periodo, riscos identificados.\n"+
-        "5. NAO repetir info que ja esta nos resumos anteriores - foque no que o periodo "+idPeriodoAlvo+" traz de novo.\n"+
+        "5. NAO repetir info que ja esta nos resumos anteriores - foque no que o periodo "+idAlvo+" traz de novo.\n"+
         "6. Conteudo de PDFs anexados tem PRIORIDADE: cite numeros especificos.\n"+
         "7. Notas do investidor sao CONTEXTO QUALITATIVO - reflita-as no resumo.\n"+
         "\n"+
         "ESTRUTURA JSON OBRIGATORIA:\n"+
         '{"teseAtual":"2-3 frases consolidando a tese de B&H apos este periodo (qualidade, vantagem competitiva, posicionamento)","mudancasSemestre":"O que de material mudou no periodo vs semestre anterior (resultados, guidance, M&A, gestao, regulacao). Max 3 frases.","metricasChave":[{"nome":"DY 12m","valor":"11.2%","obs":"trailing dec/2025"}],"riscosIdentificados":["risco 1 max 100 chars","risco 2"],"observacoesQualitativas":"Contexto narrativo do periodo: clima do setor, posicao no ciclo, atitude do investidor (max 4 frases)."}'+
         "\n\nObrigatorio: teseAtual, mudancasSemestre, metricasChave (2-5 itens), riscosIdentificados (1-4 itens), observacoesQualitativas.";
-      // User content
       const dadosContexto={
         ticker:ticker,
-        periodo:idPeriodoAlvo,
+        periodo:idAlvo,
         contextoMacro:{selic:selicAtual},
         docsDoPeriodo:docsPeriodo.map(d=>({titulo:d.titulo,tipo:d.tipo,data:d.data,obs:d.obs||"",fonte:d.fonte,url:d.url||"(PDF anexado)"})),
         notasDoPeriodo:notasPeriodo.map(n=>({data:n.data,texto:n.texto})),
         resumosAnteriores:resumosAnteriores.map(r=>({periodo:r.periodo,teseAtual:r.teseAtual,mudancasSemestre:r.mudancasSemestre}))
       };
       const userText="DADOS PARA CONSOLIDAR:\n"+JSON.stringify(dadosContexto,null,2)+"\n\nGere o JSON do resumo estruturado conforme a estrutura obrigatoria.";
-      // Monta content multi-modal com PDFs (anexa enquanto couber em 25 MB)
       let content=[{type:"text",text:userText}];
       const SAFEGUARD_BYTES_CONS=25*1024*1024;
       let bytesUsadosCons=0;let pdfsAnexadosCons=0;let pdfsPuladosCons=0;
@@ -6796,14 +6779,13 @@ function DocsNotasCard({ticker,port,setPort,hideVal,apiKey,selicAtual,registrarU
             type:"document",
             source:{type:"base64",media_type:"application/pdf",data:base64},
             title:ticker+" - "+(pdf.titulo||entry.nome)+" ("+(pdf.tipo||"DOC")+", "+(pdf.data||"?")+")",
-            context:"Documento do periodo "+idPeriodoAlvo+" do investidor. Tipo: "+(pdf.tipo||"DOC")+". Legenda: "+(pdf.obs||"sem legenda")+"."
+            context:"Documento do periodo "+idAlvo+" do investidor. Tipo: "+(pdf.tipo||"DOC")+". Legenda: "+(pdf.obs||"sem legenda")+"."
           });
           bytesUsadosCons+=tamBase64Estimado;
           pdfsAnexadosCons++;
         }catch(ePdf){console.warn("PDF "+pdf.id+" nao pode ser anexado:",ePdf);}
       }
-      if(pdfsPuladosCons>0)console.log("[Consolidacao] "+pdfsPuladosCons+" PDF(s) pulados por limite de payload (mantidos no IndexedDB)");
-      // Chamada API
+      if(pdfsPuladosCons>0)console.log("[Consolidacao] "+pdfsPuladosCons+" PDF(s) pulados por limite de payload");
       const resp=await fetch("https://api.anthropic.com/v1/messages",{
         method:"POST",
         headers:{
@@ -6821,11 +6803,9 @@ function DocsNotasCard({ticker,port,setPort,hideVal,apiKey,selicAtual,registrarU
       });
       const data=await resp.json();
       if(data.error)throw new Error(data.error.message||"Erro API");
-      if(typeof registrarUsoAPI==="function")registrarUsoAPI("claude-sonnet-4-6",data.usage,"Consolidacao "+ticker+" "+idPeriodoAlvo);
-      // Extrai texto da resposta
+      if(typeof registrarUsoAPI==="function")registrarUsoAPI("claude-sonnet-4-6",data.usage,"Consolidacao "+ticker+" "+idAlvo);
       const txt=(data.content||[]).filter(b=>b.type==="text").map(b=>b.text).join("\n").trim();
       if(!txt)throw new Error("IA nao retornou texto");
-      // Parser JSON robusto
       const limpaJSON=(s)=>{
         let out=String(s);
         out=out.replace(/^[\s\S]*?```(?:json)?\s*/i,"").replace(/```[\s\S]*$/,"");
@@ -6843,12 +6823,11 @@ function DocsNotasCard({ticker,port,setPort,hideVal,apiKey,selicAtual,registrarU
         if(m){try{parsed=JSON.parse(m[0]);}catch(_){}}
       }
       if(!parsed)throw new Error("IA retornou JSON nao parseavel. Primeiros 200 chars: "+txt.slice(0,200));
-      if(!parsed.teseAtual||!parsed.mudancasSemestre)throw new Error("JSON incompleto da IA (faltam campos obrigatorios)");
+      if(!parsed.teseAtual||!parsed.mudancasSemestre)throw new Error("JSON incompleto da IA");
 
-      // Cria objeto do resumo
       const novoResumo={
         id:"r"+Math.random().toString(36).slice(2,10)+Date.now().toString(36),
-        periodo:idPeriodoAlvo,
+        periodo:idAlvo,
         dataInicio:limites.inicio,
         dataFim:limites.fim,
         geradoEm:Date.now(),
@@ -6862,7 +6841,6 @@ function DocsNotasCard({ticker,port,setPort,hideVal,apiKey,selicAtual,registrarU
         notasConsolidadas:notasPeriodo.map(n=>n.id)
       };
 
-      // Atualiza port[ticker]: adiciona resumo + marca docs/notas como consolidados
       const docIdsSet=new Set(novoResumo.docsConsolidados);
       const notaIdsSet=new Set(novoResumo.notasConsolidadas);
       setPort(prev=>{
@@ -6879,11 +6857,90 @@ function DocsNotasCard({ticker,port,setPort,hideVal,apiKey,selicAtual,registrarU
         };
         return novo;
       });
-      alert("Resumo "+idPeriodoAlvo+" de "+ticker+" gerado!\n\n"+docsPeriodo.length+" doc(s) e "+notasPeriodo.length+" nota(s) marcados como consolidados.");
+      return {ok:true,mensagem:idAlvo+" consolidado",docs:docsPeriodo.length,notas:notasPeriodo.length};
     }catch(e){
-      setErroConsolidacao(e.message||String(e));
+      return {ok:false,mensagem:String(e.message||e),docs:0,notas:0};
+    }
+  };
+
+  // === GERAR RESUMO CONSOLIDADO (semestre anterior fechado) - chamado pelo botao normal ===
+  const gerarResumoConsolidado=async()=>{
+    setErroConsolidacao("");
+    if(!apiKey){setErroConsolidacao("Configure a chave API Anthropic primeiro.");return;}
+    if(consolidandoLoad)return;
+    const docsPeriodo=docs.filter(d=>!d.arquivado&&!d.consolidado&&dataEstaNoSemestre(d.data,periodoAlvo.ano,periodoAlvo.semestre));
+    const notasPeriodo=notas.filter(n=>!n.arquivado&&!n.consolidado&&dataEstaNoSemestre(n.data,periodoAlvo.ano,periodoAlvo.semestre));
+    if(docsPeriodo.length+notasPeriodo.length===0){
+      setErroConsolidacao("Nenhum doc ou nota encontrada no periodo "+idPeriodoAlvo+". Verifique as datas dos items.");
+      return;
+    }
+    const candidatosPdf=docsPeriodo.filter(d=>d.fonte==="upload");
+    const resumosAnteriores=resumos.filter(r=>r.periodo<idPeriodoAlvo);
+    const custoBase=0.20;
+    const custoPdfs=candidatosPdf.length*0.50;
+    const custoTotal=(custoBase+custoPdfs).toFixed(2);
+    const confirmaMsg="Consolidar "+idPeriodoAlvo+" de "+ticker+"?\n\n"+
+      "Items do periodo:\n"+
+      "  - "+docsPeriodo.length+" documento(s)"+(candidatosPdf.length>0?" (com "+candidatosPdf.length+" PDF(s) anexado(s) - serao incluidos enquanto couberem em ate 25 MB)":"")+"\n"+
+      "  - "+notasPeriodo.length+" nota(s)\n"+
+      (resumosAnteriores.length>0?"  + "+resumosAnteriores.length+" resumo(s) anterior(es) para continuidade narrativa\n":"")+
+      "\nCusto estimado: ate ~$"+custoTotal+" USD\n\n"+
+      "A IA vai gerar um resumo estruturado que substituira esses items no prompt das proximas analises (eles ficam como historico arquivado mas nao sao mais reenviados como cru).\n\nConfirmar?";
+    if(!confirm(confirmaMsg))return;
+    setConsolidandoLoad(true);
+    const res=await consolidarSemestreCore(periodoAlvo.ano,periodoAlvo.semestre);
+    if(res.ok){
+      alert("Resumo "+idPeriodoAlvo+" de "+ticker+" gerado!\n\n"+res.docs+" doc(s) e "+res.notas+" nota(s) marcados como consolidados.");
+    }else{
+      setErroConsolidacao(res.mensagem);
     }
     setConsolidandoLoad(false);
+  };
+
+  // === CONSOLIDAR TODOS PENDENTES (loop sequencial pelos semestres com >12m pendentes) ===
+  const consolidarTodosPendentes=async()=>{
+    setErroConsolidacao("");
+    if(!apiKey){setErroConsolidacao("Configure a chave API Anthropic primeiro.");return;}
+    if(consolidandoLoad)return;
+    if(!antigosNaoConsol||!antigosNaoConsol.semestresPendentes||antigosNaoConsol.semestresPendentes.length===0)return;
+    const lista=antigosNaoConsol.semestresPendentes;
+    const totalItens=lista.reduce((s,x)=>s+x.docs+x.notas,0);
+    const totalPdfs=lista.reduce((s,x)=>s+x.docs,0);// estimativa otimista
+    const custoEstimado=(lista.length*0.20+totalPdfs*0.50).toFixed(2);
+    const detalheSemestres=lista.map(s=>"  - "+s.id+": "+s.docs+" doc"+(s.docs!==1?"s":"")+" + "+s.notas+" nota"+(s.notas!==1?"s":"")).join("\n");
+    const confirmaMsg="Consolidar "+lista.length+" semestre(s) pendente(s) de "+ticker+"?\n\n"+
+      detalheSemestres+"\n\n"+
+      "Total: "+totalItens+" itens em "+lista.length+" semestre(s)\n"+
+      "Cada semestre vira uma chamada de IA separada (sequencial, do mais antigo ao mais recente).\n\n"+
+      "Custo total estimado: ate ~$"+custoEstimado+" USD\n"+
+      "Tempo: ~"+(lista.length*45)+"-"+(lista.length*90)+" segundos\n\n"+
+      "Se algum semestre falhar, os anteriores ficam salvos e o processo continua.\n\nConfirmar?";
+    if(!confirm(confirmaMsg))return;
+    setConsolidandoLoad(true);
+    const resultados=[];
+    for(let i=0;i<lista.length;i++){
+      const s=lista[i];
+      // Atualiza mensagem de status (sem alert)
+      setErroConsolidacao("Consolidando "+s.id+" ("+(i+1)+"/"+lista.length+")...");
+      const res=await consolidarSemestreCore(s.ano,s.semestre==="H1"?1:2);
+      resultados.push({periodo:s.id,...res});
+    }
+    setConsolidandoLoad(false);
+    // Relatorio final
+    const sucessos=resultados.filter(r=>r.ok);
+    const falhas=resultados.filter(r=>!r.ok);
+    const totalDocs=sucessos.reduce((s,r)=>s+r.docs,0);
+    const totalNotas=sucessos.reduce((s,r)=>s+r.notas,0);
+    let msg="Consolidacao em lote concluida!\n\n"+
+      sucessos.length+"/"+resultados.length+" semestre(s) consolidado(s) com sucesso.\n";
+    if(sucessos.length>0)msg+="Total: "+totalDocs+" doc(s) + "+totalNotas+" nota(s) marcados.\n";
+    if(falhas.length>0){
+      msg+="\nFalhas ("+falhas.length+"):\n";
+      falhas.forEach(f=>{msg+="  - "+f.periodo+": "+f.mensagem+"\n";});
+      msg+="\nVoce pode tentar reconsolidar os que falharam individualmente.";
+    }
+    setErroConsolidacao(falhas.length>0?falhas.length+" falha(s) - veja detalhes no alerta":"");
+    alert(msg);
   };
 
   // === DESCONSOLIDAR resumo (reverte flags dos docs/notas, mantem o resumo) ===
@@ -6967,6 +7024,45 @@ function DocsNotasCard({ticker,port,setPort,hideVal,apiKey,selicAtual,registrarU
   const totalConsolidados=docs.filter(d=>d.consolidado).length+notas.filter(n=>n.consolidado).length;
   const temResumos=resumos.length>0;
 
+  // === DETECCAO DE ITENS ANTIGOS NAO CONSOLIDADOS (>12 meses sem consolidacao) ===
+  // Sugere consolidacao do semestre mais antigo pendente. Nao bloqueia nada.
+  const limite12m=Date.now()-365*86400000;
+  const antigosNaoConsol=(()=>{
+    const itens=[
+      ...docs.filter(d=>!d.arquivado&&!d.consolidado&&d.data),
+      ...notas.filter(n=>!n.arquivado&&!n.consolidado&&n.data&&n.texto)
+    ].filter(it=>{
+      // Usa addedAt se disponivel, senao tenta data (campo string AAAA-MM-DD)
+      const ts=(typeof it.addedAt==="number"&&it.addedAt>0)?it.addedAt:(it.data?new Date(it.data).getTime():0);
+      return ts>0&&ts<limite12m;
+    });
+    if(itens.length===0)return null;
+    // Agrupa por semestre (AAAA-H1/H2) para sugerir qual consolidar primeiro
+    const porSemestre={};
+    itens.forEach(it=>{
+      const ts=(typeof it.addedAt==="number"&&it.addedAt>0)?it.addedAt:new Date(it.data).getTime();
+      const d=new Date(ts);
+      const ano=d.getFullYear();
+      const sem=d.getMonth()<6?"H1":"H2";
+      const id=ano+"-"+sem;
+      if(!porSemestre[id])porSemestre[id]={id,ano,semestre:sem,docs:0,notas:0,maisAntigoTs:ts};
+      if(it.titulo!==undefined||it.fonte)porSemestre[id].docs++;
+      else porSemestre[id].notas++;
+      if(ts<porSemestre[id].maisAntigoTs)porSemestre[id].maisAntigoTs=ts;
+    });
+    // Semestre mais antigo primeiro
+    const semestres=Object.values(porSemestre).sort((a,b)=>a.maisAntigoTs-b.maisAntigoTs);
+    const semestreAlvo=semestres[0];
+    // Filtra resumos ja existentes - se ja tem resumo, nao mostra alerta para esse semestre
+    const semestresPendentes=semestres.filter(s=>!resumos.find(r=>r.periodo===s.id));
+    if(semestresPendentes.length===0)return null;
+    return {
+      total:itens.length,
+      semestreMaisAntigo:semestresPendentes[0],
+      semestresPendentes
+    };
+  })();
+
   return h("div",{style:{marginTop:8,background:"rgba(91,143,212,0.04)",border:"1px dashed rgba(91,143,212,0.20)",borderRadius:5,overflow:"hidden"}},
     // Header clicavel
     h("div",{onClick:()=>setAberto(!aberto),style:{cursor:"pointer",padding:"7px 10px",display:"flex",alignItems:"center",justifyContent:"space-between",userSelect:"none"}},
@@ -6978,7 +7074,9 @@ function DocsNotasCard({ticker,port,setPort,hideVal,apiKey,selicAtual,registrarU
         totalArquivados>0?h("span",{style:{fontSize:8,color:"#7A7060",fontFamily:"monospace",padding:"1px 5px",background:"rgba(255,255,255,0.04)",borderRadius:3}},totalArquivados+" arq"):null,
         totalEnviados>0?h("span",{title:totalEnviados+" item(ns) ja foram enviados a IA em alguma analise. [IA]=normal, [IA+]=profunda, [IA-a]=aporte",style:{fontSize:8,color:"#9C7DC2",fontFamily:"monospace",padding:"1px 5px",background:"rgba(156,125,194,0.12)",borderRadius:3,cursor:"help"}},"[IA] "+totalEnviados):null,
         totalConsolidados>0?h("span",{title:totalConsolidados+" item(ns) ja foram consolidados em resumo periodico (Sigma)",style:{fontSize:8,color:"#C8A96E",fontFamily:"monospace",padding:"1px 5px",background:"rgba(200,169,110,0.12)",borderRadius:3,cursor:"help"}},"[\u03A3] "+totalConsolidados):null,
-        temResumos?h("span",{style:{fontSize:8,color:"#C8A96E",fontFamily:"monospace",padding:"1px 5px",background:"rgba(200,169,110,0.12)",borderRadius:3}},resumos.length+" resumos"):null
+        temResumos?h("span",{style:{fontSize:8,color:"#C8A96E",fontFamily:"monospace",padding:"1px 5px",background:"rgba(200,169,110,0.12)",borderRadius:3}},resumos.length+" resumos"):null,
+        // BADGE de alerta: itens antigos nao consolidados
+        antigosNaoConsol?h("span",{title:antigosNaoConsol.total+" item(ns) com >12 meses ainda nao consolidados. Rodar [\u03A3] Consolidar para destilar em resumo antes que percam contexto.",style:{fontSize:8,color:"#E89060",fontFamily:"monospace",padding:"1px 5px",background:"rgba(232,144,96,0.14)",border:"1px solid rgba(232,144,96,0.35)",borderRadius:3,cursor:"help",fontWeight:700}},"\u26A0 "+antigosNaoConsol.total+" >12m"):null
       ),
       h("span",{style:{fontSize:7.5,color:"#7A7060",fontFamily:"monospace",fontStyle:"italic"}},aberto?"clique para fechar":"clique para abrir")
     ),
@@ -6998,6 +7096,31 @@ function DocsNotasCard({ticker,port,setPort,hideVal,apiKey,selicAtual,registrarU
       ),
       // Mensagem de erro da consolidacao
       erroConsolidacao?h("div",{style:{fontSize:8.5,color:"#E05252",marginBottom:8,padding:"6px 9px",background:"rgba(224,82,82,0.06)",border:"1px solid rgba(224,82,82,0.30)",borderRadius:4,fontStyle:"italic",lineHeight:1.5}},"\u26A0 Consolidacao: "+erroConsolidacao):null,
+
+      // BANNER DE AVISO: itens antigos nao consolidados (>12 meses)
+      antigosNaoConsol?h("div",{style:{marginBottom:10,padding:"8px 10px",background:"linear-gradient(135deg,rgba(232,144,96,0.10),rgba(232,144,96,0.04))",border:"1px solid rgba(232,144,96,0.40)",borderLeft:"3px solid rgba(232,144,96,0.75)",borderRadius:"0 4px 4px 0"}},
+        h("div",{style:{fontSize:9,color:"#E89060",fontFamily:"monospace",fontWeight:700,letterSpacing:0.8,marginBottom:5,display:"flex",alignItems:"center",gap:5}},
+          h("span",null,"\u26A0"),
+          h("span",null,"DOCS ANTIGOS NAO CONSOLIDADOS")
+        ),
+        h("div",{style:{fontSize:9.5,color:"#D8CFB8",lineHeight:1.55,marginBottom:6}},
+          antigosNaoConsol.total+" item"+(antigosNaoConsol.total>1?"(ns)":"")+" com mais de 12 meses ainda nao foram destilados em resumo. ",
+          "Recomenda-se consolidar para preservar contexto antes que docs/notas antigos percam relevancia nas analises.",
+          antigosNaoConsol.semestresPendentes.length>1?" "+antigosNaoConsol.semestresPendentes.length+" semestres pendentes; rode na ordem cronologica.":""
+        ),
+        h("div",{style:{fontSize:8.5,color:"#A88060",fontFamily:"monospace",fontStyle:"italic",marginBottom:7}},
+          "Comecar por: ",
+          h("strong",{style:{color:"#E89060",fontStyle:"normal"}},antigosNaoConsol.semestreMaisAntigo.id),
+          " ("+(antigosNaoConsol.semestreMaisAntigo.docs+antigosNaoConsol.semestreMaisAntigo.notas)+" itens: "+antigosNaoConsol.semestreMaisAntigo.docs+" doc"+(antigosNaoConsol.semestreMaisAntigo.docs!==1?"s":"")+" + "+antigosNaoConsol.semestreMaisAntigo.notas+" nota"+(antigosNaoConsol.semestreMaisAntigo.notas!==1?"s":"")+")"
+        ),
+        // BOTAO: consolidar todos pendentes
+        h("button",{
+          onClick:consolidarTodosPendentes,
+          disabled:consolidandoLoad,
+          title:"Consolida todos os "+antigosNaoConsol.semestresPendentes.length+" semestre(s) pendente(s) em sequencia. Cada um e uma chamada de IA separada.",
+          style:{padding:"6px 12px",background:consolidandoLoad?"rgba(232,144,96,0.10)":"linear-gradient(135deg,rgba(232,144,96,0.30),rgba(232,144,96,0.12))",border:"1px solid rgba(232,144,96,0.55)",color:"#FFB078",fontSize:9.5,cursor:consolidandoLoad?"not-allowed":"pointer",borderRadius:4,fontFamily:"monospace",fontWeight:700,letterSpacing:0.5}
+        },consolidandoLoad?"consolidando...":"[\u03A3] Consolidar tudo pendente ("+antigosNaoConsol.semestresPendentes.length+" semestres)")
+      ):null,
 
       // FORM: adicionar DOCUMENTO
       formTipo==="doc"?h("div",{style:{background:"rgba(91,143,212,0.06)",border:"1px solid rgba(91,143,212,0.25)",borderRadius:4,padding:"9px 10px",marginBottom:8}},
@@ -7310,6 +7433,12 @@ function App(){
   const [treasuriesValLoad,setTreasuriesValLoad]=useState(false);
   const [deepDiveLoad,setDeepDiveLoad]=useState(null);// ticker em load ou null
   const [deepDiveExpanded,setDeepDiveExpanded]=useState({});// {ticker:true}
+  // === MIRA IA: selecao mensal de ativos para Deep Dive antes do aporte ===
+  // miraIA = {janelaId:"2026-07", geradoEm:ts, ativos:[{ticker, justificativa, prioridade}], custoUSD}
+  const [miraIA,setMiraIA]=useState(null);
+  const [miraIALoad,setMiraIALoad]=useState(false);
+  const [miraIAErro,setMiraIAErro]=useState("");
+  const [miraIAExpanded,setMiraIAExpanded]=useState({});// {ticker:true}
   // Docs por ticker (URLs de balancos/fatos relevantes/apresentacoes) - UI temporaria
   // ===== END state cleanup =====
   // Calibracoes manuais de tickers fora da tabela PARAMETROS_CONGELADOS
@@ -7682,6 +7811,10 @@ function App(){
         if(dd.riscoRetornoData&&typeof dd.riscoRetornoData==="object"&&dd.riscoRetornoData.ativos&&typeof dd.riscoRetornoData.ativos==="object"){
           setRiscoRetornoData(dd.riscoRetornoData);
         }
+        // Carregar miraIA (selecao mensal IA para Deep Dive)
+        if(dd.miraIA&&typeof dd.miraIA==="object"&&dd.miraIA.janelaId&&Array.isArray(dd.miraIA.ativos)){
+          setMiraIA(dd.miraIA);
+        }
         // Override com rrdata-v1 (chave dedicada nao criptografada) - tem prioridade pois e salva imediatamente
         // apos cada analise, enquanto o blob criptografado pode estar atrasado pelo useEffect async
         try{
@@ -7881,14 +8014,14 @@ function App(){
     if(!inited||!aesKey)return;
     (async()=>{
       try{
-        const obj={port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,selicAtual,metaMensalIF,cenarioIPCA,dataNascimento,insightRenda,insightRendaTs,insightRendaSnap,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,piCycle,nupl,goldSilver,goldSP500,realGoldZ,fx:{...FX},btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,insightSnap,infIPCA,infIGPM,infINCC,infCPI,infHICP,juroFed,juroECB,juroBoJ,ntnbTaxas,ntnbVNA,ntnbUpdTs,ntnbDataCotacao,ntnbDiasDefasagem,ntnbVencimentos:{...NTNB_VENCIMENTOS},cambialCash,rendaMotoraHist,rendaAuxiliarHist,aportesSimples,ativosEmEstudo,riscoRetornoData,calibracoesCustom,ntnbHistoricoTaxas};
+        const obj={port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,selicAtual,metaMensalIF,cenarioIPCA,dataNascimento,insightRenda,insightRendaTs,insightRendaSnap,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,piCycle,nupl,goldSilver,goldSP500,realGoldZ,fx:{...FX},btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,insightSnap,infIPCA,infIGPM,infINCC,infCPI,infHICP,juroFed,juroECB,juroBoJ,ntnbTaxas,ntnbVNA,ntnbUpdTs,ntnbDataCotacao,ntnbDiasDefasagem,ntnbVencimentos:{...NTNB_VENCIMENTOS},cambialCash,rendaMotoraHist,rendaAuxiliarHist,aportesSimples,ativosEmEstudo,riscoRetornoData,calibracoesCustom,ntnbHistoricoTaxas,miraIA};
         const enc=await aesEncrypt(aesKey,obj);
         localStorage.setItem(SK_ENC,enc);
       }catch(e){
         console.error("SAVE ENC falhou:",e&&e.message?e.message:e);
       }
     })();
-  },[port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,selicAtual,metaMensalIF,cenarioIPCA,dataNascimento,insightRenda,insightRendaTs,insightRendaSnap,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,piCycle,nupl,goldSilver,goldSP500,realGoldZ,btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,insightSnap,infIPCA,infIGPM,infINCC,infCPI,infHICP,juroFed,juroECB,juroBoJ,ntnbTaxas,ntnbVNA,ntnbUpdTs,cambialCash,rendaMotoraHist,rendaAuxiliarHist,aportesSimples,ativosEmEstudo,riscoRetornoData,calibracoesCustom,ntnbHistoricoTaxas,inited,aesKey]);
+  },[port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,selicAtual,metaMensalIF,cenarioIPCA,dataNascimento,insightRenda,insightRendaTs,insightRendaSnap,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,piCycle,nupl,goldSilver,goldSP500,realGoldZ,btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,insightSnap,infIPCA,infIGPM,infINCC,infCPI,infHICP,juroFed,juroECB,juroBoJ,ntnbTaxas,ntnbVNA,ntnbUpdTs,cambialCash,rendaMotoraHist,rendaAuxiliarHist,aportesSimples,ativosEmEstudo,riscoRetornoData,calibracoesCustom,ntnbHistoricoTaxas,miraIA,inited,aesKey]);
 
   // Auto-lock por inatividade (15 min)
   useEffect(()=>{
@@ -9657,8 +9790,9 @@ function App(){
         ativos:allT(c.id).map(t=>{const p=port[t],cc=ccy[t]||"BRL";
           // Coleta historico (docs+notas+resumos) deste ticker se houver
           const historico=coletaHistoricoTicker(t);
-          // Flags do investidor: NA MIRA + ocultos
-          const naMira=p&&p.naMira?true:false;
+          // Flag de visualizacao no app: NA MIRA virou automatico baseado em janela+elegibilidade do RR
+          // (calculado em runtime na aba RR). Nao envia mais para a IA - ela ja deduz dos demais sinais.
+          const naMira=false;
           const oculto=p&&p.oculto?true:false;
           if(isNTNB(t)){
             const tx=ntnbTaxas&&ntnbTaxas[t]?ntnbTaxas[t]:null;
@@ -11075,6 +11209,128 @@ function App(){
     }
     setDeepDiveLoad(null);
   },[apiKey,deepDiveLoad,port,riscoRetornoData,selicAtual,infIPCA,FX,registrarUsoAPI]);
+
+  // ===== MIRA IA: SELECAO MENSAL DE ATIVOS PARA DEEP DIVE =====
+  // Roda 1x por janela mensal (dia 22 do mes anterior ate dia 5 do mes corrente)
+  // Recebe candidatos pre-filtrados (peso<4.8%, sem red flag alta, nao oculto) + contexto
+  // Devolve 6-10 ativos priorizados com justificativa rica (3-5 frases cada)
+  // Custo estimado: ~$0.10-0.20 USD por mes
+  const calcJanelaAtual=()=>{
+    // Retorna id da janela atual (ex: "2026-07") baseado em dia/mes
+    // Janela ativa: dia 22 do mes ANTERIOR ate dia 5 do mes CORRENTE
+    // Se hoje e dia 22-31, janela e do mes seguinte
+    // Se hoje e dia 1-5, janela e do mes corrente
+    // Fora disso (dia 6-21), retorna null (janela fechada)
+    const d=new Date();
+    const dia=d.getDate();
+    if(dia>=22){
+      // Janela do proximo mes
+      const proxMes=new Date(d.getFullYear(),d.getMonth()+1,1);
+      return proxMes.getFullYear()+"-"+String(proxMes.getMonth()+1).padStart(2,"0");
+    }
+    if(dia<=5){
+      // Janela do mes corrente
+      return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");
+    }
+    return null;
+  };
+
+  const gerarMiraIA=useCallback(async(candidatos,contextoExtra)=>{
+    if(!apiKey){setMiraIAErro("Chave API necessaria para refinar NA MIRA pela IA.");return;}
+    if(miraIALoad)return;
+    const janelaId=calcJanelaAtual();
+    if(!janelaId){setMiraIAErro("Fora da janela de mira (so roda entre dia 22 e dia 5).");return;}
+    if(!Array.isArray(candidatos)||candidatos.length===0){
+      setMiraIAErro("Sem candidatos elegiveis no momento (todos acima de 5%, com red flag, caros ou sem dados).");
+      return;
+    }
+    setMiraIAErro("");
+    setMiraIALoad(true);
+    try{
+      const ctx=contextoExtra||{};
+      const systemPrompt="Voce eh um analista B&H rigoroso, filosofia 'quality at reasonable price' (Munger, Terry Smith). "+
+        "Sua tarefa: SELECIONAR de 6 a 10 ativos da lista de candidatos elegiveis que MAIS MERECEM um Deep Dive (analise narrativa profunda de docs e contexto macro) ANTES do proximo aporte mensal do investidor.\n\n"+
+        "CRITERIO DE SELECAO (pondere holisticamente, nao mecanicamente):\n"+
+        "1. ALINHAMENTO MACRO: o ativo se beneficia do cenario AW vigente (c1/c2/c3/c4)? Esta classe esta favorecida no momento?\n"+
+        "2. GAP YALE/ALOCACAO: a classe deste ativo esta sub-alocada vs alvo Yale? Aporte aqui rebalanceia portfolio?\n"+
+        "3. MOMENTUM TATICO: margem de seguranca atual, status RR (oportunidade > na faixa), qualidade fundamentos\n"+
+        "4. VALOR DO DEEP DIVE: o ativo tem complexidade que justifica ler PDFs? (FII com mudanca de gestao, FI-Infra com default recente, acao em ciclo, etc) - prefira esses\n"+
+        "5. EVITAR REDUNDANCIA: se 2 ativos da mesma classe sao similares, escolha apenas 1\n"+
+        "6. INCLUSAO DE NOVAS TESES: candidatos em estudo (qty=0) podem entrar se justificarem analise\n\n"+
+        "JUSTIFICATIVA OBRIGATORIA (3-5 frases por ativo): NAO seja generico. Mencione concretamente: (a) qual cenario macro favorece o ativo agora, (b) que tipo de documento/info o investidor deveria subir (ITR, RG, fato relevante especifico, call recente), (c) o que ele deveria buscar entender melhor, (d) qual a tese central que vale ser revisitada. ENCORAJE o upload de docs.\n\n"+
+        "PRIORIDADE (1=mais urgente, 2=importante, 3=oportunista): atribua a cada ativo. Prioridade 1 sao 2-3 ativos onde Deep Dive realmente fara diferenca no aporte; 2 sao 3-4 ativos relevantes; 3 sao 1-3 ativos secundarios.\n\n"+
+        "RESPOSTA: APENAS JSON valido, sem markdown, sem texto extra. Aspas duplas ASCII, sem trailing commas.\n\n"+
+        'ESTRUTURA: {"ativos":[{"ticker":"HGLG11","prioridade":1,"justificativa":"3-5 frases concretas explicando por que merece Deep Dive AGORA, citando macro, gap, e tipo de doc a subir"},{...}],"contextoGeral":"1-2 frases descrevendo o tema dominante da janela (ex: estagflacao favorece NTN-B longas e FIIs com IPCA+; equity EUA sub-alocada apos correcao recente)"}';
+      const dadosCtx={
+        janelaMira:janelaId,
+        contextoMacro:ctx.macro||{},
+        gapsYale:ctx.gapsYale||{},
+        candidatos:candidatos.map(c=>({
+          ticker:c.ticker,
+          classe:c.classe,
+          pesoNoPatrimonio:c.pesoNoTotal?c.pesoNoTotal.toFixed(2)+"%":"0%",
+          tirAtual:typeof c.tirAtual==="number"?(c.tirAtual*100).toFixed(2)+"%":"n/d",
+          tirAlvo:typeof c.tirAlvo==="number"?(c.tirAlvo*100).toFixed(2)+"%":"n/d",
+          margemSeguranca:typeof c.margemSeg==="number"?(c.margemSeg*100).toFixed(2)+"%":"n/d",
+          status:c.margemSeg===null?"sem dados":c.margemSeg>=0.03?"oportunidade":c.margemSeg>=-0.02?"na faixa":"caro",
+          temHistorico:c.temHistorico||false,
+          ultimoResumo:c.ultimoResumo||null,
+          redFlags:c.redFlags||[],
+          greenFlags:c.greenFlags||[],
+          emEstudo:c.emEstudo||false
+        }))
+      };
+      const userText="Selecione 6 a 10 ativos para Deep Dive antes do aporte de "+janelaId+".\n\nDADOS:\n"+JSON.stringify(dadosCtx,null,2)+"\n\nGere o JSON conforme estrutura obrigatoria.";
+      const resp=await fetch("https://api.anthropic.com/v1/messages",{
+        method:"POST",
+        headers:{"Content-Type":"application/json","x-api-key":apiKey,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
+        body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:4000,system:systemPrompt,messages:[{role:"user",content:userText}]})
+      });
+      const data=await resp.json();
+      if(data.error)throw new Error(data.error.message||"Erro API");
+      if(typeof registrarUsoAPI==="function")registrarUsoAPI("claude-sonnet-4-6",data.usage,"Mira IA "+janelaId);
+      const txt=(data.content||[]).filter(b=>b.type==="text").map(b=>b.text).join("\n").trim();
+      if(!txt)throw new Error("IA nao retornou texto");
+      const limpaJSON=(s)=>{
+        let out=String(s);
+        out=out.replace(/^[\s\S]*?```(?:json)?\s*/i,"").replace(/```[\s\S]*$/,"");
+        out=out.replace(/[\u201C\u201D\u201E\u201F]/g,'"').replace(/[\u2018\u2019\u201A\u201B]/g,"'");
+        out=out.replace(/^\uFEFF/,"").trim();
+        out=out.replace(/,(\s*[\}\]])/g,"$1");
+        return out;
+      };
+      let parsed=null;
+      try{parsed=JSON.parse(txt);}catch(_){}
+      if(!parsed){try{parsed=JSON.parse(limpaJSON(txt));}catch(_){}}
+      if(!parsed){const m=limpaJSON(txt).match(/\{[\s\S]*\}/);if(m){try{parsed=JSON.parse(m[0]);}catch(_){}}}
+      if(!parsed||!Array.isArray(parsed.ativos))throw new Error("JSON invalido da IA");
+      // Validacao: tickers devem estar nos candidatos
+      const candidatosSet=new Set(candidatos.map(c=>c.ticker));
+      const ativosValidos=parsed.ativos.filter(a=>a&&a.ticker&&candidatosSet.has(a.ticker)&&a.justificativa);
+      if(ativosValidos.length===0)throw new Error("IA nao retornou ativos validos");
+      // Custo estimado
+      const inputTokens=(data.usage&&data.usage.input_tokens)||0;
+      const outputTokens=(data.usage&&data.usage.output_tokens)||0;
+      const custoUSD=(inputTokens*3/1000000)+(outputTokens*15/1000000);
+      const novoMira={
+        janelaId:janelaId,
+        geradoEm:Date.now(),
+        ativos:ativosValidos.map(a=>({
+          ticker:String(a.ticker),
+          prioridade:[1,2,3].indexOf(a.prioridade)>=0?a.prioridade:2,
+          justificativa:String(a.justificativa||"")
+        })),
+        contextoGeral:String(parsed.contextoGeral||""),
+        custoUSD:parseFloat(custoUSD.toFixed(4)),
+        nCandidatos:candidatos.length
+      };
+      setMiraIA(novoMira);
+    }catch(e){
+      setMiraIAErro(e.message||String(e));
+      console.error("[MiraIA]",e);
+    }
+    setMiraIALoad(false);
+  },[apiKey,miraIALoad,registrarUsoAPI]);
 
   // ===== GERAR DADOS DE RISCO X RETORNO VIA IA =====
   // Para CADA ticker do portfolio (com posicao ou zerado), pega:
@@ -21982,8 +22238,17 @@ h("button",{onClick:async()=>{
         tickersFiltered=tickersFiltered.filter(t=>t.classe===filtroClasse_RR);
       }
       if(filtroStatus_RR&&filtroStatus_RR!=="todos"){
+        // Filtro 'namira': usa miraIA (lista da Camada 2 - IA selecionou)
+        const _agoraFM=new Date();
+        const _diaFM=_agoraFM.getDate();
+        const _naJanelaFM=(_diaFM>=22||_diaFM<=5);
+        const _janelaCorr=_diaFM>=22?(()=>{const px=new Date(_agoraFM.getFullYear(),_agoraFM.getMonth()+1,1);return px.getFullYear()+"-"+String(px.getMonth()+1).padStart(2,"0");})():_agoraFM.getFullYear()+"-"+String(_agoraFM.getMonth()+1).padStart(2,"0");
+        const _miraSet=(miraIA&&miraIA.janelaId===_janelaCorr&&Array.isArray(miraIA.ativos))?new Set(miraIA.ativos.map(a=>a.ticker)):null;
         tickersFiltered=tickersFiltered.filter(t=>{
-          if(filtroStatus_RR==="namira")return !!(port[t.ticker]&&port[t.ticker].naMira);
+          if(filtroStatus_RR==="namira"){
+            if(!_naJanelaFM||!_miraSet)return false;
+            return _miraSet.has(t.ticker);
+          }
           if(t.margemSeg===null)return filtroStatus_RR==="semdados";
           if(filtroStatus_RR==="oportunidade")return t.margemSeg>=0.03;
           if(filtroStatus_RR==="nafaixa")return t.margemSeg>=-0.02&&t.margemSeg<0.03;
@@ -22006,13 +22271,85 @@ h("button",{onClick:async()=>{
       });
       // Contagem por status
       const statusCount={oportunidade:0,nafaixa:0,caro:0,semdados:0,namira:0};
+      // Verifica se estamos na janela de mira (dia 22 a 5)
+      const _agoraJM=new Date();
+      const _diaJM=_agoraJM.getDate();
+      const _naJanelaMira=(_diaJM>=22||_diaJM<=5);
+      // Lista de candidatos elegiveis para Mira IA (Camada 1: regras objetivas)
+      const candidatosMira=[];
       tickersAnalise.forEach(t=>{
-        if(port[t.ticker]&&port[t.ticker].naMira)statusCount.namira++;
+        // NA MIRA AUTOMATICO: janela ativa + criterios de elegibilidade
+        if(_naJanelaMira){
+          const _pTk=port[t.ticker]||{};
+          const _pesoOk=(typeof t.pesoNoTotal==="number"?t.pesoNoTotal:0)<4.8;
+          const _statusOk=t.margemSeg!==null&&t.margemSeg>=-0.02;
+          const _rfAlta=Array.isArray(t.dadosIA&&t.dadosIA.redFlags)?t.dadosIA.redFlags.filter(f=>f&&f.severidade==="alta"):[];
+          const _redFlagOk=_rfAlta.length===0;
+          const _ocultoOk=!_pTk.oculto;
+          if(_pesoOk&&_statusOk&&_redFlagOk&&_ocultoOk){
+            statusCount.namira++;
+            // Coleta dados para enviar a IA
+            const _pTkInfo=port[t.ticker]||{};
+            const _ultimoResumo=Array.isArray(_pTkInfo.resumos)&&_pTkInfo.resumos.length>0?_pTkInfo.resumos.sort((a,b)=>(b.periodo||"").localeCompare(a.periodo||""))[0]:null;
+            candidatosMira.push({
+              ticker:t.ticker,
+              classe:t.classeNome||t.classe,
+              pesoNoTotal:t.pesoNoTotal||0,
+              tirAtual:t.tirAtual,
+              tirAlvo:t.tirAlvo,
+              margemSeg:t.margemSeg,
+              temHistorico:!!(Array.isArray(_pTkInfo.docs)&&_pTkInfo.docs.length>0)||!!(Array.isArray(_pTkInfo.notas)&&_pTkInfo.notas.length>0),
+              ultimoResumo:_ultimoResumo?{periodo:_ultimoResumo.periodo,teseAtual:_ultimoResumo.teseAtual,mudancasSemestre:_ultimoResumo.mudancasSemestre}:null,
+              redFlags:Array.isArray(t.dadosIA&&t.dadosIA.redFlags)?t.dadosIA.redFlags.map(f=>({titulo:f.titulo,severidade:f.severidade})):[],
+              greenFlags:Array.isArray(t.dadosIA&&t.dadosIA.greenFlags)?t.dadosIA.greenFlags.map(f=>({titulo:f.titulo,severidade:f.severidade})):[],
+              emEstudo:!!t.emEstudo
+            });
+          }
+        }
         if(t.margemSeg===null)statusCount.semdados++;
         else if(t.margemSeg>=0.03)statusCount.oportunidade++;
         else if(t.margemSeg>=-0.02)statusCount.nafaixa++;
         else statusCount.caro++;
       });
+
+      // === AUTO-TRIGGER MIRA IA ===
+      // Se janela ativa + chave API configurada + ainda nao rodou para esta janela + ha candidatos:
+      // dispara em background (setTimeout para nao bloquear render)
+      const _janelaAtual=(()=>{
+        if(_diaJM>=22){const px=new Date(_agoraJM.getFullYear(),_agoraJM.getMonth()+1,1);return px.getFullYear()+"-"+String(px.getMonth()+1).padStart(2,"0");}
+        if(_diaJM<=5)return _agoraJM.getFullYear()+"-"+String(_agoraJM.getMonth()+1).padStart(2,"0");
+        return null;
+      })();
+      const _miraDesatualizada=!miraIA||miraIA.janelaId!==_janelaAtual;
+      const _devTriggerMira=_naJanelaMira&&!!apiKey&&_miraDesatualizada&&!miraIALoad&&candidatosMira.length>=3&&_janelaAtual;
+      // useEffect-like inline: dispara apos 1.5s para garantir que o render terminou
+      if(_devTriggerMira&&typeof window!=="undefined"){
+        if(!window.__miraTriggerTs||(Date.now()-window.__miraTriggerTs>5000)){
+          window.__miraTriggerTs=Date.now();
+          setTimeout(()=>{
+            // Re-checa antes de chamar (estado pode ter mudado)
+            if(!miraIALoad&&(!miraIA||miraIA.janelaId!==_janelaAtual)){
+              // Monta contexto macro
+              const _ctxMacro={
+                selic:typeof selicAtual==="number"?selicAtual.toFixed(2)+"%":null,
+                ipca:typeof infIPCA==="object"&&infIPCA&&typeof infIPCA.anual==="number"?infIPCA.anual.toFixed(2)+"%":null,
+                usdBrl:FX&&typeof FX.USD==="number"?FX.USD.toFixed(3):null,
+                treasury10Y:typeof juroFed==="object"&&juroFed&&typeof juroFed.valor==="number"?juroFed.valor.toFixed(2)+"%":null,
+                ntnbLiqMedia:typeof ntnbTaxas==="object"&&ntnbTaxas&&Object.keys(ntnbTaxas).length>0?(Object.values(ntnbTaxas).reduce((s,v)=>s+(v&&typeof v.taxaBrutaCompra==="number"?v.taxaBrutaCompra:0),0)/Object.keys(ntnbTaxas).length*0.85).toFixed(2)+"%":null
+              };
+              // Gaps Yale por classe (peso atual vs alvo)
+              const _gapsYale={};
+              CL.forEach(c=>{
+                const peso=cw[c.id]||0;
+                const alvo=(c.min+c.max)/2;
+                _gapsYale[c.id]={pesoAtual:peso.toFixed(1)+"%",alvo:alvo.toFixed(1)+"%",gap:(peso-alvo).toFixed(1)+"pp"};
+              });
+              gerarMiraIA(candidatosMira,{macro:_ctxMacro,gapsYale:_gapsYale});
+            }
+          },1500);
+        }
+      }
+
       // Classes com tickers
       const classesComTickers=[...new Set(tickersAnalise.map(t=>t.classe))];
       // Mostrar modal de calibracao para um ticker
@@ -22021,6 +22358,99 @@ h("button",{onClick:async()=>{
       content=h("div",{},
         // GRAFICO DE RISCO X RETORNO AGREGADO (movido do dashboard)
         h(RiskChart,{cw,selicAtual,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,recalibrarRR_viaIA,calibracaoLoad,calibracaoErr,hasAjustesIA:!!ajustesRR_IA,apiKey}),
+        // ===== BANNER MIRA IA: status da selecao para aporte proximo =====
+        (function(){
+          if(!_naJanelaMira)return null;
+          const janelaCorr=(()=>{
+            if(_diaJM>=22){const px=new Date(_agoraJM.getFullYear(),_agoraJM.getMonth()+1,1);return px.getFullYear()+"-"+String(px.getMonth()+1).padStart(2,"0");}
+            return _agoraJM.getFullYear()+"-"+String(_agoraJM.getMonth()+1).padStart(2,"0");
+          })();
+          const miraOk=miraIA&&miraIA.janelaId===janelaCorr;
+          const tempoAmig=miraOk?(()=>{
+            const d=Math.floor((Date.now()-miraIA.geradoEm)/(86400000));
+            return d<1?"hoje":(d===1?"ha 1 dia":"ha "+d+" dias");
+          })():"";
+          // CASO 1: sem chave API
+          if(!apiKey){
+            return h("div",{style:{marginBottom:14,padding:"10px 12px",background:"linear-gradient(135deg,rgba(232,144,96,0.10),rgba(232,144,96,0.04))",border:"1px solid rgba(232,144,96,0.35)",borderLeft:"3px solid rgba(232,144,96,0.70)",borderRadius:"0 4px 4px 0"}},
+              h("div",{style:{fontSize:9.5,color:"#E89060",fontFamily:"monospace",fontWeight:700,letterSpacing:0.8,marginBottom:4,display:"flex",alignItems:"center",gap:6}},
+                h("svg",{width:13,height:13,viewBox:"0 0 24 24",fill:"none",stroke:"#E89060",strokeWidth:"1.8",strokeLinecap:"round",strokeLinejoin:"round"},
+                  h("circle",{cx:"12",cy:"12",r:"10"}),h("circle",{cx:"12",cy:"12",r:"6"}),h("circle",{cx:"12",cy:"12",r:"2"})
+                ),
+                "JANELA DE MIRA "+janelaCorr+" - SEM CHAVE API"
+              ),
+              h("div",{style:{fontSize:9,color:"#D8CFB8",lineHeight:1.55}},
+                "Configure a chave Anthropic API para que a IA selecione automaticamente 6-10 ativos para Deep Dive antes do aporte de "+janelaCorr+"."
+              )
+            );
+          }
+          // CASO 2: carregando
+          if(miraIALoad){
+            return h("div",{style:{marginBottom:14,padding:"10px 12px",background:"linear-gradient(135deg,rgba(255,150,80,0.08),rgba(255,150,80,0.03))",border:"1px solid rgba(255,150,80,0.30)",borderLeft:"3px solid rgba(255,150,80,0.60)",borderRadius:"0 4px 4px 0"}},
+              h("div",{style:{fontSize:9.5,color:"#FF9650",fontFamily:"monospace",fontWeight:700,letterSpacing:0.8,marginBottom:4}},
+                "\u23F3 IA SELECIONANDO ATIVOS PARA APORTE "+janelaCorr+"..."
+              ),
+              h("div",{style:{fontSize:9,color:"#D8CFB8",lineHeight:1.55,fontStyle:"italic"}},
+                "Analisando "+candidatosMira.length+" candidatos elegiveis (peso<5%, sem red flag alta, status barato/na faixa). Aguarde ~30s."
+              )
+            );
+          }
+          // CASO 3: erro
+          if(miraIAErro){
+            return h("div",{style:{marginBottom:14,padding:"10px 12px",background:"rgba(224,82,82,0.06)",border:"1px solid rgba(224,82,82,0.30)",borderLeft:"3px solid rgba(224,82,82,0.65)",borderRadius:"0 4px 4px 0"}},
+              h("div",{style:{fontSize:9.5,color:"#E05252",fontFamily:"monospace",fontWeight:700,marginBottom:4}},"\u26A0 ERRO NA MIRA IA"),
+              h("div",{style:{fontSize:9,color:"#D8CFB8",lineHeight:1.5,marginBottom:6}},miraIAErro),
+              h("button",{onClick:()=>{
+                if(candidatosMira.length===0){setMiraIAErro("Sem candidatos elegiveis no momento.");return;}
+                const _ctxMacro={
+                  selic:typeof selicAtual==="number"?selicAtual.toFixed(2)+"%":null,
+                  ipca:typeof infIPCA==="object"&&infIPCA&&typeof infIPCA.anual==="number"?infIPCA.anual.toFixed(2)+"%":null,
+                  usdBrl:FX&&typeof FX.USD==="number"?FX.USD.toFixed(3):null
+                };
+                const _gapsYale={};
+                CL.forEach(c=>{const peso=cw[c.id]||0;const alvo=(c.min+c.max)/2;_gapsYale[c.id]={pesoAtual:peso.toFixed(1)+"%",alvo:alvo.toFixed(1)+"%",gap:(peso-alvo).toFixed(1)+"pp"};});
+                gerarMiraIA(candidatosMira,{macro:_ctxMacro,gapsYale:_gapsYale});
+              },style:{padding:"4px 10px",background:"rgba(232,144,96,0.15)",border:"1px solid rgba(232,144,96,0.40)",color:"#E89060",fontSize:9,cursor:"pointer",borderRadius:3,fontFamily:"monospace",fontWeight:700}},"\u21BB Tentar novamente")
+            );
+          }
+          // CASO 4: mira gerada com sucesso
+          if(miraOk){
+            const prior1=miraIA.ativos.filter(a=>a.prioridade===1).length;
+            const prior2=miraIA.ativos.filter(a=>a.prioridade===2).length;
+            const prior3=miraIA.ativos.filter(a=>a.prioridade===3).length;
+            return h("div",{style:{marginBottom:14,padding:"10px 12px",background:"linear-gradient(135deg,rgba(232,144,96,0.12),rgba(232,144,96,0.04))",border:"1px solid rgba(232,144,96,0.45)",borderLeft:"3px solid rgba(232,144,96,0.80)",borderRadius:"0 4px 4px 0"}},
+              h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,flexWrap:"wrap",marginBottom:6}},
+                h("div",{style:{fontSize:9.5,color:"#E89060",fontFamily:"monospace",fontWeight:700,letterSpacing:0.8,display:"flex",alignItems:"center",gap:6}},
+                  h("svg",{width:13,height:13,viewBox:"0 0 24 24",fill:"none",stroke:"#E89060",strokeWidth:"1.8",strokeLinecap:"round",strokeLinejoin:"round"},
+                    h("circle",{cx:"12",cy:"12",r:"10"}),h("circle",{cx:"12",cy:"12",r:"6"}),h("circle",{cx:"12",cy:"12",r:"2"})
+                  ),
+                  "MIRA "+janelaCorr+" - "+miraIA.ativos.length+" ATIVOS SELECIONADOS"
+                ),
+                h("div",{style:{fontSize:8,color:"#A88060",fontFamily:"monospace"}},tempoAmig+" \u2022 $"+(miraIA.custoUSD||0).toFixed(3))
+              ),
+              miraIA.contextoGeral?h("div",{style:{fontSize:9.5,color:"#D8CFB8",lineHeight:1.6,marginBottom:6,fontStyle:"italic"}},"\u201C"+miraIA.contextoGeral+"\u201D"):null,
+              h("div",{style:{fontSize:8.5,color:"#A88060",fontFamily:"monospace"}},
+                prior1>0?h("span",{style:{color:"#FF9650",fontWeight:700}},"\u2605 Prioridade 1: "+prior1+" "):null,
+                prior2>0?h("span",{style:{color:"#E89060"}},"\u2022 P2: "+prior2+" "):null,
+                prior3>0?h("span",{style:{color:"#C8A96E"}},"\u2022 P3: "+prior3+" "):null,
+                h("span",{style:{color:"#7A7060",marginLeft:6,fontStyle:"italic"}},"\u2022 Use filtro \u201Cna mira\u201D acima para ver apenas estes")
+              ),
+              h("div",{style:{marginTop:7,fontSize:8.5,color:"#9A8870",fontStyle:"italic",lineHeight:1.5}},
+                "\u{1F4CE} Suba PDFs/URLs nestes ativos antes de rodar Deep Dive. Janela termina dia 5 do mes."
+              )
+            );
+          }
+          // CASO 5: na janela mas sem mira ainda (vai auto-trigger)
+          if(candidatosMira.length===0){
+            return h("div",{style:{marginBottom:14,padding:"10px 12px",background:"rgba(154,144,128,0.08)",border:"1px solid rgba(154,144,128,0.25)",borderRadius:4}},
+              h("div",{style:{fontSize:9.5,color:"#9A9080",fontFamily:"monospace",fontWeight:700,marginBottom:4}},"JANELA DE MIRA "+janelaCorr+" - SEM CANDIDATOS"),
+              h("div",{style:{fontSize:9,color:"#A89E8C",lineHeight:1.5}},
+                "Nenhum ativo elegivel agora (todos acima de 5%, com red flag alta, caros, ou sem dados). Rode a analise RR (\"REFRESH IA\") para atualizar status."
+              )
+            );
+          }
+          return null;
+        })(),
         // Header da aba
         h("div",{style:{display:"flex",alignItems:"baseline",justifyContent:"space-between",flexWrap:"wrap",gap:10,marginBottom:14}},
           h("div",{},
@@ -22337,7 +22767,22 @@ h("button",{onClick:async()=>{
             h("button",{onClick:()=>setFiltroStatus_RR("oportunidade"),style:{padding:"3px 8px",background:filtroStatus_RR==="oportunidade"?"rgba(76,175,130,0.20)":"transparent",color:filtroStatus_RR==="oportunidade"?"#4CAF82":"#7A7060",border:"1px solid "+(filtroStatus_RR==="oportunidade"?"rgba(76,175,130,0.40)":"rgba(255,255,255,0.10)"),borderRadius:3,fontSize:9,cursor:"pointer",fontFamily:"monospace"}},"oportunidade ("+statusCount.oportunidade+")"),
             h("button",{onClick:()=>setFiltroStatus_RR("nafaixa"),style:{padding:"3px 8px",background:filtroStatus_RR==="nafaixa"?"rgba(232,196,74,0.20)":"transparent",color:filtroStatus_RR==="nafaixa"?"#E8C44A":"#7A7060",border:"1px solid "+(filtroStatus_RR==="nafaixa"?"rgba(232,196,74,0.40)":"rgba(255,255,255,0.10)"),borderRadius:3,fontSize:9,cursor:"pointer",fontFamily:"monospace"}},"na faixa ("+statusCount.nafaixa+")"),
             h("button",{onClick:()=>setFiltroStatus_RR("caro"),style:{padding:"3px 8px",background:filtroStatus_RR==="caro"?"rgba(224,82,82,0.20)":"transparent",color:filtroStatus_RR==="caro"?"#E05252":"#7A7060",border:"1px solid "+(filtroStatus_RR==="caro"?"rgba(224,82,82,0.40)":"rgba(255,255,255,0.10)"),borderRadius:3,fontSize:9,cursor:"pointer",fontFamily:"monospace"}},"caro ("+statusCount.caro+")"),
-            statusCount.namira>0?h("button",{onClick:()=>setFiltroStatus_RR("namira"),title:"Apenas ativos marcados NA MIRA do aporte",style:{padding:"3px 8px",background:filtroStatus_RR==="namira"?"rgba(232,144,96,0.22)":"transparent",color:filtroStatus_RR==="namira"?"#E89060":"#7A7060",border:"1px solid "+(filtroStatus_RR==="namira"?"rgba(232,144,96,0.50)":"rgba(255,255,255,0.10)"),borderRadius:3,fontSize:9,cursor:"pointer",fontFamily:"monospace",fontWeight:filtroStatus_RR==="namira"?700:500}},"\u{1F3AF} na mira ("+statusCount.namira+")"):null,
+          // Contador NA MIRA: prioriza lista da IA quando existe, senao usa contagem bruta dos elegiveis
+          (function(){
+            const _janelaCorr=_diaJM>=22?(()=>{const px=new Date(_agoraJM.getFullYear(),_agoraJM.getMonth()+1,1);return px.getFullYear()+"-"+String(px.getMonth()+1).padStart(2,"0");})():_agoraJM.getFullYear()+"-"+String(_agoraJM.getMonth()+1).padStart(2,"0");
+            const _miraAtiva=miraIA&&miraIA.janelaId===_janelaCorr&&Array.isArray(miraIA.ativos)?miraIA.ativos.length:0;
+            const _mostrarBotao=_naJanelaMira&&(_miraAtiva>0||statusCount.namira>0);
+            if(!_mostrarBotao)return null;
+            const _label=_miraAtiva>0?"na mira ("+_miraAtiva+")":"elegiveis ("+statusCount.namira+") - IA selecionando...";
+            return h("button",{onClick:()=>setFiltroStatus_RR("namira"),title:_miraAtiva>0?"Apenas ativos que a IA selecionou para Deep Dive desta janela":"IA ainda nao finalizou selecao - mostrando elegiveis brutos",style:{padding:"3px 8px",background:filtroStatus_RR==="namira"?"rgba(232,144,96,0.22)":"transparent",color:filtroStatus_RR==="namira"?"#E89060":"#7A7060",border:"1px solid "+(filtroStatus_RR==="namira"?"rgba(232,144,96,0.50)":"rgba(255,255,255,0.10)"),borderRadius:3,fontSize:9,cursor:"pointer",fontFamily:"monospace",fontWeight:filtroStatus_RR==="namira"?700:500,display:"inline-flex",alignItems:"center",gap:4}},
+              h("svg",{width:10,height:10,viewBox:"0 0 24 24",fill:"none",stroke:filtroStatus_RR==="namira"?"#E89060":"#7A7060",strokeWidth:"2",strokeLinecap:"round",strokeLinejoin:"round"},
+                h("circle",{cx:"12",cy:"12",r:"10"}),
+                h("circle",{cx:"12",cy:"12",r:"6"}),
+                h("circle",{cx:"12",cy:"12",r:"2"})
+              ),
+              _label
+            );
+          })(),
             statusCount.semdados>0?h("button",{onClick:()=>setFiltroStatus_RR("semdados"),style:{padding:"3px 8px",background:filtroStatus_RR==="semdados"?"rgba(154,144,128,0.20)":"transparent",color:filtroStatus_RR==="semdados"?"#9A9080":"#7A7060",border:"1px solid "+(filtroStatus_RR==="semdados"?"rgba(154,144,128,0.40)":"rgba(255,255,255,0.10)"),borderRadius:3,fontSize:9,cursor:"pointer",fontFamily:"monospace"}},"sem dados ("+statusCount.semdados+")"):null
           )
         ):null,
@@ -22417,21 +22862,35 @@ h("button",{onClick:async()=>{
               h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:10,flexWrap:"wrap"}},
                 h("div",{style:{display:"flex",alignItems:"baseline",gap:8,flexWrap:"wrap"}},
                   h("div",{style:{fontSize:13,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700,letterSpacing:0.5}},tk.ticker),
-                  // BADGE NA MIRA (toggle clicavel)
+                  // BADGE NA MIRA - controlado pela MIRA IA (Camada 2)
+                  // Aparece apenas durante a janela E apenas nos ativos que a IA selecionou para Deep Dive
                   (function(){
-                    const pTk=port[tk.ticker]||{};
-                    const naMira=!!pTk.naMira;
-                    return h("button",{
-                      onClick:()=>{
-                        setPort(prev=>{
-                          const novo={...prev};
-                          novo[tk.ticker]={...(novo[tk.ticker]||{}),naMira:!naMira,naMiraTs:!naMira?Date.now():null};
-                          return novo;
-                        });
-                      },
-                      title:naMira?"Clique para desmarcar - ativo nao esta mais na mira do aporte":"Clique para marcar como NA MIRA do aporte (IA do Aporte considera prioridade)",
-                      style:{padding:"2px 7px",background:naMira?"linear-gradient(135deg,rgba(232,144,96,0.30),rgba(232,144,96,0.12))":"transparent",border:"1px solid "+(naMira?"rgba(232,144,96,0.55)":"rgba(255,255,255,0.12)"),borderRadius:11,fontSize:8.5,color:naMira?"#E89060":"#7A7060",fontFamily:"monospace",fontWeight:700,letterSpacing:0.5,cursor:"pointer",lineHeight:1.3}
-                    },naMira?"\u{1F3AF} NA MIRA":"\u{1F3AF}");
+                    const agora=new Date();
+                    const dia=agora.getDate();
+                    const naJanelaMira=(dia>=22||dia<=5);
+                    if(!naJanelaMira)return null;
+                    // Determina janela atual
+                    const janelaCorrente=(()=>{
+                      if(dia>=22){const px=new Date(agora.getFullYear(),agora.getMonth()+1,1);return px.getFullYear()+"-"+String(px.getMonth()+1).padStart(2,"0");}
+                      return agora.getFullYear()+"-"+String(agora.getMonth()+1).padStart(2,"0");
+                    })();
+                    // Verifica se miraIA foi gerada para esta janela
+                    if(!miraIA||miraIA.janelaId!==janelaCorrente)return null;
+                    // Procura este ticker na lista da IA
+                    const ativoMira=miraIA.ativos.find(a=>a.ticker===tk.ticker);
+                    if(!ativoMira)return null;
+                    // SVG do alvo
+                    const corPrior=ativoMira.prioridade===1?"#FF9650":(ativoMira.prioridade===2?"#E89060":"#C8A96E");
+                    const targetSvg=h("svg",{width:11,height:11,viewBox:"0 0 24 24",fill:"none",stroke:corPrior,strokeWidth:"1.8",strokeLinecap:"round",strokeLinejoin:"round",style:{display:"inline-block",verticalAlign:"-1px"}},
+                      h("circle",{cx:"12",cy:"12",r:"10"}),
+                      h("circle",{cx:"12",cy:"12",r:"6"}),
+                      h("circle",{cx:"12",cy:"12",r:"2"})
+                    );
+                    const labelPrior=ativoMira.prioridade===1?"PRIORIDADE 1":(ativoMira.prioridade===2?"PRIORIDADE 2":"PRIORIDADE 3");
+                    return h("div",{
+                      title:"Selecionado pela IA para Deep Dive antes do aporte ("+labelPrior+")\nClique no card para expandir e ler a justificativa completa.",
+                      style:{padding:"2px 7px",background:ativoMira.prioridade===1?"linear-gradient(135deg,rgba(255,150,80,0.35),rgba(255,150,80,0.15))":"linear-gradient(135deg,rgba(232,144,96,0.30),rgba(232,144,96,0.12))",border:"1px solid "+(ativoMira.prioridade===1?"rgba(255,150,80,0.60)":"rgba(232,144,96,0.55)"),borderRadius:11,fontSize:8.5,color:corPrior,fontFamily:"monospace",fontWeight:700,letterSpacing:0.5,cursor:"help",lineHeight:1.3,display:"inline-flex",alignItems:"center",gap:4,userSelect:"none"}
+                    },targetSvg,"NA MIRA",ativoMira.prioridade===1?h("span",{style:{fontSize:7,marginLeft:2,opacity:0.85}},"\u2605"):null);
                   })(),
                   // CONTADOR DE DOCS NOVOS (nao processados pela IA)
                   (function(){
@@ -22529,7 +22988,15 @@ h("button",{onClick:async()=>{
                       aviso+="Custo estimado: ~$"+custoEst+" USD\nTempo: ~60-120 segundos\n\nConfirmar?";
                       if(!confirm(aviso))return;
                       gerarDeepDive(tk.ticker);
-                    },disabled:desabilitado,title:carregando?"Gerando deep dive...":"DEEP DIVE: relatorio narrativo de 1 ativo (~$"+custoEst+" USD, 60-120s)",style:{padding:"6px 9px",background:desabilitado?"rgba(255,150,80,0.05)":(carregando?"rgba(255,150,80,0.15)":"linear-gradient(135deg,rgba(255,150,80,0.22),rgba(255,150,80,0.10))"),border:"1px solid "+(desabilitado?"rgba(255,150,80,0.15)":"rgba(255,150,80,0.45)"),borderRadius:4,color:desabilitado?"#7A5A40":"#FF9650",fontSize:11,cursor:desabilitado?"not-allowed":"pointer",fontFamily:"monospace",fontWeight:700,minWidth:32,lineHeight:1,marginLeft:4,opacity:desabilitado&&!carregando?0.5:1}},carregando?"\u23F3":"\u{1F52C}");
+                    },disabled:desabilitado,title:carregando?"Gerando deep dive...":"DEEP DIVE: relatorio narrativo de 1 ativo (~$"+custoEst+" USD, 60-120s)",style:{padding:"6px 9px",background:desabilitado?"rgba(255,150,80,0.05)":(carregando?"rgba(255,150,80,0.15)":"linear-gradient(135deg,rgba(255,150,80,0.22),rgba(255,150,80,0.10))"),border:"1px solid "+(desabilitado?"rgba(255,150,80,0.15)":"rgba(255,150,80,0.45)"),borderRadius:4,color:desabilitado?"#7A5A40":"#FF9650",fontSize:11,cursor:desabilitado?"not-allowed":"pointer",fontFamily:"monospace",fontWeight:700,minWidth:32,lineHeight:1,marginLeft:4,opacity:desabilitado&&!carregando?0.5:1,display:"inline-flex",alignItems:"center",justifyContent:"center"}},carregando?"\u23F3":h("svg",{width:14,height:14,viewBox:"0 0 24 24",fill:"none",stroke:desabilitado?"#7A5A40":"#FF9650",strokeWidth:"1.8",strokeLinecap:"round",strokeLinejoin:"round"},
+                      // Microscopio line-style: ocular (topo), corpo angulado, braço, base
+                      h("path",{d:"M6 18h8"}),// base
+                      h("path",{d:"M3 22h18"}),// chao
+                      h("path",{d:"M14 22a7 7 0 1 0 0-14h-1"}),// arco da lente/observacao
+                      h("path",{d:"M9 14h2"}),// alca do braco
+                      h("path",{d:"M8 6L8 14"}),// braco vertical
+                      h("path",{d:"M9 2 L7 2 L7 6 L11 6 L11 2 L9 2 z"})// ocular topo
+                    ));
                   })()
                 )
               ),
@@ -22666,6 +23133,57 @@ h("button",{onClick:async()=>{
                   )
                 )
               ):null,
+              // ===== BLOCO MIRA IA - JUSTIFICATIVA RICA (quando IA selecionou este ativo) =====
+              (function(){
+                const agora=new Date();
+                const dia=agora.getDate();
+                const naJanela=(dia>=22||dia<=5);
+                if(!naJanela)return null;
+                const janelaCorr=dia>=22?(()=>{const px=new Date(agora.getFullYear(),agora.getMonth()+1,1);return px.getFullYear()+"-"+String(px.getMonth()+1).padStart(2,"0");})():agora.getFullYear()+"-"+String(agora.getMonth()+1).padStart(2,"0");
+                if(!miraIA||miraIA.janelaId!==janelaCorr)return null;
+                const ativoMira=miraIA.ativos.find(a=>a.ticker===tk.ticker);
+                if(!ativoMira)return null;
+                const corPrior=ativoMira.prioridade===1?"#FF9650":(ativoMira.prioridade===2?"#E89060":"#C8A96E");
+                const bgPrior=ativoMira.prioridade===1?"rgba(255,150,80,0.08)":(ativoMira.prioridade===2?"rgba(232,144,96,0.08)":"rgba(200,169,110,0.06)");
+                const borderPrior=ativoMira.prioridade===1?"rgba(255,150,80,0.50)":(ativoMira.prioridade===2?"rgba(232,144,96,0.45)":"rgba(200,169,110,0.40)");
+                const labelPrior=ativoMira.prioridade===1?"PRIORIDADE 1 - URGENTE":(ativoMira.prioridade===2?"PRIORIDADE 2 - IMPORTANTE":"PRIORIDADE 3 - OPORTUNISTA");
+                // Verifica se ja tem deep dive para esta janela
+                const pTk=port[tk.ticker]||{};
+                const ddRecente=pTk.deepDive&&pTk.deepDive.ts&&(Date.now()-pTk.deepDive.ts<30*86400000);
+                // Verifica se tem docs/notas
+                const nDocs=Array.isArray(pTk.docs)?pTk.docs.filter(d=>!d.arquivado&&!d.consolidado).length:0;
+                const nNotas=Array.isArray(pTk.notas)?pTk.notas.filter(n=>!n.arquivado&&!n.consolidado).length:0;
+                return h("div",{style:{marginTop:10,padding:"10px 12px",background:bgPrior,border:"1px solid "+borderPrior,borderLeft:"3px solid "+corPrior,borderRadius:"0 5px 5px 0"}},
+                  // Header da mira
+                  h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,flexWrap:"wrap",marginBottom:8}},
+                    h("div",{style:{display:"flex",alignItems:"center",gap:6}},
+                      h("svg",{width:13,height:13,viewBox:"0 0 24 24",fill:"none",stroke:corPrior,strokeWidth:"1.8",strokeLinecap:"round",strokeLinejoin:"round"},
+                        h("circle",{cx:"12",cy:"12",r:"10"}),h("circle",{cx:"12",cy:"12",r:"6"}),h("circle",{cx:"12",cy:"12",r:"2"})
+                      ),
+                      h("span",{style:{fontSize:9.5,color:corPrior,fontFamily:"monospace",fontWeight:700,letterSpacing:1}},"\u{1F3AF} POR QUE ESTE ATIVO MERECE DEEP DIVE AGORA"),
+                      ativoMira.prioridade===1?h("span",{style:{fontSize:11,color:corPrior}},"\u2605"):null
+                    ),
+                    h("span",{style:{fontSize:8,color:corPrior,fontFamily:"monospace",padding:"2px 6px",background:"rgba(255,255,255,0.04)",borderRadius:3,letterSpacing:0.5,fontWeight:700}},labelPrior)
+                  ),
+                  // JUSTIFICATIVA RICA - destaque visual com fonte maior e melhor espacamento
+                  h("div",{style:{fontSize:11,color:"#F0EAD8",lineHeight:1.7,marginBottom:10,padding:"6px 10px",background:"rgba(0,0,0,0.18)",borderRadius:3,fontStyle:"normal"}},
+                    ativoMira.justificativa
+                  ),
+                  // Call to action: o que fazer agora
+                  h("div",{style:{display:"flex",alignItems:"center",gap:8,padding:"7px 9px",background:"rgba(0,0,0,0.12)",borderRadius:3,fontSize:9,color:"#D8CFB8",fontFamily:"monospace",lineHeight:1.5,flexWrap:"wrap"}},
+                    h("span",{style:{fontSize:13}},"\u{1F4CE}"),
+                    h("div",{style:{flex:1,minWidth:180}},
+                      h("div",{style:{fontWeight:700,color:corPrior,marginBottom:3,letterSpacing:0.5}},"PROXIMO PASSO:"),
+                      ddRecente?
+                        h("div",null,"\u2713 Deep Dive ja rodado ha menos de 30d. Verifique se ha materiais novos (ITR recente, fatos relevantes, calls) e atualize o historico se necessario."):
+                        (nDocs+nNotas===0?
+                          h("div",null,"Abra a secao DOCS & NOTAS e suba PDFs (ITR, RG, fato relevante) ou URLs relevantes. Depois clique no \u{1F52C} para gerar Deep Dive."):
+                          h("div",null,nDocs+" doc(s) + "+nNotas+" nota(s) ja cadastrados. Verifique se ha materiais mais recentes para subir antes de gerar Deep Dive no \u{1F52C}.")
+                        )
+                    )
+                  )
+                );
+              })(),
               // BLOCO DEEP DIVE - relatorio narrativo profundo (quando existe)
               (function(){
                 const pTk=port[tk.ticker]||{};
@@ -22680,7 +23198,16 @@ h("button",{onClick:async()=>{
                   h("div",{onClick:()=>setDeepDiveExpanded(prev=>({...prev,[tk.ticker]:!expanded})),style:{padding:"8px 11px",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,flexWrap:"wrap"}},
                     h("div",{style:{display:"flex",alignItems:"center",gap:6}},
                       h("span",{style:{fontSize:11,color:"#FF9650"}},expanded?"\u25BC":"\u25B6"),
-                      h("span",{style:{fontSize:9.5,color:"#FF9650",fontFamily:"monospace",fontWeight:700,letterSpacing:1.2}},"\u{1F52C} DEEP DIVE"),
+                      // Icone microscopio line-style (mesmo padrao do olho de visualizacao)
+                      h("svg",{width:13,height:13,viewBox:"0 0 24 24",fill:"none",stroke:"#FF9650",strokeWidth:"1.8",strokeLinecap:"round",strokeLinejoin:"round",style:{display:"inline-block"}},
+                        h("path",{d:"M6 18h8"}),
+                        h("path",{d:"M3 22h18"}),
+                        h("path",{d:"M14 22a7 7 0 1 0 0-14h-1"}),
+                        h("path",{d:"M9 14h2"}),
+                        h("path",{d:"M8 6L8 14"}),
+                        h("path",{d:"M9 2 L7 2 L7 6 L11 6 L11 2 L9 2 z"})
+                      ),
+                      h("span",{style:{fontSize:9.5,color:"#FF9650",fontFamily:"monospace",fontWeight:700,letterSpacing:1.2}},"DEEP DIVE"),
                       h("span",{style:{fontSize:8.5,color:"#A88060",fontFamily:"monospace"}},tempoAmig+" \u2022 $"+(dd.custoUSD||0).toFixed(2)+(dd.docsLidos>0?" \u2022 "+dd.docsLidos+" PDF":"")+(dd.urlsLidas>0?" + "+dd.urlsLidas+" URL":""))
                     ),
                     h("div",{style:{display:"flex",gap:6}},
