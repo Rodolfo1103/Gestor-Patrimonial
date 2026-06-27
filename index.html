@@ -7485,6 +7485,8 @@ function App(){
   // O usuario monta a propria asset allocation, escolhe 1 ticker por classe, IA analisa e ele "fecha" o aporte
   const [aporteValores,setAporteValores]=useState({}); // {classId: "12.345,67"}
   const [aporteTickers,setAporteTickers]=useState({}); // {classId: "TICKER"}
+  const [aportePeriodoInicio,setAportePeriodoInicio]=useState(""); // YYYY-MM-DD (formato input date)
+  const [aportePeriodoFim,setAportePeriodoFim]=useState(""); // YYYY-MM-DD
   const [aporteAlocAberto,setAporteAlocAberto]=useState(true); // asset allocation colapsavel
   const [aporteTickersAberto,setAporteTickersAberto]=useState(false); // selecao tickers colapsavel
   const [miraIAExpanded,setMiraIAExpanded]=useState({});// {ticker:true}
@@ -7878,6 +7880,12 @@ function App(){
         if(dd.aporteTickers&&typeof dd.aporteTickers==="object"){
           setAporteTickers(dd.aporteTickers);
         }
+        if(typeof dd.aportePeriodoInicio==="string"){
+          setAportePeriodoInicio(dd.aportePeriodoInicio);
+        }
+        if(typeof dd.aportePeriodoFim==="string"){
+          setAportePeriodoFim(dd.aportePeriodoFim);
+        }
         // Override com rrdata-v1 (chave dedicada nao criptografada) - tem prioridade pois e salva imediatamente
         // apos cada analise, enquanto o blob criptografado pode estar atrasado pelo useEffect async
         try{
@@ -8077,14 +8085,14 @@ function App(){
     if(!inited||!aesKey)return;
     (async()=>{
       try{
-        const obj={port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,selicAtual,metaMensalIF,cenarioIPCA,dataNascimento,insightRenda,insightRendaTs,insightRendaSnap,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,piCycle,nupl,goldSilver,goldSP500,realGoldZ,fx:{...FX},btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,insightSnap,infIPCA,infIGPM,infINCC,infCPI,infHICP,juroFed,juroECB,juroBoJ,ntnbTaxas,ntnbVNA,ntnbUpdTs,ntnbDataCotacao,ntnbDiasDefasagem,ntnbVencimentos:{...NTNB_VENCIMENTOS},cambialCash,rendaMotoraHist,rendaAuxiliarHist,aportesSimples,ativosEmEstudo,riscoRetornoData,calibracoesCustom,ntnbHistoricoTaxas,miraIA,apR,apV,aporteValores,aporteTickers};
+        const obj={port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,selicAtual,metaMensalIF,cenarioIPCA,dataNascimento,insightRenda,insightRendaTs,insightRendaSnap,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,piCycle,nupl,goldSilver,goldSP500,realGoldZ,fx:{...FX},btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,insightSnap,infIPCA,infIGPM,infINCC,infCPI,infHICP,juroFed,juroECB,juroBoJ,ntnbTaxas,ntnbVNA,ntnbUpdTs,ntnbDataCotacao,ntnbDiasDefasagem,ntnbVencimentos:{...NTNB_VENCIMENTOS},cambialCash,rendaMotoraHist,rendaAuxiliarHist,aportesSimples,ativosEmEstudo,riscoRetornoData,calibracoesCustom,ntnbHistoricoTaxas,miraIA,apR,apV,aporteValores,aporteTickers,aportePeriodoInicio,aportePeriodoFim};
         const enc=await aesEncrypt(aesKey,obj);
         localStorage.setItem(SK_ENC,enc);
       }catch(e){
         console.error("SAVE ENC falhou:",e&&e.message?e.message:e);
       }
     })();
-  },[port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,selicAtual,metaMensalIF,cenarioIPCA,dataNascimento,insightRenda,insightRendaTs,insightRendaSnap,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,piCycle,nupl,goldSilver,goldSP500,realGoldZ,btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,insightSnap,infIPCA,infIGPM,infINCC,infCPI,infHICP,juroFed,juroECB,juroBoJ,ntnbTaxas,ntnbVNA,ntnbUpdTs,cambialCash,rendaMotoraHist,rendaAuxiliarHist,aportesSimples,ativosEmEstudo,riscoRetornoData,calibracoesCustom,ntnbHistoricoTaxas,miraIA,apR,apV,aporteValores,aporteTickers,inited,aesKey]);
+  },[port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,selicAtual,metaMensalIF,cenarioIPCA,dataNascimento,insightRenda,insightRendaTs,insightRendaSnap,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,piCycle,nupl,goldSilver,goldSP500,realGoldZ,btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,insightSnap,infIPCA,infIGPM,infINCC,infCPI,infHICP,juroFed,juroECB,juroBoJ,ntnbTaxas,ntnbVNA,ntnbUpdTs,cambialCash,rendaMotoraHist,rendaAuxiliarHist,aportesSimples,ativosEmEstudo,riscoRetornoData,calibracoesCustom,ntnbHistoricoTaxas,miraIA,apR,apV,aporteValores,aporteTickers,aportePeriodoInicio,aportePeriodoFim,inited,aesKey]);
 
   // Auto-lock por inatividade (15 min)
   useEffect(()=>{
@@ -11394,7 +11402,9 @@ function App(){
         mptSnapshot:mptSnapshot,
         mptSnapshotProj:mptSnapshotProj,
         aporteManual:true,
-        aporteFinalDefinido:false
+        aporteFinalDefinido:false,
+        aportePeriodoInicio:aportePeriodoInicio||"",
+        aportePeriodoFim:aportePeriodoFim||""
       };
       setApR(novoApR);
       setLoadA(false);
@@ -16168,7 +16178,7 @@ h("button",{onClick:async()=>{
             style:{background:"linear-gradient(135deg,rgba(76,175,130,0.20),rgba(76,175,130,0.08))",border:"1px solid rgba(76,175,130,0.45)",color:"#7AC4A0",cursor:"pointer",fontSize:11,padding:"7px 14px",borderRadius:5,fontFamily:"monospace",letterSpacing:1,fontWeight:700}
           },"\u2713 Fechar aporte"):null,
           apR.aporteFinalDefinido?h("button",{
-            onClick:()=>{setApR(null);setApV("");setAporteValores({});setAporteTickers({});},
+            onClick:()=>{setApR(null);setApV("");setAporteValores({});setAporteTickers({});setAportePeriodoInicio("");setAportePeriodoFim("");},
             style:{background:"none",border:"none",color:"#8A8070",cursor:"pointer",fontSize:12,padding:0}
           },"+ Novo aporte"):null
         ),
@@ -16177,7 +16187,14 @@ h("button",{onClick:async()=>{
         // Header compacto: valor do aporte e label
         h("div",{style:{background:"linear-gradient(135deg,rgba(200,169,110,0.08),rgba(200,169,110,0.02))",border:"1px solid rgba(200,169,110,0.2)",borderRadius:9,padding:"14px",marginBottom:12}},
           h("div",{style:{fontSize:8,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:5}},apR.aporteManual?"Aporte montado pelo investidor":"Analise Fundamentalista"),
-          h("div",{style:{fontSize:22,color:"#F0EAD8"}},MV(fB(apR.apValue)))
+          h("div",{style:{fontSize:22,color:"#F0EAD8"}},MV(fB(apR.apValue))),
+          (apR.aportePeriodoInicio||apR.aportePeriodoFim)?(function(){
+            const fmtDt=s=>{if(!s||typeof s!=="string"||!/^\d{4}-\d{2}-\d{2}$/.test(s))return"";const[y,m,d]=s.split("-");return d+"/"+m+"/"+y.slice(2);};
+            const ini=fmtDt(apR.aportePeriodoInicio);
+            const fim=fmtDt(apR.aportePeriodoFim);
+            const txt=ini&&fim?ini+" a "+fim:ini||fim;
+            return h("div",{style:{fontSize:10,color:"#9A9080",fontFamily:"monospace",marginTop:6,letterSpacing:1}},"Periodo: "+txt);
+          })():null
         ),
 
         // ===== TABELA RESUMO POR CLASSE (destaque visual) =====
@@ -16660,6 +16677,13 @@ h("button",{onClick:async()=>{
                 html+='</style></head><body>';
                 html+='<h1>Aporte Fundamentalista</h1>';
                 html+='<div class="meta">Gerado em '+dataStr+'  &middot;  Aletsch Wealth</div>';
+                if(apR.aportePeriodoInicio||apR.aportePeriodoFim){
+                  const fmtDt=s=>{if(!s||typeof s!=="string"||!/^\d{4}-\d{2}-\d{2}$/.test(s))return"";const p=s.split("-");return p[2]+"/"+p[1]+"/"+p[0].slice(2);};
+                  const ini=fmtDt(apR.aportePeriodoInicio);
+                  const fim=fmtDt(apR.aportePeriodoFim);
+                  const txt=ini&&fim?ini+" a "+fim:ini||fim;
+                  html+='<div class="meta" style="margin-top:-8px;color:#666">Periodo do aporte: '+txt+'</div>';
+                }
                 if(apR.aporteFinalDefinido){
                   const tsFinal=new Date(apR.aporteFinalTs).toLocaleString("pt-BR");
                   html+='<div class="carimbo-final">&#10003; Aporte definido pelo investidor em '+tsFinal+'</div>';
@@ -16798,6 +16822,27 @@ h("button",{onClick:async()=>{
             const inteiroFormatado=parteInteira.replace(/^0+(?=\d)/,"").replace(/\B(?=(\d{3})+(?!\d))/g,".");
             setApV(inteiroFormatado+","+parteDecimal);
           },style:{flex:1,background:"transparent",border:"none",outline:"none",color:"#F0EAD8",fontSize:26}})
+        ),
+        // ===== A.2. PERIODO DO APORTE (opcional) =====
+        h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:14}},
+          h("div",{},
+            h("div",{style:{fontSize:8,letterSpacing:2,color:"#8A8070",fontFamily:"monospace",textTransform:"uppercase",marginBottom:5}},"Periodo - inicio"),
+            h("input",{
+              type:"date",
+              value:aportePeriodoInicio,
+              onChange:e=>setAportePeriodoInicio(e.target.value),
+              style:{width:"100%",background:"rgba(200,169,110,0.05)",border:"1px solid rgba(200,169,110,0.25)",borderRadius:7,padding:"9px 11px",color:"#F0EAD8",fontSize:12,fontFamily:"monospace",outline:"none",boxSizing:"border-box",colorScheme:"dark"}
+            })
+          ),
+          h("div",{},
+            h("div",{style:{fontSize:8,letterSpacing:2,color:"#8A8070",fontFamily:"monospace",textTransform:"uppercase",marginBottom:5}},"Periodo - fim"),
+            h("input",{
+              type:"date",
+              value:aportePeriodoFim,
+              onChange:e=>setAportePeriodoFim(e.target.value),
+              style:{width:"100%",background:"rgba(200,169,110,0.05)",border:"1px solid rgba(200,169,110,0.25)",borderRadius:7,padding:"9px 11px",color:"#F0EAD8",fontSize:12,fontFamily:"monospace",outline:"none",boxSizing:"border-box",colorScheme:"dark"}
+            })
+          )
         ),
         // ===== B. ASSET ALLOCATION (colapsavel) =====
         h("div",{style:{marginBottom:12,border:"1px solid rgba(200,169,110,0.25)",borderRadius:9,overflow:"hidden"}},
