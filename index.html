@@ -7481,6 +7481,12 @@ function App(){
   const [propUsrValores,setPropUsrValores]=useState({}); // {classId: "valor em string"}
   const [propUsrLoad,setPropUsrLoad]=useState(false);
   const [propUsrErr,setPropUsrErr]=useState("");
+  // ===== NOVO FLUXO MANUAL DE APORTE =====
+  // O usuario monta a propria asset allocation, escolhe 1 ticker por classe, IA analisa e ele "fecha" o aporte
+  const [aporteValores,setAporteValores]=useState({}); // {classId: "12.345,67"}
+  const [aporteTickers,setAporteTickers]=useState({}); // {classId: "TICKER"}
+  const [aporteAlocAberto,setAporteAlocAberto]=useState(true); // asset allocation colapsavel
+  const [aporteTickersAberto,setAporteTickersAberto]=useState(false); // selecao tickers colapsavel
   const [miraIAExpanded,setMiraIAExpanded]=useState({});// {ticker:true}
   // Docs por ticker (URLs de balancos/fatos relevantes/apresentacoes) - UI temporaria
   // ===== END state cleanup =====
@@ -7865,6 +7871,13 @@ function App(){
         if(dd.apV&&typeof dd.apV==="string"){
           setApV(dd.apV);
         }
+        // Carregar valores e tickers do aporte manual em construcao
+        if(dd.aporteValores&&typeof dd.aporteValores==="object"){
+          setAporteValores(dd.aporteValores);
+        }
+        if(dd.aporteTickers&&typeof dd.aporteTickers==="object"){
+          setAporteTickers(dd.aporteTickers);
+        }
         // Override com rrdata-v1 (chave dedicada nao criptografada) - tem prioridade pois e salva imediatamente
         // apos cada analise, enquanto o blob criptografado pode estar atrasado pelo useEffect async
         try{
@@ -8064,14 +8077,14 @@ function App(){
     if(!inited||!aesKey)return;
     (async()=>{
       try{
-        const obj={port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,selicAtual,metaMensalIF,cenarioIPCA,dataNascimento,insightRenda,insightRendaTs,insightRendaSnap,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,piCycle,nupl,goldSilver,goldSP500,realGoldZ,fx:{...FX},btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,insightSnap,infIPCA,infIGPM,infINCC,infCPI,infHICP,juroFed,juroECB,juroBoJ,ntnbTaxas,ntnbVNA,ntnbUpdTs,ntnbDataCotacao,ntnbDiasDefasagem,ntnbVencimentos:{...NTNB_VENCIMENTOS},cambialCash,rendaMotoraHist,rendaAuxiliarHist,aportesSimples,ativosEmEstudo,riscoRetornoData,calibracoesCustom,ntnbHistoricoTaxas,miraIA,apR,apV};
+        const obj={port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,selicAtual,metaMensalIF,cenarioIPCA,dataNascimento,insightRenda,insightRendaTs,insightRendaSnap,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,piCycle,nupl,goldSilver,goldSP500,realGoldZ,fx:{...FX},btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,insightSnap,infIPCA,infIGPM,infINCC,infCPI,infHICP,juroFed,juroECB,juroBoJ,ntnbTaxas,ntnbVNA,ntnbUpdTs,ntnbDataCotacao,ntnbDiasDefasagem,ntnbVencimentos:{...NTNB_VENCIMENTOS},cambialCash,rendaMotoraHist,rendaAuxiliarHist,aportesSimples,ativosEmEstudo,riscoRetornoData,calibracoesCustom,ntnbHistoricoTaxas,miraIA,apR,apV,aporteValores,aporteTickers};
         const enc=await aesEncrypt(aesKey,obj);
         localStorage.setItem(SK_ENC,enc);
       }catch(e){
         console.error("SAVE ENC falhou:",e&&e.message?e.message:e);
       }
     })();
-  },[port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,selicAtual,metaMensalIF,cenarioIPCA,dataNascimento,insightRenda,insightRendaTs,insightRendaSnap,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,piCycle,nupl,goldSilver,goldSP500,realGoldZ,btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,insightSnap,infIPCA,infIGPM,infINCC,infCPI,infHICP,juroFed,juroECB,juroBoJ,ntnbTaxas,ntnbVNA,ntnbUpdTs,cambialCash,rendaMotoraHist,rendaAuxiliarHist,aportesSimples,ativosEmEstudo,riscoRetornoData,calibracoesCustom,ntnbHistoricoTaxas,miraIA,apR,apV,inited,aesKey]);
+  },[port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,selicAtual,metaMensalIF,cenarioIPCA,dataNascimento,insightRenda,insightRendaTs,insightRendaSnap,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,piCycle,nupl,goldSilver,goldSP500,realGoldZ,btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,insightSnap,infIPCA,infIGPM,infINCC,infCPI,infHICP,juroFed,juroECB,juroBoJ,ntnbTaxas,ntnbVNA,ntnbUpdTs,cambialCash,rendaMotoraHist,rendaAuxiliarHist,aportesSimples,ativosEmEstudo,riscoRetornoData,calibracoesCustom,ntnbHistoricoTaxas,miraIA,apR,apV,aporteValores,aporteTickers,inited,aesKey]);
 
   // Auto-lock por inatividade (15 min)
   useEffect(()=>{
@@ -11192,6 +11205,219 @@ function App(){
       setExecE(ent);
     }catch(e){setAErr(e.message||"Erro");}
     setLoadA(false);
+  };
+
+  // ===== ANALISA APORTE MONTADO MANUALMENTE PELO USUARIO =====
+  // Recebe a allocation+tickers do usuario e envia para a IA analisar (so analise, sem alocar)
+  const analisaAporteManual=async()=>{
+    if(!apiKey){setAErr("Configure API key no botao API");return;}
+    const valorAporte=pN(apV);
+    if(valorAporte<=0){setAErr("Informe o valor do aporte");return;}
+    setAErr("");
+    setLoadA(true);
+    try{
+      // Coleta divisao por classe
+      const classesAporte=CL.filter(c=>c.id!=="imoveis");
+      const divisao=[];
+      let somaDivisao=0;
+      classesAporte.forEach(c=>{
+        const valor=pN(aporteValores[c.id]||"0");
+        if(valor>0){
+          const pesoAtual=cw[c.id]||0;
+          const ticker=(aporteTickers[c.id]||"").trim().toUpperCase();
+          divisao.push({
+            id:c.id,
+            name:c.name,
+            valor:valor,
+            pct:valorAporte>0?(valor/valorAporte*100):0,
+            ticker:ticker||"(nenhum selecionado)",
+            pesoAtualPortfolio:pesoAtual.toFixed(2)+"%",
+            bandaMin:c.min+"%",
+            bandaMax:c.max+"%",
+            situacao:pesoAtual>c.max?"SOBREALLOCADA":pesoAtual<c.min?"SUBREPRESENTADA":"DENTRO_DA_BANDA"
+          });
+          somaDivisao+=valor;
+        }
+      });
+      if(divisao.length===0){
+        setAErr("Adicione valores em ao menos uma classe.");
+        setLoadA(false);
+        return;
+      }
+      // Coleta indicadores macro
+      const macroResumo={
+        selicAtual:typeof selicAtual==="number"?selicAtual.toFixed(2)+"%":null,
+        ipcaAnual:typeof infIPCA==="object"&&infIPCA&&typeof infIPCA.anual==="number"?infIPCA.anual.toFixed(2)+"%":null,
+        usdBrl:FX&&typeof FX.USD==="number"?FX.USD.toFixed(3):null,
+        mvrvZ:typeof mvrvZ==="number"?mvrvZ.toFixed(2):null,
+        nupl:typeof nupl==="number"?nupl.toFixed(3):null,
+        realGoldZ:typeof realGoldZ==="number"?realGoldZ.toFixed(2):null,
+        goldSilver:typeof goldSilver==="number"?goldSilver.toFixed(1):null
+      };
+      // Verifica tickers escolhidos vs limite de 5%
+      const ticker5pct=[];
+      divisao.forEach(d=>{
+        if(!d.ticker||d.ticker==="(nenhum selecionado)")return;
+        const p=port[d.ticker];
+        if(p){
+          const valBRL=(p.totalBRL||0)+d.valor;
+          const novoTotal=(total||0)+valorAporte;
+          const pctApos=novoTotal>0?(valBRL/novoTotal)*100:0;
+          if(pctApos>=5)ticker5pct.push({ticker:d.ticker,pct:pctApos.toFixed(2)});
+        }
+      });
+      // Coleta status RR dos tickers escolhidos
+      const tickerStatus=[];
+      divisao.forEach(d=>{
+        if(!d.ticker||d.ticker==="(nenhum selecionado)")return;
+        try{
+          const dIA=riscoRetornoData&&riscoRetornoData.ativos?riscoRetornoData.ativos[d.ticker]:null;
+          if(dIA){
+            let tirA=null,tirAlv=null;
+            if(typeof dIA.tirEstimadaIA==="number"&&typeof dIA.tirAlvoIA==="number"){
+              tirA=dIA.tirEstimadaIA;tirAlv=dIA.tirAlvoIA;
+            }else if(typeof dIA._tirAtual==="number"&&typeof dIA._tirAlvo==="number"){
+              tirA=dIA._tirAtual;tirAlv=dIA._tirAlvo;
+            }
+            if(typeof tirA==="number"&&typeof tirAlv==="number"){
+              const mar=tirA-tirAlv;
+              const stat=mar>=0.03?"oportunidade":mar>=-0.02?"na_faixa":"caro";
+              tickerStatus.push({ticker:d.ticker,classe:d.id,statusRR:stat,margemSeguranca:(mar*100).toFixed(2)+"pp"});
+            }
+          }
+        }catch(_){}
+      });
+      // Monta prompt
+      const sysPrompt="Voce e analista Buy&Hold rigoroso (Charlie Munger, Terry Smith). O investidor MONTOU MANUALMENTE seu proprio aporte: ele decidiu a divisao por classe e os tickers. Sua tarefa: ANALISAR a proposta dele de forma OBJETIVA e CRITICA, sem repropor.\\n\\nFILOSOFIA DO INVESTIDOR (respeitar integralmente):\\n- Buy & Hold rigoroso, zero vendas\\n- Rebalanceamento exclusivamente via aportes mensais (Swensen/Yale)\\n- Quality at reasonable price\\n- Aceita preco justo, evita value traps\\n- 'Quando duas oportunidades empatam em qualidade/preco, preferir a que reduz mais a correlacao do portfolio'\\n\\nREGRAS QUE A PROPOSTA DEVE RESPEITAR (mencionar quando violadas):\\n1) PISO 3% por classe que receber aporte\\n2) TETO 8% para classes SOBREALLOCADAS (peso > max banda)\\n3) TETO 30% por classe de risco (Selic 2031 e excecao)\\n4) NENHUM ticker pode ultrapassar 5% do patrimonio TOTAL apos aporte\\n5) Bandas Yale do investidor: cada classe tem min/max definidos\\n6) Classes subrepresentadas (peso < min) DEVEM receber alocacao significativa se houver oportunidade\\n7) Soma da alocacao deve ser exatamente o valor do aporte\\n\\nREBALANCEAMENTO ESTRUTURAL - avalie como a proposta afeta as 3 dimensoes:\\n- MPT (Markowitz): a proposta melhora o Sharpe? Aproxima ou afasta da fronteira eficiente?\\n- ALL WEATHER (Dalio): qual cenario c1/c2/c3/c4 fica mais resiliente? Algum gap critico nao foi atacado?\\n- YALE (Swensen): a proposta aproxima os buckets dos alvos? (equity 44%, realAssets 33%, altLiquid 3%, inflationHedge 8%, fixedNominal 12%)\\n\\nSTATUS RR DOS TICKERS: cada ticker escolhido pode ter um statusRR: oportunidade (preco barato), na_faixa (justo) ou caro. Se o investidor escolheu um ticker CARO, MENCIONE como ponto de atencao - sugerir alternativa se houver, mas SEM ALOCAR voce mesmo.\\n\\nSEU OUTPUT (JSON ESTRITO, comecando com { e terminando com }, sem markdown nem narrativa antes):\\n{\\n  \\\"veredito\\\":\\\"OTIMO|BOM|REGULAR|RUIM|DESALINHADO\\\",\\n  \\\"sintese\\\":\\\"2-3 frases sumarizando o julgamento geral\\\",\\n  \\\"criticas\\\":[\\\"critica especifica 1\\\",\\\"critica 2\\\"...],\\n  \\\"pontos_positivos\\\":[\\\"ponto 1\\\",\\\"ponto 2\\\"...],\\n  \\\"comentarios_por_classe\\\":{\\\"classe_id\\\":\\\"comentario sobre essa classe (tica, ticker escolhido, alinhamento)\\\",...},\\n  \\\"impacto_mpt\\\":\\\"avaliacao do impacto na fronteira/Sharpe\\\",\\n  \\\"impacto_aw\\\":\\\"avaliacao da resiliencia macro em c1/c2/c3/c4\\\",\\n  \\\"impacto_yale\\\":\\\"avaliacao dos buckets Yale\\\",\\n  \\\"sugestoes_ajuste\\\":\\\"se houver ajustes recomendados em 2-3 frases. Se proposta esta boa, dizer 'sem ajustes necessarios'\\\"\\n}\\n\\nVeredito 'OTIMO': proposta plenamente alinhada com filosofia e regras. 'BOM': pequenos pontos a melhorar. 'REGULAR': viola 1-2 regras importantes ou tem gap estrutural. 'RUIM': viola multiplas regras. 'DESALINHADO': proposta contradiz fundamentos (ex: reforca sobreallocada com >15%).";
+      const userPrompt="CONTEXTO MACRO:\\n"+JSON.stringify(macroResumo)+"\\n\\nAPORTE TOTAL: R$ "+valorAporte.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})+"\\nSOMA DA PROPOSTA: R$ "+somaDivisao.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})+"\\nPATRIMONIO ATUAL: R$ "+Math.round(total).toLocaleString("pt-BR")+"\\n\\nPROPOSTA DO INVESTIDOR:\\n"+divisao.map(d=>"- "+d.name+" ("+d.id+"): R$ "+d.valor.toLocaleString("pt-BR",{minimumFractionDigits:2})+" ("+d.pct.toFixed(1)+"%) | ticker: "+d.ticker+" | situacao classe: "+d.situacao+" [banda "+d.bandaMin+"-"+d.bandaMax+", peso atual "+d.pesoAtualPortfolio+"]").join("\\n")+(tickerStatus.length>0?"\\n\\nSTATUS RR DOS TICKERS ESCOLHIDOS (analise risco x retorno):\\n"+JSON.stringify(tickerStatus,null,1):"")+(ticker5pct.length>0?"\\n\\nALERTA - TICKERS PROXIMOS/ACIMA DO LIMITE 5% APOS APORTE:\\n"+JSON.stringify(ticker5pct,null,1):"")+"\\n\\nANALISE esta proposta seguindo o framework e formato JSON definido. NAO refaca a alocacao - apenas critique a proposta do investidor.";
+      // Chama API
+      const resp=await fetch("https://api.anthropic.com/v1/messages",{
+        method:"POST",
+        headers:{"content-type":"application/json","x-api-key":apiKey,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
+        body:JSON.stringify({
+          model:"claude-sonnet-4-5",
+          max_tokens:6000,
+          system:sysPrompt,
+          messages:[{role:"user",content:userPrompt}]
+        })
+      });
+      if(!resp.ok){
+        const txt=await resp.text();
+        throw new Error("API "+resp.status+": "+txt.slice(0,200));
+      }
+      const data=await resp.json();
+      registrarUsoAPI&&registrarUsoAPI("aporte_manual",data.usage);
+      const txt=(data.content||[]).map(b=>b.text||"").join("").trim();
+      // Parse JSON
+      let analise=null;
+      try{analise=JSON.parse(txt);}catch(_){
+        try{
+          const cleaned=txt.replace(/```json|```/g,"").trim();
+          analise=JSON.parse(cleaned);
+        }catch(__){
+          const m=txt.match(/\{[\s\S]*\}/);
+          if(m)try{analise=JSON.parse(m[0]);}catch(___){}
+        }
+      }
+      if(!analise||!analise.veredito){
+        setDebugResposta({contexto:"Analise Manual",timestamp:Date.now(),conteudo:String(txt||""),tamanho:String(txt||"").length});
+        throw new Error("IA nao retornou JSON valido. Toque em VER RESPOSTA COMPLETA para copiar.");
+      }
+      // ===== Calcula projecao MPT/AW para mostrar impacto =====
+      let mptSnapshot=null,mptSnapshotProj=null;
+      try{
+        const wAtualMPT=MPT_CLS.map(cid=>(cw[cid]||0)/100);
+        const somaAt=wAtualMPT.reduce((a,b)=>a+b,0);
+        if(somaAt>0)for(let i=0;i<wAtualMPT.length;i++)wAtualMPT[i]/=somaAt;
+        const rfA=(typeof selicAtual==="number"&&selicAtual>0?selicAtual:14.25)*(1-IR_LONGO_PRAZO)/100;
+        const statsAt=mptStats(wAtualMPT,rfA);
+        const sharpeAt=mptSharpe(statsAt.ret,statsAt.vol,rfA);
+        let hhiAt=0;for(const w of wAtualMPT)hhiAt+=w*w;
+        const protCenAt={c1:0,c2:0,c3:0,c4:0};
+        MPT_CLS.forEach((cid,i)=>{
+          const w=wAtualMPT[i]||0;
+          protCenAt.c1+=w*(AW_CEN[cid].c1||0);
+          protCenAt.c2+=w*(AW_CEN[cid].c2||0);
+          protCenAt.c3+=w*(AW_CEN[cid].c3||0);
+          protCenAt.c4+=w*(AW_CEN[cid].c4||0);
+        });
+        // Projetado
+        const novoTotal=(total||0)+valorAporte;
+        const wProj=MPT_CLS.map(cid=>{
+          const valAt=(cw[cid]||0)*total/100;
+          const dC=divisao.find(d=>d.id===cid);
+          const aporte=dC?dC.valor:0;
+          return novoTotal>0?(valAt+aporte)/novoTotal:0;
+        });
+        const somaProj=wProj.reduce((a,b)=>a+b,0);
+        if(somaProj>0)for(let i=0;i<wProj.length;i++)wProj[i]/=somaProj;
+        const statsProj=mptStats(wProj,rfA);
+        const sharpeProj=mptSharpe(statsProj.ret,statsProj.vol,rfA);
+        let hhiProj=0;for(const w of wProj)hhiProj+=w*w;
+        const protCenProj={c1:0,c2:0,c3:0,c4:0};
+        MPT_CLS.forEach((cid,i)=>{
+          const w=wProj[i]||0;
+          protCenProj.c1+=w*(AW_CEN[cid].c1||0);
+          protCenProj.c2+=w*(AW_CEN[cid].c2||0);
+          protCenProj.c3+=w*(AW_CEN[cid].c3||0);
+          protCenProj.c4+=w*(AW_CEN[cid].c4||0);
+        });
+        // Yale buckets
+        const yaleMap={acoes_br:"equity",acoes_eua:"equity",acoes_mundo:"equity",reit:"equity",
+                      fii:"realAssets",infra:"realAssets",fiagros:"realAssets",imoveis:"realAssets",
+                      bitcoin:"altLiquid",ouro:"inflationHedge",rfipca:"inflationHedge",
+                      selic:"fixedNominal",treasuries:"fixedNominal",caixacambial:"fixedNominal"};
+        const yaleAt={equity:0,realAssets:0,altLiquid:0,inflationHedge:0,fixedNominal:0};
+        const yaleProj={equity:0,realAssets:0,altLiquid:0,inflationHedge:0,fixedNominal:0};
+        MPT_CLS.forEach((cid,i)=>{
+          const bucket=yaleMap[cid];
+          if(bucket){
+            yaleAt[bucket]+=wAtualMPT[i]||0;
+            yaleProj[bucket]+=wProj[i]||0;
+          }
+        });
+        mptSnapshot={sharpe:sharpeAt,ret:statsAt.ret,vol:statsAt.vol,hhi:hhiAt,protCen:protCenAt};
+        mptSnapshotProj={sharpe:sharpeProj,ret:statsProj.ret,vol:statsProj.vol,hhi:hhiProj,protCen:protCenProj,yaleBuckets:yaleProj,yaleBucketsAtual:yaleAt};
+      }catch(eMPT){console.error("[Aporte Manual] Erro MPT:",eMPT);}
+      // Salva apR no formato compatível com a UI existente
+      const novoApR={
+        apValue:valorAporte,
+        resumo:"",
+        classes:divisao.map(d=>({
+          id:d.id,
+          pct:d.pct,
+          valor:d.valor,
+          justificativa:analise.comentarios_por_classe&&analise.comentarios_por_classe[d.id]?analise.comentarios_por_classe[d.id]:"",
+          ativos:d.ticker&&d.ticker!=="(nenhum selecionado)"?[{rank:1,ticker:d.ticker,valor:d.valor,score:"DEFINIDO PELO INVESTIDOR",metricas:"",porque_essa_posicao:""}]:[]
+        })),
+        analiseIA:analise,
+        mptSnapshot:mptSnapshot,
+        mptSnapshotProj:mptSnapshotProj,
+        aporteManual:true,
+        aporteFinalDefinido:false
+      };
+      setApR(novoApR);
+      setLoadA(false);
+    }catch(e){
+      setAErr(e.message||"Erro ao analisar aporte");
+      setLoadA(false);
+    }
+  };
+
+  // Fecha o aporte (carimbo definitivo)
+  const fecharAporte=()=>{
+    if(!apR)return;
+    if(!confirm("Fechar este aporte? Ele sera marcado como definitivo. Voce ainda podera baixar o PDF e cadastrar as compras na aba Posicoes."))return;
+    setApR(prev=>({...prev,aporteFinalDefinido:true,aporteFinalTs:Date.now()}));
+  };
+
+  // Editar aporte (volta para o form)
+  const editarAporte=()=>{
+    if(!apR)return;
+    if(!confirm("Editar este aporte? A analise da IA sera descartada (voce podera pedir nova analise apos editar)."))return;
+    // Preserva os valores e tickers - o usuario edita a partir deles
+    setApR(null);
+    // Os estados aporteValores e aporteTickers ja estao preenchidos
   };
 
   // ===== REVISA PROPOSTA DO USUARIO =====
@@ -15931,10 +16157,26 @@ h("button",{onClick:async()=>{
       const ver=apR.veredito||{};
       const notaColor=n=>{n=(n||"").toUpperCase();if(n==="OTIMO")return"#4CAF82";if(n==="BOM")return"#7AC4A0";if(n==="REGULAR")return"#E8C44A";return"#E05252";};
       content=h("div",{},
-        h("button",{onClick:()=>{setApR(null);setStep("r");},style:{background:"none",border:"none",color:"#8A8070",cursor:"pointer",fontSize:12,padding:0,marginBottom:12}},"<- Novo aporte"),
+        // Botoes de navegacao: Editar aporte ou Fechar aporte
+        h("div",{style:{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}},
+          !apR.aporteFinalDefinido?h("button",{
+            onClick:editarAporte,
+            style:{background:"rgba(91,143,212,0.10)",border:"1px solid rgba(91,143,212,0.35)",color:"#7AB0E0",cursor:"pointer",fontSize:11,padding:"7px 14px",borderRadius:5,fontFamily:"monospace",letterSpacing:1,fontWeight:600}
+          },"\u270F\uFE0F Editar aporte"):null,
+          !apR.aporteFinalDefinido?h("button",{
+            onClick:fecharAporte,
+            style:{background:"linear-gradient(135deg,rgba(76,175,130,0.20),rgba(76,175,130,0.08))",border:"1px solid rgba(76,175,130,0.45)",color:"#7AC4A0",cursor:"pointer",fontSize:11,padding:"7px 14px",borderRadius:5,fontFamily:"monospace",letterSpacing:1,fontWeight:700}
+          },"\u2713 Fechar aporte"):null,
+          apR.aporteFinalDefinido?h("button",{
+            onClick:()=>{setApR(null);setApV("");setAporteValores({});setAporteTickers({});},
+            style:{background:"none",border:"none",color:"#8A8070",cursor:"pointer",fontSize:12,padding:0}
+          },"+ Novo aporte"):null
+        ),
+        // Carimbo de aporte fechado
+        apR.aporteFinalDefinido?h("div",{style:{padding:"10px 13px",background:"linear-gradient(135deg,rgba(122,196,160,0.15),rgba(122,196,160,0.05))",border:"1px solid rgba(122,196,160,0.4)",borderRadius:7,marginBottom:12,fontSize:11,color:"#7AC4A0",fontFamily:"monospace",letterSpacing:0.5}},"\u2713 Aporte fechado em "+(apR.aporteFinalTs?new Date(apR.aporteFinalTs).toLocaleString("pt-BR"):"agora")):null,
         // Header compacto: valor do aporte e label
         h("div",{style:{background:"linear-gradient(135deg,rgba(200,169,110,0.08),rgba(200,169,110,0.02))",border:"1px solid rgba(200,169,110,0.2)",borderRadius:9,padding:"14px",marginBottom:12}},
-          h("div",{style:{fontSize:8,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:5}},"Analise Fundamentalista"),
+          h("div",{style:{fontSize:8,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:5}},apR.aporteManual?"Aporte montado pelo investidor":"Analise Fundamentalista"),
           h("div",{style:{fontSize:22,color:"#F0EAD8"}},MV(fB(apR.apValue)))
         ),
 
@@ -15981,6 +16223,42 @@ h("button",{onClick:async()=>{
             h("span",null,"R$ "+(apR.apValue||0).toLocaleString("pt-BR",{minimumFractionDigits:0,maximumFractionDigits:0})+"  /  "+(apR.classes.reduce((s,c)=>s+((c.valor||0)/apR.apValue*100),0)).toFixed(1)+"%")
           )
         ),
+
+        // ===== ANALISE DA IA (veredito + criticas + impactos) - APENAS APORTE MANUAL =====
+        apR.aporteManual&&apR.analiseIA?h("div",{style:{background:"linear-gradient(135deg,rgba(91,143,212,0.06),rgba(91,143,212,0.02))",border:"1px solid rgba(91,143,212,0.3)",borderRadius:9,padding:"13px 15px",marginBottom:12}},
+          h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:11,paddingBottom:9,borderBottom:"1px solid rgba(91,143,212,0.2)"}},
+            h("div",{style:{fontSize:9,letterSpacing:3,color:"#7AB0E0",fontFamily:"monospace",textTransform:"uppercase",fontWeight:700}},"\u{1F4DD} Analise da IA"),
+            (function(){
+              const v=(apR.analiseIA.veredito||"").toUpperCase();
+              const cor=v==="OTIMO"?"#7AC4A0":v==="BOM"?"#A0C8B0":v==="REGULAR"?"#E8C44A":v==="RUIM"?"#E89060":v==="DESALINHADO"?"#E05252":"#8A8070";
+              return v?h("span",{style:{fontSize:10,color:cor,fontFamily:"monospace",fontWeight:700,padding:"4px 10px",border:"1.5px solid "+cor+"66",borderRadius:5,letterSpacing:1.5}},v):null;
+            })()
+          ),
+          // Sintese
+          apR.analiseIA.sintese?h("p",{style:{margin:"0 0 12px 0",fontSize:11.5,color:"#D8DCE0",lineHeight:1.7,textAlign:"justify",fontStyle:"italic"}},apR.analiseIA.sintese):null,
+          // Criticas
+          Array.isArray(apR.analiseIA.criticas)&&apR.analiseIA.criticas.length>0?h("div",{style:{marginBottom:11}},
+            h("div",{style:{fontSize:9,color:"#E89060",fontFamily:"monospace",fontWeight:700,letterSpacing:1.5,marginBottom:6,textTransform:"uppercase"}},"\u26A0 Criticas e fugas das regras"),
+            apR.analiseIA.criticas.map((cr,i)=>h("div",{key:i,style:{fontSize:11,color:"#E0C0A0",lineHeight:1.65,marginLeft:10,marginBottom:4,paddingLeft:5,borderLeft:"2px solid rgba(232,144,96,0.3)"}},"\u2022 "+cr))
+          ):null,
+          // Pontos positivos
+          Array.isArray(apR.analiseIA.pontos_positivos)&&apR.analiseIA.pontos_positivos.length>0?h("div",{style:{marginBottom:11}},
+            h("div",{style:{fontSize:9,color:"#7AC4A0",fontFamily:"monospace",fontWeight:700,letterSpacing:1.5,marginBottom:6,textTransform:"uppercase"}},"\u2713 Pontos positivos"),
+            apR.analiseIA.pontos_positivos.map((p,i)=>h("div",{key:i,style:{fontSize:11,color:"#A0D0B0",lineHeight:1.65,marginLeft:10,marginBottom:4,paddingLeft:5,borderLeft:"2px solid rgba(122,196,160,0.3)"}},"\u2022 "+p))
+          ):null,
+          // Impactos estruturais
+          (apR.analiseIA.impacto_mpt||apR.analiseIA.impacto_aw||apR.analiseIA.impacto_yale)?h("div",{style:{padding:"10px 12px",background:"rgba(91,143,212,0.05)",borderRadius:6,marginBottom:11}},
+            h("div",{style:{fontSize:9,color:"#7AB0E0",fontFamily:"monospace",fontWeight:700,letterSpacing:1.5,marginBottom:7,textTransform:"uppercase"}},"Impacto estrutural"),
+            apR.analiseIA.impacto_mpt?h("div",{style:{fontSize:10.5,color:"#B8C8D8",marginBottom:5,lineHeight:1.6}},h("strong",{style:{color:"#7AB0E0"}},"MPT (fronteira): "),apR.analiseIA.impacto_mpt):null,
+            apR.analiseIA.impacto_aw?h("div",{style:{fontSize:10.5,color:"#B8C8D8",marginBottom:5,lineHeight:1.6}},h("strong",{style:{color:"#7AB0E0"}},"All Weather: "),apR.analiseIA.impacto_aw):null,
+            apR.analiseIA.impacto_yale?h("div",{style:{fontSize:10.5,color:"#B8C8D8",lineHeight:1.6}},h("strong",{style:{color:"#7AB0E0"}},"Yale: "),apR.analiseIA.impacto_yale):null
+          ):null,
+          // Sugestoes de ajuste
+          apR.analiseIA.sugestoes_ajuste?h("div",{style:{padding:"9px 11px",background:"rgba(232,196,74,0.08)",borderLeft:"3px solid #E8C44A",borderRadius:"0 5px 5px 0"}},
+            h("div",{style:{fontSize:9,color:"#E8C44A",fontFamily:"monospace",fontWeight:700,letterSpacing:1.5,marginBottom:5,textTransform:"uppercase"}},"\u270F\uFE0F Sugestoes de ajuste"),
+            h("div",{style:{fontSize:11,color:"#D8C880",lineHeight:1.65}},apR.analiseIA.sugestoes_ajuste)
+          ):null
+        ):null,
 
         // ===== ANALISE POR CLASSE (paragrafos separados + tickers listados) =====
         Array.isArray(apR.classes)&&apR.classes.length>0&&h("div",{style:{background:"linear-gradient(135deg,rgba(200,169,110,0.05),rgba(200,169,110,0.01))",border:"1px solid rgba(200,169,110,0.2)",borderRadius:9,padding:"12px 14px",marginBottom:12}},
@@ -16336,136 +16614,6 @@ h("button",{onClick:async()=>{
         // Para reativar, restaurar o bloco h("button",{onClick:()=>setDebateAporteOpen(...)) e o bloco h("button",{onClick:()=>setStep("confirm"),...) do historico.
         // O usuario optou por cadastrar compras manualmente na tela de posicoes.
 
-        // ===== SUGERIR MINHA DIVISAO =====
-        h("div",{style:{marginTop:14,paddingTop:12,borderTop:"1px dashed rgba(91,143,212,0.2)"}},
-          // Indicador se aporte ja foi definido
-          apR.aporteFinalDefinido?h("div",{style:{padding:"10px 13px",background:"linear-gradient(135deg,rgba(122,196,160,0.15),rgba(122,196,160,0.05))",border:"1px solid rgba(122,196,160,0.4)",borderRadius:7,marginBottom:10,fontSize:11,color:"#7AC4A0",fontFamily:"monospace",letterSpacing:0.5}},"\u2713 Aporte definido pelo investidor em "+new Date(apR.aporteFinalTs).toLocaleString("pt-BR")):null,
-          h("button",{
-            onClick:()=>{
-              // Pre-preenche com valores da sugestao atual (se houver)
-              if(!propUsrAberto&&Object.keys(propUsrValores).length===0){
-                const init={};
-                (apR.classes||[]).forEach(cl=>{
-                  if(cl&&cl.id&&typeof cl.valor==="number"){
-                    // Formato BR: 1.234,56
-                    const cents=Math.round((cl.valor||0)*100);
-                    const intP=Math.floor(cents/100);
-                    const decP=String(cents%100).padStart(2,"0");
-                    init[cl.id]=intP.toLocaleString("pt-BR")+","+decP;
-                  }
-                });
-                setPropUsrValores(init);
-              }
-              setPropUsrAberto(o=>!o);
-            },
-            style:{width:"100%",padding:"11px",background:propUsrAberto?"linear-gradient(135deg,rgba(91,143,212,0.22),rgba(91,143,212,0.08))":"linear-gradient(135deg,rgba(91,143,212,0.14),rgba(91,143,212,0.05))",border:"1px solid rgba(91,143,212,0.45)",borderRadius:7,color:"#7AB0E0",fontSize:11,fontWeight:700,letterSpacing:2,textTransform:"uppercase",cursor:"pointer",fontFamily:"monospace"}
-          },propUsrAberto?"\u25BC Fechar minha divisao":"\u{1F4AD} Sugerir minha divisao"),
-          // Form expansivel
-          propUsrAberto?h("div",{style:{marginTop:10,padding:"13px 14px",background:"rgba(91,143,212,0.04)",border:"1px solid rgba(91,143,212,0.25)",borderRadius:8}},
-            h("div",{style:{fontSize:10,color:"#A8C0D8",fontStyle:"italic",marginBottom:11,lineHeight:1.55}},
-              "Ajuste os valores em R$ por classe. A IA vai analisar sua proposta segundo as regras do prompt e o rebalanceamento (Yale, All Weather, MPT). A soma deve ser exatamente R$ "+(apR.apValue||0).toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})+"."
-            ),
-            // Campos por classe (apenas as nao-imoveis)
-            ...CL.filter(c=>c.id!=="imoveis").map(c=>{
-              const pesoAtual=cw[c.id]||0;
-              const sobre=pesoAtual>c.max;
-              const sub=pesoAtual<c.min;
-              const valStr=propUsrValores[c.id]||"";
-              const valNum=pN(valStr);
-              const totalAp=apR.apValue||1;
-              const pctAp=totalAp>0?(valNum/totalAp*100):0;
-              return h("div",{key:c.id,style:{display:"grid",gridTemplateColumns:"1.2fr 1.2fr 0.6fr",gap:8,padding:"5px 0",borderBottom:"1px dashed rgba(91,143,212,0.12)",alignItems:"center"}},
-                h("div",{style:{fontSize:10.5,color:sobre?"#E89060":sub?"#7AC4A0":"#F0EAD8",fontFamily:"monospace"}},c.name,h("div",{style:{fontSize:8.5,color:"#7A7060"}},(sobre?"sobreallocada":sub?"subrep":"banda")+" "+pesoAtual.toFixed(1)+"%")),
-                h("div",{style:{display:"flex",alignItems:"center",gap:4,background:"rgba(0,0,0,0.2)",border:"1px solid rgba(91,143,212,0.25)",borderRadius:5,padding:"4px 7px"}},
-                  h("span",{style:{fontSize:9,color:"#7A8090",fontFamily:"monospace"}},"R$"),
-                  h("input",{
-                    type:"text",
-                    inputMode:"numeric",
-                    placeholder:"0,00",
-                    value:valStr,
-                    onChange:e=>{
-                      // Mascara automatica BR
-                      const apenasDig=String(e.target.value).replace(/\D/g,"");
-                      if(!apenasDig){setPropUsrValores(v=>({...v,[c.id]:""}));return;}
-                      const cents=apenasDig.padStart(3,"0");
-                      const parteI=cents.slice(0,-2);
-                      const parteD=cents.slice(-2);
-                      const intF=parteI.replace(/^0+(?=\d)/,"").replace(/\B(?=(\d{3})+(?!\d))/g,".");
-                      setPropUsrValores(v=>({...v,[c.id]:intF+","+parteD}));
-                    },
-                    style:{flex:1,background:"transparent",border:"none",outline:"none",color:"#F0EAD8",fontSize:11,fontFamily:"monospace",textAlign:"right",minWidth:0,width:"100%"}
-                  })
-                ),
-                h("div",{style:{fontSize:10,color:"#8A8070",fontFamily:"monospace",textAlign:"right"}},pctAp.toFixed(1)+"%")
-              );
-            }),
-            // Totalizador
-            (function(){
-              const somaProp=CL.filter(c=>c.id!=="imoveis").reduce((s,c)=>s+pN(propUsrValores[c.id]||"0"),0);
-              const diff=somaProp-(apR.apValue||0);
-              const ok=Math.abs(diff)<(apR.apValue||0)*0.005;
-              return h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"9px 0",marginTop:5,borderTop:"1px solid rgba(91,143,212,0.25)",fontSize:11,fontFamily:"monospace",fontWeight:700}},
-                h("span",{style:{color:"#A8C0D8"}},"Total da proposta"),
-                h("span",{style:{color:ok?"#7AC4A0":"#E89060"}},"R$ "+somaProp.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})+(diff!==0?" ("+(diff>0?"+":"")+diff.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})+")":""))
-              );
-            })(),
-            // Erro
-            propUsrErr?h("div",{style:{padding:"7px 9px",background:"rgba(224,82,82,0.08)",border:"1px solid rgba(224,82,82,0.3)",borderRadius:5,color:"#E0A0A0",fontSize:10,fontFamily:"monospace",marginTop:8,lineHeight:1.5}},propUsrErr):null,
-            // Botoes
-            h("div",{style:{display:"flex",gap:7,marginTop:10}},
-              h("button",{
-                onClick:revisaPropostaUsuario,
-                disabled:propUsrLoad,
-                style:{flex:1,padding:"10px",background:propUsrLoad?"#2A2820":"linear-gradient(135deg,#5B8FD4,#3D70B8)",border:"none",borderRadius:6,color:propUsrLoad?"#5B8FD4":"#FFFFFF",fontSize:11,fontWeight:700,letterSpacing:2,textTransform:"uppercase",cursor:propUsrLoad?"not-allowed":"pointer",fontFamily:"monospace"}
-              },propUsrLoad?"analisando...":"\u{1F50D} pedir revisao da IA"),
-              h("button",{
-                onClick:()=>{setPropUsrValores({});setPropUsrErr("");},
-                disabled:propUsrLoad,
-                style:{padding:"10px 14px",background:"transparent",border:"1px solid rgba(91,143,212,0.3)",borderRadius:6,color:"#7A8090",fontSize:10,fontFamily:"monospace",cursor:"pointer",letterSpacing:1}
-              },"limpar")
-            ),
-            // ===== ANALISE DA IA =====
-            apR.propostaUsuario&&apR.propostaUsuario.analise?h("div",{style:{marginTop:13,padding:"12px 13px",background:"rgba(0,0,0,0.15)",border:"1px solid rgba(91,143,212,0.3)",borderRadius:7}},
-              h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:9,paddingBottom:7,borderBottom:"1px solid rgba(91,143,212,0.2)"}},
-                h("div",{style:{fontSize:8,letterSpacing:3,color:"#7AB0E0",fontFamily:"monospace",textTransform:"uppercase",fontWeight:700}},"\u{1F4DD} Analise da IA"),
-                (function(){
-                  const v=apR.propostaUsuario.analise.veredito||"";
-                  const cor=v==="OTIMO"?"#7AC4A0":v==="BOM"?"#A0C8B0":v==="REGULAR"?"#E8C44A":v==="RUIM"?"#E89060":v==="DESALINHADO"?"#E05252":"#8A8070";
-                  return h("span",{style:{fontSize:10,color:cor,fontFamily:"monospace",fontWeight:700,padding:"3px 9px",border:"1px solid "+cor+"55",borderRadius:4,letterSpacing:1}},v);
-                })()
-              ),
-              // Sintese
-              apR.propostaUsuario.analise.sintese?h("p",{style:{margin:"0 0 11px 0",fontSize:11,color:"#D0D8E0",lineHeight:1.65,textAlign:"justify",fontStyle:"italic"}},apR.propostaUsuario.analise.sintese):null,
-              // Criticas
-              Array.isArray(apR.propostaUsuario.analise.criticas)&&apR.propostaUsuario.analise.criticas.length>0?h("div",{style:{marginBottom:10}},
-                h("div",{style:{fontSize:9,color:"#E89060",fontFamily:"monospace",fontWeight:700,letterSpacing:1,marginBottom:5,textTransform:"uppercase"}},"\u26A0 Criticas"),
-                apR.propostaUsuario.analise.criticas.map((cr,i)=>h("div",{key:i,style:{fontSize:10.5,color:"#E0C0A0",lineHeight:1.6,marginLeft:8,marginBottom:3}},"\u2022 "+cr))
-              ):null,
-              // Pontos positivos
-              Array.isArray(apR.propostaUsuario.analise.pontos_positivos)&&apR.propostaUsuario.analise.pontos_positivos.length>0?h("div",{style:{marginBottom:10}},
-                h("div",{style:{fontSize:9,color:"#7AC4A0",fontFamily:"monospace",fontWeight:700,letterSpacing:1,marginBottom:5,textTransform:"uppercase"}},"\u2713 Pontos Positivos"),
-                apR.propostaUsuario.analise.pontos_positivos.map((p,i)=>h("div",{key:i,style:{fontSize:10.5,color:"#A0D0B0",lineHeight:1.6,marginLeft:8,marginBottom:3}},"\u2022 "+p))
-              ):null,
-              // Impactos estruturais
-              (apR.propostaUsuario.analise.impacto_mpt||apR.propostaUsuario.analise.impacto_aw||apR.propostaUsuario.analise.impacto_yale)?h("div",{style:{marginBottom:9,padding:"9px 11px",background:"rgba(91,143,212,0.05)",borderRadius:5}},
-                h("div",{style:{fontSize:9,color:"#7AB0E0",fontFamily:"monospace",fontWeight:700,letterSpacing:1,marginBottom:6,textTransform:"uppercase"}},"Impacto Estrutural"),
-                apR.propostaUsuario.analise.impacto_mpt?h("div",{style:{fontSize:10,color:"#B8C8D8",marginBottom:4,lineHeight:1.55}},h("strong",{style:{color:"#7AB0E0"}},"MPT: "),apR.propostaUsuario.analise.impacto_mpt):null,
-                apR.propostaUsuario.analise.impacto_aw?h("div",{style:{fontSize:10,color:"#B8C8D8",marginBottom:4,lineHeight:1.55}},h("strong",{style:{color:"#7AB0E0"}},"All Weather: "),apR.propostaUsuario.analise.impacto_aw):null,
-                apR.propostaUsuario.analise.impacto_yale?h("div",{style:{fontSize:10,color:"#B8C8D8",lineHeight:1.55}},h("strong",{style:{color:"#7AB0E0"}},"Yale: "),apR.propostaUsuario.analise.impacto_yale):null
-              ):null,
-              // Ajuste sugerido
-              apR.propostaUsuario.analise.ajuste_sugerido?h("div",{style:{padding:"8px 10px",background:"rgba(232,196,74,0.08)",borderLeft:"3px solid #E8C44A",borderRadius:"0 5px 5px 0",marginBottom:11}},
-                h("div",{style:{fontSize:9,color:"#E8C44A",fontFamily:"monospace",fontWeight:700,letterSpacing:1,marginBottom:4,textTransform:"uppercase"}},"\u270F Ajuste Sugerido"),
-                h("div",{style:{fontSize:10.5,color:"#D8C880",lineHeight:1.6}},apR.propostaUsuario.analise.ajuste_sugerido)
-              ):null,
-              // BOTAO DEFINITIVO: bater o martelo
-              !apR.aporteFinalDefinido?h("button",{
-                onClick:definirPropostaComoFinal,
-                style:{width:"100%",padding:"12px",background:"linear-gradient(135deg,#4CAF82,#2A8F62)",border:"none",borderRadius:7,color:"#0D0F14",fontSize:11,fontWeight:700,letterSpacing:2,textTransform:"uppercase",cursor:"pointer",fontFamily:"monospace",marginTop:6}
-              },"\u2713 Definir esta divisao como aporte final"):null
-            ):null
-          ):null
-        ),
         // ===== BOTAO BAIXAR PDF =====
         h("div",{style:{marginTop:18,paddingTop:14,borderTop:"1px dashed rgba(200,169,110,0.2)"}},
           h("button",{
@@ -16564,19 +16712,21 @@ h("button",{onClick:async()=>{
                   html+='<h2>Resumo Geral</h2>';
                   html+='<div class="resumo-geral">'+String(apR.resumo).replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/\n/g,'<br>')+'</div>';
                 }
-                // ===== ANALISE DA PROPOSTA DO INVESTIDOR (se houver) =====
-                if(apR.propostaUsuario&&apR.propostaUsuario.analise){
-                  const pu=apR.propostaUsuario;
-                  const an=pu.analise;
-                  const ver=an.veredito||"";
+                // ===== ANALISE DA IA (aporte manual) =====
+                const anIA=apR.aporteManual&&apR.analiseIA?apR.analiseIA:(apR.propostaUsuario&&apR.propostaUsuario.analise?apR.propostaUsuario.analise:null);
+                if(anIA){
+                  const an=anIA;
+                  const ver=(an.veredito||"").toUpperCase();
                   const corVer=ver==="OTIMO"?"#2a8b5e":ver==="BOM"?"#5b9e7b":ver==="REGULAR"?"#b09030":ver==="RUIM"?"#c0691f":ver==="DESALINHADO"?"#a83838":"#666";
-                  html+='<h2>Analise da Proposta do Investidor</h2>';
+                  html+='<h2>Analise da IA</h2>';
                   html+='<div class="proposta-bloco">';
-                  html+='<div class="proposta-titulo">Veredito da IA</div>';
-                  if(ver)html+='<div class="veredito-box" style="color:'+corVer+';border-color:'+corVer+'">'+ver+'</div>';
+                  if(ver){
+                    html+='<div class="proposta-titulo">Veredito</div>';
+                    html+='<div class="veredito-box" style="color:'+corVer+';border-color:'+corVer+'">'+ver+'</div>';
+                  }
                   if(an.sintese)html+='<p style="font-size:11pt;line-height:1.7;color:#333;margin:5px 0 10px 0">'+String(an.sintese).replace(/</g,"&lt;").replace(/>/g,"&gt;")+'</p>';
                   if(Array.isArray(an.criticas)&&an.criticas.length>0){
-                    html+='<div style="margin-top:10px"><strong style="color:#c0691f;font-size:10.5pt;text-transform:uppercase;letter-spacing:0.5px">Criticas</strong>';
+                    html+='<div style="margin-top:10px"><strong style="color:#c0691f;font-size:10.5pt;text-transform:uppercase;letter-spacing:0.5px">Criticas e fugas das regras</strong>';
                     html+='<ul class="criticas-lista">';
                     an.criticas.forEach(c=>{html+='<li>'+String(c).replace(/</g,"&lt;").replace(/>/g,"&gt;")+'</li>';});
                     html+='</ul></div>';
@@ -16595,8 +16745,9 @@ h("button",{onClick:async()=>{
                     if(an.impacto_yale)html+='<div style="font-size:10pt;color:#444"><strong>Yale:</strong> '+String(an.impacto_yale).replace(/</g,"&lt;").replace(/>/g,"&gt;")+'</div>';
                     html+='</div>';
                   }
-                  if(an.ajuste_sugerido){
-                    html+='<div style="margin-top:10px;padding:9px 12px;background:#fffbe8;border-left:3px solid #b09030;border-radius:0 4px 4px 0"><strong style="color:#b09030;font-size:10pt;text-transform:uppercase;letter-spacing:0.5px">Ajuste Sugerido pela IA</strong><div style="font-size:10.5pt;color:#555;margin-top:5px;line-height:1.6">'+String(an.ajuste_sugerido).replace(/</g,"&lt;").replace(/>/g,"&gt;")+'</div></div>';
+                  const sug=an.sugestoes_ajuste||an.ajuste_sugerido;
+                  if(sug){
+                    html+='<div style="margin-top:10px;padding:9px 12px;background:#fffbe8;border-left:3px solid #b09030;border-radius:0 4px 4px 0"><strong style="color:#b09030;font-size:10pt;text-transform:uppercase;letter-spacing:0.5px">Sugestoes de Ajuste</strong><div style="font-size:10.5pt;color:#555;margin-top:5px;line-height:1.6">'+String(sug).replace(/</g,"&lt;").replace(/>/g,"&gt;")+'</div></div>';
                   }
                   html+='</div>';
                 }
@@ -16618,82 +16769,132 @@ h("button",{onClick:async()=>{
         )
       );
     } else {
-      // Sugestao de rebalanceamento: TODAS as classes recebem aporte (exceto IMOVEIS - aquisicao manual)
-      // Volume baseado em (a) distancia da meta e (b) piso minimo por classe
-      const totalAtual=total||0;
-      const analise=CL.filter(c=>c.id!=="imoveis").map(c=>{
-        const w=cw[c.id]||0;
-        const valorAtual=(ct[c.id]||0);
-        const meta=(c.min+c.max)/2; // ponto medio da banda
-        const valorMeta=(meta/100)*totalAtual;
-        const valorMin=(c.min/100)*totalAtual;
-        // Gap = distancia ate a meta (positivo = abaixo, negativo = acima)
-        const gap=valorMeta-valorAtual;
-        const abaixoMin=w<c.min,acimaMax=w>c.max&&!c.flex;
-        return {id:c.id,name:c.name,tag:c.tag,color:c.color,w,min:c.min,max:c.max,meta,valorAtual,valorMeta,valorMin,gap,abaixoMin,acimaMax,flex:c.flex};
-      });
-      // Calcular pesos para distribuir aporte:
-      // - classes abaixo do minimo: peso ALTO (gap positivo amplificado)
-      // - classes dentro da banda: peso MEDIO (proporcional ao gap)
-      // - classes acima do max: peso BAIXO mas nao zero (piso simbolico)
-      const pesos=analise.map(a=>{
-        if(a.acimaMax)return 0.3; // piso simbolico (manter exposicao)
-        if(a.abaixoMin)return Math.max(a.gap,1)*2.5; // amplifica gap
-        return Math.max(a.gap,0.5); // dentro da banda, peso proporcional
-      });
-      const somaPesos=pesos.reduce((s,p)=>s+p,0);
-      // Valor total sugerido = soma dos gaps das classes abaixo do min (para trazer todas ao minimo)
-      const totalSugerido=analise.filter(a=>a.abaixoMin).reduce((s,a)=>s+(a.valorMin-a.valorAtual),0)||(totalAtual*0.05);
-      // Distribuir o totalSugerido pelos pesos
-      const sugestoes=analise.map((a,i)=>{
-        const pctAporte=somaPesos>0?(pesos[i]/somaPesos)*100:100/analise.length;
-        const valorAporte=(pesos[i]/somaPesos)*totalSugerido;
-        return {...a,pctAporte,valorAporte};
-      }).filter(s=>s.valorAporte>0.5);
+      // ===== NOVO FLUXO MANUAL DE APORTE =====
+      // 1) Usuario digita valor total
+      // 2) Asset Allocation colapsavel: valor por classe + % calculado
+      // 3) Tickers por classe (1 ticker cada)
+      // 4) Gera analise da IA (so analisa, nao realoca)
+      const valAporte=pN(apV);
+      const classesElegiveis=CL.filter(c=>c.id!=="imoveis");
+      const somaAloc=classesElegiveis.reduce((s,c)=>s+pN(aporteValores[c.id]||"0"),0);
+      const diffSoma=somaAloc-valAporte;
+      const somaOk=valAporte>0&&Math.abs(diffSoma)<=valAporte*0.005; // tolerancia 0.5%
+      // Conta quantas classes tem valor>0
+      const classesComValor=classesElegiveis.filter(c=>pN(aporteValores[c.id]||"0")>0);
+      // Conta quantas tem ticker preenchido
+      const classesComTicker=classesComValor.filter(c=>{const t=(aporteTickers[c.id]||"").trim();return t.length>0;});
+      const todosTickersOk=classesComValor.length>0&&classesComTicker.length===classesComValor.length;
       content=h("div",{},
-        // Card explicativo da metodologia do Aporte
-        h("div",{style:{background:"linear-gradient(135deg,rgba(200,169,110,0.06),rgba(91,143,212,0.03))",border:"1px solid rgba(200,169,110,0.25)",borderRadius:9,padding:"13px 15px",marginBottom:14}},
-          h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:7}},"Metodologia do Aporte"),
-          h("div",{style:{fontSize:10,color:"#B0A890",lineHeight:1.7,marginBottom:9}},
-            "A IA opera como ",h("strong",{style:{color:"#C8A96E"}},"analista B&H rigoroso (Munger/Smith)"),", filosofia ",h("em",{},"quality at a reasonable price"),". Zero vendas. Aportes mensais sao o unico mecanismo de rebalanceamento."
-          ),
-          h("div",{style:{fontSize:9.5,color:"#9A9080",lineHeight:1.7,marginBottom:7}},
-            h("strong",{style:{color:"#E8C44A"}},"Decisao ponderada 50/50 entre: "),
-            h("br",null),
-            h("strong",{style:{color:"#4CAF82"}},"\u25CF Oportunidade tatica")," (preco favoravel, cenario AW, valor relativo, diversificacao, macro - os 5 eixos)",
-            h("br",null),
-            h("strong",{style:{color:"#5B8FD4"}},"\u25CF Rebalanceamento estrutural")," (gap vs 5 metas: MPT, All Weather, Yale, Vetores Macro, Solidez Patrimonial)"
-          ),
-          h("div",{style:{fontSize:9.5,color:"#9A9080",lineHeight:1.7,marginBottom:7}},
-            h("strong",{style:{color:"#E8C44A"}},"Regras inviolaveis: ")
-          ),
-          h("ul",{style:{fontSize:9,color:"#9A9080",lineHeight:1.7,margin:"0 0 7px 0",paddingLeft:18}},
-            h("li",{},"piso 3% do aporte mensal por classe (12 classes)"),
-            h("li",{},"teto 30% por classe de risco (Selic e excecao)"),
-            h("li",{},"limite 5% por ticker individual do patrimonio total"),
-            h("li",{},"NUNCA sugere ativos fora do portfolio - selecao de universo cabe ao investidor")
-          ),
-          h("div",{style:{fontSize:9.5,color:"#9A9080",lineHeight:1.7,marginBottom:7}},
-            h("strong",{style:{color:"#E8C44A"}},"Quando preco esta caro: ")," excedente vai para Tesouro Selic 2031 (caixa estrategico produtivo) - nunca forca aporte em ativo de qualidade duvidosa ou em ativo bom porem caro."
-          ),
-          h("div",{style:{fontSize:9,color:"#7A7060",lineHeight:1.6,fontStyle:"italic",paddingTop:7,borderTop:"1px dashed rgba(255,255,255,0.10)"}},
-            "Para cada classe: ranking unico de 3 ativos (#1 top pick combinando qualidade + preco, #2 com trade-off, #3 alternativa). Cada candidato traz TIR implicita, TIR minima exigida, adequacao risco-retorno e margem de seguranca. Calibracao por ticker congelada (revisao anual em Setembro) para garantir reproducibilidade entre rodadas."
-          )
+        // ===== A. VALOR DO APORTE =====
+        h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:7}},"Valor do aporte"),
+        h("div",{style:{display:"flex",alignItems:"center",gap:7,background:"rgba(200,169,110,0.05)",border:"1px solid rgba(200,169,110,0.25)",borderRadius:9,padding:"11px 14px",marginBottom:14}},
+          h("span",{style:{color:"#C8A96E",fontFamily:"monospace",fontSize:14}},"R$"),
+          h("input",{type:"text",inputMode:"numeric",placeholder:"0,00",value:apV,onChange:e=>{
+            const apenasDigitos=String(e.target.value).replace(/\D/g,"");
+            if(!apenasDigitos){setApV("");return;}
+            const centavos=apenasDigitos.padStart(3,"0");
+            const parteInteira=centavos.slice(0,-2);
+            const parteDecimal=centavos.slice(-2);
+            const inteiroFormatado=parteInteira.replace(/^0+(?=\d)/,"").replace(/\B(?=(\d{3})+(?!\d))/g,".");
+            setApV(inteiroFormatado+","+parteDecimal);
+          },style:{flex:1,background:"transparent",border:"none",outline:"none",color:"#F0EAD8",fontSize:26}})
         ),
-        // Preview do Raciocinio: visualizacao prevista dos 5 eixos por classe
-        h(PreviewRaciocinio,{cw,total,selicAtual,ipcaAnual:infIPCA&&infIPCA.anual?infIPCA.anual:null,ntnbTaxas,mvrvZ,piCycle,nupl,goldSilver,goldSP500,realGoldZ,xauVar,btcVar}),
-        h("div",{style:{display:"flex",alignItems:"center",gap:7,background:"rgba(200,169,110,0.05)",border:"1px solid rgba(200,169,110,0.25)",borderRadius:9,padding:"11px 14px",marginBottom:10}},h("span",{style:{color:"#C8A96E",fontFamily:"monospace",fontSize:14}},"R$"),h("input",{type:"text",inputMode:"numeric",placeholder:"0,00",value:apV,onChange:e=>{
-          // Mascara automatica formato brasileiro: digita apenas digitos, formata como 130.000,00
-          const apenasDigitos=String(e.target.value).replace(/\D/g,"");
-          if(!apenasDigitos){setApV("");return;}
-          // Sempre trabalha com centavos (2 ultimos digitos sao decimais)
-          const centavos=apenasDigitos.padStart(3,"0");
-          const parteInteira=centavos.slice(0,-2);
-          const parteDecimal=centavos.slice(-2);
-          // Adiciona pontos como separador de milhar na parte inteira
-          const inteiroFormatado=parteInteira.replace(/^0+(?=\d)/,"").replace(/\B(?=(\d{3})+(?!\d))/g,".");
-          setApV(inteiroFormatado+","+parteDecimal);
-        },style:{flex:1,background:"transparent",border:"none",outline:"none",color:"#F0EAD8",fontSize:26}})),
+        // ===== B. ASSET ALLOCATION (colapsavel) =====
+        h("div",{style:{marginBottom:12,border:"1px solid rgba(200,169,110,0.25)",borderRadius:9,overflow:"hidden"}},
+          h("div",{
+            onClick:()=>setAporteAlocAberto(o=>!o),
+            style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"12px 14px",background:aporteAlocAberto?"rgba(200,169,110,0.10)":"rgba(200,169,110,0.04)",cursor:"pointer",userSelect:"none"}
+          },
+            h("div",{style:{display:"flex",alignItems:"center",gap:8}},
+              h("span",{style:{fontSize:11,color:aporteAlocAberto?"#C8A96E":"#8A8070",letterSpacing:2,textTransform:"uppercase",fontFamily:"monospace",fontWeight:700}},aporteAlocAberto?"\u25BC":"\u25B6"," Asset Allocation"),
+              classesComValor.length>0?h("span",{style:{fontSize:9,color:"#7A7060",fontFamily:"monospace"}},"("+classesComValor.length+" classes)"):null
+            ),
+            valAporte>0?h("span",{style:{fontSize:10,color:somaOk?"#7AC4A0":(somaAloc>0?"#E89060":"#7A7060"),fontFamily:"monospace",fontWeight:700}},somaOk?"\u2713 R$ "+somaAloc.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2}):"R$ "+somaAloc.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})+" / "+valAporte.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})):null
+          ),
+          aporteAlocAberto?h("div",{style:{padding:"12px 14px",background:"rgba(0,0,0,0.15)"}},
+            valAporte<=0?h("div",{style:{fontSize:10.5,color:"#8A8070",fontStyle:"italic",padding:"8px 0"}},"Informe primeiro o valor total do aporte acima."):h("div",{},
+              h("div",{style:{fontSize:9.5,color:"#9A9080",lineHeight:1.6,marginBottom:11,fontStyle:"italic"}},
+                "Distribua o valor entre as classes elegiveis. Para cada classe, digite o valor em R$. O % do aporte e calculado automaticamente. Classes em laranja estao sobreallocadas no portfolio; em verde estao subrepresentadas."
+              ),
+              ...classesElegiveis.map(c=>{
+                const pesoAtual=cw[c.id]||0;
+                const sobre=pesoAtual>c.max;
+                const sub=pesoAtual<c.min;
+                const corClasse=sobre?"#E89060":sub?"#7AC4A0":"#C8A96E";
+                const valStr=aporteValores[c.id]||"";
+                const valNum=pN(valStr);
+                const pctAp=valAporte>0?(valNum/valAporte*100):0;
+                return h("div",{key:c.id,style:{display:"grid",gridTemplateColumns:"1.2fr 1.4fr 0.6fr",gap:8,padding:"6px 0",borderBottom:"1px dashed rgba(200,169,110,0.10)",alignItems:"center"}},
+                  h("div",{},
+                    h("div",{style:{fontSize:10.5,color:corClasse,fontFamily:"monospace",fontWeight:600}},c.name),
+                    h("div",{style:{fontSize:8,color:"#7A7060",fontFamily:"monospace",marginTop:1}},(sobre?"sobreallocada":sub?"subrep.":"banda")+" "+pesoAtual.toFixed(1)+"% | banda "+c.min+"-"+c.max+"%")
+                  ),
+                  h("div",{style:{display:"flex",alignItems:"center",gap:4,background:"rgba(0,0,0,0.3)",border:"1px solid "+corClasse+"33",borderRadius:5,padding:"5px 8px"}},
+                    h("span",{style:{fontSize:9,color:"#7A8090",fontFamily:"monospace"}},"R$"),
+                    h("input",{
+                      type:"text",
+                      inputMode:"numeric",
+                      placeholder:"0,00",
+                      value:valStr,
+                      onChange:e=>{
+                        const apenasDig=String(e.target.value).replace(/\D/g,"");
+                        if(!apenasDig){setAporteValores(v=>({...v,[c.id]:""}));return;}
+                        const cents=apenasDig.padStart(3,"0");
+                        const parteI=cents.slice(0,-2);
+                        const parteD=cents.slice(-2);
+                        const intF=parteI.replace(/^0+(?=\d)/,"").replace(/\B(?=(\d{3})+(?!\d))/g,".");
+                        setAporteValores(v=>({...v,[c.id]:intF+","+parteD}));
+                      },
+                      style:{flex:1,background:"transparent",border:"none",outline:"none",color:"#F0EAD8",fontSize:11,fontFamily:"monospace",textAlign:"right",minWidth:0,width:"100%"}
+                    })
+                  ),
+                  h("div",{style:{fontSize:10,color:valNum>0?corClasse:"#5A5550",fontFamily:"monospace",textAlign:"right",fontWeight:600}},pctAp.toFixed(1)+"%")
+                );
+              }),
+              // Totalizador
+              h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0 4px 0",marginTop:6,borderTop:"1px solid rgba(200,169,110,0.25)",fontSize:11,fontFamily:"monospace",fontWeight:700}},
+                h("span",{style:{color:"#A8C0D8"}},"Total alocado"),
+                h("span",{style:{color:somaOk?"#7AC4A0":(somaAloc>0?"#E89060":"#7A7060")}},"R$ "+somaAloc.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})+(diffSoma!==0?" ("+(diffSoma>0?"+":"")+diffSoma.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})+")":""))
+              )
+            )
+          ):null
+        ),
+        // ===== C. TICKERS (colapsavel) - so aparece se ha classes com valor =====
+        h("div",{style:{marginBottom:12,border:"1px solid rgba(91,143,212,0.25)",borderRadius:9,overflow:"hidden",opacity:classesComValor.length>0?1:0.5}},
+          h("div",{
+            onClick:()=>{if(classesComValor.length>0)setAporteTickersAberto(o=>!o);},
+            style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"12px 14px",background:aporteTickersAberto?"rgba(91,143,212,0.10)":"rgba(91,143,212,0.04)",cursor:classesComValor.length>0?"pointer":"not-allowed",userSelect:"none"}
+          },
+            h("div",{style:{display:"flex",alignItems:"center",gap:8}},
+              h("span",{style:{fontSize:11,color:aporteTickersAberto?"#7AB0E0":"#8A8070",letterSpacing:2,textTransform:"uppercase",fontFamily:"monospace",fontWeight:700}},aporteTickersAberto?"\u25BC":"\u25B6"," Selecao de tickers"),
+              classesComValor.length>0?h("span",{style:{fontSize:9,color:"#7A7060",fontFamily:"monospace"}},"("+classesComTicker.length+"/"+classesComValor.length+")"):null
+            ),
+            classesComValor.length>0?h("span",{style:{fontSize:10,color:todosTickersOk?"#7AC4A0":"#8A8070",fontFamily:"monospace"}},todosTickersOk?"\u2713 completo":"pendente"):null
+          ),
+          aporteTickersAberto&&classesComValor.length>0?h("div",{style:{padding:"12px 14px",background:"rgba(0,0,0,0.15)"}},
+            h("div",{style:{fontSize:9.5,color:"#9A9080",lineHeight:1.6,marginBottom:11,fontStyle:"italic"}},
+              "Digite o ticker para cada classe que recebera aporte. Exemplos: para FII, ",h("code",{style:{color:"#7AB0E0"}},"HGLG11"),"; para NTN-B, ",h("code",{style:{color:"#7AB0E0"}},"NTNB-2035"),"; para Treasuries, ",h("code",{style:{color:"#7AB0E0"}},"TLT"),"; para caixa cambial, ",h("code",{style:{color:"#7AB0E0"}},"CAIXA-USD"),"."
+            ),
+            ...classesComValor.map(c=>{
+              const valC=pN(aporteValores[c.id]||"0");
+              const tk=aporteTickers[c.id]||"";
+              return h("div",{key:c.id,style:{display:"grid",gridTemplateColumns:"1.2fr 1.8fr",gap:8,padding:"7px 0",borderBottom:"1px dashed rgba(91,143,212,0.10)",alignItems:"center"}},
+                h("div",{},
+                  h("div",{style:{fontSize:10.5,color:"#F0EAD8",fontFamily:"monospace",fontWeight:600}},c.name),
+                  h("div",{style:{fontSize:8.5,color:"#7AB0E0",fontFamily:"monospace",marginTop:1}},"R$ "+valC.toLocaleString("pt-BR",{minimumFractionDigits:0,maximumFractionDigits:0}))
+                ),
+                h("input",{
+                  type:"text",
+                  placeholder:"Digite o ticker",
+                  value:tk,
+                  onChange:e=>setAporteTickers(v=>({...v,[c.id]:String(e.target.value).toUpperCase().trim()})),
+                  style:{background:"rgba(0,0,0,0.3)",border:"1px solid rgba(91,143,212,0.3)",borderRadius:5,padding:"6px 9px",color:"#F0EAD8",fontSize:11,fontFamily:"monospace",outline:"none",letterSpacing:0.5}
+                })
+              );
+            })
+          ):null
+        ),
+        // ===== D. ERRO + DEBUG =====
         aErr&&h("div",{style:{color:"#E05252",fontSize:10,marginBottom:9,fontFamily:"monospace",padding:"8px 10px",background:"rgba(224,82,82,0.06)",border:"1px solid rgba(224,82,82,0.25)",borderRadius:4}},
           h("div",{style:{marginBottom:debugResposta?7:0,lineHeight:1.5}},"Erro: "+aErr),
           debugResposta?h("div",{style:{borderTop:"1px dashed rgba(224,82,82,0.3)",paddingTop:7,marginTop:5}},
@@ -16702,35 +16903,35 @@ h("button",{onClick:async()=>{
               readOnly:true,
               value:debugResposta.conteudo,
               onClick:(e)=>{e.target.select();},
-              style:{width:"100%",minHeight:120,maxHeight:240,padding:"6px 8px",background:"#0B0D11",border:"1px solid rgba(232,144,96,0.25)",borderRadius:3,color:"#D8CFB8",fontSize:9,fontFamily:"monospace",lineHeight:1.4,resize:"vertical",outline:"none",boxSizing:"border-box"}
+              style:{width:"100%",height:140,padding:"6px 8px",background:"rgba(0,0,0,0.3)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:3,color:"#A09080",fontSize:8.5,fontFamily:"monospace",resize:"vertical",lineHeight:1.4,boxSizing:"border-box"}
             }),
-            h("div",{style:{display:"flex",gap:6,marginTop:6,flexWrap:"wrap"}},
+            h("div",{style:{display:"flex",gap:6,marginTop:6}},
               h("button",{
                 onClick:async()=>{
                   try{
-                    if(navigator.clipboard&&navigator.clipboard.writeText){
-                      await navigator.clipboard.writeText(debugResposta.conteudo);
-                      alert("Resposta copiada para a area de transferencia!\nCole na conversa com Claude para diagnostico.");
-                    }else{
-                      // Fallback: seleciona o textarea
-                      const ta=document.querySelector("textarea[readonly]");
-                      if(ta){ta.select();document.execCommand("copy");alert("Resposta copiada! Cole na conversa.");}
-                    }
-                  }catch(e){alert("Falha ao copiar. Selecione o texto manualmente acima.");}
+                    if(navigator.clipboard&&navigator.clipboard.writeText){await navigator.clipboard.writeText(debugResposta.conteudo);alert("Copiado!");return;}
+                    const ta=document.createElement("textarea");ta.value=debugResposta.conteudo;document.body.appendChild(ta);ta.select();document.execCommand("copy");document.body.removeChild(ta);alert("Copiado!");
+                  }catch(e){alert("Falha ao copiar: "+e.message);}
                 },
-                style:{flex:1,minWidth:120,padding:"7px 10px",background:"linear-gradient(135deg,rgba(232,144,96,0.30),rgba(232,144,96,0.12))",border:"1px solid rgba(232,144,96,0.55)",borderRadius:3,color:"#E89060",fontSize:9.5,fontFamily:"monospace",fontWeight:700,letterSpacing:0.5,cursor:"pointer",textTransform:"uppercase"}
+                style:{flex:1,padding:"7px 10px",background:"rgba(232,196,74,0.10)",border:"1px solid rgba(232,196,74,0.30)",borderRadius:3,color:"#E8C44A",fontSize:9.5,fontFamily:"monospace",cursor:"pointer",letterSpacing:1}
               },"\u{1F4CB} copiar resposta"),
               h("button",{
                 onClick:()=>setDebugResposta(null),
                 style:{padding:"7px 10px",background:"transparent",border:"1px solid rgba(255,255,255,0.15)",borderRadius:3,color:"#7A7060",fontSize:9.5,fontFamily:"monospace",cursor:"pointer"}
               },"fechar")
-            ),
-            h("div",{style:{fontSize:8.5,color:"#7A7060",marginTop:6,fontStyle:"italic",lineHeight:1.4}},
-              "Toque no texto acima para selecionar, ou use o botao copiar. Cole na conversa com Claude para diagnostico."
             )
           ):null
         ),
-        h("button",{onClick:genAlloc,disabled:loadA,style:{width:"100%",padding:"13px",background:loadA?"#2A2820":"linear-gradient(135deg,#C8A96E,#A8893E)",border:loadA?"1px solid #C8A96E33":"none",borderRadius:9,color:loadA?"#C8A96E":"#0D0F14",fontSize:12,fontWeight:700,letterSpacing:3,textTransform:"uppercase",cursor:loadA?"not-allowed":"pointer"}},loadA?"Analisando...":"Gerar analise fundamentalista")
+        // ===== E. BOTAO GERAR ANALISE =====
+        h("button",{
+          onClick:analisaAporteManual,
+          disabled:loadA||valAporte<=0||classesComValor.length===0,
+          style:{width:"100%",padding:"13px",background:(loadA||valAporte<=0||classesComValor.length===0)?"#2A2820":"linear-gradient(135deg,#C8A96E,#A8893E)",border:"none",borderRadius:9,color:(loadA||valAporte<=0||classesComValor.length===0)?"#5A5040":"#0D0F14",fontSize:12,fontWeight:700,letterSpacing:3,textTransform:"uppercase",cursor:(loadA||valAporte<=0||classesComValor.length===0)?"not-allowed":"pointer",fontFamily:"monospace"}
+        },loadA?"Analisando...":valAporte<=0?"Informe o valor":classesComValor.length===0?"Distribua o valor por classes":"\u{1F4CB} Gerar analise da IA"),
+        // ===== F. AVISO SE FALTAM TICKERS =====
+        classesComValor.length>0&&!todosTickersOk?h("div",{style:{marginTop:8,padding:"8px 12px",background:"rgba(232,196,74,0.08)",border:"1px solid rgba(232,196,74,0.25)",borderRadius:5,fontSize:10,color:"#D8C880",lineHeight:1.5,fontStyle:"italic"}},
+          "\u26A0 ",classesComValor.length-classesComTicker.length+" classe(s) sem ticker selecionado. A IA podera analisar mesmo assim, mas o aporte ficara incompleto."
+        ):null
       );
     }
   }
