@@ -7476,6 +7476,11 @@ function App(){
   const [miraIAErro,setMiraIAErro]=useState("");
   // Para debugging: guarda resposta crua da IA quando ha erro de parse no Aporte
   const [debugResposta,setDebugResposta]=useState(null);
+  // Estado para "Sugerir minha divisao": form aberto/fechado, valores por classe, analise da IA
+  const [propUsrAberto,setPropUsrAberto]=useState(false);
+  const [propUsrValores,setPropUsrValores]=useState({}); // {classId: "valor em string"}
+  const [propUsrLoad,setPropUsrLoad]=useState(false);
+  const [propUsrErr,setPropUsrErr]=useState("");
   const [miraIAExpanded,setMiraIAExpanded]=useState({});// {ticker:true}
   // Docs por ticker (URLs de balancos/fatos relevantes/apresentacoes) - UI temporaria
   // ===== END state cleanup =====
@@ -9854,6 +9859,8 @@ function App(){
           const oculto=p&&p.oculto?true:false;
           // ===== STATUS RR (sincronia com aba Risco x Retorno) =====
           // Pega margemSeg/TIR da analise RR mais recente deste ticker
+          // CAMPOS CORRETOS: a IA do RR salva como tirEstimadaIA/tirAlvoIA (acoes/FII/etc)
+          // OU _tirAtual/_tirAlvo (Treasuries) - precisamos cobrir os dois casos.
           let statusRR=null;
           let margemSegRR=null;
           let tirAtualRR=null;
@@ -9861,8 +9868,17 @@ function App(){
           try{
             const dIA=riscoRetornoData&&riscoRetornoData.ativos?riscoRetornoData.ativos[t]:null;
             if(dIA){
-              tirAtualRR=typeof dIA.tirAtual==="number"?dIA.tirAtual:null;
-              tirAlvoRR=typeof dIA.tirAlvo==="number"?dIA.tirAlvo:null;
+              // Prioridade 1: tirEstimadaIA/tirAlvoIA (acoes BR, EUA, MUNDO, FII, infra, fiagro, REIT)
+              if(typeof dIA.tirEstimadaIA==="number"&&typeof dIA.tirAlvoIA==="number"){
+                tirAtualRR=dIA.tirEstimadaIA;
+                tirAlvoRR=dIA.tirAlvoIA;
+              }
+              // Prioridade 2: _tirAtual/_tirAlvo (Treasuries)
+              else if(typeof dIA._tirAtual==="number"&&typeof dIA._tirAlvo==="number"){
+                tirAtualRR=dIA._tirAtual;
+                tirAlvoRR=dIA._tirAlvo;
+              }
+              // Calcula status se temos ambos os valores
               if(typeof tirAtualRR==="number"&&typeof tirAlvoRR==="number"){
                 margemSegRR=tirAtualRR-tirAlvoRR;
                 if(margemSegRR>=0.03)statusRR="oportunidade";
@@ -11176,6 +11192,146 @@ function App(){
       setExecE(ent);
     }catch(e){setAErr(e.message||"Erro");}
     setLoadA(false);
+  };
+
+  // ===== REVISA PROPOSTA DO USUARIO =====
+  // Recebe a proposta de divisao por classe do usuario e envia para a IA criticar
+  const revisaPropostaUsuario=async()=>{
+    if(!apiKey){setPropUsrErr("Configure API key no botao API");return;}
+    if(!apR||!apR.apValue){setPropUsrErr("Nao ha aporte ativo");return;}
+    setPropUsrErr("");
+    setPropUsrLoad(true);
+    try{
+      const totalAporte=apR.apValue;
+      // Coleta valores propostos pelo usuario (parseando com pN para aceitar formato BR)
+      const propostaArr=[];
+      let somaProposta=0;
+      const classesAporte=CL.filter(c=>c.id!=="imoveis");
+      classesAporte.forEach(c=>{
+        const valor=pN(propUsrValores[c.id]||"0");
+        const pesoAtualClasse=cw[c.id]||0;
+        propostaArr.push({
+          id:c.id,
+          name:c.name,
+          valor:valor,
+          pct:totalAporte>0?(valor/totalAporte*100):0,
+          pesoAtualPortfolio:pesoAtualClasse.toFixed(2)+"%",
+          bandaMin:c.min+"%",
+          bandaMax:c.max+"%",
+          situacao:pesoAtualClasse>c.max?"SOBREALLOCADA":pesoAtualClasse<c.min?"SUBREPRESENTADA":"DENTRO_DA_BANDA"
+        });
+        somaProposta+=valor;
+      });
+      // Valida soma
+      const diffSoma=Math.abs(somaProposta-totalAporte);
+      if(diffSoma>totalAporte*0.01){
+        setPropUsrErr("Soma da proposta (R$ "+somaProposta.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})+") difere do aporte total (R$ "+totalAporte.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})+"). Ajuste antes de enviar.");
+        setPropUsrLoad(false);
+        return;
+      }
+      // Coleta indicadores macro (resumo do contexto)
+      const macroResumo={
+        selicAtual:typeof selicAtual==="number"?selicAtual.toFixed(2)+"%":null,
+        ipcaAnual:typeof infIPCA==="object"&&infIPCA&&typeof infIPCA.anual==="number"?infIPCA.anual.toFixed(2)+"%":null,
+        usdBrl:FX&&typeof FX.USD==="number"?FX.USD.toFixed(3):null,
+        mvrvZ:typeof mvrvZ==="number"?mvrvZ.toFixed(2):null,
+        nupl:typeof nupl==="number"?nupl.toFixed(3):null,
+        realGoldZ:typeof realGoldZ==="number"?realGoldZ.toFixed(2):null
+      };
+      // Resumo do impacto MPT/AW/Yale (se tiver mptSnapshot)
+      const sumario=apR.mptSnapshot?{
+        notaHibridaAtual:apR.mptSnapshot.notaHibrida.toFixed(0)+"/100",
+        conceitoAtual:apR.mptSnapshot.conceito,
+        protCenAtual:apR.mptSnapshot.protCen
+      }:null;
+      // Sugestao original da IA para comparacao
+      const sugestaoIA=(apR.classes||[]).map(cl=>({
+        id:cl.id,
+        valor:cl.valor||0,
+        pct:totalAporte>0?((cl.valor||0)/totalAporte*100).toFixed(1)+"%":"0%"
+      }));
+      // Monta prompt
+      const sysPrompt="Voce e analista Buy&Hold rigoroso. O investidor recebe sua sugestao de aporte (que voce gerou anteriormente) e propos uma DIVISAO ALTERNATIVA POR CLASSE. Sua tarefa: criticar a proposta dele de forma objetiva, sem repetir o seu trabalho original.\\n\\nFILOSOFIA DO INVESTIDOR (respeitar): Buy&Hold rigoroso, zero vendas, rebalanceamento via direcao dos aportes. Aceita qualidade no preco justo, evita value traps, valoriza disciplina sobre pressa. Filosofia Munger/Smith 'quality at reasonable price'.\\n\\nREGRAS QUE A PROPOSTA DEVE RESPEITAR (criticar se violar):\\n1) Classe SOBREALLOCADA (peso > max): nao deveria receber mais que 8% do aporte\\n2) Classe SUBREPRESENTADA (peso < min): pode receber alocacao agressiva (15-30%) se houver oportunidade\\n3) Classe DENTRO DA BANDA: alocacao livre conforme merito\\n4) Piso de 3% por classe que receber aporte (R$ "+Math.round(totalAporte*0.03)+" neste aporte)\\n5) Teto de 30% por classe de risco (Selic e excecao - sem teto)\\n6) Soma deve ser exatamente o valor total do aporte\\n7) Bandas Yale do investidor: cada classe tem min/max definidos no contexto\\n\\nREBALANCEAMENTO ESTRUTURAL: avalie como a proposta do investidor afeta:\\n- MPT/Fronteira Eficiente: a proposta melhora ou piora Sharpe?\\n- All Weather: a proposta fortalece resiliencia em algum dos 4 cenarios c1/c2/c3/c4?\\n- Yale (buckets): a proposta aproxima os buckets dos alvos (equity 44%, realAssets 33%, altLiquid 3%, inflationHedge 8%, fixedNominal 12%)?\\n\\nSEU OUTPUT (JSON ESTRITO, comecando com { e terminando com }, sem markdown):\\n{\\n  \\\"veredito\\\":\\\"OTIMO|BOM|REGULAR|RUIM|DESALINHADO\\\",\\n  \\\"sintese\\\":\\\"1-2 frases sumarizando o julgamento geral\\\",\\n  \\\"criticas\\\":[\\\"critica 1 especifica\\\",\\\"critica 2\\\"...],\\n  \\\"pontos_positivos\\\":[\\\"ponto 1\\\",\\\"ponto 2\\\"...],\\n  \\\"impacto_mpt\\\":\\\"avaliacao curta do impacto na fronteira/Sharpe\\\",\\n  \\\"impacto_aw\\\":\\\"avaliacao curta da resiliencia macro\\\",\\n  \\\"impacto_yale\\\":\\\"avaliacao curta dos buckets Yale\\\",\\n  \\\"ajuste_sugerido\\\":\\\"se houver ajustes recomendados, descrever em 2-3 frases. Se proposta esta boa, dizer 'sem ajustes necessarios'\\\"\\n}\\n\\nVeredito 'OTIMO': proposta plenamente alinhada com regras e rebalanceamento. 'BOM': pequenos pontos a melhorar. 'REGULAR': viola 1-2 regras importantes. 'RUIM': viola multiplas regras. 'DESALINHADO': proposta contradiz filosofia (ex: reforca classe sobreallocada com >15%).";
+      const userPrompt="CONTEXTO MACRO: "+JSON.stringify(macroResumo)+"\\n\\nAPORTE TOTAL: R$ "+totalAporte.toLocaleString("pt-BR",{minimumFractionDigits:2})+"\\n\\nSITUACAO ATUAL DAS CLASSES (peso atual no patrimonio vs bandas Yale do investidor):\\n"+JSON.stringify(propostaArr,null,1)+"\\n\\nSUGESTAO ORIGINAL DA IA (que voce gerou antes): "+JSON.stringify(sugestaoIA)+"\\n\\nPROPOSTA DO INVESTIDOR (divisao alternativa que ele quer que voce critique):\\n"+propostaArr.map(p=>"  - "+p.name+" ("+p.id+"): R$ "+p.valor.toLocaleString("pt-BR",{minimumFractionDigits:2})+" ("+p.pct.toFixed(1)+"%) - situacao classe: "+p.situacao+" [banda "+p.bandaMin+"-"+p.bandaMax+", peso atual "+p.pesoAtualPortfolio+"]").join("\\n")+(sumario?"\\n\\nMETRICAS PORTFOLIO ATUAL: "+JSON.stringify(sumario):"")+"\\n\\nCRITIQUE A PROPOSTA DO INVESTIDOR seguindo o formato JSON definido.";
+      // Chama API
+      const resp=await fetch("https://api.anthropic.com/v1/messages",{
+        method:"POST",
+        headers:{"content-type":"application/json","x-api-key":apiKey,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
+        body:JSON.stringify({
+          model:"claude-sonnet-4-5",
+          max_tokens:3000,
+          system:sysPrompt,
+          messages:[{role:"user",content:userPrompt}]
+        })
+      });
+      if(!resp.ok){
+        const txt=await resp.text();
+        throw new Error("API "+resp.status+": "+txt.slice(0,200));
+      }
+      const data=await resp.json();
+      registrarUsoAPI&&registrarUsoAPI("revisao_proposta",data.usage);
+      const txt=(data.content||[]).map(b=>b.text||"").join("").trim();
+      // Parse JSON
+      let analise=null;
+      try{analise=JSON.parse(txt);}catch(_){
+        try{
+          const cleaned=txt.replace(/```json|```/g,"").trim();
+          analise=JSON.parse(cleaned);
+        }catch(__){
+          const m=txt.match(/\{[\s\S]*\}/);
+          if(m)try{analise=JSON.parse(m[0]);}catch(___){}
+        }
+      }
+      if(!analise||!analise.veredito){
+        throw new Error("IA nao retornou JSON valido. Primeiros 200 chars: "+txt.slice(0,200));
+      }
+      // Salva no apR
+      setApR(prev=>({...prev,propostaUsuario:{
+        valores:propUsrValores,
+        valoresArr:propostaArr,
+        somaProposta:somaProposta,
+        analise:analise,
+        timestamp:Date.now()
+      }}));
+      setPropUsrLoad(false);
+    }catch(e){
+      setPropUsrErr(e.message||"Erro ao revisar proposta");
+      setPropUsrLoad(false);
+    }
+  };
+
+  // ===== DEFINIR ESTA DIVISAO COMO APORTE FINAL =====
+  // Substitui apR.classes pelo que o usuario propos
+  const definirPropostaComoFinal=()=>{
+    if(!apR||!apR.propostaUsuario){return;}
+    if(!confirm("Definir esta divisao como aporte final? A sugestao original da IA sera substituida pela sua proposta, e o PDF refletira a sua decisao."))return;
+    const totalAporte=apR.apValue||0;
+    const novasClasses=apR.propostaUsuario.valoresArr.filter(c=>(c.valor||0)>0).map(c=>{
+      // Tenta preservar os ativos da sugestao original para esta classe (com valores proporcionais)
+      const clOrig=(apR.classes||[]).find(o=>o&&o.id===c.id);
+      const valorOriginal=clOrig?(clOrig.valor||0):0;
+      let ativosNovos=[];
+      if(clOrig&&Array.isArray(clOrig.ativos)&&clOrig.ativos.length>0&&valorOriginal>0){
+        // Reaproveita ativos da IA com proporcao ajustada para o novo valor da classe
+        const fator=c.valor/valorOriginal;
+        ativosNovos=clOrig.ativos.map(a=>({...a,valor:Math.round((a.valor||0)*fator)}));
+      }
+      return{
+        id:c.id,
+        pct:c.pct,
+        valor:c.valor,
+        justificativa:(clOrig&&clOrig.justificativa)?clOrig.justificativa+" [Valor ajustado pelo investidor de R$ "+valorOriginal.toLocaleString("pt-BR",{minimumFractionDigits:0,maximumFractionDigits:0})+" para R$ "+c.valor.toLocaleString("pt-BR",{minimumFractionDigits:0,maximumFractionDigits:0})+".]":"Alocacao definida pelo investidor: R$ "+c.valor.toLocaleString("pt-BR",{minimumFractionDigits:0,maximumFractionDigits:0})+" ("+c.pct.toFixed(1)+"% do aporte).",
+        ativos:ativosNovos
+      };
+    });
+    // Atualiza o apR
+    setApR(prev=>({...prev,
+      classes:novasClasses,
+      aporteFinalDefinido:true,
+      aporteFinalTs:Date.now(),
+      // Preserva resumo e demais campos da IA
+      _propostaUsuarioOriginal:apR.classes // backup para auditoria
+    }));
   };
 
   // Atualiza histMensal: pega o snapshot mais recente do mes corrente e mantém 1 por mes
@@ -16179,6 +16335,137 @@ h("button",{onClick:async()=>{
         // [REMOVIDO POR PEDIDO DO USUARIO] Chat de debate inline com a IA sobre o aporte e botao "Registrar compras executadas".
         // Para reativar, restaurar o bloco h("button",{onClick:()=>setDebateAporteOpen(...)) e o bloco h("button",{onClick:()=>setStep("confirm"),...) do historico.
         // O usuario optou por cadastrar compras manualmente na tela de posicoes.
+
+        // ===== SUGERIR MINHA DIVISAO =====
+        h("div",{style:{marginTop:14,paddingTop:12,borderTop:"1px dashed rgba(91,143,212,0.2)"}},
+          // Indicador se aporte ja foi definido
+          apR.aporteFinalDefinido?h("div",{style:{padding:"10px 13px",background:"linear-gradient(135deg,rgba(122,196,160,0.15),rgba(122,196,160,0.05))",border:"1px solid rgba(122,196,160,0.4)",borderRadius:7,marginBottom:10,fontSize:11,color:"#7AC4A0",fontFamily:"monospace",letterSpacing:0.5}},"\u2713 Aporte definido pelo investidor em "+new Date(apR.aporteFinalTs).toLocaleString("pt-BR")):null,
+          h("button",{
+            onClick:()=>{
+              // Pre-preenche com valores da sugestao atual (se houver)
+              if(!propUsrAberto&&Object.keys(propUsrValores).length===0){
+                const init={};
+                (apR.classes||[]).forEach(cl=>{
+                  if(cl&&cl.id&&typeof cl.valor==="number"){
+                    // Formato BR: 1.234,56
+                    const cents=Math.round((cl.valor||0)*100);
+                    const intP=Math.floor(cents/100);
+                    const decP=String(cents%100).padStart(2,"0");
+                    init[cl.id]=intP.toLocaleString("pt-BR")+","+decP;
+                  }
+                });
+                setPropUsrValores(init);
+              }
+              setPropUsrAberto(o=>!o);
+            },
+            style:{width:"100%",padding:"11px",background:propUsrAberto?"linear-gradient(135deg,rgba(91,143,212,0.22),rgba(91,143,212,0.08))":"linear-gradient(135deg,rgba(91,143,212,0.14),rgba(91,143,212,0.05))",border:"1px solid rgba(91,143,212,0.45)",borderRadius:7,color:"#7AB0E0",fontSize:11,fontWeight:700,letterSpacing:2,textTransform:"uppercase",cursor:"pointer",fontFamily:"monospace"}
+          },propUsrAberto?"\u25BC Fechar minha divisao":"\u{1F4AD} Sugerir minha divisao"),
+          // Form expansivel
+          propUsrAberto?h("div",{style:{marginTop:10,padding:"13px 14px",background:"rgba(91,143,212,0.04)",border:"1px solid rgba(91,143,212,0.25)",borderRadius:8}},
+            h("div",{style:{fontSize:10,color:"#A8C0D8",fontStyle:"italic",marginBottom:11,lineHeight:1.55}},
+              "Ajuste os valores em R$ por classe. A IA vai analisar sua proposta segundo as regras do prompt e o rebalanceamento (Yale, All Weather, MPT). A soma deve ser exatamente R$ "+(apR.apValue||0).toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})+"."
+            ),
+            // Campos por classe (apenas as nao-imoveis)
+            ...CL.filter(c=>c.id!=="imoveis").map(c=>{
+              const pesoAtual=cw[c.id]||0;
+              const sobre=pesoAtual>c.max;
+              const sub=pesoAtual<c.min;
+              const valStr=propUsrValores[c.id]||"";
+              const valNum=pN(valStr);
+              const totalAp=apR.apValue||1;
+              const pctAp=totalAp>0?(valNum/totalAp*100):0;
+              return h("div",{key:c.id,style:{display:"grid",gridTemplateColumns:"1.2fr 1.2fr 0.6fr",gap:8,padding:"5px 0",borderBottom:"1px dashed rgba(91,143,212,0.12)",alignItems:"center"}},
+                h("div",{style:{fontSize:10.5,color:sobre?"#E89060":sub?"#7AC4A0":"#F0EAD8",fontFamily:"monospace"}},c.name,h("div",{style:{fontSize:8.5,color:"#7A7060"}},(sobre?"sobreallocada":sub?"subrep":"banda")+" "+pesoAtual.toFixed(1)+"%")),
+                h("div",{style:{display:"flex",alignItems:"center",gap:4,background:"rgba(0,0,0,0.2)",border:"1px solid rgba(91,143,212,0.25)",borderRadius:5,padding:"4px 7px"}},
+                  h("span",{style:{fontSize:9,color:"#7A8090",fontFamily:"monospace"}},"R$"),
+                  h("input",{
+                    type:"text",
+                    inputMode:"numeric",
+                    placeholder:"0,00",
+                    value:valStr,
+                    onChange:e=>{
+                      // Mascara automatica BR
+                      const apenasDig=String(e.target.value).replace(/\D/g,"");
+                      if(!apenasDig){setPropUsrValores(v=>({...v,[c.id]:""}));return;}
+                      const cents=apenasDig.padStart(3,"0");
+                      const parteI=cents.slice(0,-2);
+                      const parteD=cents.slice(-2);
+                      const intF=parteI.replace(/^0+(?=\d)/,"").replace(/\B(?=(\d{3})+(?!\d))/g,".");
+                      setPropUsrValores(v=>({...v,[c.id]:intF+","+parteD}));
+                    },
+                    style:{flex:1,background:"transparent",border:"none",outline:"none",color:"#F0EAD8",fontSize:11,fontFamily:"monospace",textAlign:"right",minWidth:0,width:"100%"}
+                  })
+                ),
+                h("div",{style:{fontSize:10,color:"#8A8070",fontFamily:"monospace",textAlign:"right"}},pctAp.toFixed(1)+"%")
+              );
+            }),
+            // Totalizador
+            (function(){
+              const somaProp=CL.filter(c=>c.id!=="imoveis").reduce((s,c)=>s+pN(propUsrValores[c.id]||"0"),0);
+              const diff=somaProp-(apR.apValue||0);
+              const ok=Math.abs(diff)<(apR.apValue||0)*0.005;
+              return h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"9px 0",marginTop:5,borderTop:"1px solid rgba(91,143,212,0.25)",fontSize:11,fontFamily:"monospace",fontWeight:700}},
+                h("span",{style:{color:"#A8C0D8"}},"Total da proposta"),
+                h("span",{style:{color:ok?"#7AC4A0":"#E89060"}},"R$ "+somaProp.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})+(diff!==0?" ("+(diff>0?"+":"")+diff.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})+")":""))
+              );
+            })(),
+            // Erro
+            propUsrErr?h("div",{style:{padding:"7px 9px",background:"rgba(224,82,82,0.08)",border:"1px solid rgba(224,82,82,0.3)",borderRadius:5,color:"#E0A0A0",fontSize:10,fontFamily:"monospace",marginTop:8,lineHeight:1.5}},propUsrErr):null,
+            // Botoes
+            h("div",{style:{display:"flex",gap:7,marginTop:10}},
+              h("button",{
+                onClick:revisaPropostaUsuario,
+                disabled:propUsrLoad,
+                style:{flex:1,padding:"10px",background:propUsrLoad?"#2A2820":"linear-gradient(135deg,#5B8FD4,#3D70B8)",border:"none",borderRadius:6,color:propUsrLoad?"#5B8FD4":"#FFFFFF",fontSize:11,fontWeight:700,letterSpacing:2,textTransform:"uppercase",cursor:propUsrLoad?"not-allowed":"pointer",fontFamily:"monospace"}
+              },propUsrLoad?"analisando...":"\u{1F50D} pedir revisao da IA"),
+              h("button",{
+                onClick:()=>{setPropUsrValores({});setPropUsrErr("");},
+                disabled:propUsrLoad,
+                style:{padding:"10px 14px",background:"transparent",border:"1px solid rgba(91,143,212,0.3)",borderRadius:6,color:"#7A8090",fontSize:10,fontFamily:"monospace",cursor:"pointer",letterSpacing:1}
+              },"limpar")
+            ),
+            // ===== ANALISE DA IA =====
+            apR.propostaUsuario&&apR.propostaUsuario.analise?h("div",{style:{marginTop:13,padding:"12px 13px",background:"rgba(0,0,0,0.15)",border:"1px solid rgba(91,143,212,0.3)",borderRadius:7}},
+              h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:9,paddingBottom:7,borderBottom:"1px solid rgba(91,143,212,0.2)"}},
+                h("div",{style:{fontSize:8,letterSpacing:3,color:"#7AB0E0",fontFamily:"monospace",textTransform:"uppercase",fontWeight:700}},"\u{1F4DD} Analise da IA"),
+                (function(){
+                  const v=apR.propostaUsuario.analise.veredito||"";
+                  const cor=v==="OTIMO"?"#7AC4A0":v==="BOM"?"#A0C8B0":v==="REGULAR"?"#E8C44A":v==="RUIM"?"#E89060":v==="DESALINHADO"?"#E05252":"#8A8070";
+                  return h("span",{style:{fontSize:10,color:cor,fontFamily:"monospace",fontWeight:700,padding:"3px 9px",border:"1px solid "+cor+"55",borderRadius:4,letterSpacing:1}},v);
+                })()
+              ),
+              // Sintese
+              apR.propostaUsuario.analise.sintese?h("p",{style:{margin:"0 0 11px 0",fontSize:11,color:"#D0D8E0",lineHeight:1.65,textAlign:"justify",fontStyle:"italic"}},apR.propostaUsuario.analise.sintese):null,
+              // Criticas
+              Array.isArray(apR.propostaUsuario.analise.criticas)&&apR.propostaUsuario.analise.criticas.length>0?h("div",{style:{marginBottom:10}},
+                h("div",{style:{fontSize:9,color:"#E89060",fontFamily:"monospace",fontWeight:700,letterSpacing:1,marginBottom:5,textTransform:"uppercase"}},"\u26A0 Criticas"),
+                apR.propostaUsuario.analise.criticas.map((cr,i)=>h("div",{key:i,style:{fontSize:10.5,color:"#E0C0A0",lineHeight:1.6,marginLeft:8,marginBottom:3}},"\u2022 "+cr))
+              ):null,
+              // Pontos positivos
+              Array.isArray(apR.propostaUsuario.analise.pontos_positivos)&&apR.propostaUsuario.analise.pontos_positivos.length>0?h("div",{style:{marginBottom:10}},
+                h("div",{style:{fontSize:9,color:"#7AC4A0",fontFamily:"monospace",fontWeight:700,letterSpacing:1,marginBottom:5,textTransform:"uppercase"}},"\u2713 Pontos Positivos"),
+                apR.propostaUsuario.analise.pontos_positivos.map((p,i)=>h("div",{key:i,style:{fontSize:10.5,color:"#A0D0B0",lineHeight:1.6,marginLeft:8,marginBottom:3}},"\u2022 "+p))
+              ):null,
+              // Impactos estruturais
+              (apR.propostaUsuario.analise.impacto_mpt||apR.propostaUsuario.analise.impacto_aw||apR.propostaUsuario.analise.impacto_yale)?h("div",{style:{marginBottom:9,padding:"9px 11px",background:"rgba(91,143,212,0.05)",borderRadius:5}},
+                h("div",{style:{fontSize:9,color:"#7AB0E0",fontFamily:"monospace",fontWeight:700,letterSpacing:1,marginBottom:6,textTransform:"uppercase"}},"Impacto Estrutural"),
+                apR.propostaUsuario.analise.impacto_mpt?h("div",{style:{fontSize:10,color:"#B8C8D8",marginBottom:4,lineHeight:1.55}},h("strong",{style:{color:"#7AB0E0"}},"MPT: "),apR.propostaUsuario.analise.impacto_mpt):null,
+                apR.propostaUsuario.analise.impacto_aw?h("div",{style:{fontSize:10,color:"#B8C8D8",marginBottom:4,lineHeight:1.55}},h("strong",{style:{color:"#7AB0E0"}},"All Weather: "),apR.propostaUsuario.analise.impacto_aw):null,
+                apR.propostaUsuario.analise.impacto_yale?h("div",{style:{fontSize:10,color:"#B8C8D8",lineHeight:1.55}},h("strong",{style:{color:"#7AB0E0"}},"Yale: "),apR.propostaUsuario.analise.impacto_yale):null
+              ):null,
+              // Ajuste sugerido
+              apR.propostaUsuario.analise.ajuste_sugerido?h("div",{style:{padding:"8px 10px",background:"rgba(232,196,74,0.08)",borderLeft:"3px solid #E8C44A",borderRadius:"0 5px 5px 0",marginBottom:11}},
+                h("div",{style:{fontSize:9,color:"#E8C44A",fontFamily:"monospace",fontWeight:700,letterSpacing:1,marginBottom:4,textTransform:"uppercase"}},"\u270F Ajuste Sugerido"),
+                h("div",{style:{fontSize:10.5,color:"#D8C880",lineHeight:1.6}},apR.propostaUsuario.analise.ajuste_sugerido)
+              ):null,
+              // BOTAO DEFINITIVO: bater o martelo
+              !apR.aporteFinalDefinido?h("button",{
+                onClick:definirPropostaComoFinal,
+                style:{width:"100%",padding:"12px",background:"linear-gradient(135deg,#4CAF82,#2A8F62)",border:"none",borderRadius:7,color:"#0D0F14",fontSize:11,fontWeight:700,letterSpacing:2,textTransform:"uppercase",cursor:"pointer",fontFamily:"monospace",marginTop:6}
+              },"\u2713 Definir esta divisao como aporte final"):null
+            ):null
+          ):null
+        ),
         // ===== BOTAO BAIXAR PDF =====
         h("div",{style:{marginTop:18,paddingTop:14,borderTop:"1px dashed rgba(200,169,110,0.2)"}},
           h("button",{
@@ -16213,9 +16500,22 @@ h("button",{onClick:async()=>{
                 html+='.ativo-justif{color:#555;font-size:10pt;margin-top:4px;font-style:italic;line-height:1.55}';
                 html+='.resumo-geral{margin-top:22px;padding:12px;background:#f5f5f0;border-radius:6px;font-style:italic;font-size:10.5pt;color:#444;line-height:1.65}';
                 html+='@media print{body{margin:15mm}.classe-bloco{page-break-inside:avoid}}';
+                html+='.proposta-bloco{margin:20px 0;padding:14px 18px;background:#f0f5fa;border-left:4px solid #5B8FD4;border-radius:0 6px 6px 0;page-break-inside:avoid}';
+                html+='.proposta-titulo{font-size:13pt;color:#3D70B8;font-weight:bold;margin-bottom:8px}';
+                html+='.veredito-box{display:inline-block;padding:4px 12px;font-family:monospace;font-weight:bold;font-size:10pt;border:1.5px solid;border-radius:4px;margin-bottom:10px}';
+                html+='.criticas-lista,.positivos-lista{margin:8px 0;padding-left:22px}';
+                html+='.criticas-lista li{color:#c0691f;margin-bottom:4px;font-size:10.5pt;line-height:1.55}';
+                html+='.positivos-lista li{color:#2a8b5e;margin-bottom:4px;font-size:10.5pt;line-height:1.55}';
+                html+='.impacto-est{margin-top:10px;padding:9px 11px;background:#fafdff;border-radius:5px}';
+                html+='.impacto-est strong{color:#3D70B8}';
+                html+='.carimbo-final{display:inline-block;padding:5px 14px;background:#2a8b5e;color:#fff;font-family:monospace;font-weight:bold;font-size:10pt;border-radius:4px;letter-spacing:1px;margin-top:5px}';
                 html+='</style></head><body>';
                 html+='<h1>Aporte Fundamentalista</h1>';
                 html+='<div class="meta">Gerado em '+dataStr+'  &middot;  Aletsch Wealth</div>';
+                if(apR.aporteFinalDefinido){
+                  const tsFinal=new Date(apR.aporteFinalTs).toLocaleString("pt-BR");
+                  html+='<div class="carimbo-final">&#10003; Aporte definido pelo investidor em '+tsFinal+'</div>';
+                }
                 html+='<div class="valor-grande">R$ '+totalVal.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})+'</div>';
                 // Tabela
                 html+='<h2>Distribuicao por Classe</h2>';
@@ -16263,6 +16563,42 @@ h("button",{onClick:async()=>{
                 if(apR.resumo&&apR.resumo.length>100){
                   html+='<h2>Resumo Geral</h2>';
                   html+='<div class="resumo-geral">'+String(apR.resumo).replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/\n/g,'<br>')+'</div>';
+                }
+                // ===== ANALISE DA PROPOSTA DO INVESTIDOR (se houver) =====
+                if(apR.propostaUsuario&&apR.propostaUsuario.analise){
+                  const pu=apR.propostaUsuario;
+                  const an=pu.analise;
+                  const ver=an.veredito||"";
+                  const corVer=ver==="OTIMO"?"#2a8b5e":ver==="BOM"?"#5b9e7b":ver==="REGULAR"?"#b09030":ver==="RUIM"?"#c0691f":ver==="DESALINHADO"?"#a83838":"#666";
+                  html+='<h2>Analise da Proposta do Investidor</h2>';
+                  html+='<div class="proposta-bloco">';
+                  html+='<div class="proposta-titulo">Veredito da IA</div>';
+                  if(ver)html+='<div class="veredito-box" style="color:'+corVer+';border-color:'+corVer+'">'+ver+'</div>';
+                  if(an.sintese)html+='<p style="font-size:11pt;line-height:1.7;color:#333;margin:5px 0 10px 0">'+String(an.sintese).replace(/</g,"&lt;").replace(/>/g,"&gt;")+'</p>';
+                  if(Array.isArray(an.criticas)&&an.criticas.length>0){
+                    html+='<div style="margin-top:10px"><strong style="color:#c0691f;font-size:10.5pt;text-transform:uppercase;letter-spacing:0.5px">Criticas</strong>';
+                    html+='<ul class="criticas-lista">';
+                    an.criticas.forEach(c=>{html+='<li>'+String(c).replace(/</g,"&lt;").replace(/>/g,"&gt;")+'</li>';});
+                    html+='</ul></div>';
+                  }
+                  if(Array.isArray(an.pontos_positivos)&&an.pontos_positivos.length>0){
+                    html+='<div style="margin-top:10px"><strong style="color:#2a8b5e;font-size:10.5pt;text-transform:uppercase;letter-spacing:0.5px">Pontos Positivos</strong>';
+                    html+='<ul class="positivos-lista">';
+                    an.pontos_positivos.forEach(p=>{html+='<li>'+String(p).replace(/</g,"&lt;").replace(/>/g,"&gt;")+'</li>';});
+                    html+='</ul></div>';
+                  }
+                  if(an.impacto_mpt||an.impacto_aw||an.impacto_yale){
+                    html+='<div class="impacto-est">';
+                    html+='<div style="font-size:10pt;font-weight:bold;color:#3D70B8;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px">Impacto Estrutural</div>';
+                    if(an.impacto_mpt)html+='<div style="font-size:10pt;color:#444;margin-bottom:4px"><strong>MPT:</strong> '+String(an.impacto_mpt).replace(/</g,"&lt;").replace(/>/g,"&gt;")+'</div>';
+                    if(an.impacto_aw)html+='<div style="font-size:10pt;color:#444;margin-bottom:4px"><strong>All Weather:</strong> '+String(an.impacto_aw).replace(/</g,"&lt;").replace(/>/g,"&gt;")+'</div>';
+                    if(an.impacto_yale)html+='<div style="font-size:10pt;color:#444"><strong>Yale:</strong> '+String(an.impacto_yale).replace(/</g,"&lt;").replace(/>/g,"&gt;")+'</div>';
+                    html+='</div>';
+                  }
+                  if(an.ajuste_sugerido){
+                    html+='<div style="margin-top:10px;padding:9px 12px;background:#fffbe8;border-left:3px solid #b09030;border-radius:0 4px 4px 0"><strong style="color:#b09030;font-size:10pt;text-transform:uppercase;letter-spacing:0.5px">Ajuste Sugerido pela IA</strong><div style="font-size:10.5pt;color:#555;margin-top:5px;line-height:1.6">'+String(an.ajuste_sugerido).replace(/</g,"&lt;").replace(/>/g,"&gt;")+'</div></div>';
+                  }
+                  html+='</div>';
                 }
                 html+='</body></html>';
                 // Abre janela e dispara impressao (usuario escolhe Salvar como PDF)
