@@ -7883,6 +7883,60 @@ function App(){
         // Carregar aporte gerado pela IA (persiste a sugestao entre sessoes)
         if(dd.apR&&typeof dd.apR==="object"&&dd.apR.classes){
           setApR(dd.apR);
+          // SINCRONIZACAO: se o apR esta marcado como FECHADO (aporteFinalDefinido=true),
+          // garante que existe uma entrada correspondente em aportesSimples com a decomposicao correta.
+          // Isso recupera aportes fechados em versoes anteriores que perderam a decomposicao no load.
+          if(dd.apR.aporteFinalDefinido===true&&Array.isArray(dd.apR.classes)){
+            const apr=dd.apR;
+            // Determina data
+            let dataAporte=new Date(apr.aporteFinalTs||Date.now()).toISOString().slice(0,10);
+            if(apr.aportePeriodoFim&&/^\d{4}-\d{2}-\d{2}$/.test(apr.aportePeriodoFim)){
+              dataAporte=apr.aportePeriodoFim;
+            }else if(apr.aportePeriodoInicio&&/^\d{4}-\d{2}-\d{2}$/.test(apr.aportePeriodoInicio)){
+              dataAporte=apr.aportePeriodoInicio;
+            }
+            const valorApr=apr.apValue||0;
+            // Monta decomposicao
+            const classesDecomp={};
+            apr.classes.forEach(c=>{
+              if(c&&c.id&&typeof c.valor==="number"&&c.valor>0){
+                classesDecomp[c.id]=(classesDecomp[c.id]||0)+c.valor;
+              }
+            });
+            const temDecomp=Object.keys(classesDecomp).length>0;
+            // Verifica se ja existe entrada compativel em aportesSimples
+            const aportesSimpsList=Array.isArray(dd.aportesSimples)?dd.aportesSimples:[];
+            const idxExistente=aportesSimpsList.findIndex(a=>a&&a.date===dataAporte&&Math.abs((a.valor||0)-valorApr)<0.01);
+            if(idxExistente===-1&&valorApr>0){
+              // Nao existe -> adiciona
+              const nova={
+                id:dataAporte+"-aporte-"+(apr.aporteFinalTs||Date.now()).toString(36),
+                date:dataAporte,
+                valor:valorApr,
+                ts:apr.aporteFinalTs||Date.now(),
+                origem:"aba-aporte"
+              };
+              if(temDecomp)nova.classes=classesDecomp;
+              const listaAtualizada=[...aportesSimpsList,nova].sort((a,b)=>a.date.localeCompare(b.date));
+              // Como o setAportesSimples acima vai ser chamado depois deste bloco, precisamos esperar
+              setTimeout(()=>{setAportesSimples(prev=>{
+                // Verifica se a entrada nao chegou por outra via
+                if(prev.some(a=>a.date===dataAporte&&Math.abs((a.valor||0)-valorApr)<0.01))return prev;
+                return [...prev,nova].sort((a,b)=>a.date.localeCompare(b.date));
+              });},100);
+            }else if(idxExistente!==-1&&temDecomp){
+              // Existe mas pode estar sem decomposicao -> atualiza apenas se faltava
+              const existente=aportesSimpsList[idxExistente];
+              if(!existente.classes||Object.keys(existente.classes).length===0){
+                setTimeout(()=>{setAportesSimples(prev=>prev.map(a=>{
+                  if(a.date===dataAporte&&Math.abs((a.valor||0)-valorApr)<0.01&&(!a.classes||Object.keys(a.classes).length===0)){
+                    return {...a,classes:classesDecomp,origem:a.origem||"aba-aporte"};
+                  }
+                  return a;
+                }));},100);
+              }
+            }
+          }
         }
         if(dd.apV&&typeof dd.apV==="string"){
           setApV(dd.apV);
@@ -26013,50 +26067,9 @@ h("button",{onClick:async()=>{
 
     // Listagem ordenada do mais recente ao mais antigo
     const listaOrdenada=aportesSimples.slice().sort((a,b)=>b.date.localeCompare(a.date));
-    // ===== Grafico: agregado por mes-calendario =====
-    // Constroi serie mensal: do mes do PRIMEIRO aporte registrado ate o mes atual
-    // (se nao houver aportes, fica vazio e o rodape mostra a mensagem padrao)
-    const construirSerieMensal=()=>{
-      const hoje=new Date();
-      const meses=[];
-      if(aportesSimples.length===0){
-        // Sem aportes: mostra apenas o mes corrente (placeholder)
-        const dt=new Date(hoje.getFullYear(),hoje.getMonth(),1);
-        const key=dt.getFullYear()+"-"+String(dt.getMonth()+1).padStart(2,"0");
-        meses.push({key,label:dt.toLocaleDateString("pt-BR",{month:"short"}).replace(".","")+"/"+String(dt.getFullYear()).slice(2),mes:dt.getMonth(),ano:dt.getFullYear(),aportes:[],total:0});
-        return meses;
-      }
-      // Encontra o mes do primeiro aporte
-      const datasOrdenadas=aportesSimples.map(a=>a.date).sort();
-      const primeiraData=datasOrdenadas[0]; // YYYY-MM-DD
-      const primeiroAno=parseInt(primeiraData.slice(0,4),10);
-      const primeiroMes=parseInt(primeiraData.slice(5,7),10)-1; // 0-indexed
-      // Gera os meses do primeiro aporte ate o atual
-      const dtInicio=new Date(primeiroAno,primeiroMes,1);
-      const dtFim=new Date(hoje.getFullYear(),hoje.getMonth(),1);
-      let cursor=new Date(dtInicio);
-      while(cursor<=dtFim){
-        const key=cursor.getFullYear()+"-"+String(cursor.getMonth()+1).padStart(2,"0");
-        meses.push({key,label:cursor.toLocaleDateString("pt-BR",{month:"short"}).replace(".","")+"/"+String(cursor.getFullYear()).slice(2),mes:cursor.getMonth(),ano:cursor.getFullYear(),aportes:[]});
-        cursor=new Date(cursor.getFullYear(),cursor.getMonth()+1,1);
-      }
-      // Agrega aportes simples por mes
-      aportesSimples.forEach(a=>{
-        const mesKey=a.date.slice(0,7);
-        const bucket=meses.find(m=>m.key===mesKey);
-        if(bucket)bucket.aportes.push(a);
-      });
-      // Calcula total por mes
-      meses.forEach(m=>{m.total=m.aportes.reduce((s,a)=>s+a.valor,0);});
-      return meses;
-    };
-    const serie=construirSerieMensal();
-    const valoresPositivos=serie.filter(s=>s.total>0).map(s=>s.total);
-    const maxValor=valoresPositivos.length>0?Math.max(...valoresPositivos)*1.10:1000;
+    // Estatisticas de resumo (usadas nos 3 cards do topo)
     const totalAportado=aportesSimples.reduce((s,a)=>s+a.valor,0);
-    const mediaAportada=valoresPositivos.length>0?valoresPositivos.reduce((s,v)=>s+v,0)/valoresPositivos.length:0;
-    const alturaPx=160;
-    const fmtK=(v)=>v>=1000?"R$ "+(v/1000).toFixed(v>=10000?0:1)+"k":"R$ "+v.toFixed(0);
+    const mediaAportada=aportesSimples.length>0?totalAportado/aportesSimples.length:0;
     content=h("div",{},
       // Header com botao de registrar
       h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,gap:10,flexWrap:"wrap"}},
@@ -26384,112 +26397,6 @@ h("button",{onClick:async()=>{
             ):h("div",{style:{marginTop:6,fontSize:7.5,color:"#5A5550",fontStyle:"italic",fontFamily:"Georgia,serif"}},"sem decomposicao - clique em \u270E para detalhar por classe")
           );
         })
-      ),
-      // ===== GRAFICO DE BARRAS EMPILHADO POR CLASSE - APORTES MENSAIS (ULT. 24 MESES) =====
-      h("div",{style:{background:"linear-gradient(135deg,rgba(0,0,0,0.25),rgba(0,0,0,0.10))",border:"1px solid rgba(200,169,110,0.30)",borderRadius:8,padding:"12px 14px",marginBottom:14}},
-        // Header
-        h("div",{style:{display:"flex",alignItems:"baseline",justifyContent:"space-between",flexWrap:"wrap",gap:6,marginBottom:10}},
-          h("div",{style:{fontSize:10,letterSpacing:2,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,textTransform:"uppercase"}},"Evolu\u00e7\u00e3o dos Aportes Mensais"),
-          h("div",{style:{fontSize:8,color:"#7A7060",fontFamily:"monospace"}},"desde o 1\u00ba aporte \u2022 empilhado por classe")
-        ),
-        // Legenda das classes (so mostra as que aparecem na serie)
-        (()=>{
-          const classesAparecem=new Set();
-          serie.forEach(s=>s.aportes.forEach(a=>{
-            if(a.classes)Object.keys(a.classes).forEach(cid=>{if(a.classes[cid]>0)classesAparecem.add(cid);});
-            else classesAparecem.add("__sem_decomp__");
-          }));
-          if(classesAparecem.size===0)return null;
-          return h("div",{style:{display:"flex",flexWrap:"wrap",gap:5,marginBottom:10,paddingBottom:8,borderBottom:"1px dashed rgba(255,255,255,0.08)"}},
-            CL.filter(c=>classesAparecem.has(c.id)).map(c=>h("div",{key:c.id,style:{display:"inline-flex",alignItems:"center",gap:3,fontSize:7.5,color:"#9A9080",fontFamily:"monospace"}},
-              h("span",{style:{width:8,height:8,background:c.color,borderRadius:1,display:"inline-block"}}),
-              c.tag
-            )),
-            classesAparecem.has("__sem_decomp__")?h("div",{style:{display:"inline-flex",alignItems:"center",gap:3,fontSize:7.5,color:"#7A7060",fontFamily:"monospace",fontStyle:"italic"}},
-              h("span",{style:{width:8,height:8,background:"#5A5550",borderRadius:1,display:"inline-block"}}),
-              "sem decomp."
-            ):null
-          );
-        })(),
-        // Area do grafico
-        h("div",{style:{display:"flex",gap:6,marginBottom:6}},
-          // Eixo Y (labels esquerda)
-          h("div",{style:{display:"flex",flexDirection:"column",justifyContent:"space-between",alignItems:"flex-end",fontSize:7.5,color:"#7A7060",fontFamily:"monospace",height:alturaPx,paddingTop:1,paddingBottom:1}},
-            h("span",{},fmtK(maxValor)),
-            h("span",{},fmtK(maxValor*0.75)),
-            h("span",{},fmtK(maxValor*0.50)),
-            h("span",{},fmtK(maxValor*0.25)),
-            h("span",{},"R$ 0")
-          ),
-          // Container das barras com scroll horizontal
-          h("div",{style:{flex:1,overflowX:"auto",overflowY:"hidden"}},
-            h("div",{style:{position:"relative",height:alturaPx,borderLeft:"1px solid rgba(255,255,255,0.15)",borderBottom:"1px solid rgba(255,255,255,0.15)",minWidth:Math.max(serie.length*22,300)+"px"}},
-              // Linhas de grid horizontais
-              ...[0.25,0.5,0.75].map((f,i)=>h("div",{key:"grid"+i,style:{position:"absolute",left:0,right:0,top:((1-f)*100)+"%",height:1,background:"rgba(255,255,255,0.04)",pointerEvents:"none"}})),
-              // Linha de media
-              mediaAportada>0&&mediaAportada<maxValor?h("div",{style:{position:"absolute",left:0,right:0,top:((1-mediaAportada/maxValor)*100)+"%",height:0,borderTop:"1.5px dashed rgba(76,175,130,0.50)",pointerEvents:"none",zIndex:2}}):null,
-              mediaAportada>0&&mediaAportada<maxValor?h("div",{style:{position:"absolute",right:4,top:"calc("+((1-mediaAportada/maxValor)*100)+"% - 12px)",fontSize:7,color:"#4CAF82",fontFamily:"monospace",fontWeight:700,zIndex:3}},"m\u00e9dia"):null,
-              // Barras empilhadas
-              h("div",{style:{display:"flex",alignItems:"flex-end",justifyContent:"space-around",gap:2,height:"100%",padding:"0 3px"}},
-                ...serie.map(s=>{
-                  const hPct=s.total>0?(s.total/maxValor)*100:0;
-                  // Agrega valores por classe neste mes (somando todos os aportes do mes)
-                  const agregClasses={};
-                  let semDecomp=0;
-                  s.aportes.forEach(a=>{
-                    if(a.classes&&Object.keys(a.classes).length>0){
-                      Object.entries(a.classes).forEach(([cid,v])=>{
-                        agregClasses[cid]=(agregClasses[cid]||0)+v;
-                      });
-                    }else{
-                      semDecomp+=a.valor;
-                    }
-                  });
-                  // Tooltip detalhado
-                  const tooltipParts=[s.key];
-                  if(s.aportes.length>0){
-                    s.aportes.forEach(a=>tooltipParts.push("  "+a.date+": "+fB(a.valor)));
-                    tooltipParts.push("Total: "+fB(s.total));
-                    if(Object.keys(agregClasses).length>0){
-                      tooltipParts.push("--- por classe ---");
-                      CL.forEach(c=>{
-                        if(agregClasses[c.id]>0)tooltipParts.push("  "+c.tag+": "+fB(agregClasses[c.id]));
-                      });
-                    }
-                    if(semDecomp>0)tooltipParts.push("  sem decomp.: "+fB(semDecomp));
-                  }else{
-                    tooltipParts.push("Sem aportes");
-                  }
-                  return h("div",{key:s.key,style:{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end",height:"100%",position:"relative",maxWidth:24}},
-                    // Valor total acima da barra
-                    s.total>0?h("div",{style:{position:"absolute",bottom:hPct+"%",left:"50%",transform:"translateX(-50%) translateY(-2px)",fontSize:6.5,color:"#E8DCC0",fontFamily:"monospace",fontWeight:700,whiteSpace:"nowrap",pointerEvents:"none"}},(s.total/1000).toFixed(s.total>=10000?0:1)+"k"):null,
-                    // Barra empilhada (segmentos por classe + sem_decomp)
-                    h("div",{title:tooltipParts.join("\n"),style:{width:"80%",height:hPct+"%",display:"flex",flexDirection:"column-reverse",borderRadius:"3px 3px 0 0",overflow:"hidden",boxShadow:s.total>0?"0 -1px 2px rgba(0,0,0,0.3)":"none",minHeight:s.total>0?2:0,background:s.total>0?"rgba(0,0,0,0.20)":"transparent"}},
-                      // Empilha: comeca de baixo, na ordem do CL (FII, BR, EUA, MND, REIT, SEL, TRE, NTNB, XAU, BTC, INF, IMV, AGRO)
-                      ...CL.filter(c=>agregClasses[c.id]>0).map(c=>{
-                        const fSeg=(agregClasses[c.id]/s.total)*100;
-                        return h("div",{key:c.id,style:{width:"100%",height:fSeg+"%",background:c.color,minHeight:1}});
-                      }),
-                      // Segmento "sem decomp" no topo (cinza)
-                      semDecomp>0?h("div",{style:{width:"100%",height:((semDecomp/s.total)*100)+"%",background:"linear-gradient(180deg,#5A5550,#3A3530)",minHeight:1}}):null
-                    )
-                  );
-                })
-              )
-            ),
-            // Labels X (meses)
-            h("div",{style:{display:"flex",justifyContent:"space-around",gap:2,padding:"4px 3px 0",minWidth:Math.max(serie.length*22,300)+"px"}},
-              ...serie.map(s=>h("div",{key:"x"+s.key,style:{flex:1,fontSize:6.5,color:"#9A9080",fontFamily:"monospace",textAlign:"center",maxWidth:24,whiteSpace:"nowrap"}},s.label))
-            )
-          )
-        ),
-        // Rodape com stats
-        valoresPositivos.length>0?h("div",{style:{display:"flex",justifyContent:"space-between",fontSize:8,color:"#7A7060",fontFamily:"monospace",marginTop:8,paddingTop:6,borderTop:"1px dashed rgba(255,255,255,0.08)"}},
-          h("span",{},"min: ",fB(Math.min(...valoresPositivos))),
-          h("span",{},"max: ",fB(Math.max(...valoresPositivos))),
-          h("span",{},"m\u00e9dia: ",fB(mediaAportada)),
-          h("span",{},"meses c/ aporte: "+valoresPositivos.length+"/"+serie.length)
-        ):h("div",{style:{fontSize:8.5,color:"#9A9080",fontFamily:"monospace",fontStyle:"italic",marginTop:8,textAlign:"center",padding:"6px 0"}},"Sem aportes registrados")
       )
     );
     }catch(e){
