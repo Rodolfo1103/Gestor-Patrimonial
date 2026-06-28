@@ -16297,7 +16297,7 @@ h("button",{onClick:async()=>{
               // Encontra a classe nas constantes CL para banda
               const clMeta=CL.find(c=>c.id===cl.id);
               const pesoAtualClasse=clMeta?(cw[cl.id]||0):null;
-              const pesoProjetado=total>0&&pesoAtualClasse!==null?((pesoAtualClasse*total)+(cl.valor||0))/(total+(apR.apValue||0))*100:null;
+              const pesoProjetado=total>0&&pesoAtualClasse!==null?(((pesoAtualClasse/100)*total)+(cl.valor||0))/(total+(apR.apValue||0))*100:null;
               const sobreallocada=clMeta&&pesoAtualClasse!==null&&pesoAtualClasse>clMeta.max;
               const subrep=clMeta&&pesoAtualClasse!==null&&pesoAtualClasse<clMeta.min;
               const corClasse=sobreallocada?"#E89060":subrep?"#7AC4A0":"#F0EAD8";
@@ -16396,68 +16396,7 @@ h("button",{onClick:async()=>{
           })
         ),
 
-        // ===== IMPACTO ESTIMADO NAS METRICAS (antes vs depois) =====
-        apR.mptSnapshot&&apR.mptSnapshotProj?(function(){
-          const at=apR.mptSnapshot,pj=apR.mptSnapshotProj;
-          // Helper: render linha "antes -> depois (delta)"
-          const linha=(label,antes,depois,sufixo,inverso)=>{
-            const delta=depois-antes;
-            const melhorou=inverso?delta<0:delta>0;
-            const piorou=inverso?delta>0:delta<0;
-            const cor=Math.abs(delta)<0.05?"#8A8070":(melhorou?"#7AC4A0":(piorou?"#E89060":"#8A8070"));
-            const sinal=delta>0?"+":"";
-            return h("div",{style:{display:"grid",gridTemplateColumns:"1.4fr 0.9fr 0.9fr 0.9fr",gap:8,padding:"6px 0",borderBottom:"1px dashed rgba(200,169,110,0.08)",alignItems:"baseline"}},
-              h("span",{style:{fontSize:10.5,color:"#B0A890",fontFamily:"monospace"}},label),
-              h("span",{style:{fontSize:10,color:"#8A8070",textAlign:"right",fontFamily:"monospace"}},(typeof antes==="number"?antes.toFixed(1):antes)+(sufixo||"")),
-              h("span",{style:{fontSize:10,color:"#F0EAD8",textAlign:"right",fontFamily:"monospace",fontWeight:700}},(typeof depois==="number"?depois.toFixed(1):depois)+(sufixo||"")),
-              h("span",{style:{fontSize:10,color:cor,textAlign:"right",fontFamily:"monospace",fontWeight:700}},(typeof delta==="number"&&Math.abs(delta)>=0.05)?(sinal+delta.toFixed(1)+(sufixo||"")):"~")
-            );
-          };
-          return h("div",{style:{background:"linear-gradient(135deg,rgba(122,196,160,0.06),rgba(122,196,160,0.01))",border:"1px solid rgba(122,196,160,0.25)",borderRadius:9,padding:"12px 14px",marginBottom:12}},
-            h("div",{style:{fontSize:8,letterSpacing:3,color:"#7AC4A0",fontFamily:"monospace",textTransform:"uppercase",marginBottom:9,fontWeight:700}},"\u{1F4CA} Impacto Estimado nas Metricas"),
-            h("div",{style:{fontSize:9,color:"#7A7060",fontStyle:"italic",marginBottom:10,lineHeight:1.5}},"Comparativo do portfolio atual vs projetado se o aporte for executado conforme sugerido. Verde = melhora, laranja = piora, cinza = neutro."),
-            // Header
-            h("div",{style:{display:"grid",gridTemplateColumns:"1.4fr 0.9fr 0.9fr 0.9fr",gap:8,paddingBottom:6,borderBottom:"1px solid rgba(200,169,110,0.25)",marginBottom:4}},
-              h("span",{style:{fontSize:8.5,color:"#8A8070",letterSpacing:0.5,textTransform:"uppercase",fontWeight:700,fontFamily:"monospace"}},"Metrica"),
-              h("span",{style:{fontSize:8.5,color:"#8A8070",letterSpacing:0.5,textTransform:"uppercase",fontWeight:700,fontFamily:"monospace",textAlign:"right"}},"Atual"),
-              h("span",{style:{fontSize:8.5,color:"#8A8070",letterSpacing:0.5,textTransform:"uppercase",fontWeight:700,fontFamily:"monospace",textAlign:"right"}},"Projetado"),
-              h("span",{style:{fontSize:8.5,color:"#8A8070",letterSpacing:0.5,textTransform:"uppercase",fontWeight:700,fontFamily:"monospace",textAlign:"right"}},"Delta")
-            ),
-            // === FRONTEIRA EFICIENTE / MPT ===
-            h("div",{style:{fontSize:9,color:"#C8A96E",fontWeight:700,letterSpacing:1,textTransform:"uppercase",fontFamily:"monospace",marginTop:10,marginBottom:4}},"Fronteira Eficiente (MPT)"),
-            linha("Eficiencia de Fronteira",at.efFronteira,pj.efFronteira,"/100",false),
-            linha("Eficiencia de Sharpe",at.efSharpe,pj.efSharpe,"/100",false),
-            linha("Diversificacao (HHI)",at.efDiv,pj.efDiv,"/100",false),
-            linha("Nota Hibrida (sintese)",at.notaHibrida,pj.notaHibrida,"/100",false),
-            linha("Conceito",at.conceito,pj.conceito,"",false),
-            // === ALL WEATHER ===
-            h("div",{style:{fontSize:9,color:"#C8A96E",fontWeight:700,letterSpacing:1,textTransform:"uppercase",fontFamily:"monospace",marginTop:12,marginBottom:4}},"All Weather (Resiliencia Macro)"),
-            linha("Cobertura c1 (cresc+ infl+)",at.protCen.c1*100,pj.protCen.c1*100,"%",false),
-            linha("Cobertura c2 (cresc+ infl-)",at.protCen.c2*100,pj.protCen.c2*100,"%",false),
-            linha("Cobertura c3 (cresc- infl+)",at.protCen.c3*100,pj.protCen.c3*100,"%",false),
-            linha("Cobertura c4 (cresc- infl-)",at.protCen.c4*100,pj.protCen.c4*100,"%",false),
-            // === YALE BUCKETS ===
-            pj.yaleBucketsAtual&&pj.yaleBuckets?h("div",{},
-              h("div",{style:{fontSize:9,color:"#C8A96E",fontWeight:700,letterSpacing:1,textTransform:"uppercase",fontFamily:"monospace",marginTop:12,marginBottom:4}},"Yale (Buckets Funcionais)"),
-              linha("Equity (BR+EUA+MND+REIT)",pj.yaleBucketsAtual.equity*100,pj.yaleBuckets.equity*100,"%",false),
-              linha("Real Assets (FII+INF+AGR)",pj.yaleBucketsAtual.realAssets*100,pj.yaleBuckets.realAssets*100,"%",false),
-              linha("Inflation Hedge (NTNB+XAU)",pj.yaleBucketsAtual.inflationHedge*100,pj.yaleBuckets.inflationHedge*100,"%",false),
-              linha("Fixed Nominal (Selic+TRE)",pj.yaleBucketsAtual.fixedNominal*100,pj.yaleBuckets.fixedNominal*100,"%",false),
-              linha("Alt Liquid (BTC)",pj.yaleBucketsAtual.altLiquid*100,pj.yaleBuckets.altLiquid*100,"%",false)
-            ):null,
-            // === SOLIDEZ - simplificado, apenas a metrica composta MPT como proxy ===
-            h("div",{style:{fontSize:9,color:"#C8A96E",fontWeight:700,letterSpacing:1,textTransform:"uppercase",fontFamily:"monospace",marginTop:12,marginBottom:4}},"Solidez (Portfolio Geral)"),
-            linha("Sharpe Ratio",at.sharpe,pj.sharpe,"",false),
-            linha("Retorno Esperado",at.ret*100,pj.ret*100,"%",false),
-            linha("Volatilidade",at.vol*100,pj.vol*100,"%",true),
-            linha("Concentracao (HHI)",at.hhi,pj.hhi,"",true),
-            linha("Gap p/ Fronteira",at.gapPP,pj.gapPP,"pp",true),
-            // Rodape explicativo
-            h("div",{style:{marginTop:12,paddingTop:9,borderTop:"1px dashed rgba(122,196,160,0.2)",fontSize:8.5,color:"#7A7060",lineHeight:1.55,fontStyle:"italic"}},
-              "Volatilidade, Concentracao HHI e Gap p/ Fronteira sao metricas onde MENOR e melhor (verde = reduziu). Demais sao MAIOR = melhor."
-            )
-          );
-        })():null,
+        // [REMOVIDO - card verde "Impacto Estimado nas Metricas"; o impacto estrutural agora vive no card azul "Analise da IA" em texto narrativo]
 
         // ===== RESUMO GERAL (texto narrativo curto, se houver conteudo adicional) =====
         apR.resumo&&apR.resumo.length>100?h("div",{style:{background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:9,padding:"12px 14px",marginBottom:12}},
@@ -16783,7 +16722,7 @@ h("button",{onClick:async()=>{
                   const clMeta=CL.find(c=>c.id===cl.id);
                   const nomeCl=clMeta?clMeta.name:(cl.id||"?");
                   const pesoAtual=clMeta?(cw[cl.id]||0):null;
-                  const pesoProj=total>0&&pesoAtual!==null?((pesoAtual*total)+(cl.valor||0))/(total+totalVal)*100:null;
+                  const pesoProj=total>0&&pesoAtual!==null?(((pesoAtual/100)*total)+(cl.valor||0))/(total+totalVal)*100:null;
                   const sobre=clMeta&&pesoAtual!==null&&pesoAtual>clMeta.max;
                   const sub=clMeta&&pesoAtual!==null&&pesoAtual<clMeta.min;
                   const corCl=sobre?'class="sobre"':sub?'class="sub"':'';
