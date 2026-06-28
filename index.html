@@ -16313,9 +16313,21 @@ h("button",{onClick:async()=>{
                             h("code",{style:{fontFamily:"monospace",color:"#C8A96E",fontSize:9}},"ENB_Efetivo = ENB_Herfindahl x (1 - corr_media_pond\u00B2)"),
                             ". Penaliza a contagem bruta de classes pelo quadrado da correlacao media - se classes andam juntas, descontam."
                           ),
-                          h("p",{style:{fontSize:9.5,color:"#9A9080",lineHeight:1.7,margin:0,fontFamily:"Georgia,serif",fontStyle:"italic"}},
+                          h("p",{style:{fontSize:9.5,color:"#9A9080",lineHeight:1.7,margin:"0 0 4px",fontFamily:"Georgia,serif",fontStyle:"italic"}},
                             h("strong",{style:{color:"#4CAF82"}},"Alvo \u2265 5: "),
                             "abaixo disso, sua diversificacao efetiva e ilusoria - voce pode ter 13 classes mas elas se comportam como 3 em momentos de stress."
+                          ),
+                          h("p",{style:{fontSize:9.5,color:"#E8E2D5",lineHeight:1.7,margin:0,fontFamily:"Georgia,serif"}},
+                            h("strong",{style:{color:"#7AB0E0"}},"Como melhorar via aportes: "),
+                            "priorize classes ",h("strong",{},"descorrelacionadas das ja sobrealocadas"),". As 4 classes que mais elevam o ENB Efetivo neste portfolio sao ",
+                            h("strong",{style:{color:"#F7931A"}},"Bitcoin"),
+                            " (correlacao quase zero com tudo - traz diversificacao genuina), ",
+                            h("strong",{style:{color:"#5B8FD4"}},"Treasuries"),
+                            " (corr -0.30 com EUA, -0.20 com BR - hedge anti-equity), ",
+                            h("strong",{style:{color:"#9C7DC2"}},"NTN-B longa"),
+                            " (corr -0.25 com BR/EUA, +0.45 com TLT - hedge anti-equity mais correlacao baixa com Selic) e ",
+                            h("strong",{style:{color:"#C8A96E"}},"Ouro"),
+                            " (corr negativa com USD, hedge sistemico). Evite reforcar FII/Infra/Agro (corr +0.40 a +0.45 entre si) ou BR/EUA/MUNDO (corr +0.50 a +0.55) - sao pares que ja se movem juntos."
                           )
                         ),
                         // ENB Herfindahl
@@ -16334,11 +16346,15 @@ h("button",{onClick:async()=>{
                             h("code",{style:{fontFamily:"monospace",color:"#C8A96E",fontSize:9}},"ENB_Herfindahl = 1 / \u03A3(wi\u00B2) = 1 / HHI"),
                             ". E o inverso do HHI - quanto mais distribuido entre classes, maior o ENB Herfindahl."
                           ),
-                          h("p",{style:{fontSize:9.5,color:"#9A9080",lineHeight:1.7,margin:0,fontFamily:"Georgia,serif",fontStyle:"italic"}},
+                          h("p",{style:{fontSize:9.5,color:"#9A9080",lineHeight:1.7,margin:"0 0 4px",fontFamily:"Georgia,serif",fontStyle:"italic"}},
                             h("strong",{style:{color:"#4CAF82"}},"Alvo \u2265 13: "),
                             "valor maximo (cada classe com mesmo peso). Na pratica, valores 6-8 ja sao bons. ",
                             h("strong",{style:{color:"#E89060"}},"O gap entre ENB Herfindahl e ENB Efetivo "),
                             "revela quanto da sua diversificacao por pesos e \"comida\" pela correlacao entre classes - gap grande = classes andam juntas."
+                          ),
+                          h("p",{style:{fontSize:9.5,color:"#E8E2D5",lineHeight:1.7,margin:0,fontFamily:"Georgia,serif"}},
+                            h("strong",{style:{color:"#7AB0E0"}},"Como melhorar via aportes: "),
+                            "esta metrica responde a ",h("strong",{},"distribuicao de pesos"),", entao a melhoria vem de aportar nas classes com ",h("strong",{},"peso atual muito baixo ou zero"),". Suas classes em piso zero ou abaixo de 3% (Treasuries, NTN-B, Selic, Bitcoin, Ouro, REITs, Acoes MUNDO) ",h("strong",{style:{color:"#4CAF82"}},"qualquer aporte aqui aumenta o ENB Herfindahl"),". Quanto mais redistribui entre classes, melhor - independente de correlacao. O efeito e mecanico: cada classe que sai do zero reduz HHI e eleva ENB Herfindahl."
                           )
                         ),
                         // Correlacao Media Ponderada
@@ -16359,11 +16375,25 @@ h("button",{onClick:async()=>{
                             h("code",{style:{fontFamily:"monospace",color:"#C8A96E",fontSize:9}},"\u03A3(|\u03C1ij| \u00D7 wi \u00D7 wj) / \u03A3(wi \u00D7 wj)"),
                             " para todos os pares i\u2260j. As correlacoes vem da matriz historica MPT do portfolio."
                           ),
-                          h("p",{style:{fontSize:9.5,color:"#9A9080",lineHeight:1.7,margin:0,fontFamily:"Georgia,serif",fontStyle:"italic"}},
+                          h("p",{style:{fontSize:9.5,color:"#9A9080",lineHeight:1.7,margin:"0 0 4px",fontFamily:"Georgia,serif",fontStyle:"italic"}},
                             h("strong",{style:{color:"#4CAF82"}},"Alvo \u2264 0.20: "),
                             "correlacoes baixas garantem que quedas em uma classe nao arrastem o resto - diversificacao genuina. ",
                             h("strong",{style:{color:"#E89060"}},"Atencao: "),
                             "em crises (2008, 2020), correlacoes historicas convergem para +1.0 - o numero aqui e referencia de longo prazo, nao garantia em curto prazo."
+                          ),
+                          h("p",{style:{fontSize:9.5,color:"#E8E2D5",lineHeight:1.7,margin:0,fontFamily:"Georgia,serif"}},
+                            h("strong",{style:{color:"#7AB0E0"}},"Como melhorar via aportes: "),
+                            "esta metrica e a mais sensivel - exige reduzir o peso relativo de ",h("strong",{},"pares correlacionados"),". Os 2 pares mais problematicos no seu portfolio: ",
+                            h("strong",{style:{color:"#E89060"}},"FII + Infra + Agro"),
+                            " (corr +0.40 a +0.45 entre si - bucket realAssets BR) e ",
+                            h("strong",{style:{color:"#E89060"}},"BR + EUA + MUNDO"),
+                            " (corr +0.50 a +0.55 entre si - equities globais). Como B&H rigoroso (zero vendas), a melhoria so vem de ",h("strong",{},"reforcar classes que NAO correlacionam com as grandes"),": ",
+                            h("strong",{style:{color:"#F7931A"}},"Bitcoin"),
+                            " (proposito unico: corr ~0 com tudo), ",
+                            h("strong",{style:{color:"#9C7DC2"}},"NTN-B longa"),
+                            " (corr negativa -0.20 a -0.30 com equities), ",
+                            h("strong",{style:{color:"#5B8FD4"}},"Treasuries"),
+                            " (-0.20 a -0.30 com equities BR/EUA). Cada aporte nelas reduz o peso relativo dos pares correlacionados sem precisar vender."
                           )
                         ),
                         // HHI
@@ -16382,11 +16412,16 @@ h("button",{onClick:async()=>{
                             h("code",{style:{fontFamily:"monospace",color:"#C8A96E",fontSize:9}},"HHI = \u03A3(wi\u00B2)"),
                             " onde wi e o peso decimal (0-1) de cada classe. E a base matematica do ENB Herfindahl (que e simplesmente 1/HHI)."
                           ),
-                          h("p",{style:{fontSize:9.5,color:"#9A9080",lineHeight:1.7,margin:0,fontFamily:"Georgia,serif",fontStyle:"italic"}},
+                          h("p",{style:{fontSize:9.5,color:"#9A9080",lineHeight:1.7,margin:"0 0 4px",fontFamily:"Georgia,serif",fontStyle:"italic"}},
                             h("strong",{style:{color:"#4CAF82"}},"Alvo \u2264 0.077 (1/13): "),
                             "valor minimo para 13 classes igualmente distribuidas. Na pratica, abaixo de 0.15 ja indica boa distribuicao. ",
                             h("strong",{style:{color:"#9A9080"}},"HHI e ENB Herfindahl carregam a mesma informacao "),
                             "(um e o inverso do outro) - estao ambos no grafico para facilitar a visualizacao em escalas diferentes."
+                          ),
+                          h("p",{style:{fontSize:9.5,color:"#E8E2D5",lineHeight:1.7,margin:0,fontFamily:"Georgia,serif"}},
+                            h("strong",{style:{color:"#7AB0E0"}},"Como melhorar via aportes: "),
+                            "como e simetrico ao ENB Herfindahl, ",h("strong",{},"qualquer aporte em classe sub-representada reduz o HHI"),". O efeito e tanto maior quanto mais concentrada esta a classe que voce reduz proporcionalmente. Neste portfolio, ",h("strong",{style:{color:"#E89060"}},"FII (54%) e Acoes BR (24%)"),
+                            " puxam o HHI para cima sozinhos. Aportar nas classes com peso zero (Treasuries, NTN-B) ou abaixo de 3% (Selic, BTC, Ouro, REITs, MUNDO) ",h("strong",{style:{color:"#4CAF82"}},"reduz o peso RELATIVO dessas duas concentradas"),", mesmo sem vender. Quanto mais distribui o aporte entre essas classes pequenas, maior a queda do HHI."
                           )
                         ),
                         // Nota final sobre como as 4 se combinam
