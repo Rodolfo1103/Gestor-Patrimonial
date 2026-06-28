@@ -11733,7 +11733,7 @@ function App(){
   // Fecha o aporte (carimbo definitivo)
   const fecharAporte=()=>{
     if(!apR)return;
-    if(!confirm("Fechar este aporte?\\n\\n\u2192 Ele sera registrado no Historico (com decomposicao por classe)\\n\u2192 A aba Aporte sera limpa para um novo aporte\\n\\nDICA: se quiser o PDF, baixe ANTES de fechar (botao no final da tela)."))return;
+    if(!confirm("Fechar este aporte?\\n\\n\u2192 ARQUIVA a analise no Hist\u00f3rico:\\n   \u00B7 Valor e decomposicao por classe\\n   \u00B7 Data de geracao original\\n   \u00B7 Periodo programado (se preenchido)\\n   \u00B7 Nota da IA \u00e0 sua sugestao (se houver)\\n\u2192 LIMPA a aba Aporte para um novo ciclo\\n\\n\u2139 NAO altera: portfolio, posicoes, precos, pesos por classe, MPT, All Weather, Solidez, Yale ou Vetores Macro. Essas metricas so se movem com cadastro/edicao de posicoes no app ou variacao de precos de mercado.\\n\\nDICA: se quiser o PDF, baixe ANTES de fechar (botao no final da tela)."))return;
     const ts=Date.now();
     // Determina a DATA do aporte para o Historico:
     // prioridade: periodoFim > periodoInicio > hoje
@@ -11758,6 +11758,29 @@ function App(){
       ts:ts,
       origem:"aba-aporte" // marca origem para futura referencia
     };
+    // ===== ENRIQUECIMENTO: METADADOS DE PROCEDENCIA =====
+    // tsGeracao = quando a IA gerou a sugestao original (ou quando o usuario montou manual)
+    if(apR.ts&&typeof apR.ts==="number")novoAporte.tsGeracao=apR.ts;
+    // Periodo programado (datas que o usuario digitou na aba aporte)
+    if(apR.aportePeriodoInicio&&/^\d{4}-\d{2}-\d{2}$/.test(apR.aportePeriodoInicio))novoAporte.periodoInicio=apR.aportePeriodoInicio;
+    if(apR.aportePeriodoFim&&/^\d{4}-\d{2}-\d{2}$/.test(apR.aportePeriodoFim))novoAporte.periodoFim=apR.aportePeriodoFim;
+    // Origem: manual (com analise opcional da IA) vs gerado pela IA
+    if(apR.aporteManual===true)novoAporte.aporteManual=true;
+    // Nota da IA: extrai da estrutura mais especifica disponivel
+    // Caso 1: aporte gerado pela IA -> apR.veredito.eficiencia.nota
+    // Caso 2: aporte manual com critica da IA -> apR.analiseIA.veredito
+    // Caso 3: proposta alternativa do usuario -> apR.propostaUsuario.analise.veredito
+    let notaIA=null;
+    try{
+      if(apR.veredito&&apR.veredito.eficiencia&&apR.veredito.eficiencia.nota){
+        notaIA=String(apR.veredito.eficiencia.nota).toUpperCase();
+      }else if(apR.analiseIA&&apR.analiseIA.veredito){
+        notaIA=String(apR.analiseIA.veredito).toUpperCase();
+      }else if(apR.propostaUsuario&&apR.propostaUsuario.analise&&apR.propostaUsuario.analise.veredito){
+        notaIA=String(apR.propostaUsuario.analise.veredito).toUpperCase();
+      }
+    }catch(_){}
+    if(notaIA)novoAporte.notaIA=notaIA;
     if(Object.keys(classesDecomp).length>0)novoAporte.classes=classesDecomp;
     // Insere e ordena
     setAportesSimples(prev=>{
@@ -17556,6 +17579,24 @@ h("button",{onClick:async()=>{
                   const fim=fmtDt(apR.aportePeriodoFim);
                   const txt=ini&&fim?ini+" a "+fim:ini||fim;
                   html+='<div class="doc-meta-item"><div class="doc-meta-label">Per&iacute;odo</div><div class="doc-meta-value">'+txt+'</div></div>';
+                }
+                // Origem do aporte (gerado pela IA ou montado manualmente)
+                html+='<div class="doc-meta-item"><div class="doc-meta-label">Origem</div><div class="doc-meta-value">'+(apR.aporteManual?"Montado pelo investidor":"Gerado pela IA")+'</div></div>';
+                // Nota da IA (de aporte gerado, ou critica de aporte manual, ou proposta alternativa)
+                let notaIAPDF=null;
+                try{
+                  if(apR.veredito&&apR.veredito.eficiencia&&apR.veredito.eficiencia.nota){
+                    notaIAPDF=String(apR.veredito.eficiencia.nota).toUpperCase();
+                  }else if(apR.analiseIA&&apR.analiseIA.veredito){
+                    notaIAPDF=String(apR.analiseIA.veredito).toUpperCase();
+                  }else if(apR.propostaUsuario&&apR.propostaUsuario.analise&&apR.propostaUsuario.analise.veredito){
+                    notaIAPDF=String(apR.propostaUsuario.analise.veredito).toUpperCase();
+                  }
+                }catch(_){}
+                if(notaIAPDF){
+                  const corNotaIAPDF=(n)=>{if(n==="OTIMO")return"#2a8b5e";if(n==="BOM")return"#5DBF82";if(n==="REGULAR")return"#b09030";if(n==="RUIM"||n==="DESALINHADO")return"#c0691f";return"#666";};
+                  const lblNota=apR.aporteManual?"Nota IA (sua proposta)":"Nota IA";
+                  html+='<div class="doc-meta-item"><div class="doc-meta-label">'+lblNota+'</div><div class="doc-meta-value" style="color:'+corNotaIAPDF(notaIAPDF)+';font-weight:700;font-family:monospace;letter-spacing:0.5px">'+notaIAPDF+'</div></div>';
                 }
                 html+='</div>';
                 html+='</div>';
@@ -27680,6 +27721,33 @@ h("button",{onClick:async()=>{
                 h("button",{onClick:()=>removerAporte(a.id),title:"Remover",style:{padding:"4px 8px",background:"rgba(224,82,82,0.12)",color:"#E05252",border:"1px solid rgba(224,82,82,0.30)",borderRadius:4,fontSize:9,fontFamily:"monospace",fontWeight:700,cursor:"pointer"}},"\u2715")
               )
             ),
+            // ===== METADADOS DE PROCEDENCIA (so para aportes da aba Aporte) =====
+            (a.origem==="aba-aporte"&&(a.tsGeracao||a.periodoInicio||a.periodoFim||a.notaIA))?(()=>{
+              const corNota=(n)=>{const u=String(n||"").toUpperCase();if(u==="OTIMO")return"#4CAF82";if(u==="BOM")return"#7DD17D";if(u==="REGULAR")return"#E8C44A";if(u==="RUIM"||u==="DESALINHADO")return"#E05252";return"#9A9080";};
+              const fmtDt=(s)=>{if(!s||typeof s!=="string"||!/^\d{4}-\d{2}-\d{2}$/.test(s))return"";const p=s.split("-");return p[2]+"/"+p[1]+"/"+p[0].slice(2);};
+              const periodo=(()=>{
+                const ini=fmtDt(a.periodoInicio);const fim=fmtDt(a.periodoFim);
+                if(ini&&fim)return ini+" a "+fim;
+                return ini||fim||null;
+              })();
+              const tsGerStr=a.tsGeracao?new Date(a.tsGeracao).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",year:"2-digit",hour:"2-digit",minute:"2-digit"}):null;
+              return h("div",{style:{display:"flex",flexWrap:"wrap",gap:6,marginTop:7,paddingTop:6,borderTop:"1px dashed rgba(200,169,110,0.15)",fontSize:7.5,fontFamily:"monospace"}},
+                tsGerStr?h("div",{style:{padding:"2px 6px",background:"rgba(200,169,110,0.08)",border:"1px solid rgba(200,169,110,0.25)",borderRadius:3,color:"#C8A96E"}},
+                  h("span",{style:{color:"#8B6F2E",fontWeight:700,letterSpacing:0.5}},"GERADO: "),tsGerStr
+                ):null,
+                periodo?h("div",{style:{padding:"2px 6px",background:"rgba(91,143,212,0.08)",border:"1px solid rgba(91,143,212,0.25)",borderRadius:3,color:"#5B8FD4"}},
+                  h("span",{style:{color:"#5B8FD4",fontWeight:700,letterSpacing:0.5}},"PERIODO: "),periodo
+                ):null,
+                a.notaIA?h("div",{style:{padding:"2px 6px",background:corNota(a.notaIA)+"15",border:"1px solid "+corNota(a.notaIA)+"50",borderRadius:3,color:corNota(a.notaIA)}},
+                  h("span",{style:{fontWeight:700,letterSpacing:0.5}},a.aporteManual?"NOTA IA (sua proposta): ":"NOTA IA: "),a.notaIA
+                ):null,
+                a.aporteManual?h("div",{style:{padding:"2px 6px",background:"rgba(156,125,194,0.08)",border:"1px solid rgba(156,125,194,0.25)",borderRadius:3,color:"#9C7DC2"}},
+                  h("span",{style:{fontWeight:700,letterSpacing:0.5}},"\u270F MANUAL")
+                ):h("div",{style:{padding:"2px 6px",background:"rgba(76,175,130,0.08)",border:"1px solid rgba(76,175,130,0.25)",borderRadius:3,color:"#4CAF82"}},
+                  h("span",{style:{fontWeight:700,letterSpacing:0.5}},"\u{1F916} GERADO PELA IA")
+                )
+              );
+            })():null,
             // Linha de decomposicao (so se houver classes)
             (a.classes&&Object.keys(a.classes).length>0)?h("div",{style:{display:"flex",flexWrap:"wrap",gap:4,marginTop:8,paddingTop:7,borderTop:"1px dashed rgba(255,255,255,0.08)"}},
               CL.filter(c=>a.classes[c.id]>0).map(c=>{
