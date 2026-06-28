@@ -7449,9 +7449,6 @@ function App(){
   // Aportes simples: registros manuais [{id, date, valor, ts, classes?:{fii,acoes_br,...}}]
   // classes (opcional): decomposicao por classe quando o usuario quis detalhar. Quando ausente, aporte e "nao decomposto".
   const [aportesSimples,setAportesSimples]=useState([]);
-  // Historico de snapshots das 4 metricas de correlacao/diversificacao, salvo ao fechar cada aporte
-  // Formato: [{date:"AAAA-MM-DD",enbEfetivo:n,enbHerfindahl:n,corrMediaPond:n,hhi:n,ts:Date.now()}]
-  const [correlacaoHistorico,setCorrelacaoHistorico]=useState([]);
   // Form inline de aporte (expansivel na aba History)
   const [formApAberto,setFormApAberto]=useState(false);
   const [formApId,setFormApId]=useState(null);// id do aporte sendo editado (null = novo)
@@ -7876,11 +7873,6 @@ function App(){
           });
           setAportesSimples(sanitizado.sort((a,b)=>a.date.localeCompare(b.date)));
         }
-        // Historico de snapshots de metricas de correlacao/diversificacao
-        if(Array.isArray(dd.correlacaoHistorico)){
-          const validoCH=dd.correlacaoHistorico.filter(s=>s&&typeof s==="object"&&typeof s.date==="string"&&typeof s.enbEfetivo==="number");
-          setCorrelacaoHistorico(validoCH.sort((a,b)=>a.date.localeCompare(b.date)));
-        }
         // Ativos em estudo: validacao defensiva (estrutura pode ter mudado)
         if(dd.ativosEmEstudo&&typeof dd.ativosEmEstudo==="object"&&Array.isArray(dd.ativosEmEstudo.candidatos)){
           setAtivosEmEstudo(dd.ativosEmEstudo);
@@ -8176,14 +8168,14 @@ function App(){
     if(!inited||!aesKey)return;
     (async()=>{
       try{
-        const obj={port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,selicAtual,metaMensalIF,cenarioIPCA,dataNascimento,insightRenda,insightRendaTs,insightRendaSnap,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,piCycle,nupl,goldSilver,goldSP500,realGoldZ,fx:{...FX},btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,insightSnap,infIPCA,infIGPM,infINCC,infCPI,infHICP,juroFed,juroECB,juroBoJ,ntnbTaxas,ntnbVNA,ntnbUpdTs,ntnbDataCotacao,ntnbDiasDefasagem,ntnbVencimentos:{...NTNB_VENCIMENTOS},cambialCash,rendaMotoraHist,rendaAuxiliarHist,aportesSimples,correlacaoHistorico,ativosEmEstudo,riscoRetornoData,calibracoesCustom,ntnbHistoricoTaxas,miraIA,apR,apV,aporteValores,aporteTickers,aportePeriodoInicio,aportePeriodoFim};
+        const obj={port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,selicAtual,metaMensalIF,cenarioIPCA,dataNascimento,insightRenda,insightRendaTs,insightRendaSnap,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,piCycle,nupl,goldSilver,goldSP500,realGoldZ,fx:{...FX},btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,insightSnap,infIPCA,infIGPM,infINCC,infCPI,infHICP,juroFed,juroECB,juroBoJ,ntnbTaxas,ntnbVNA,ntnbUpdTs,ntnbDataCotacao,ntnbDiasDefasagem,ntnbVencimentos:{...NTNB_VENCIMENTOS},cambialCash,rendaMotoraHist,rendaAuxiliarHist,aportesSimples,ativosEmEstudo,riscoRetornoData,calibracoesCustom,ntnbHistoricoTaxas,miraIA,apR,apV,aporteValores,aporteTickers,aportePeriodoInicio,aportePeriodoFim};
         const enc=await aesEncrypt(aesKey,obj);
         localStorage.setItem(SK_ENC,enc);
       }catch(e){
         console.error("SAVE ENC falhou:",e&&e.message?e.message:e);
       }
     })();
-  },[port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,selicAtual,metaMensalIF,cenarioIPCA,dataNascimento,insightRenda,insightRendaTs,insightRendaSnap,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,piCycle,nupl,goldSilver,goldSP500,realGoldZ,btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,insightSnap,infIPCA,infIGPM,infINCC,infCPI,infHICP,juroFed,juroECB,juroBoJ,ntnbTaxas,ntnbVNA,ntnbUpdTs,cambialCash,rendaMotoraHist,rendaAuxiliarHist,aportesSimples,correlacaoHistorico,ativosEmEstudo,riscoRetornoData,calibracoesCustom,ntnbHistoricoTaxas,miraIA,apR,apV,aporteValores,aporteTickers,aportePeriodoInicio,aportePeriodoFim,inited,aesKey]);
+  },[port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,selicAtual,metaMensalIF,cenarioIPCA,dataNascimento,insightRenda,insightRendaTs,insightRendaSnap,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,piCycle,nupl,goldSilver,goldSP500,realGoldZ,btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,insightSnap,infIPCA,infIGPM,infINCC,infCPI,infHICP,juroFed,juroECB,juroBoJ,ntnbTaxas,ntnbVNA,ntnbUpdTs,cambialCash,rendaMotoraHist,rendaAuxiliarHist,aportesSimples,ativosEmEstudo,riscoRetornoData,calibracoesCustom,ntnbHistoricoTaxas,miraIA,apR,apV,aporteValores,aporteTickers,aportePeriodoInicio,aportePeriodoFim,inited,aesKey]);
 
   // Auto-lock por inatividade (15 min)
   useEffect(()=>{
@@ -9060,45 +9052,6 @@ function App(){
       return {enbEfetivo:0,enbHerfindahl:0,corrMediaPond:0,hhi:0};
     }
   },[cw]);
-
-  // ===== BACKFILL retroativo de snapshots de correlacao =====
-  // Detecta aportes em aportesSimples que NAO tem snapshot correspondente em correlacaoHistorico
-  // e cria snapshots usando as metricas ATUAIS (limitacao: nao temos historico de precos para reconstruir o estado do dia)
-  // Marca um flag em localStorage para nao re-executar (evita sobrescrever snapshots reais com retroativos)
-  useEffect(()=>{
-    if(!inited)return;
-    if(!Array.isArray(aportesSimples)||aportesSimples.length===0)return;
-    // Aguarda metricas estarem calculadas com valor real
-    if(!metricasDiversificacao||metricasDiversificacao.enbEfetivo<=0)return;
-    try{
-      const flagKey="correlacao-backfill-done";
-      if(localStorage.getItem(flagKey)==="1")return;// ja fez backfill antes
-      // Identifica aportes sem snapshot correspondente (matching por data)
-      const datasComSnap=new Set((correlacaoHistorico||[]).map(s=>s.date));
-      const semSnap=aportesSimples.filter(a=>!datasComSnap.has(a.date));
-      if(semSnap.length===0){
-        localStorage.setItem(flagKey,"1");
-        return;
-      }
-      // Cria snapshots retroativos usando metricas atuais
-      // (Marca _retroativo:true para distinguir visualmente de snapshots reais futuros)
-      const snapsNovos=semSnap.map(a=>({
-        date:a.date,
-        ts:a.ts||Date.now(),
-        enbEfetivo:metricasDiversificacao.enbEfetivo,
-        enbHerfindahl:metricasDiversificacao.enbHerfindahl,
-        corrMediaPond:metricasDiversificacao.corrMediaPond,
-        hhi:metricasDiversificacao.hhi,
-        _retroativo:true
-      }));
-      setCorrelacaoHistorico(prev=>{
-        const merged=[...prev,...snapsNovos];
-        merged.sort((a,b)=>a.date.localeCompare(b.date));
-        return merged;
-      });
-      localStorage.setItem(flagKey,"1");
-    }catch(e){console.warn("Erro no backfill de correlacao:",e);}
-  },[inited,aportesSimples,correlacaoHistorico,metricasDiversificacao]);
 
   // ===== MPT Monte Carlo cache (recalcula apenas quando cw ou Selic mudam) =====
   // Quantize pra evitar recalcular a cada centesimo de %
@@ -11696,25 +11649,6 @@ function App(){
       nova.sort((a,b)=>a.date.localeCompare(b.date));
       return nova;
     });
-    // SNAPSHOT DAS METRICAS DE CORRELACAO/DIVERSIFICACAO
-    // Salva no historico para alimentar o grafico de evolucao temporal
-    try{
-      const snap={
-        date:dataAporte,
-        ts:ts,
-        enbEfetivo:metricasDiversificacao.enbEfetivo,
-        enbHerfindahl:metricasDiversificacao.enbHerfindahl,
-        corrMediaPond:metricasDiversificacao.corrMediaPond,
-        hhi:metricasDiversificacao.hhi
-      };
-      setCorrelacaoHistorico(prev=>{
-        // Evita duplicacao se mesma data ja tem snapshot (sobrescreve)
-        const filtro=prev.filter(s=>s.date!==dataAporte);
-        const nova=[...filtro,snap];
-        nova.sort((a,b)=>a.date.localeCompare(b.date));
-        return nova;
-      });
-    }catch(_){}
     // Limpa a aba Aporte: zera todos os campos para um novo aporte
     setApR(null);
     setApV("");
@@ -16016,19 +15950,14 @@ h("button",{onClick:async()=>{
                     return {x,y,met,score};
                   });
                   const polyStr=polyPoints.map(p=>p.x.toFixed(1)+","+p.y.toFixed(1)).join(" ");
-                  // ===== SERIE TEMPORAL =====
-                  const historico=Array.isArray(correlacaoHistorico)?correlacaoHistorico:[];
-                  // Adiciona o snapshot atual como "ponto vivo" no final (nao salvo ainda)
-                  const serieCompleta=[...historico,{date:"agora",ts:Date.now(),enbEfetivo:m.enbEfetivo,enbHerfindahl:m.enbHerfindahl,corrMediaPond:m.corrMediaPond,hhi:m.hhi,_vivo:true}];
-                  const temHistorico=historico.length>=1;
                   return h("div",{style:{marginTop:14,padding:"12px 13px",background:"linear-gradient(135deg,rgba(91,143,212,0.05),rgba(91,143,212,0.02))",border:"1px solid rgba(91,143,212,0.30)",borderRadius:7}},
-                    h("div",{style:{fontSize:9,letterSpacing:1.5,color:"#7AB0E0",fontFamily:"monospace",fontWeight:700,marginBottom:7}},"\u{1F4CA} EVOLUCAO DAS METRICAS DE DIVERSIFICACAO"),
+                    h("div",{style:{fontSize:9,letterSpacing:1.5,color:"#7AB0E0",fontFamily:"monospace",fontWeight:700,marginBottom:7}},"\u{1F4CA} METRICAS DE DIVERSIFICACAO"),
                     h("p",{style:{fontSize:8.5,color:"#9A9080",fontStyle:"italic",lineHeight:1.5,margin:"0 0 12px"}},
-                      "Snapshot atual (radar) + evolucao temporal (linhas). A cada aporte fechado um snapshot e registrado - veja se as metricas estao se aproximando ou se afastando dos alvos."
+                      "Snapshot dinamico das 4 metricas de correlacao/diversificacao. Atualiza automaticamente conforme voce adiciona ativos, ajusta posicoes ou os precos de mercado mexem nos pesos das classes."
                     ),
                     // ===== RADAR =====
                     h("div",{style:{marginBottom:14,padding:"10px 11px",background:"rgba(0,0,0,0.20)",borderRadius:6}},
-                      h("div",{style:{fontSize:8,letterSpacing:1.2,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,marginBottom:7}},"\u{1F4D0} SNAPSHOT ATUAL (radar normalizado 0-100)"),
+                      h("div",{style:{fontSize:8,letterSpacing:1.2,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,marginBottom:7}},"\u{1F4D0} RADAR NORMALIZADO 0-100"),
                       h("div",{style:{display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}},
                         // SVG do radar
                         h("svg",{width:radarSize,height:radarSize,style:{flexShrink:0,maxWidth:"100%"}},
@@ -16076,90 +16005,6 @@ h("button",{onClick:async()=>{
                         )
                       )
                     ),
-                    // ===== SERIES TEMPORAIS =====
-                    h("div",{style:{padding:"10px 11px",background:"rgba(0,0,0,0.20)",borderRadius:6}},
-                      h("div",{style:{fontSize:8,letterSpacing:1.2,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,marginBottom:7}},"\u{1F4C8} EVOLUCAO TEMPORAL (escala real de cada metrica)"),
-                      !temHistorico?h("p",{style:{fontSize:9,color:"#9A9080",fontStyle:"italic",margin:"7px 0",lineHeight:1.5}},
-                        "Nenhum snapshot historico registrado ainda. Os pontos serao adicionados conforme voce for fechando aportes - cada aporte fechado registra um snapshot das 4 metricas, e voce vera as linhas evoluindo ao longo do tempo. Por enquanto, apenas o ponto atual e exibido."
-                      ):null,
-                      // Container das 4 linhas (uma para cada metrica)
-                      ...metricasViz.map((met,k)=>{
-                        const valores=serieCompleta.map(s=>s[met.key]);
-                        const minV=Math.min(...valores,met.alvo);
-                        const maxV=Math.max(...valores,met.alvo);
-                        const range=Math.max(maxV-minV,0.001);
-                        const padding=range*0.15;
-                        const yMin=minV-padding;
-                        const yMax=maxV+padding;
-                        const yRange=yMax-yMin;
-                        // Dimensoes do mini grafico
-                        const gW=300;const gH=55;const padL=8;const padR=8;const padT=6;const padB=10;
-                        const plotW=gW-padL-padR;
-                        const plotH=gH-padT-padB;
-                        const nPts=serieCompleta.length;
-                        const xStep=nPts>1?plotW/(nPts-1):0;
-                        // Pontos da linha (x, y em coords SVG)
-                        const pts=serieCompleta.map((s,i)=>{
-                          const x=padL+(nPts>1?i*xStep:plotW/2);
-                          const yNorm=(s[met.key]-yMin)/yRange;
-                          const y=padT+(1-yNorm)*plotH;
-                          return {x,y,s,valor:s[met.key]};
-                        });
-                        // Linha do alvo
-                        const yAlvoNorm=(met.alvo-yMin)/yRange;
-                        const yAlvo=padT+(1-yAlvoNorm)*plotH;
-                        // String de path
-                        const pathStr=pts.map((p,i)=>(i===0?"M":"L")+p.x.toFixed(1)+","+p.y.toFixed(1)).join(" ");
-                        const corScoreFinal=(()=>{
-                          const sc=norm(met);return sc>=70?"#4CAF82":sc>=50?"#E8C44A":sc>=30?"#E89060":"#E05252";
-                        })();
-                        return h("div",{key:"ts"+k,style:{display:"flex",alignItems:"center",gap:10,marginBottom:k<metricasViz.length-1?7:0,flexWrap:"wrap"}},
-                          // Legenda da linha
-                          h("div",{style:{minWidth:140,flex:"0 0 140px",display:"flex",flexDirection:"column",gap:1}},
-                            h("div",{style:{display:"flex",alignItems:"center",gap:5}},
-                              h("span",{style:{display:"inline-block",width:14,height:2,background:met.cor,flexShrink:0}}),
-                              h("span",{style:{fontSize:8.5,color:met.cor,fontFamily:"monospace",fontWeight:700,letterSpacing:0.3}},met.label)
-                            ),
-                            h("div",{style:{fontSize:7.5,color:"#9A9080",fontFamily:"monospace",paddingLeft:19}},"atual ",met.valor.toFixed(met.decimais)," | alvo ",(met.maior?"\u2265":"\u2264")," ",met.alvo.toFixed(met.decimais))
-                          ),
-                          // Mini grafico SVG
-                          h("svg",{width:gW,height:gH,style:{flex:"1 1 auto",maxWidth:"100%",background:"rgba(0,0,0,0.20)",borderRadius:3}},
-                            // Linha do alvo (tracejada dourada)
-                            h("line",{x1:padL,y1:yAlvo,x2:padL+plotW,y2:yAlvo,stroke:"#C8A96E","stroke-width":1,"stroke-dasharray":"3,3",opacity:0.7}),
-                            h("text",{x:padL+plotW-2,y:yAlvo-2,"text-anchor":"end","font-size":7,fill:"#C8A96E","font-family":"monospace"},"alvo"),
-                            // Linha do portfolio (ate o ponto atual)
-                            h("path",{d:pathStr,fill:"none",stroke:met.cor,"stroke-width":1.8,"stroke-linejoin":"round","stroke-linecap":"round"}),
-                            // Pontos: vivo (creme grande), retroativo (vazado com X), normal (sólido)
-                            ...pts.map((p,i)=>{
-                              if(p.s._vivo){
-                                return h("circle",{key:"p"+i,cx:p.x,cy:p.y,r:4,fill:"#E8E2D5",stroke:met.cor,"stroke-width":1.5});
-                              }
-                              if(p.s._retroativo){
-                                // Anel vazado (sem preenchimento) - sinaliza dado estimado
-                                return h("circle",{key:"p"+i,cx:p.x,cy:p.y,r:3,fill:"none",stroke:met.cor,"stroke-width":1.5,"stroke-dasharray":"2,1"});
-                              }
-                              return h("circle",{key:"p"+i,cx:p.x,cy:p.y,r:2.5,fill:met.cor,stroke:"#1A1612","stroke-width":1.5});
-                            }),
-                            // Ultimo valor em texto
-                            pts.length>0?h("text",{x:pts[pts.length-1].x+6,y:pts[pts.length-1].y+3,"font-size":7,fill:corScoreFinal,"font-family":"monospace","font-weight":700},pts[pts.length-1].valor.toFixed(met.decimais)):null
-                          )
-                        );
-                      }),
-                      // Rodape com info dos snapshots
-                      (()=>{
-                        const nRetroativos=historico.filter(s=>s._retroativo).length;
-                        const nReais=historico.length-nRetroativos;
-                        return h("div",{style:{marginTop:8,padding:"5px 8px",background:"rgba(200,169,110,0.05)",borderLeft:"2px solid #C8A96E",borderRadius:"0 3px 3px 0",fontSize:7.5,color:"#7A7060",fontStyle:"italic",lineHeight:1.5}},
-                          temHistorico?
-                            h("span",{},
-                              h("strong",{style:{color:"#C8A96E"}},historico.length," snapshot"+(historico.length>1?"s":"")+" no historico")," + ponto atual em destaque. Linha tracejada dourada = alvo. ",
-                              nRetroativos>0?h("span",{},h("strong",{style:{color:"#E8C44A"}},nRetroativos," retroativo"+(nRetroativos>1?"s":"")+" (anel vazado)"),": criado",nRetroativos>1?"s":""," automaticamente para aportes ja registrados antes desta funcionalidade existir, usando as metricas atuais como aproximacao. "):null,
-                              "Aproximacao continua aos alvos = direcao certa."
-                            ):
-                            h("span",{},h("strong",{style:{color:"#C8A96E"}},"Aguardando snapshots"),". Feche um aporte na aba Aporte para gerar o primeiro ponto historico - a partir do segundo, voce ja consegue ver a tendencia.")
-                        );
-                      })()
-                    ),
                     // ===== INSIGHT INTERPRETATIVO COMBINADO =====
                     // Parte 1: diagnostico do snapshot atual (sempre presente)
                     // Parte 2: analise de tendencia (so quando ha >=2 snapshots reais)
@@ -16174,24 +16019,6 @@ h("button",{onClick:async()=>{
                       const lblMedia=mediaScore>=70?"DIVERSIFICACAO EXCELENTE":mediaScore>=50?"DIVERSIFICACAO BOA":mediaScore>=30?"DIVERSIFICACAO INSUFICIENTE":"DIVERSIFICACAO CRITICA";
                       // ENB Efetivo vs ENB Herfindahl: se gap grande, sinaliza correlacao alta entre classes
                       const gapENB=metricasDiversificacao.enbHerfindahl-metricasDiversificacao.enbEfetivo;
-                      // ===== TENDENCIA =====
-                      const snapsReais=(correlacaoHistorico||[]).filter(s=>!s._retroativo);
-                      const temTendencia=snapsReais.length>=2;
-                      let tendenciaInfo=null;
-                      if(temTendencia){
-                        const primeiro=snapsReais[0];
-                        const ultimo=snapsReais[snapsReais.length-1];
-                        // Para cada metrica, calcula delta e se aproximou ou afastou do alvo
-                        tendenciaInfo=metricasViz.map(met=>{
-                          const vIni=primeiro[met.key];
-                          const vFim=ultimo[met.key];
-                          const distIni=Math.abs(vIni-met.alvo);
-                          const distFim=Math.abs(vFim-met.alvo);
-                          const aproximou=distFim<distIni;
-                          const delta=vFim-vIni;
-                          return {met,vIni,vFim,delta,aproximou,distIni,distFim};
-                        });
-                      }
                       return h("div",{style:{marginTop:10,padding:"11px 13px",background:"linear-gradient(135deg,rgba(76,175,130,0.06),rgba(76,175,130,0.02))",border:"1px solid rgba(76,175,130,0.30)",borderRadius:6}},
                         h("div",{style:{fontSize:9,letterSpacing:1.2,color:"#4CAF82",fontFamily:"monospace",fontWeight:700,marginBottom:7}},"\u{1F4A1} INSIGHT INTERPRETATIVO"),
                         // Cabeçalho com estado geral
@@ -16237,53 +16064,6 @@ h("button",{onClick:async()=>{
                             mediaScore>=50?
                             h("span",{style:{color:"#9A9080",fontStyle:"italic"}},"O ponteiro combinado esta razoavel mas com espaco para melhorar - cada aporte mensal eh uma oportunidade de mover o conjunto na direcao dos alvos."):
                             h("span",{style:{color:"#9A9080",fontStyle:"italic"}},"O ponteiro combinado esta em zona de alerta - os aportes proximos devem priorizar classes que reduzem correlacao agregada (BTC, Treasuries, Ouro, NTN-B longa, MUNDO).")
-                        ),
-                        // ===== TENDENCIA =====
-                        temTendencia?h("div",{style:{marginTop:9,paddingTop:8,borderTop:"1px dashed rgba(76,175,130,0.20)"}},
-                          h("div",{style:{fontSize:8,letterSpacing:1.2,color:"#7AB0E0",fontFamily:"monospace",fontWeight:700,marginBottom:6}},"\u{1F4C8} TENDENCIA AO LONGO DOS APORTES (",snapsReais.length," snapshots reais)"),
-                          h("p",{style:{fontSize:9.5,color:"#E8E2D5",lineHeight:1.7,margin:"0 0 7px",fontFamily:"Georgia,serif"}},
-                            (()=>{
-                              const aproximaram=tendenciaInfo.filter(t=>t.aproximou);
-                              const afastaram=tendenciaInfo.filter(t=>!t.aproximou);
-                              if(aproximaram.length===4){
-                                return h("span",{},
-                                  h("strong",{style:{color:"#4CAF82"}},"Tendencia consistente de aproximacao em todas as 4 metricas"),
-                                  ". Seus aportes estao movendo o portfolio na direcao certa - mantenha a disciplina."
-                                );
-                              }
-                              if(afastaram.length===4){
-                                return h("span",{},
-                                  h("strong",{style:{color:"#E05252"}},"Tendencia consistente de afastamento em todas as 4 metricas"),
-                                  ". Os aportes recentes estao concentrando mais o portfolio - revise se as classes que receberam reforco eram realmente as subalocadas."
-                                );
-                              }
-                              return h("span",{},
-                                aproximaram.length>0?h("span",{},
-                                  h("strong",{style:{color:"#4CAF82"}},aproximaram.length," metrica"+(aproximaram.length>1?"s":"")+" se aproximando"),
-                                  " do alvo (",aproximaram.map((t,i)=>h("span",{key:"a"+i},i>0?", ":"",h("strong",{style:{color:t.met.cor}},t.met.label))),"). "
-                                ):null,
-                                afastaram.length>0?h("span",{},
-                                  h("strong",{style:{color:"#E89060"}},afastaram.length," se afastando"),
-                                  " (",afastaram.map((t,i)=>h("span",{key:"f"+i},i>0?", ":"",h("strong",{style:{color:t.met.cor}},t.met.label))),"). "
-                                ):null,
-                                h("span",{style:{color:"#9A9080",fontStyle:"italic"}},"Tendencia mista - os proximos aportes devem priorizar classes que melhorem as metricas que estao se afastando.")
-                              );
-                            })()
-                          ),
-                          // Tabela compacta de deltas por metrica
-                          h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:5,marginTop:6}},
-                            ...tendenciaInfo.map((t,k)=>h("div",{key:"d"+k,style:{padding:"5px 7px",background:"rgba(0,0,0,0.20)",borderLeft:"3px solid "+t.met.cor,borderRadius:"0 3px 3px 0",fontSize:8,fontFamily:"monospace"}},
-                              h("div",{style:{color:t.met.cor,fontWeight:700,letterSpacing:0.3,marginBottom:2}},t.met.label),
-                              h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:4,color:"#9A9080"}},
-                                h("span",{},t.vIni.toFixed(t.met.decimais)," \u2192 ",t.vFim.toFixed(t.met.decimais)),
-                                h("span",{style:{color:t.aproximou?"#4CAF82":"#E89060",fontWeight:700}},t.aproximou?"\u2193 aprox":"\u2191 afasta")
-                              )
-                            ))
-                          )
-                        ):h("div",{style:{marginTop:9,paddingTop:8,borderTop:"1px dashed rgba(76,175,130,0.20)"}},
-                          h("p",{style:{fontSize:9,color:"#7A7060",fontStyle:"italic",lineHeight:1.6,margin:0}},
-                            "Analise de tendencia ficara disponivel quando voce tiver pelo menos 2 snapshots reais (aportes fechados apos esta funcionalidade). Snapshots retroativos nao contam para tendencia (foram criados com metricas atuais)."
-                          )
                         )
                       );
                     })(),
