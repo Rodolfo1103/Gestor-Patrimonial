@@ -17494,6 +17494,22 @@ h("button",{onClick:async()=>{
                 const totalVal=apR.apValue||0;
                 let html='<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Aporte '+dataStr+'</title><style>';
                 html+='body{font-family:Georgia,serif;color:#1a1a1a;max-width:780px;margin:30px auto;padding:0 20px;line-height:1.55;font-size:11pt}';
+                // ===== HEADER ESTILIZADO =====
+                html+='.doc-header{position:relative;border-top:4px solid #C8A96E;border-bottom:1px solid rgba(200,169,110,0.35);padding:18px 0 14px;margin-bottom:22px;background:linear-gradient(180deg,#fdf9ef 0%,#fff 100%)}';
+                html+='.doc-header::after{content:"";display:block;height:2px;background:linear-gradient(90deg,#C8A96E 0%,rgba(200,169,110,0.3) 60%,transparent 100%);margin-top:14px}';
+                html+='.doc-logo{position:absolute;top:14px;right:14px;width:54px;height:54px;border:2px solid #C8A96E;border-radius:50%;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#fdf9ef,#f5e9c8);box-shadow:0 1px 3px rgba(200,169,110,0.25)}';
+                html+='.doc-logo-text{font-family:Georgia,serif;font-size:18pt;font-weight:700;color:#8B6F2E;letter-spacing:-1px;line-height:1}';
+                html+='.doc-title{font-size:9.5pt;color:#8B6F2E;font-family:monospace;letter-spacing:3px;text-transform:uppercase;margin:0 0 6px 0;font-weight:700}';
+                html+='.doc-subtitle{font-size:20pt;color:#1a1a1a;font-family:Georgia,serif;font-weight:700;margin:0 0 12px 0;letter-spacing:-0.3px}';
+                html+='.doc-meta-grid{display:flex;gap:20px;flex-wrap:wrap;margin-top:6px;font-size:9.5pt}';
+                html+='.doc-meta-item{display:flex;flex-direction:column;gap:2px}';
+                html+='.doc-meta-label{font-family:monospace;font-size:7.5pt;color:#8B6F2E;letter-spacing:1.5px;text-transform:uppercase;font-weight:700}';
+                html+='.doc-meta-value{color:#1a1a1a;font-size:10pt}';
+                // ===== FOOTER =====
+                html+='.doc-footer{margin-top:32px;padding-top:14px;border-top:2px solid #C8A96E;font-size:9pt;color:#666;text-align:center}';
+                html+='.doc-footer::before{content:"";display:block;height:1px;background:linear-gradient(90deg,transparent 0%,rgba(200,169,110,0.5) 50%,transparent 100%);margin-bottom:12px}';
+                html+='.doc-footer-autor{color:#8B6F2E;font-family:Georgia,serif;font-weight:700;font-size:10pt;font-style:italic;margin-bottom:4px}';
+                html+='.doc-footer-app{font-family:monospace;font-size:8pt;color:#8B6F2E;letter-spacing:2px;margin-top:6px}';
                 html+='h1{font-size:18pt;color:#8B6F2E;border-bottom:2px solid #C8A96E;padding-bottom:7px;margin-top:0}';
                 html+='h2{font-size:13pt;color:#8B6F2E;margin-top:24px;border-bottom:1px solid #ddd;padding-bottom:4px}';
                 html+='h3{font-size:11.5pt;color:#1a1a1a;margin-top:18px;margin-bottom:6px}';
@@ -17526,15 +17542,23 @@ h("button",{onClick:async()=>{
                 html+='.impacto-est strong{color:#3D70B8}';
                 html+='.carimbo-final{display:inline-block;padding:5px 14px;background:#2a8b5e;color:#fff;font-family:monospace;font-weight:bold;font-size:10pt;border-radius:4px;letter-spacing:1px;margin-top:5px}';
                 html+='</style></head><body>';
-                html+='<h1>Aporte Fundamentalista</h1>';
-                html+='<div class="meta">Gerado em '+dataStr+'  &middot;  Aletsch Wealth</div>';
+                // ===== HEADER COM LOGO + AUTORIA + DATA =====
+                html+='<div class="doc-header">';
+                html+='<div class="doc-logo"><span class="doc-logo-text">AW</span></div>';
+                html+='<div class="doc-title">Aletsch Wealth &middot; Aporte Fundamentalista</div>';
+                html+='<div class="doc-subtitle">An&aacute;lise do Aporte Mensal</div>';
+                html+='<div class="doc-meta-grid">';
+                html+='<div class="doc-meta-item"><div class="doc-meta-label">Gerado em</div><div class="doc-meta-value">'+dataStr+'</div></div>';
+                html+='<div class="doc-meta-item"><div class="doc-meta-label">Investidor</div><div class="doc-meta-value">Rodolfo Henrique de Almeida Silveira</div></div>';
                 if(apR.aportePeriodoInicio||apR.aportePeriodoFim){
                   const fmtDt=s=>{if(!s||typeof s!=="string"||!/^\d{4}-\d{2}-\d{2}$/.test(s))return"";const p=s.split("-");return p[2]+"/"+p[1]+"/"+p[0].slice(2);};
                   const ini=fmtDt(apR.aportePeriodoInicio);
                   const fim=fmtDt(apR.aportePeriodoFim);
                   const txt=ini&&fim?ini+" a "+fim:ini||fim;
-                  html+='<div class="meta" style="margin-top:-8px;color:#666">Periodo do aporte: '+txt+'</div>';
+                  html+='<div class="doc-meta-item"><div class="doc-meta-label">Per&iacute;odo</div><div class="doc-meta-value">'+txt+'</div></div>';
                 }
+                html+='</div>';
+                html+='</div>';
                 if(apR.aporteFinalDefinido){
                   const tsFinal=new Date(apR.aporteFinalTs).toLocaleString("pt-BR");
                   html+='<div class="carimbo-final">&#10003; Aporte definido pelo investidor em '+tsFinal+'</div>';
@@ -17628,6 +17652,12 @@ h("button",{onClick:async()=>{
                   }
                   html+='</div>';
                 }
+                // ===== FOOTER ESTILIZADO =====
+                html+='<div class="doc-footer">';
+                html+='<div class="doc-footer-autor">Rodolfo Henrique de Almeida Silveira</div>';
+                html+='<div>Documento gerado em '+dataStr+'</div>';
+                html+='<div class="doc-footer-app">ALETSCH WEALTH</div>';
+                html+='</div>';
                 html+='</body></html>';
                 // Abre janela e dispara impressao (usuario escolhe Salvar como PDF)
                 const w=window.open("","_blank");
