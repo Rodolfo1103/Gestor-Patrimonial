@@ -5153,14 +5153,12 @@ function RiskChart({cw,selicAtual,calibracaoRR_TS,calibracaoRR_texto,calibracaoR
 
 function EvolChart({histMensal,hist,showUSD,setShowUSD,hideVal}){
   // Prioridade: histMensal (consolidado). Fallback para hist agrupado (compatibilidade).
-  // CORTE INICIAL: a partir de 01/07/2026 (inicio dos aportes registrados via PWA). Historico anterior nao exibido.
-  const DATA_CORTE=new Date("2026-07-01T00:00:00");
   let data=[];
   if(Array.isArray(histMensal)&&histMensal.length>0){
-    data=histMensal.filter(r=>r.composicao&&r.totalPatrimBRL>0&&new Date(r.date)>=DATA_CORTE);
+    data=histMensal.filter(r=>r.composicao&&r.totalPatrimBRL>0);
   }else if(Array.isArray(hist)&&hist.length>0){
     // Fallback: agrupa hist por mes
-    const raw=hist.filter(r=>r.composicao&&r.totalPatrimBRL>0&&new Date(r.date)>=DATA_CORTE).slice().reverse();
+    const raw=hist.filter(r=>r.composicao&&r.totalPatrimBRL>0).slice().reverse();
     const porMes={};
     raw.forEach(r=>{
       const d=new Date(r.date);
@@ -11503,8 +11501,42 @@ function App(){
   // Fecha o aporte (carimbo definitivo)
   const fecharAporte=()=>{
     if(!apR)return;
-    if(!confirm("Fechar este aporte? Ele sera marcado como definitivo. Voce ainda podera baixar o PDF e cadastrar as compras na aba Posicoes."))return;
-    setApR(prev=>({...prev,aporteFinalDefinido:true,aporteFinalTs:Date.now()}));
+    if(!confirm("Fechar este aporte? Ele sera marcado como definitivo e registrado no Historico. Voce ainda podera baixar o PDF e cadastrar as compras na aba Posicoes."))return;
+    const ts=Date.now();
+    // Determina a DATA do aporte para o Historico:
+    // prioridade: periodoFim > periodoInicio > hoje
+    let dataAporte=new Date().toISOString().slice(0,10);
+    if(apR.aportePeriodoFim&&/^\d{4}-\d{2}-\d{2}$/.test(apR.aportePeriodoFim)){
+      dataAporte=apR.aportePeriodoFim;
+    }else if(apR.aportePeriodoInicio&&/^\d{4}-\d{2}-\d{2}$/.test(apR.aportePeriodoInicio)){
+      dataAporte=apR.aportePeriodoInicio;
+    }
+    // Monta decomposicao por classe (id -> valor)
+    const classesDecomp={};
+    (apR.classes||[]).forEach(c=>{
+      if(c&&c.id&&typeof c.valor==="number"&&c.valor>0){
+        classesDecomp[c.id]=(classesDecomp[c.id]||0)+c.valor;
+      }
+    });
+    // Cria entrada no historico (estrutura igual ao formulario manual da aba Historico)
+    const novoAporte={
+      id:dataAporte+"-aporte-"+ts.toString(36),
+      date:dataAporte,
+      valor:apR.apValue||0,
+      ts:ts,
+      origem:"aba-aporte" // marca origem para futura referencia
+    };
+    if(Object.keys(classesDecomp).length>0)novoAporte.classes=classesDecomp;
+    // Insere e ordena
+    setAportesSimples(prev=>{
+      // Evita duplicacao caso o mesmo aporte ja tenha sido fechado e re-fechado (matching por aporteFinalTs no apR previo)
+      // Simples: se ja existe entrada com mesma origem e mesma data E valor igual, substitui. Senao, adiciona.
+      const filtro=prev.filter(a=>!(a.origem==="aba-aporte"&&a.date===dataAporte&&Math.abs((a.valor||0)-(novoAporte.valor||0))<0.01));
+      const nova=[...filtro,novoAporte];
+      nova.sort((a,b)=>a.date.localeCompare(b.date));
+      return nova;
+    });
+    setApR(prev=>({...prev,aporteFinalDefinido:true,aporteFinalTs:ts}));
   };
 
   // Editar aporte (volta para o form)
@@ -25967,15 +25999,32 @@ h("button",{onClick:async()=>{
 
     // Listagem ordenada do mais recente ao mais antigo
     const listaOrdenada=aportesSimples.slice().sort((a,b)=>b.date.localeCompare(a.date));
-    // ===== Grafico: agregado por mes-calendario, ult. 24 meses =====
-    // Constroi serie mensal: ult. 24 meses (incluindo zerados)
+    // ===== Grafico: agregado por mes-calendario =====
+    // Constroi serie mensal: do mes do PRIMEIRO aporte registrado ate o mes atual
+    // (se nao houver aportes, fica vazio e o rodape mostra a mensagem padrao)
     const construirSerieMensal=()=>{
       const hoje=new Date();
       const meses=[];
-      for(let i=23;i>=0;i--){
-        const dt=new Date(hoje.getFullYear(),hoje.getMonth()-i,1);
+      if(aportesSimples.length===0){
+        // Sem aportes: mostra apenas o mes corrente (placeholder)
+        const dt=new Date(hoje.getFullYear(),hoje.getMonth(),1);
         const key=dt.getFullYear()+"-"+String(dt.getMonth()+1).padStart(2,"0");
-        meses.push({key,label:dt.toLocaleDateString("pt-BR",{month:"short"}).replace(".","")+"/"+String(dt.getFullYear()).slice(2),mes:dt.getMonth(),ano:dt.getFullYear(),aportes:[]});
+        meses.push({key,label:dt.toLocaleDateString("pt-BR",{month:"short"}).replace(".","")+"/"+String(dt.getFullYear()).slice(2),mes:dt.getMonth(),ano:dt.getFullYear(),aportes:[],total:0});
+        return meses;
+      }
+      // Encontra o mes do primeiro aporte
+      const datasOrdenadas=aportesSimples.map(a=>a.date).sort();
+      const primeiraData=datasOrdenadas[0]; // YYYY-MM-DD
+      const primeiroAno=parseInt(primeiraData.slice(0,4),10);
+      const primeiroMes=parseInt(primeiraData.slice(5,7),10)-1; // 0-indexed
+      // Gera os meses do primeiro aporte ate o atual
+      const dtInicio=new Date(primeiroAno,primeiroMes,1);
+      const dtFim=new Date(hoje.getFullYear(),hoje.getMonth(),1);
+      let cursor=new Date(dtInicio);
+      while(cursor<=dtFim){
+        const key=cursor.getFullYear()+"-"+String(cursor.getMonth()+1).padStart(2,"0");
+        meses.push({key,label:cursor.toLocaleDateString("pt-BR",{month:"short"}).replace(".","")+"/"+String(cursor.getFullYear()).slice(2),mes:cursor.getMonth(),ano:cursor.getFullYear(),aportes:[]});
+        cursor=new Date(cursor.getFullYear(),cursor.getMonth()+1,1);
       }
       // Agrega aportes simples por mes
       aportesSimples.forEach(a=>{
@@ -26327,7 +26376,7 @@ h("button",{onClick:async()=>{
         // Header
         h("div",{style:{display:"flex",alignItems:"baseline",justifyContent:"space-between",flexWrap:"wrap",gap:6,marginBottom:10}},
           h("div",{style:{fontSize:10,letterSpacing:2,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,textTransform:"uppercase"}},"Evolu\u00e7\u00e3o dos Aportes Mensais"),
-          h("div",{style:{fontSize:8,color:"#7A7060",fontFamily:"monospace"}},"\u00falt. 24 meses \u2022 empilhado por classe")
+          h("div",{style:{fontSize:8,color:"#7A7060",fontFamily:"monospace"}},"desde o 1\u00ba aporte \u2022 empilhado por classe")
         ),
         // Legenda das classes (so mostra as que aparecem na serie)
         (()=>{
@@ -26425,8 +26474,8 @@ h("button",{onClick:async()=>{
           h("span",{},"min: ",fB(Math.min(...valoresPositivos))),
           h("span",{},"max: ",fB(Math.max(...valoresPositivos))),
           h("span",{},"m\u00e9dia: ",fB(mediaAportada)),
-          h("span",{},"meses c/ aporte: "+valoresPositivos.length+"/24")
-        ):h("div",{style:{fontSize:8.5,color:"#9A9080",fontFamily:"monospace",fontStyle:"italic",marginTop:8,textAlign:"center",padding:"6px 0"}},"Sem aportes registrados nos ult. 24 meses")
+          h("span",{},"meses c/ aporte: "+valoresPositivos.length+"/"+serie.length)
+        ):h("div",{style:{fontSize:8.5,color:"#9A9080",fontFamily:"monospace",fontStyle:"italic",marginTop:8,textAlign:"center",padding:"6px 0"}},"Sem aportes registrados")
       )
     );
     }catch(e){
