@@ -7847,12 +7847,26 @@ function App(){
         if(Array.isArray(dd.aportesSimples)){
           const valido=dd.aportesSimples.filter(a=>a&&typeof a==="object"&&typeof a.valor==="number"&&a.valor>0&&typeof a.date==="string");
           // Garante ordem cronologica e ID unico se faltando
-          const sanitizado=valido.map(a=>({
-            id:a.id||(String(a.date)+"-"+Math.random().toString(36).slice(2,8)),
-            date:a.date,
-            valor:a.valor,
-            ts:a.ts||Date.now()
-          }));
+          // PRESERVA todos os campos opcionais: classes (decomposicao por classe) e origem (de onde veio o aporte)
+          const sanitizado=valido.map(a=>{
+            const obj={
+              id:a.id||(String(a.date)+"-"+Math.random().toString(36).slice(2,8)),
+              date:a.date,
+              valor:a.valor,
+              ts:a.ts||Date.now()
+            };
+            // Decomposicao por classe (formato {classeId: valor})
+            if(a.classes&&typeof a.classes==="object"&&!Array.isArray(a.classes)){
+              const classesValidas={};
+              Object.entries(a.classes).forEach(([cid,v])=>{
+                if(typeof v==="number"&&v>0)classesValidas[cid]=v;
+              });
+              if(Object.keys(classesValidas).length>0)obj.classes=classesValidas;
+            }
+            // Origem do aporte (ex: "aba-aporte" para entradas geradas via Fechar Aporte)
+            if(typeof a.origem==="string")obj.origem=a.origem;
+            return obj;
+          });
           setAportesSimples(sanitizado.sort((a,b)=>a.date.localeCompare(b.date)));
         }
         // Ativos em estudo: validacao defensiva (estrutura pode ter mudado)
