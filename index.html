@@ -16157,7 +16157,134 @@ h("button",{onClick:async()=>{
                             h("span",{},h("strong",{style:{color:"#C8A96E"}},"Aguardando snapshots"),". Feche um aporte na aba Aporte para gerar o primeiro ponto historico - a partir do segundo, voce ja consegue ver a tendencia.")
                         );
                       })()
-                    )
+                    ),
+                    // ===== INSIGHT INTERPRETATIVO COMBINADO =====
+                    // Parte 1: diagnostico do snapshot atual (sempre presente)
+                    // Parte 2: analise de tendencia (so quando ha >=2 snapshots reais)
+                    (()=>{
+                      // Calcula scores normalizados das 4 metricas (0-100, onde 100 = ideal)
+                      const scores=metricasViz.map(met=>({met,score:norm(met)}));
+                      const ordenadosFortes=[...scores].sort((a,b)=>b.score-a.score);
+                      const ordenadosFracos=[...scores].sort((a,b)=>a.score-b.score);
+                      const mediaScore=scores.reduce((s,x)=>s+x.score,0)/scores.length;
+                      // Classificacao do estado geral
+                      const corMedia=mediaScore>=70?"#4CAF82":mediaScore>=50?"#E8C44A":mediaScore>=30?"#E89060":"#E05252";
+                      const lblMedia=mediaScore>=70?"DIVERSIFICACAO EXCELENTE":mediaScore>=50?"DIVERSIFICACAO BOA":mediaScore>=30?"DIVERSIFICACAO INSUFICIENTE":"DIVERSIFICACAO CRITICA";
+                      // ENB Efetivo vs ENB Herfindahl: se gap grande, sinaliza correlacao alta entre classes
+                      const gapENB=metricasDiversificacao.enbHerfindahl-metricasDiversificacao.enbEfetivo;
+                      // ===== TENDENCIA =====
+                      const snapsReais=(correlacaoHistorico||[]).filter(s=>!s._retroativo);
+                      const temTendencia=snapsReais.length>=2;
+                      let tendenciaInfo=null;
+                      if(temTendencia){
+                        const primeiro=snapsReais[0];
+                        const ultimo=snapsReais[snapsReais.length-1];
+                        // Para cada metrica, calcula delta e se aproximou ou afastou do alvo
+                        tendenciaInfo=metricasViz.map(met=>{
+                          const vIni=primeiro[met.key];
+                          const vFim=ultimo[met.key];
+                          const distIni=Math.abs(vIni-met.alvo);
+                          const distFim=Math.abs(vFim-met.alvo);
+                          const aproximou=distFim<distIni;
+                          const delta=vFim-vIni;
+                          return {met,vIni,vFim,delta,aproximou,distIni,distFim};
+                        });
+                      }
+                      return h("div",{style:{marginTop:10,padding:"11px 13px",background:"linear-gradient(135deg,rgba(76,175,130,0.06),rgba(76,175,130,0.02))",border:"1px solid rgba(76,175,130,0.30)",borderRadius:6}},
+                        h("div",{style:{fontSize:9,letterSpacing:1.2,color:"#4CAF82",fontFamily:"monospace",fontWeight:700,marginBottom:7}},"\u{1F4A1} INSIGHT INTERPRETATIVO"),
+                        // Cabeçalho com estado geral
+                        h("div",{style:{display:"flex",alignItems:"center",gap:8,marginBottom:9,paddingBottom:7,borderBottom:"1px solid rgba(76,175,130,0.15)",flexWrap:"wrap"}},
+                          h("span",{style:{fontSize:8,letterSpacing:1.5,color:corMedia,fontFamily:"monospace",fontWeight:700,padding:"3px 8px",background:corMedia+"22",borderRadius:3}},lblMedia),
+                          h("span",{style:{fontSize:8.5,color:"#9A9080",fontFamily:"monospace"}},"score combinado: ",h("strong",{style:{color:corMedia}},mediaScore.toFixed(0),"/100"))
+                        ),
+                        // Diagnostico do snapshot atual em prosa
+                        h("p",{style:{fontSize:10,color:"#E8E2D5",lineHeight:1.7,margin:"0 0 8px",fontFamily:"Georgia,serif"}},
+                          // Ponto mais forte
+                          h("span",{},
+                            "Seu portfolio mostra maior aderencia em ",
+                            h("strong",{style:{color:ordenadosFortes[0].met.cor}},ordenadosFortes[0].met.label),
+                            " (",h("strong",{},ordenadosFortes[0].met.valor.toFixed(ordenadosFortes[0].met.decimais)),
+                            ", alvo ",(ordenadosFortes[0].met.maior?"\u2265 ":"\u2264 "),ordenadosFortes[0].met.alvo.toFixed(ordenadosFortes[0].met.decimais),
+                            " - score ",h("strong",{style:{color:ordenadosFortes[0].score>=70?"#4CAF82":"#E8C44A"}},ordenadosFortes[0].score.toFixed(0)),"). "
+                          ),
+                          // Ponto mais fraco
+                          ordenadosFracos[0].score<70?h("span",{},
+                            "O maior gap aparece em ",
+                            h("strong",{style:{color:ordenadosFracos[0].met.cor}},ordenadosFracos[0].met.label),
+                            " (",h("strong",{},ordenadosFracos[0].met.valor.toFixed(ordenadosFracos[0].met.decimais)),
+                            " vs alvo ",(ordenadosFracos[0].met.maior?"\u2265 ":"\u2264 "),ordenadosFracos[0].met.alvo.toFixed(ordenadosFracos[0].met.decimais),
+                            ") - eh aqui que cada aporte tem maior potencial de mover o ponteiro. "
+                          ):h("span",{},"Todas as 4 metricas estao em zona favoravel - foco agora eh manter a disciplina. "),
+                          // Interpretacao do gap ENB Efetivo vs Herfindahl
+                          gapENB>=2.0?h("span",{},
+                            h("strong",{style:{color:"#E89060"}},"Alerta de correlacao oculta: "),
+                            "seu ENB Herfindahl (",metricasDiversificacao.enbHerfindahl.toFixed(2),
+                            ") supera o ENB Efetivo (",metricasDiversificacao.enbEfetivo.toFixed(2),
+                            ") em ",gapENB.toFixed(2)," - voce tem MUITAS classes mas elas se movem juntas. Diversificacao real eh menor do que parece pela contagem. Priorize classes descorrelacionadas (BTC, Treasuries longas, Ouro) no proximo aporte. "
+                          ):gapENB>=1.0?h("span",{},
+                            "O gap entre ENB Herfindahl (",metricasDiversificacao.enbHerfindahl.toFixed(2),
+                            ") e ENB Efetivo (",metricasDiversificacao.enbEfetivo.toFixed(2),
+                            ") de ",gapENB.toFixed(2)," indica correlacao moderada entre suas classes - margem para melhorar via aportes em classes descorrelacionadas. "
+                          ):h("span",{},
+                            "O alinhamento entre ENB Herfindahl e ENB Efetivo (gap ",gapENB.toFixed(2),
+                            ") indica que suas classes se comportam de forma genuinamente independente - diversificacao real, nao so contagem. "
+                          ),
+                          // Sintese acionavel
+                          mediaScore>=70?
+                            h("span",{style:{color:"#9A9080",fontStyle:"italic"}},"O ponteiro combinado esta favoravel; o desafio passa a ser preservar essa estrutura ao longo do tempo, evitando concentracao em classes que andam juntas."):
+                            mediaScore>=50?
+                            h("span",{style:{color:"#9A9080",fontStyle:"italic"}},"O ponteiro combinado esta razoavel mas com espaco para melhorar - cada aporte mensal eh uma oportunidade de mover o conjunto na direcao dos alvos."):
+                            h("span",{style:{color:"#9A9080",fontStyle:"italic"}},"O ponteiro combinado esta em zona de alerta - os aportes proximos devem priorizar classes que reduzem correlacao agregada (BTC, Treasuries, Ouro, NTN-B longa, MUNDO).")
+                        ),
+                        // ===== TENDENCIA =====
+                        temTendencia?h("div",{style:{marginTop:9,paddingTop:8,borderTop:"1px dashed rgba(76,175,130,0.20)"}},
+                          h("div",{style:{fontSize:8,letterSpacing:1.2,color:"#7AB0E0",fontFamily:"monospace",fontWeight:700,marginBottom:6}},"\u{1F4C8} TENDENCIA AO LONGO DOS APORTES (",snapsReais.length," snapshots reais)"),
+                          h("p",{style:{fontSize:9.5,color:"#E8E2D5",lineHeight:1.7,margin:"0 0 7px",fontFamily:"Georgia,serif"}},
+                            (()=>{
+                              const aproximaram=tendenciaInfo.filter(t=>t.aproximou);
+                              const afastaram=tendenciaInfo.filter(t=>!t.aproximou);
+                              if(aproximaram.length===4){
+                                return h("span",{},
+                                  h("strong",{style:{color:"#4CAF82"}},"Tendencia consistente de aproximacao em todas as 4 metricas"),
+                                  ". Seus aportes estao movendo o portfolio na direcao certa - mantenha a disciplina."
+                                );
+                              }
+                              if(afastaram.length===4){
+                                return h("span",{},
+                                  h("strong",{style:{color:"#E05252"}},"Tendencia consistente de afastamento em todas as 4 metricas"),
+                                  ". Os aportes recentes estao concentrando mais o portfolio - revise se as classes que receberam reforco eram realmente as subalocadas."
+                                );
+                              }
+                              return h("span",{},
+                                aproximaram.length>0?h("span",{},
+                                  h("strong",{style:{color:"#4CAF82"}},aproximaram.length," metrica"+(aproximaram.length>1?"s":"")+" se aproximando"),
+                                  " do alvo (",aproximaram.map((t,i)=>h("span",{key:"a"+i},i>0?", ":"",h("strong",{style:{color:t.met.cor}},t.met.label))),"). "
+                                ):null,
+                                afastaram.length>0?h("span",{},
+                                  h("strong",{style:{color:"#E89060"}},afastaram.length," se afastando"),
+                                  " (",afastaram.map((t,i)=>h("span",{key:"f"+i},i>0?", ":"",h("strong",{style:{color:t.met.cor}},t.met.label))),"). "
+                                ):null,
+                                h("span",{style:{color:"#9A9080",fontStyle:"italic"}},"Tendencia mista - os proximos aportes devem priorizar classes que melhorem as metricas que estao se afastando.")
+                              );
+                            })()
+                          ),
+                          // Tabela compacta de deltas por metrica
+                          h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:5,marginTop:6}},
+                            ...tendenciaInfo.map((t,k)=>h("div",{key:"d"+k,style:{padding:"5px 7px",background:"rgba(0,0,0,0.20)",borderLeft:"3px solid "+t.met.cor,borderRadius:"0 3px 3px 0",fontSize:8,fontFamily:"monospace"}},
+                              h("div",{style:{color:t.met.cor,fontWeight:700,letterSpacing:0.3,marginBottom:2}},t.met.label),
+                              h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:4,color:"#9A9080"}},
+                                h("span",{},t.vIni.toFixed(t.met.decimais)," \u2192 ",t.vFim.toFixed(t.met.decimais)),
+                                h("span",{style:{color:t.aproximou?"#4CAF82":"#E89060",fontWeight:700}},t.aproximou?"\u2193 aprox":"\u2191 afasta")
+                              )
+                            ))
+                          )
+                        ):h("div",{style:{marginTop:9,paddingTop:8,borderTop:"1px dashed rgba(76,175,130,0.20)"}},
+                          h("p",{style:{fontSize:9,color:"#7A7060",fontStyle:"italic",lineHeight:1.6,margin:0}},
+                            "Analise de tendencia ficara disponivel quando voce tiver pelo menos 2 snapshots reais (aportes fechados apos esta funcionalidade). Snapshots retroativos nao contam para tendencia (foram criados com metricas atuais)."
+                          )
+                        )
+                      );
+                    })()
                   );
                 }catch(e){
                   console.error("Erro grafico diversificacao:",e);
