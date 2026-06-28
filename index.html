@@ -7483,6 +7483,8 @@ function App(){
   const [propUsrAberto,setPropUsrAberto]=useState(false);
   // Drill-down do card "Sua Sensibilidade aos Vetores Macro" (aba Correlacao): expansao do desmembramento por classe
   const [drillVetoresAberto,setDrillVetoresAberto]=useState(false);
+  // Glossario de metricas de diversificacao (colapsavel, abaixo do insight interpretativo no card de correlacao)
+  const [glossarioDivAberto,setGlossarioDivAberto]=useState(false);
   const [propUsrValores,setPropUsrValores]=useState({}); // {classId: "valor em string"}
   const [propUsrLoad,setPropUsrLoad]=useState(false);
   const [propUsrErr,setPropUsrErr]=useState("");
@@ -16284,7 +16286,118 @@ h("button",{onClick:async()=>{
                           )
                         )
                       );
-                    })()
+                    })(),
+                    // ===== GLOSSARIO COLAPSAVEL DAS METRICAS =====
+                    h("div",{style:{marginTop:9}},
+                      h("button",{
+                        onClick:()=>setGlossarioDivAberto(o=>!o),
+                        style:{width:"100%",padding:"8px 12px",background:"rgba(122,160,224,0.06)",border:"1px solid rgba(122,160,224,0.25)",borderRadius:6,color:"#7AB0E0",fontSize:8.5,fontFamily:"monospace",fontWeight:700,letterSpacing:1.2,textAlign:"left",cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"}
+                      },
+                        h("span",{},"\u{1F4D6} COMO INTERPRETAR ESTAS METRICAS"),
+                        h("span",{style:{fontSize:10,fontFamily:"monospace"}},glossarioDivAberto?"\u2212":"+")
+                      ),
+                      glossarioDivAberto?h("div",{style:{marginTop:6,padding:"11px 13px",background:"rgba(0,0,0,0.22)",border:"1px solid rgba(122,160,224,0.20)",borderRadius:6}},
+                        // ENB Efetivo
+                        h("div",{style:{marginBottom:11,paddingBottom:10,borderBottom:"1px dashed rgba(255,255,255,0.08)"}},
+                          h("div",{style:{fontSize:9.5,color:"#9C7DC2",fontFamily:"monospace",fontWeight:700,letterSpacing:0.8,marginBottom:5}},"\u{1F4D0} ENB EFETIVO"),
+                          h("p",{style:{fontSize:9.5,color:"#E8E2D5",lineHeight:1.7,margin:"0 0 4px",fontFamily:"Georgia,serif"}},
+                            h("strong",{style:{color:"#C8A96E"}},"O que e: "),
+                            "numero efetivo de apostas independentes do seu portfolio - quantas \"classes verdadeiramente distintas\" voce tem na pratica, descontando o efeito de classes que se movem juntas."
+                          ),
+                          h("p",{style:{fontSize:9.5,color:"#E8E2D5",lineHeight:1.7,margin:"0 0 4px",fontFamily:"Georgia,serif"}},
+                            h("strong",{style:{color:"#C8A96E"}},"Como ler: "),
+                            "valor 1 = portfolio funciona como uma unica aposta (sem diversificacao); valor proximo do numero de classes (13) = cada classe contribui independentemente. Valores entre 4-7 sao tipicos de portfolios bem diversificados."
+                          ),
+                          h("p",{style:{fontSize:9.5,color:"#E8E2D5",lineHeight:1.7,margin:"0 0 4px",fontFamily:"Georgia,serif"}},
+                            h("strong",{style:{color:"#C8A96E"}},"Formula: "),
+                            h("code",{style:{fontFamily:"monospace",color:"#C8A96E",fontSize:9}},"ENB_Efetivo = ENB_Herfindahl x (1 - corr_media_pond\u00B2)"),
+                            ". Penaliza a contagem bruta de classes pelo quadrado da correlacao media - se classes andam juntas, descontam."
+                          ),
+                          h("p",{style:{fontSize:9.5,color:"#9A9080",lineHeight:1.7,margin:0,fontFamily:"Georgia,serif",fontStyle:"italic"}},
+                            h("strong",{style:{color:"#4CAF82"}},"Alvo \u2265 5: "),
+                            "abaixo disso, sua diversificacao efetiva e ilusoria - voce pode ter 13 classes mas elas se comportam como 3 em momentos de stress."
+                          )
+                        ),
+                        // ENB Herfindahl
+                        h("div",{style:{marginBottom:11,paddingBottom:10,borderBottom:"1px dashed rgba(255,255,255,0.08)"}},
+                          h("div",{style:{fontSize:9.5,color:"#5B8FD4",fontFamily:"monospace",fontWeight:700,letterSpacing:0.8,marginBottom:5}},"\u{1F4D0} ENB HERFINDAHL"),
+                          h("p",{style:{fontSize:9.5,color:"#E8E2D5",lineHeight:1.7,margin:"0 0 4px",fontFamily:"Georgia,serif"}},
+                            h("strong",{style:{color:"#C8A96E"}},"O que e: "),
+                            "numero efetivo de classes baseado APENAS na distribuicao de pesos, sem considerar correlacoes. Mede equilibrio na alocacao."
+                          ),
+                          h("p",{style:{fontSize:9.5,color:"#E8E2D5",lineHeight:1.7,margin:"0 0 4px",fontFamily:"Georgia,serif"}},
+                            h("strong",{style:{color:"#C8A96E"}},"Como ler: "),
+                            "valor 1 = tudo concentrado em 1 classe; valor N (13) = todas as classes com peso identico (1/N cada). Valor 5 significa que sua diversificacao por pesos equivale a ter 5 classes iguais."
+                          ),
+                          h("p",{style:{fontSize:9.5,color:"#E8E2D5",lineHeight:1.7,margin:"0 0 4px",fontFamily:"Georgia,serif"}},
+                            h("strong",{style:{color:"#C8A96E"}},"Formula: "),
+                            h("code",{style:{fontFamily:"monospace",color:"#C8A96E",fontSize:9}},"ENB_Herfindahl = 1 / \u03A3(wi\u00B2) = 1 / HHI"),
+                            ". E o inverso do HHI - quanto mais distribuido entre classes, maior o ENB Herfindahl."
+                          ),
+                          h("p",{style:{fontSize:9.5,color:"#9A9080",lineHeight:1.7,margin:0,fontFamily:"Georgia,serif",fontStyle:"italic"}},
+                            h("strong",{style:{color:"#4CAF82"}},"Alvo \u2265 13: "),
+                            "valor maximo (cada classe com mesmo peso). Na pratica, valores 6-8 ja sao bons. ",
+                            h("strong",{style:{color:"#E89060"}},"O gap entre ENB Herfindahl e ENB Efetivo "),
+                            "revela quanto da sua diversificacao por pesos e \"comida\" pela correlacao entre classes - gap grande = classes andam juntas."
+                          )
+                        ),
+                        // Correlacao Media Ponderada
+                        h("div",{style:{marginBottom:11,paddingBottom:10,borderBottom:"1px dashed rgba(255,255,255,0.08)"}},
+                          h("div",{style:{fontSize:9.5,color:"#E89060",fontFamily:"monospace",fontWeight:700,letterSpacing:0.8,marginBottom:5}},"\u{1F4D0} CORRELACAO MEDIA PONDERADA"),
+                          h("p",{style:{fontSize:9.5,color:"#E8E2D5",lineHeight:1.7,margin:"0 0 4px",fontFamily:"Georgia,serif"}},
+                            h("strong",{style:{color:"#C8A96E"}},"O que e: "),
+                            "media das correlacoes entre todos os pares de classes do seu portfolio, ponderada pelos pesos relativos. Mede quanto as classes que voce possui tendem a se mover na mesma direcao."
+                          ),
+                          h("p",{style:{fontSize:9.5,color:"#E8E2D5",lineHeight:1.7,margin:"0 0 4px",fontFamily:"Georgia,serif"}},
+                            h("strong",{style:{color:"#C8A96E"}},"Como ler: "),
+                            "valor 0 = classes totalmente independentes (cair uma nao arrasta as outras); valor 1 = todas se movem juntas (zero diversificacao real); valor negativo = classes que se compensam (hedge perfeito - raro no mundo real). ",
+                            h("strong",{},"Usa-se o valor absoluto |\u03C1| "),
+                            "porque tanto correlacoes positivas quanto negativas reduzem a diversificacao - duas classes que se anulam tambem reduzem a aposta direcional efetiva."
+                          ),
+                          h("p",{style:{fontSize:9.5,color:"#E8E2D5",lineHeight:1.7,margin:"0 0 4px",fontFamily:"Georgia,serif"}},
+                            h("strong",{style:{color:"#C8A96E"}},"Formula: "),
+                            h("code",{style:{fontFamily:"monospace",color:"#C8A96E",fontSize:9}},"\u03A3(|\u03C1ij| \u00D7 wi \u00D7 wj) / \u03A3(wi \u00D7 wj)"),
+                            " para todos os pares i\u2260j. As correlacoes vem da matriz historica MPT do portfolio."
+                          ),
+                          h("p",{style:{fontSize:9.5,color:"#9A9080",lineHeight:1.7,margin:0,fontFamily:"Georgia,serif",fontStyle:"italic"}},
+                            h("strong",{style:{color:"#4CAF82"}},"Alvo \u2264 0.20: "),
+                            "correlacoes baixas garantem que quedas em uma classe nao arrastem o resto - diversificacao genuina. ",
+                            h("strong",{style:{color:"#E89060"}},"Atencao: "),
+                            "em crises (2008, 2020), correlacoes historicas convergem para +1.0 - o numero aqui e referencia de longo prazo, nao garantia em curto prazo."
+                          )
+                        ),
+                        // HHI
+                        h("div",{},
+                          h("div",{style:{fontSize:9.5,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,letterSpacing:0.8,marginBottom:5}},"\u{1F4D0} HHI (HERFINDAHL-HIRSCHMAN INDEX)"),
+                          h("p",{style:{fontSize:9.5,color:"#E8E2D5",lineHeight:1.7,margin:"0 0 4px",fontFamily:"Georgia,serif"}},
+                            h("strong",{style:{color:"#C8A96E"}},"O que e: "),
+                            "indice padrao de concentracao usado em economia e antitruste, adaptado aqui para medir concentracao do portfolio entre classes. Soma dos pesos ao quadrado."
+                          ),
+                          h("p",{style:{fontSize:9.5,color:"#E8E2D5",lineHeight:1.7,margin:"0 0 4px",fontFamily:"Georgia,serif"}},
+                            h("strong",{style:{color:"#C8A96E"}},"Como ler: "),
+                            "valor 1.0 = tudo concentrado em 1 classe; valor 1/N (0.077 para 13 classes) = pesos perfeitamente iguais. Pode pensar como \"score de concentracao\" - menor e melhor para diversificacao."
+                          ),
+                          h("p",{style:{fontSize:9.5,color:"#E8E2D5",lineHeight:1.7,margin:"0 0 4px",fontFamily:"Georgia,serif"}},
+                            h("strong",{style:{color:"#C8A96E"}},"Formula: "),
+                            h("code",{style:{fontFamily:"monospace",color:"#C8A96E",fontSize:9}},"HHI = \u03A3(wi\u00B2)"),
+                            " onde wi e o peso decimal (0-1) de cada classe. E a base matematica do ENB Herfindahl (que e simplesmente 1/HHI)."
+                          ),
+                          h("p",{style:{fontSize:9.5,color:"#9A9080",lineHeight:1.7,margin:0,fontFamily:"Georgia,serif",fontStyle:"italic"}},
+                            h("strong",{style:{color:"#4CAF82"}},"Alvo \u2264 0.077 (1/13): "),
+                            "valor minimo para 13 classes igualmente distribuidas. Na pratica, abaixo de 0.15 ja indica boa distribuicao. ",
+                            h("strong",{style:{color:"#9A9080"}},"HHI e ENB Herfindahl carregam a mesma informacao "),
+                            "(um e o inverso do outro) - estao ambos no grafico para facilitar a visualizacao em escalas diferentes."
+                          )
+                        ),
+                        // Nota final sobre como as 4 se combinam
+                        h("div",{style:{marginTop:11,paddingTop:9,borderTop:"1px solid rgba(255,255,255,0.10)"}},
+                          h("p",{style:{fontSize:9,color:"#7AB0E0",lineHeight:1.7,margin:0,fontFamily:"Georgia,serif",fontStyle:"italic"}},
+                            h("strong",{style:{color:"#7AB0E0"}},"\u{1F4A1} Como as 4 se conectam: "),
+                            "HHI mede concentracao; ENB Herfindahl traduz isso em \"quantas classes equivalentes\"; Correlacao Media Pond. mede o quanto suas classes se movem juntas; ENB Efetivo combina os dois (distribuicao + correlacao) em uma unica metrica acionavel. Para diversificacao real, todas as 4 precisam estar nos respectivos alvos - e essa visao agregada que o radar e as linhas mostram."
+                          )
+                        )
+                      ):null
+                    )
                   );
                 }catch(e){
                   console.error("Erro grafico diversificacao:",e);
