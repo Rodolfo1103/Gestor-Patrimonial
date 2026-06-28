@@ -7449,6 +7449,9 @@ function App(){
   // Aportes simples: registros manuais [{id, date, valor, ts, classes?:{fii,acoes_br,...}}]
   // classes (opcional): decomposicao por classe quando o usuario quis detalhar. Quando ausente, aporte e "nao decomposto".
   const [aportesSimples,setAportesSimples]=useState([]);
+  // Historico de snapshots das 4 metricas de correlacao/diversificacao, salvo ao fechar cada aporte
+  // Formato: [{date:"AAAA-MM-DD",enbEfetivo:n,enbHerfindahl:n,corrMediaPond:n,hhi:n,ts:Date.now()}]
+  const [correlacaoHistorico,setCorrelacaoHistorico]=useState([]);
   // Form inline de aporte (expansivel na aba History)
   const [formApAberto,setFormApAberto]=useState(false);
   const [formApId,setFormApId]=useState(null);// id do aporte sendo editado (null = novo)
@@ -7871,6 +7874,11 @@ function App(){
           });
           setAportesSimples(sanitizado.sort((a,b)=>a.date.localeCompare(b.date)));
         }
+        // Historico de snapshots de metricas de correlacao/diversificacao
+        if(Array.isArray(dd.correlacaoHistorico)){
+          const validoCH=dd.correlacaoHistorico.filter(s=>s&&typeof s==="object"&&typeof s.date==="string"&&typeof s.enbEfetivo==="number");
+          setCorrelacaoHistorico(validoCH.sort((a,b)=>a.date.localeCompare(b.date)));
+        }
         // Ativos em estudo: validacao defensiva (estrutura pode ter mudado)
         if(dd.ativosEmEstudo&&typeof dd.ativosEmEstudo==="object"&&Array.isArray(dd.ativosEmEstudo.candidatos)){
           setAtivosEmEstudo(dd.ativosEmEstudo);
@@ -8166,14 +8174,14 @@ function App(){
     if(!inited||!aesKey)return;
     (async()=>{
       try{
-        const obj={port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,selicAtual,metaMensalIF,cenarioIPCA,dataNascimento,insightRenda,insightRendaTs,insightRendaSnap,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,piCycle,nupl,goldSilver,goldSP500,realGoldZ,fx:{...FX},btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,insightSnap,infIPCA,infIGPM,infINCC,infCPI,infHICP,juroFed,juroECB,juroBoJ,ntnbTaxas,ntnbVNA,ntnbUpdTs,ntnbDataCotacao,ntnbDiasDefasagem,ntnbVencimentos:{...NTNB_VENCIMENTOS},cambialCash,rendaMotoraHist,rendaAuxiliarHist,aportesSimples,ativosEmEstudo,riscoRetornoData,calibracoesCustom,ntnbHistoricoTaxas,miraIA,apR,apV,aporteValores,aporteTickers,aportePeriodoInicio,aportePeriodoFim};
+        const obj={port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,selicAtual,metaMensalIF,cenarioIPCA,dataNascimento,insightRenda,insightRendaTs,insightRendaSnap,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,piCycle,nupl,goldSilver,goldSP500,realGoldZ,fx:{...FX},btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,insightSnap,infIPCA,infIGPM,infINCC,infCPI,infHICP,juroFed,juroECB,juroBoJ,ntnbTaxas,ntnbVNA,ntnbUpdTs,ntnbDataCotacao,ntnbDiasDefasagem,ntnbVencimentos:{...NTNB_VENCIMENTOS},cambialCash,rendaMotoraHist,rendaAuxiliarHist,aportesSimples,correlacaoHistorico,ativosEmEstudo,riscoRetornoData,calibracoesCustom,ntnbHistoricoTaxas,miraIA,apR,apV,aporteValores,aporteTickers,aportePeriodoInicio,aportePeriodoFim};
         const enc=await aesEncrypt(aesKey,obj);
         localStorage.setItem(SK_ENC,enc);
       }catch(e){
         console.error("SAVE ENC falhou:",e&&e.message?e.message:e);
       }
     })();
-  },[port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,selicAtual,metaMensalIF,cenarioIPCA,dataNascimento,insightRenda,insightRendaTs,insightRendaSnap,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,piCycle,nupl,goldSilver,goldSP500,realGoldZ,btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,insightSnap,infIPCA,infIGPM,infINCC,infCPI,infHICP,juroFed,juroECB,juroBoJ,ntnbTaxas,ntnbVNA,ntnbUpdTs,cambialCash,rendaMotoraHist,rendaAuxiliarHist,aportesSimples,ativosEmEstudo,riscoRetornoData,calibracoesCustom,ntnbHistoricoTaxas,miraIA,apR,apV,aporteValores,aporteTickers,aportePeriodoInicio,aportePeriodoFim,inited,aesKey]);
+  },[port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,selicAtual,metaMensalIF,cenarioIPCA,dataNascimento,insightRenda,insightRendaTs,insightRendaSnap,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,piCycle,nupl,goldSilver,goldSP500,realGoldZ,btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,insightSnap,infIPCA,infIGPM,infINCC,infCPI,infHICP,juroFed,juroECB,juroBoJ,ntnbTaxas,ntnbVNA,ntnbUpdTs,cambialCash,rendaMotoraHist,rendaAuxiliarHist,aportesSimples,correlacaoHistorico,ativosEmEstudo,riscoRetornoData,calibracoesCustom,ntnbHistoricoTaxas,miraIA,apR,apV,aporteValores,aporteTickers,aportePeriodoInicio,aportePeriodoFim,inited,aesKey]);
 
   // Auto-lock por inatividade (15 min)
   useEffect(()=>{
@@ -9020,6 +9028,36 @@ function App(){
   },[port,ccy,cls,ntnbTaxas,ntnbVNA,fxState,cambialCash]);
   const {total,ct,cw}=stats();
   const hasPos=Object.entries(port).some(([t,p])=>hq(t,p));
+
+  // ===== METRICAS DE CORRELACAO/DIVERSIFICACAO (para grafico no final do card de correlacao) =====
+  // 4 metricas: ENB Efetivo, ENB Herfindahl, Correlacao Media Ponderada, HHI
+  // Calculo identico ao swensenBlock (linha ~15920) mas em escopo principal para ser usado tambem no fecharAporte
+  const metricasDiversificacao=React.useMemo(()=>{
+    try{
+      // Pesos por classe (em decimal)
+      const wAt=MPT_CLS.map(cid=>(cw[cid]||0)/100);
+      // HHI (soma dos pesos ao quadrado)
+      const hhi=wAt.reduce((s,w)=>s+w*w,0);
+      // ENB Herfindahl (inverso do HHI)
+      const enbHerfindahl=hhi>0?1/hhi:0;
+      // Correlacao media ponderada (entre pares com peso > 0)
+      let corrPondTotal=0;let pesoTotalPares=0;
+      for(let i=0;i<MPT_CLS.length;i++){
+        for(let j=i+1;j<MPT_CLS.length;j++){
+          const peso=wAt[i]*wAt[j];
+          if(peso<=0)continue;
+          corrPondTotal+=Math.abs(MPT_COR[i][j])*peso;
+          pesoTotalPares+=peso;
+        }
+      }
+      const corrMediaPond=pesoTotalPares>0?corrPondTotal/pesoTotalPares:0;
+      // ENB Efetivo
+      const enbEfetivo=enbHerfindahl*(1-corrMediaPond*corrMediaPond);
+      return {enbEfetivo,enbHerfindahl,corrMediaPond,hhi};
+    }catch(e){
+      return {enbEfetivo:0,enbHerfindahl:0,corrMediaPond:0,hhi:0};
+    }
+  },[cw]);
 
   // ===== MPT Monte Carlo cache (recalcula apenas quando cw ou Selic mudam) =====
   // Quantize pra evitar recalcular a cada centesimo de %
@@ -11617,6 +11655,25 @@ function App(){
       nova.sort((a,b)=>a.date.localeCompare(b.date));
       return nova;
     });
+    // SNAPSHOT DAS METRICAS DE CORRELACAO/DIVERSIFICACAO
+    // Salva no historico para alimentar o grafico de evolucao temporal
+    try{
+      const snap={
+        date:dataAporte,
+        ts:ts,
+        enbEfetivo:metricasDiversificacao.enbEfetivo,
+        enbHerfindahl:metricasDiversificacao.enbHerfindahl,
+        corrMediaPond:metricasDiversificacao.corrMediaPond,
+        hhi:metricasDiversificacao.hhi
+      };
+      setCorrelacaoHistorico(prev=>{
+        // Evita duplicacao se mesma data ja tem snapshot (sobrescreve)
+        const filtro=prev.filter(s=>s.date!==dataAporte);
+        const nova=[...filtro,snap];
+        nova.sort((a,b)=>a.date.localeCompare(b.date));
+        return nova;
+      });
+    }catch(_){}
     // Limpa a aba Aporte: zera todos os campos para um novo aporte
     setApR(null);
     setApV("");
@@ -15867,7 +15924,190 @@ h("button",{onClick:async()=>{
               // AVISO sobre limitacao
               h("div",{style:{fontSize:8,color:"#7A7060",fontStyle:"italic",lineHeight:1.5,marginTop:10,padding:"7px 9px",background:"rgba(232,196,74,0.04)",borderLeft:"3px solid #E8C44A",borderRadius:"0 4px 4px 0"}},
                 "\u26A0 Correlacoes mudam em crises. Durante 2008 e 2020, classes tipicamente descorrelacionadas convergiram para +1.0 (",h("em",{},"\"diversification fails when you need it most\""),"). Use esta matriz como referencia de longo prazo, nao como protecao garantida em curto prazo."
-              )
+              ),
+
+              // ===== GRAFICOS DE EVOLUCAO: 4 METRICAS DE DIVERSIFICACAO/CORRELACAO =====
+              // Radar (snapshot atual) + Series temporais (cresce a cada aporte fechado)
+              (()=>{
+                try{
+                  const m=metricasDiversificacao;
+                  const N_CLASSES=MPT_CLS.length;// 13
+                  // Alvos / valores ideais
+                  const alvos={
+                    enbEfetivo:5.0,// >= 5 excelente
+                    enbHerfindahl:N_CLASSES,// = N (uniforme perfeito)
+                    corrMediaPond:0.20,// <= 0.20 excelente
+                    hhi:1/N_CLASSES// = 1/N (uniforme perfeito)
+                  };
+                  // Configuracao das 4 metricas (cor + label + valor + alvo + direcao)
+                  const metricasViz=[
+                    {key:"enbEfetivo",label:"ENB Efetivo",cor:"#9C7DC2",valor:m.enbEfetivo,alvo:alvos.enbEfetivo,maior:true,decimais:2,unidade:""},
+                    {key:"enbHerfindahl",label:"ENB Herfindahl",cor:"#5B8FD4",valor:m.enbHerfindahl,alvo:alvos.enbHerfindahl,maior:true,decimais:2,unidade:""},
+                    {key:"corrMediaPond",label:"Corr. Media Pond.",cor:"#E89060",valor:m.corrMediaPond,alvo:alvos.corrMediaPond,maior:false,decimais:3,unidade:""},
+                    {key:"hhi",label:"HHI",cor:"#C8A96E",valor:m.hhi,alvo:alvos.hhi,maior:false,decimais:3,unidade:""}
+                  ];
+                  // Funcao de normalizacao para o radar (0-100, onde 100 = ideal)
+                  // Para metricas "maior=melhor" (ENB), score = min(valor/alvo, 1)*100
+                  // Para metricas "menor=melhor" (corr, HHI), score = max(1 - (valor-alvo)/(1-alvo), 0)*100 (ou similar)
+                  const norm=(met)=>{
+                    if(met.maior){
+                      return Math.max(0,Math.min(100,(met.valor/met.alvo)*100));
+                    }else{
+                      // valor < alvo => 100. valor >> alvo => 0.
+                      if(met.valor<=met.alvo)return 100;
+                      const piorCaso=met.key==="corrMediaPond"?1.0:1.0;// corr e HHI sao limitados a 1.0
+                      const ratio=(met.valor-met.alvo)/(piorCaso-met.alvo);
+                      return Math.max(0,100*(1-ratio));
+                    }
+                  };
+                  // ===== RADAR / SPIDER CHART =====
+                  const radarSize=240;
+                  const radarCx=radarSize/2;
+                  const radarCy=radarSize/2;
+                  const radarR=radarSize/2-25;// raio com folga para labels
+                  const angulos=[Math.PI/2,Math.PI,3*Math.PI/2,2*Math.PI];// 12h, 9h, 6h, 3h (cima, esq, baixo, dir)
+                  const polyPoints=metricasViz.map((met,k)=>{
+                    const score=norm(met);
+                    const r=(score/100)*radarR;
+                    const a=angulos[k]-Math.PI/2;// rotaciona pra cima ser 0
+                    const x=radarCx+r*Math.cos(a);
+                    const y=radarCy+r*Math.sin(a);
+                    return {x,y,met,score};
+                  });
+                  const polyStr=polyPoints.map(p=>p.x.toFixed(1)+","+p.y.toFixed(1)).join(" ");
+                  // ===== SERIE TEMPORAL =====
+                  const historico=Array.isArray(correlacaoHistorico)?correlacaoHistorico:[];
+                  // Adiciona o snapshot atual como "ponto vivo" no final (nao salvo ainda)
+                  const serieCompleta=[...historico,{date:"agora",ts:Date.now(),enbEfetivo:m.enbEfetivo,enbHerfindahl:m.enbHerfindahl,corrMediaPond:m.corrMediaPond,hhi:m.hhi,_vivo:true}];
+                  const temHistorico=historico.length>=1;
+                  return h("div",{style:{marginTop:14,padding:"12px 13px",background:"linear-gradient(135deg,rgba(91,143,212,0.05),rgba(91,143,212,0.02))",border:"1px solid rgba(91,143,212,0.30)",borderRadius:7}},
+                    h("div",{style:{fontSize:9,letterSpacing:1.5,color:"#7AB0E0",fontFamily:"monospace",fontWeight:700,marginBottom:7}},"\u{1F4CA} EVOLUCAO DAS METRICAS DE DIVERSIFICACAO"),
+                    h("p",{style:{fontSize:8.5,color:"#9A9080",fontStyle:"italic",lineHeight:1.5,margin:"0 0 12px"}},
+                      "Snapshot atual (radar) + evolucao temporal (linhas). A cada aporte fechado um snapshot e registrado - veja se as metricas estao se aproximando ou se afastando dos alvos."
+                    ),
+                    // ===== RADAR =====
+                    h("div",{style:{marginBottom:14,padding:"10px 11px",background:"rgba(0,0,0,0.20)",borderRadius:6}},
+                      h("div",{style:{fontSize:8,letterSpacing:1.2,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,marginBottom:7}},"\u{1F4D0} SNAPSHOT ATUAL (radar normalizado 0-100)"),
+                      h("div",{style:{display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}},
+                        // SVG do radar
+                        h("svg",{width:radarSize,height:radarSize,style:{flexShrink:0,maxWidth:"100%"}},
+                          // Eixos
+                          ...angulos.map((a,k)=>{
+                            const aa=a-Math.PI/2;
+                            const xEnd=radarCx+radarR*Math.cos(aa);
+                            const yEnd=radarCy+radarR*Math.sin(aa);
+                            return h("line",{key:"ax"+k,x1:radarCx,y1:radarCy,x2:xEnd,y2:yEnd,stroke:"rgba(200,169,110,0.25)","stroke-width":1});
+                          }),
+                          // Aneis de referencia 25/50/75/100
+                          [0.25,0.5,0.75,1.0].map(p=>h("polygon",{key:"ring"+p,points:angulos.map((a,k)=>{
+                            const aa=a-Math.PI/2;
+                            const x=radarCx+(p*radarR)*Math.cos(aa);
+                            const y=radarCy+(p*radarR)*Math.sin(aa);
+                            return x.toFixed(1)+","+y.toFixed(1);
+                          }).join(" "),fill:"none",stroke:"rgba(200,169,110,0.12)","stroke-width":1,"stroke-dasharray":p===1.0?"":"3,3"})),
+                          // Poligono do portfolio
+                          h("polygon",{points:polyStr,fill:"rgba(91,143,212,0.20)",stroke:"#5B8FD4","stroke-width":2,"stroke-linejoin":"round"}),
+                          // Pontos nos vertices
+                          ...polyPoints.map((p,k)=>h("circle",{key:"pt"+k,cx:p.x,cy:p.y,r:4,fill:p.met.cor,stroke:"#1A1612","stroke-width":1.5})),
+                          // Labels nos eixos
+                          ...polyPoints.map((p,k)=>{
+                            const a=angulos[k]-Math.PI/2;
+                            const xL=radarCx+(radarR+14)*Math.cos(a);
+                            const yL=radarCy+(radarR+14)*Math.sin(a);
+                            const textAnchor=Math.abs(Math.cos(a))<0.3?"middle":(Math.cos(a)>0?"start":"end");
+                            return h("text",{key:"lbl"+k,x:xL,y:yL,"text-anchor":textAnchor,"dominant-baseline":"middle","font-size":8,"font-family":"monospace",fill:p.met.cor,"font-weight":700},p.met.label.split(" ")[0]);
+                          })
+                        ),
+                        // Legenda lateral com valores
+                        h("div",{style:{flex:"1 1 auto",minWidth:140,display:"flex",flexDirection:"column",gap:6}},
+                          ...metricasViz.map((met,k)=>{
+                            const score=norm(met);
+                            const corScore=score>=70?"#4CAF82":score>=50?"#E8C44A":score>=30?"#E89060":"#E05252";
+                            return h("div",{key:"lg"+k,style:{padding:"6px 8px",background:"rgba(0,0,0,0.20)",borderLeft:"3px solid "+met.cor,borderRadius:"0 4px 4px 0"}},
+                              h("div",{style:{fontSize:8.5,color:met.cor,fontFamily:"monospace",fontWeight:700,marginBottom:3,letterSpacing:0.5}},met.label),
+                              h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:6,fontSize:9,fontFamily:"monospace"}},
+                                h("span",{style:{color:"#E8E2D5",fontWeight:700}},met.valor.toFixed(met.decimais)),
+                                h("span",{style:{color:"#7A7060",fontSize:7.5}},"alvo: ",(met.maior?"\u2265 ":"\u2264 "),met.alvo.toFixed(met.decimais))
+                              ),
+                              h("div",{style:{marginTop:3,fontSize:7,color:corScore,fontWeight:700,fontFamily:"monospace"}},"score normalizado: ",score.toFixed(0),"/100")
+                            );
+                          })
+                        )
+                      )
+                    ),
+                    // ===== SERIES TEMPORAIS =====
+                    h("div",{style:{padding:"10px 11px",background:"rgba(0,0,0,0.20)",borderRadius:6}},
+                      h("div",{style:{fontSize:8,letterSpacing:1.2,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,marginBottom:7}},"\u{1F4C8} EVOLUCAO TEMPORAL (escala real de cada metrica)"),
+                      !temHistorico?h("p",{style:{fontSize:9,color:"#9A9080",fontStyle:"italic",margin:"7px 0",lineHeight:1.5}},
+                        "Nenhum snapshot historico registrado ainda. Os pontos serao adicionados conforme voce for fechando aportes - cada aporte fechado registra um snapshot das 4 metricas, e voce vera as linhas evoluindo ao longo do tempo. Por enquanto, apenas o ponto atual e exibido."
+                      ):null,
+                      // Container das 4 linhas (uma para cada metrica)
+                      ...metricasViz.map((met,k)=>{
+                        const valores=serieCompleta.map(s=>s[met.key]);
+                        const minV=Math.min(...valores,met.alvo);
+                        const maxV=Math.max(...valores,met.alvo);
+                        const range=Math.max(maxV-minV,0.001);
+                        const padding=range*0.15;
+                        const yMin=minV-padding;
+                        const yMax=maxV+padding;
+                        const yRange=yMax-yMin;
+                        // Dimensoes do mini grafico
+                        const gW=300;const gH=55;const padL=8;const padR=8;const padT=6;const padB=10;
+                        const plotW=gW-padL-padR;
+                        const plotH=gH-padT-padB;
+                        const nPts=serieCompleta.length;
+                        const xStep=nPts>1?plotW/(nPts-1):0;
+                        // Pontos da linha (x, y em coords SVG)
+                        const pts=serieCompleta.map((s,i)=>{
+                          const x=padL+(nPts>1?i*xStep:plotW/2);
+                          const yNorm=(s[met.key]-yMin)/yRange;
+                          const y=padT+(1-yNorm)*plotH;
+                          return {x,y,s,valor:s[met.key]};
+                        });
+                        // Linha do alvo
+                        const yAlvoNorm=(met.alvo-yMin)/yRange;
+                        const yAlvo=padT+(1-yAlvoNorm)*plotH;
+                        // String de path
+                        const pathStr=pts.map((p,i)=>(i===0?"M":"L")+p.x.toFixed(1)+","+p.y.toFixed(1)).join(" ");
+                        const corScoreFinal=(()=>{
+                          const sc=norm(met);return sc>=70?"#4CAF82":sc>=50?"#E8C44A":sc>=30?"#E89060":"#E05252";
+                        })();
+                        return h("div",{key:"ts"+k,style:{display:"flex",alignItems:"center",gap:10,marginBottom:k<metricasViz.length-1?7:0,flexWrap:"wrap"}},
+                          // Legenda da linha
+                          h("div",{style:{minWidth:140,flex:"0 0 140px",display:"flex",flexDirection:"column",gap:1}},
+                            h("div",{style:{display:"flex",alignItems:"center",gap:5}},
+                              h("span",{style:{display:"inline-block",width:14,height:2,background:met.cor,flexShrink:0}}),
+                              h("span",{style:{fontSize:8.5,color:met.cor,fontFamily:"monospace",fontWeight:700,letterSpacing:0.3}},met.label)
+                            ),
+                            h("div",{style:{fontSize:7.5,color:"#9A9080",fontFamily:"monospace",paddingLeft:19}},"atual ",met.valor.toFixed(met.decimais)," | alvo ",(met.maior?"\u2265":"\u2264")," ",met.alvo.toFixed(met.decimais))
+                          ),
+                          // Mini grafico SVG
+                          h("svg",{width:gW,height:gH,style:{flex:"1 1 auto",maxWidth:"100%",background:"rgba(0,0,0,0.20)",borderRadius:3}},
+                            // Linha do alvo (tracejada dourada)
+                            h("line",{x1:padL,y1:yAlvo,x2:padL+plotW,y2:yAlvo,stroke:"#C8A96E","stroke-width":1,"stroke-dasharray":"3,3",opacity:0.7}),
+                            h("text",{x:padL+plotW-2,y:yAlvo-2,"text-anchor":"end","font-size":7,fill:"#C8A96E","font-family":"monospace"},"alvo"),
+                            // Linha do portfolio (ate o ponto atual)
+                            h("path",{d:pathStr,fill:"none",stroke:met.cor,"stroke-width":1.8,"stroke-linejoin":"round","stroke-linecap":"round"}),
+                            // Pontos
+                            ...pts.map((p,i)=>h("circle",{key:"p"+i,cx:p.x,cy:p.y,r:p.s._vivo?4:2.5,fill:p.s._vivo?"#E8E2D5":met.cor,stroke:p.s._vivo?met.cor:"#1A1612","stroke-width":1.5})),
+                            // Ultimo valor em texto
+                            pts.length>0?h("text",{x:pts[pts.length-1].x+6,y:pts[pts.length-1].y+3,"font-size":7,fill:corScoreFinal,"font-family":"monospace","font-weight":700},pts[pts.length-1].valor.toFixed(met.decimais)):null
+                          )
+                        );
+                      }),
+                      // Rodape com info dos snapshots
+                      h("div",{style:{marginTop:8,padding:"5px 8px",background:"rgba(200,169,110,0.05)",borderLeft:"2px solid #C8A96E",borderRadius:"0 3px 3px 0",fontSize:7.5,color:"#7A7060",fontStyle:"italic",lineHeight:1.5}},
+                        temHistorico?
+                          h("span",{},h("strong",{style:{color:"#C8A96E"}},historico.length," snapshot"+(historico.length>1?"s":"")+" no historico")," + ponto atual em destaque. Linha tracejada dourada = alvo. Aproximacao continua = direcao certa."):
+                          h("span",{},h("strong",{style:{color:"#C8A96E"}},"Aguardando snapshots"),". Feche um aporte na aba Aporte para gerar o primeiro ponto historico - a partir do segundo, voce ja consegue ver a tendencia.")
+                      )
+                    )
+                  );
+                }catch(e){
+                  console.error("Erro grafico diversificacao:",e);
+                  return null;
+                }
+              })()
             )
           );
         }catch(e){
