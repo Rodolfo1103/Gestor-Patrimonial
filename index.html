@@ -11569,7 +11569,7 @@ function App(){
   // Fecha o aporte (carimbo definitivo)
   const fecharAporte=()=>{
     if(!apR)return;
-    if(!confirm("Fechar este aporte? Ele sera marcado como definitivo e registrado no Historico. Voce ainda podera baixar o PDF e cadastrar as compras na aba Posicoes."))return;
+    if(!confirm("Fechar este aporte?\\n\\n\u2192 Ele sera registrado no Historico (com decomposicao por classe)\\n\u2192 A aba Aporte sera limpa para um novo aporte\\n\\nDICA: se quiser o PDF, baixe ANTES de fechar (botao no final da tela)."))return;
     const ts=Date.now();
     // Determina a DATA do aporte para o Historico:
     // prioridade: periodoFim > periodoInicio > hoje
@@ -11604,7 +11604,13 @@ function App(){
       nova.sort((a,b)=>a.date.localeCompare(b.date));
       return nova;
     });
-    setApR(prev=>({...prev,aporteFinalDefinido:true,aporteFinalTs:ts}));
+    // Limpa a aba Aporte: zera todos os campos para um novo aporte
+    setApR(null);
+    setApV("");
+    setAporteValores({});
+    setAporteTickers({});
+    setAportePeriodoInicio("");
+    setAportePeriodoFim("");
   };
 
   // Editar aporte (volta para o form)
