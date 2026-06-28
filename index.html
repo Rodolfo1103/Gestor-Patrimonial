@@ -7882,8 +7882,19 @@ function App(){
         if(dd.miraIA&&typeof dd.miraIA==="object"&&dd.miraIA.janelaId&&Array.isArray(dd.miraIA.ativos)){
           setMiraIA(dd.miraIA);
         }
+        // Verifica se o aporte foi limpo recentemente (botao "Fechar aporte" da aba Aporte)
+        // Se sim, descarta os dados antigos do localStorage para evitar reaparecimento
+        let aporteRecentementeLimpo=false;
+        try{
+          const tsLimpeza=parseInt(localStorage.getItem("aporte-cleared-ts")||"0",10);
+          // Considera "recente" qualquer limpeza posterior ao timestamp do dado salvo (compara contra apR.aporteFinalTs)
+          // Ou seja: se a limpeza foi APOS o apR ter sido marcado como fechado, descarta o apR antigo
+          if(tsLimpeza>0&&dd.apR&&dd.apR.aporteFinalTs&&tsLimpeza>=dd.apR.aporteFinalTs){
+            aporteRecentementeLimpo=true;
+          }
+        }catch(_){}
         // Carregar aporte gerado pela IA (persiste a sugestao entre sessoes)
-        if(dd.apR&&typeof dd.apR==="object"&&dd.apR.classes){
+        if(dd.apR&&typeof dd.apR==="object"&&dd.apR.classes&&!aporteRecentementeLimpo){
           setApR(dd.apR);
           // SINCRONIZACAO: se o apR esta marcado como FECHADO (aporteFinalDefinido=true),
           // garante que existe uma entrada correspondente em aportesSimples com a decomposicao correta.
@@ -7940,20 +7951,20 @@ function App(){
             }
           }
         }
-        if(dd.apV&&typeof dd.apV==="string"){
+        if(dd.apV&&typeof dd.apV==="string"&&!aporteRecentementeLimpo){
           setApV(dd.apV);
         }
         // Carregar valores e tickers do aporte manual em construcao
-        if(dd.aporteValores&&typeof dd.aporteValores==="object"){
+        if(dd.aporteValores&&typeof dd.aporteValores==="object"&&!aporteRecentementeLimpo){
           setAporteValores(dd.aporteValores);
         }
-        if(dd.aporteTickers&&typeof dd.aporteTickers==="object"){
+        if(dd.aporteTickers&&typeof dd.aporteTickers==="object"&&!aporteRecentementeLimpo){
           setAporteTickers(dd.aporteTickers);
         }
-        if(typeof dd.aportePeriodoInicio==="string"){
+        if(typeof dd.aportePeriodoInicio==="string"&&!aporteRecentementeLimpo){
           setAportePeriodoInicio(dd.aportePeriodoInicio);
         }
-        if(typeof dd.aportePeriodoFim==="string"){
+        if(typeof dd.aportePeriodoFim==="string"&&!aporteRecentementeLimpo){
           setAportePeriodoFim(dd.aportePeriodoFim);
         }
         // Override com rrdata-v1 (chave dedicada nao criptografada) - tem prioridade pois e salva imediatamente
@@ -11613,6 +11624,8 @@ function App(){
     setAporteTickers({});
     setAportePeriodoInicio("");
     setAportePeriodoFim("");
+    // Force-flag para evitar que o load restaure dados antigos em uma proxima sessao se o save ainda nao tiver propagado
+    try{localStorage.setItem("aporte-cleared-ts",String(Date.now()));}catch(_){}
   };
 
   // Editar aporte (volta para o form)
