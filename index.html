@@ -16384,7 +16384,67 @@ h("button",{onClick:async()=>{
                     "\u2022 ",h("strong",{style:{color:b.color}},b.label.split(" (")[0]),": voce ",h("strong",{},formatPct(b.real)),", YPB sugere ",h("strong",{},formatPct(b.ypb)),
                     " (",b.diff>0?h("span",{style:{color:"#E8C44A"}},"+"+(b.diff*100).toFixed(1)+"pp acima"):h("span",{style:{color:"#E89060"}},(b.diff*100).toFixed(1)+"pp abaixo"),")"
                   ))
-                )
+                ),
+                // ===== DICAS PARA O PROXIMO APORTE (ranking de prioridades) =====
+                (()=>{
+                  // Constroi ranking de buckets por necessidade de reforco
+                  // Prioridade = |diff negativo| (quanto mais abaixo do YPB, mais prioritario)
+                  // Buckets ACIMA do YPB ficam no fim como "limitar"
+                  const ranking=Object.entries(buckets).map(([k,b])=>({k,b,diff:b.diff}));
+                  // Separa em 3 grupos
+                  const reforcar=ranking.filter(r=>r.diff<-0.02).sort((a,b)=>a.diff-b.diff);// mais negativos primeiro
+                  const limitar=ranking.filter(r=>r.diff>0.02).sort((a,b)=>b.diff-a.diff);// mais positivos primeiro
+                  // Dica de ENB e correlacao
+                  let dicaDiv="";
+                  if(enbDelta<-0.5){
+                    dicaDiv="seu ENB esta abaixo do YPB - priorize classes com baixa correlacao (BTC tem corr~0 com tudo; Treasuries tem corr negativa com equity; Ouro/NTN-B hedgeam inflacao). ";
+                  }else if(corrMediaPond>0.40){
+                    dicaDiv="sua correlacao media e alta - evite reforcar classes que andam juntas (BR+EUA+MUNDO sao +0.55 corr; FII+Infra+Agro sao +0.40 corr). ";
+                  }
+                  return h("div",{style:{marginTop:9,padding:"10px 12px",background:"linear-gradient(135deg,rgba(200,169,110,0.08),rgba(200,169,110,0.03))",border:"1px solid rgba(200,169,110,0.30)",borderRadius:6}},
+                    h("div",{style:{fontSize:9,letterSpacing:1.2,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,marginBottom:7}},"\u{1F3AF} DICAS PARA O PROXIMO APORTE"),
+                    // Texto em prosa
+                    h("p",{style:{fontSize:9.5,color:"#E8E2D5",lineHeight:1.65,margin:"0 0 7px",fontFamily:"Georgia,serif"}},
+                      reforcar.length===0&&limitar.length===0?
+                        h("span",{},"Seu portfolio esta plenamente alinhado ao YPB nos 5 buckets - o proximo aporte pode seguir distribuicao proporcional. "):
+                        null,
+                      reforcar.length>0?h("span",{},
+                        h("strong",{style:{color:"#4CAF82"}},"Priorizar reforco em: "),
+                        reforcar.slice(0,3).map((r,i)=>h("span",{key:"r"+i},
+                          i>0?(i===reforcar.slice(0,3).length-1?" e ":", "):"",
+                          h("strong",{style:{color:r.b.color}},r.b.label.split(" (")[0]),
+                          " (",h("span",{style:{color:"#E89060"}},(r.diff*100).toFixed(1)+"pp"),
+                          " abaixo)"
+                        )),
+                        ". "
+                      ):null,
+                      limitar.length>0?h("span",{},
+                        h("strong",{style:{color:"#E89060"}},"Limitar aporte em: "),
+                        limitar.slice(0,3).map((r,i)=>h("span",{key:"l"+i},
+                          i>0?(i===limitar.slice(0,3).length-1?" e ":", "):"",
+                          h("strong",{style:{color:r.b.color}},r.b.label.split(" (")[0]),
+                          " (",h("span",{style:{color:"#E8C44A"}},"+"+(r.diff*100).toFixed(1)+"pp"),
+                          " acima)"
+                        )),
+                        " - aporte aqui apenas no piso. "
+                      ):null,
+                      dicaDiv?h("span",{style:{color:"#C8A96E",fontStyle:"italic"}},dicaDiv):null,
+                      h("span",{style:{color:"#9A9080",fontStyle:"italic"}},"Considere ENB (",enbEfetivo.toFixed(2),") e correlacao media (",corrMediaPond.toFixed(2),") ao desempatar entre classes - quando duas classes empatam em prioridade, prefira a que reduz mais a correlacao do portfolio.")
+                    ),
+                    // Listagem em "ranking" enxuto
+                    reforcar.length>0?h("div",{style:{marginTop:7,padding:"7px 9px",background:"rgba(0,0,0,0.20)",borderRadius:4}},
+                      h("div",{style:{fontSize:7.5,letterSpacing:1,color:"#4CAF82",fontFamily:"monospace",fontWeight:700,marginBottom:5}},"\u2191 ORDEM DE PRIORIDADE NO APORTE"),
+                      ...reforcar.slice(0,3).map((r,i)=>h("div",{key:"rk"+i,style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:6,fontSize:9,fontFamily:"monospace",marginBottom:i<reforcar.length-1?3:0}},
+                        h("div",{style:{display:"flex",alignItems:"center",gap:5,flex:"1 1 auto",minWidth:0}},
+                          h("span",{style:{fontSize:9,color:"#7A7060",fontWeight:700,minWidth:14}},"#"+(i+1)),
+                          h("span",{style:{width:6,height:6,borderRadius:"50%",background:r.b.color,display:"inline-block"}}),
+                          h("span",{style:{color:"#E8E2D5",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}},r.b.label.split(" (")[0])
+                        ),
+                        h("span",{style:{color:"#E89060",fontSize:8.5,whiteSpace:"nowrap",flexShrink:0,fontWeight:700}},"gap "+(r.diff*100).toFixed(1)+"pp")
+                      ))
+                    ):null
+                  );
+                })()
               );
             })()
           );
