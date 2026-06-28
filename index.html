@@ -17662,6 +17662,346 @@ h("button",{onClick:async()=>{
       const classesComTicker=classesComValor.filter(c=>{const t=(aporteTickers[c.id]||"").trim();return t.length>0;});
       const todosTickersOk=classesComValor.length>0&&classesComTicker.length===classesComValor.length;
       content=h("div",{},
+        // ===== CARD SUMARIO DAS RECOMENDACOES ATUAIS =====
+        // Card dourado no inicio da aba Aporte que agrega as recomendacoes das 5 fontes:
+        // MPT, All Weather, Yale/YPB, Solidez Patrimonial, Vetores Macro.
+        // Score 0-100 por classe: quantas fontes recomendam + ponderacao por gap pp.
+        (()=>{
+          try{
+            // ===== Estrutura: para cada classe, calcular contribuicao de cada fonte =====
+            // contribuicoes[classe.id] = {mpt:{score, gap, recomenda}, aw:{...}, ypb:{...}, solidez:{...}, vetores:{...}}
+            const contribuicoes={};
+            CL.forEach(c=>{contribuicoes[c.id]={mpt:null,aw:null,ypb:null,solidez:null,vetores:null};});
+
+            // ----- FONTE 1: MPT - compara cw vs portfolio com maior nota hibrida do MC -----
+            try{
+              if(Array.isArray(mptCache)&&mptCache.length>0){
+                // Calcular nota hibrida de cada portfolio no MC (~similar ao card MPT)
+                const rfBR=(typeof selicAtual==="number"&&selicAtual>0?selicAtual:14.25)*(1-IR_LONGO_PRAZO)/100;
+                // Encontra fronteira (envelope superior do MC)
+                const N_BUCKETS=40;
+                const todasVols=mptCache.map(p=>p.vol);
+                const volMin=Math.min(...todasVols);const volMax=Math.max(...todasVols);
+                const bucketSize=(volMax-volMin)/N_BUCKETS;
+                const fronteira=[];
+                for(let b=0;b<N_BUCKETS;b++){
+                  const vL=volMin+b*bucketSize;const vH=vL+bucketSize;
+                  let maxR=-Infinity,volMed=vL+bucketSize/2;
+                  for(const p of mptCache){
+                    if(p.vol>=vL&&p.vol<vH&&p.ret>maxR){maxR=p.ret;volMed=p.vol;}
+                  }
+                  if(maxR>-Infinity)fronteira.push({vol:volMed,ret:maxR});
+                }
+                fronteira.sort((a,b)=>a.vol-b.vol);
+                const retMaxAteVol=(v)=>{
+                  let melhor=0;
+                  for(const f of fronteira){if(f.vol<=v&&f.ret>melhor)melhor=f.ret;}
+                  return melhor;
+                };
+                // Sharpe range
+                const sharpes=mptCache.map(p=>p.sharpe);
+                const worstSh=Math.min(...sharpes);const bestSh=Math.max(...sharpes);
+                const shRange=bestSh-worstSh;
+                // Nota hibrida helper
+                const calcNota=(p)=>{
+                  const eF=Math.max(0,Math.min(100,(p.ret/Math.max(0.001,retMaxAteVol(p.vol)))*100));
+                  const eS=shRange>0?Math.max(0,Math.min(100,((p.sharpe-worstSh)/shRange)*100)):50;
+                  let hhi=0;for(const w of p.w)hhi+=w*w;
+                  const eD=Math.max(0,Math.min(100,((1-hhi)/(1-1/MPT_CLS.length))*100));
+                  // Media harmonica ponderada 35/45/20
+                  const wF=0.35,wS=0.45,wD=0.20;
+                  const sum=wF/Math.max(eF,1)+wS/Math.max(eS,1)+wD/Math.max(eD,1);
+                  return (wF+wS+wD)/sum;
+                };
+                // Acha o portfolio com maior nota hibrida
+                let pBest=mptCache[0],bestNota=calcNota(pBest);
+                for(const p of mptCache){
+                  const n=calcNota(p);
+                  if(n>bestNota){bestNota=n;pBest=p;}
+                }
+                // Compara cw atual vs pBest
+                MPT_CLS.forEach((cid,i)=>{
+                  const pesoAtualPp=cw[cid]||0;
+                  const pesoOtimoPp=(pBest.w[i]||0)*100;
+                  const gap=pesoOtimoPp-pesoAtualPp;
+                  if(contribuicoes[cid]){
+                    contribuicoes[cid].mpt={gap,pesoAtual:pesoAtualPp,pesoOtimo:pesoOtimoPp,recomenda:gap>=2};
+                  }
+                });
+              }
+            }catch(e){console.warn("Erro fonte MPT no sumario:",e);}
+
+            // ----- FONTE 2: ALL WEATHER - compara cw vs AW_W -----
+            try{
+              MPT_CLS.forEach(cid=>{
+                const pesoAtualPp=cw[cid]||0;
+                const pesoAW=(AW_W[cid]||0)*100;
+                const gap=pesoAW-pesoAtualPp;
+                if(contribuicoes[cid]){
+                  contribuicoes[cid].aw={gap,pesoAtual:pesoAtualPp,pesoOtimo:pesoAW,recomenda:gap>=2};
+                }
+              });
+            }catch(e){console.warn("Erro fonte AW no sumario:",e);}
+
+            // ----- FONTE 3: YALE/YPB - propaga buckets para classes componentes -----
+            try{
+              // Mapeamento bucket -> classes componentes
+              const BUCKET_CLASSES={
+                equity:["acoes_br","acoes_eua","acoes_mundo","reits"],
+                realAssets:["fii","infra","agro","imoveis"],
+                altLiquid:["bitcoin"],
+                inflationHedge:["ouro","rfipca"],
+                fixedNominal:["selic","treasuries"]
+              };
+              // Alvos YPB
+              const YPB_ALVO={equity:0.44,realAssets:0.33,altLiquid:0.03,inflationHedge:0.08,fixedNominal:0.12};
+              // Calcular peso atual de cada bucket
+              const bucketsAtual={};
+              Object.entries(BUCKET_CLASSES).forEach(([bk,cls])=>{
+                bucketsAtual[bk]=cls.reduce((s,cid)=>s+(cw[cid]||0)/100,0);
+              });
+              // Para cada bucket, calcular gap e propagar para classes componentes
+              Object.entries(BUCKET_CLASSES).forEach(([bk,cls])=>{
+                const gapBucket=(YPB_ALVO[bk]-bucketsAtual[bk])*100;// em pp
+                cls.forEach(cid=>{
+                  if(contribuicoes[cid]){
+                    contribuicoes[cid].ypb={gap:gapBucket,bucket:bk,pesoAtualBucket:bucketsAtual[bk]*100,alvoBucket:YPB_ALVO[bk]*100,recomenda:gapBucket>=2};
+                  }
+                });
+              });
+            }catch(e){console.warn("Erro fonte YPB no sumario:",e);}
+
+            // ----- FONTE 4: SOLIDEZ PATRIMONIAL - mapa fixo de classes prioritarias por dimensao -----
+            // Como nao temos acesso facil aos scores das 5 dimensoes no escopo da aba Aporte,
+            // usamos um mapa heuristico: certas classes ajudam dimensoes especificas independente do estado.
+            try{
+              // Mapa: classe -> intensidade de contribuicao (0-1) para Solidez
+              // Classes que ajudam multiplas dimensoes ganham mais score
+              const SOLIDEZ_HELP={
+                rfipca:0.95,// ajuda Renda, Resiliencia, Diversificacao - 3 dim
+                treasuries:0.95,// ajuda Resiliencia, Diversificacao, Blindagem Cambial - 3 dim
+                bitcoin:0.75,// ajuda principalmente Diversificacao - 1 dim mas com peso forte
+                ouro:0.70,// ajuda Resiliencia, Diversificacao, Blindagem - 3 dim mas com peso menor
+                selic:0.55,// ajuda Tamanho e Resiliencia - 2 dim
+                infra:0.55,// ajuda Renda - 1 dim
+                fii:0.40,// ajuda Renda - 1 dim mas geralmente sobrealocada
+                fiagros:0.55,// ajuda Renda - 1 dim
+                reits:0.65,// ajuda Renda e Blindagem Cambial - 2 dim
+                acoes_eua:0.55,// ajuda Blindagem Cambial - 1 dim
+                acoes_mundo:0.55,// ajuda Blindagem Cambial - 1 dim
+                acoes_br:0.20// pouco ajuda Solidez (motor de retorno, nao de Solidez)
+              };
+              Object.entries(SOLIDEZ_HELP).forEach(([cid,intensidade])=>{
+                if(contribuicoes[cid]){
+                  contribuicoes[cid].solidez={intensidade,recomenda:intensidade>=0.50};
+                }
+              });
+            }catch(e){console.warn("Erro fonte Solidez no sumario:",e);}
+
+            // ----- FONTE 5: VETORES MACRO - replica score consolidado -----
+            try{
+              const pesoIntens=(it)=>it==="FORTE"?1.0:it==="MEDIA"?0.6:it==="BAIXA"?0.3:0.3;
+              const VETORES=[
+                {nome:"Taxa de Juros (Selic)",impactos:[
+                  {classe:"selic",direcao:1,intensidade:"FORTE"},{classe:"rfipca",direcao:-1,intensidade:"FORTE"},
+                  {classe:"fii",direcao:-1,intensidade:"FORTE"},{classe:"acoes_br",direcao:-1,intensidade:"MEDIA"},
+                  {classe:"imoveis",direcao:-1,intensidade:"MEDIA"},{classe:"infra",direcao:-1,intensidade:"MEDIA"},
+                  {classe:"agro",direcao:-1,intensidade:"MEDIA"},{classe:"ouro",direcao:-1,intensidade:"BAIXA"},
+                  {classe:"bitcoin",direcao:-1,intensidade:"BAIXA"}
+                ]},
+                {nome:"Inflacao (IPCA)",impactos:[
+                  {classe:"rfipca",direcao:1,intensidade:"FORTE"},{classe:"ouro",direcao:1,intensidade:"FORTE"},
+                  {classe:"infra",direcao:1,intensidade:"FORTE"},{classe:"fii",direcao:1,intensidade:"MEDIA"},
+                  {classe:"agro",direcao:1,intensidade:"MEDIA"},{classe:"bitcoin",direcao:1,intensidade:"BAIXA"},
+                  {classe:"selic",direcao:-1,intensidade:"MEDIA"},{classe:"treasuries",direcao:-1,intensidade:"MEDIA"}
+                ]},
+                {nome:"Cambio (USD/BRL)",impactos:[
+                  {classe:"treasuries",direcao:1,intensidade:"FORTE"},{classe:"acoes_eua",direcao:1,intensidade:"FORTE"},
+                  {classe:"acoes_mundo",direcao:1,intensidade:"FORTE"},{classe:"reits",direcao:1,intensidade:"FORTE"},
+                  {classe:"bitcoin",direcao:1,intensidade:"FORTE"},{classe:"ouro",direcao:1,intensidade:"MEDIA"}
+                ]},
+                {nome:"Risco Fiscal BR",impactos:[
+                  {classe:"acoes_br",direcao:-1,intensidade:"FORTE"},{classe:"fii",direcao:-1,intensidade:"FORTE"},
+                  {classe:"infra",direcao:-1,intensidade:"FORTE"},{classe:"rfipca",direcao:-1,intensidade:"FORTE"},
+                  {classe:"treasuries",direcao:1,intensidade:"FORTE"},{classe:"acoes_eua",direcao:1,intensidade:"FORTE"},
+                  {classe:"acoes_mundo",direcao:1,intensidade:"FORTE"},{classe:"reits",direcao:1,intensidade:"FORTE"},
+                  {classe:"bitcoin",direcao:1,intensidade:"MEDIA"},{classe:"ouro",direcao:1,intensidade:"MEDIA"}
+                ]},
+                {nome:"Juros EUA",impactos:[
+                  {classe:"bitcoin",direcao:1,intensidade:"FORTE"},{classe:"acoes_eua",direcao:1,intensidade:"FORTE"},
+                  {classe:"acoes_mundo",direcao:1,intensidade:"FORTE"},{classe:"reits",direcao:1,intensidade:"FORTE"},
+                  {classe:"treasuries",direcao:-1,intensidade:"MEDIA"}
+                ]},
+                {nome:"Ciclo Commodities",impactos:[
+                  {classe:"agro",direcao:1,intensidade:"FORTE"},{classe:"acoes_br",direcao:1,intensidade:"MEDIA"},
+                  {classe:"ouro",direcao:1,intensidade:"MEDIA"}
+                ]}
+              ];
+              // Calcular sensibilidade liquida de cada vetor
+              const sensVetores=VETORES.map(v=>{
+                let pos=0,neg=0;
+                v.impactos.forEach(i=>{
+                  const peso=(cw[i.classe]||0)*pesoIntens(i.intensidade);
+                  if(i.direcao>0)pos+=peso;else neg+=peso;
+                });
+                return {nome:v.nome,impactos:v.impactos,sens:pos-neg,abs:Math.abs(pos-neg)};
+              });
+              const desbal=sensVetores.filter(v=>v.abs>15).sort((a,b)=>b.abs-a.abs);
+              // Score por classe baseado em quantos vetores criticos a recomendam como "aumentar"
+              const scoreClasse={};
+              desbal.slice(0,4).forEach(v=>{
+                const positivo=v.sens>0;
+                // Se positivo, aumentar classes prejudicadas (direcao<0); se negativo, aumentar beneficiadas (direcao>0)
+                const direcaoAumentar=positivo?-1:1;
+                v.impactos.filter(i=>i.direcao===direcaoAumentar).forEach(i=>{
+                  const peso=pesoIntens(i.intensidade);
+                  scoreClasse[i.classe]=(scoreClasse[i.classe]||0)+peso;
+                });
+              });
+              Object.entries(scoreClasse).forEach(([cid,score])=>{
+                if(contribuicoes[cid]){
+                  contribuicoes[cid].vetores={score,recomenda:score>=0.5};
+                }
+              });
+            }catch(e){console.warn("Erro fonte Vetores no sumario:",e);}
+
+            // ===== CALCULA SCORE FINAL POR CLASSE =====
+            // Cada fonte que recomenda contribui 20 pontos (5 fontes x 20 = 100 max)
+            // Ponderacao por intensidade:
+            //   MPT/AW/YPB: bonus por gap pp (mais subalocada = mais ponto)
+            //   Solidez: usa intensidade direta
+            //   Vetores: usa score direto
+            const classesScore=CL.filter(c=>c.id!=="imoveis").map(c=>{
+              const co=contribuicoes[c.id];
+              const fontes=[];// nomes das fontes que recomendam
+              let score=0;
+              // MPT: base 20pts + bonus ate 10pts por gap
+              if(co.mpt&&co.mpt.recomenda){
+                fontes.push("MPT");
+                score+=20+Math.min(10,co.mpt.gap*1.0);
+              }
+              // AW: base 20pts + bonus ate 10pts
+              if(co.aw&&co.aw.recomenda){
+                fontes.push("AW");
+                score+=20+Math.min(10,co.aw.gap*1.0);
+              }
+              // YPB: base 20pts + bonus ate 10pts
+              if(co.ypb&&co.ypb.recomenda){
+                fontes.push("YPB");
+                score+=20+Math.min(10,co.ypb.gap*1.0);
+              }
+              // Solidez: base 20pts + bonus por intensidade
+              if(co.solidez&&co.solidez.recomenda){
+                fontes.push("Solidez");
+                score+=20*co.solidez.intensidade;
+              }
+              // Vetores: base 20pts ajustado pelo score
+              if(co.vetores&&co.vetores.recomenda){
+                fontes.push("Vetores");
+                score+=20+Math.min(5,co.vetores.score*2);
+              }
+              return {id:c.id,name:c.name,color:c.color,pesoAtual:cw[c.id]||0,score:Math.min(100,score),fontes,contribuicoes:co};
+            }).filter(r=>r.score>=10).sort((a,b)=>b.score-a.score);
+
+            // Top 6 para exibir
+            const top6=classesScore.slice(0,6);
+            if(top6.length===0){
+              return h("div",{style:{marginBottom:14,padding:"12px 14px",background:"linear-gradient(135deg,rgba(200,169,110,0.10),rgba(200,169,110,0.04))",border:"1px solid rgba(200,169,110,0.40)",borderRadius:9}},
+                h("div",{style:{fontSize:10,letterSpacing:1.8,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,marginBottom:5}},"\u{1F4CB} SUMARIO DAS RECOMENDACOES ATUAIS"),
+                h("p",{style:{margin:0,fontSize:9.5,color:"#9A9080",fontStyle:"italic",lineHeight:1.55}},
+                  "Nenhuma classe esta com score de recomendacao significativo no momento. Seu portfolio parece bem alinhado com as 5 dimensoes de macro alocacao. Distribuicao livre conforme criterios taticos (oportunidades, preco, qualidade)."
+                )
+              );
+            }
+            // Cor da regua: gradiente verde -> amarelo -> vermelho conforme score
+            const corScore=(s)=>{
+              if(s>=80)return"#4CAF82";// verde forte
+              if(s>=60)return"#7DD17D";// verde
+              if(s>=40)return"#E8C44A";// amarelo
+              if(s>=20)return"#E89060";// laranja
+              return"#9A9080";// neutro
+            };
+            // Numero medio de fontes (sinal da convergencia)
+            const mediaFontes=top6.reduce((s,r)=>s+r.fontes.length,0)/top6.length;
+            const corConvergencia=mediaFontes>=3.5?"#4CAF82":mediaFontes>=2.5?"#E8C44A":"#E89060";
+            const lblConvergencia=mediaFontes>=3.5?"ALTA CONVERGENCIA":mediaFontes>=2.5?"CONVERGENCIA MODERADA":"BAIXA CONVERGENCIA";
+            return h("div",{style:{marginBottom:14,padding:"13px 14px",background:"linear-gradient(135deg,rgba(200,169,110,0.10),rgba(200,169,110,0.04))",border:"1px solid rgba(200,169,110,0.40)",borderRadius:9}},
+              // Header
+              h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:8,flexWrap:"wrap"}},
+                h("div",{style:{fontSize:10,letterSpacing:1.8,color:"#C8A96E",fontFamily:"monospace",fontWeight:700}},
+                  "\u{1F4CB} SUMARIO DAS RECOMENDACOES ATUAIS"
+                ),
+                h("div",{style:{fontSize:8.5,padding:"3px 8px",background:corConvergencia+"20",border:"1px solid "+corConvergencia+"60",borderRadius:10,color:corConvergencia,fontFamily:"monospace",fontWeight:700,letterSpacing:1}},
+                  lblConvergencia
+                )
+              ),
+              // Subtitulo conceitual
+              h("p",{style:{margin:"0 0 11px",fontSize:9,color:"#9A9080",fontStyle:"italic",lineHeight:1.55}},
+                "Score 0-100 por classe baseado em 5 fontes: ",
+                h("strong",{style:{color:"#5B8FD4"}},"MPT")," (fronteira eficiente), ",
+                h("strong",{style:{color:"#2EBFA5"}},"AW")," (All Weather), ",
+                h("strong",{style:{color:"#9C7DC2"}},"YPB")," (Yale buckets), ",
+                h("strong",{style:{color:"#4CAF82"}},"Solidez")," (5 dimensoes), ",
+                h("strong",{style:{color:"#C8A96E"}},"Vetores")," (sensibilidade macro). ",
+                "Cada fonte que recomenda contribui ate 30 pontos. Convergencia de fontes = sinal mais forte."
+              ),
+              // Reguas horizontais por classe
+              h("div",{style:{display:"flex",flexDirection:"column",gap:7}},
+                ...top6.map((r,i)=>{
+                  const corR=corScore(r.score);
+                  // Lista de fontes em cor
+                  const corFonte={MPT:"#5B8FD4",AW:"#2EBFA5",YPB:"#9C7DC2",Solidez:"#4CAF82",Vetores:"#C8A96E"};
+                  return h("div",{key:"rec"+r.id,style:{padding:"9px 11px",background:"rgba(0,0,0,0.22)",borderLeft:"3px solid "+corR,borderRadius:"0 5px 5px 0"}},
+                    // Linha 1: rank, nome, peso atual, score
+                    h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:5,flexWrap:"wrap"}},
+                      h("div",{style:{display:"flex",alignItems:"center",gap:7,flex:"1 1 auto",minWidth:0}},
+                        h("span",{style:{fontSize:9,color:"#7A7060",fontFamily:"monospace",fontWeight:700,minWidth:14}},"#"+(i+1)),
+                        h("span",{style:{width:8,height:8,borderRadius:"50%",background:r.color,display:"inline-block",flexShrink:0}}),
+                        h("span",{style:{fontSize:10.5,color:"#E8E2D5",fontFamily:"Georgia,serif",fontWeight:600}},r.name),
+                        h("span",{style:{fontSize:8,color:"#7A7060",fontFamily:"monospace",marginLeft:2}},"(peso atual ",r.pesoAtual.toFixed(1),"%)")
+                      ),
+                      h("div",{style:{display:"flex",alignItems:"center",gap:6,fontSize:10,fontFamily:"monospace",fontWeight:700,color:corR}},
+                        r.score.toFixed(0),
+                        h("span",{style:{fontSize:8,color:"#7A7060",fontWeight:400}},"/100")
+                      )
+                    ),
+                    // Linha 2: regua horizontal de temperatura
+                    h("div",{style:{position:"relative",height:6,background:"rgba(255,255,255,0.04)",borderRadius:3,overflow:"hidden",marginBottom:5}},
+                      h("div",{style:{position:"absolute",top:0,left:0,height:"100%",width:r.score+"%",background:"linear-gradient(90deg,"+corR+"AA,"+corR+")",borderRadius:3,transition:"width 0.3s"}})
+                    ),
+                    // Linha 3: fontes que recomendam (chips)
+                    h("div",{style:{display:"flex",flexWrap:"wrap",gap:4,alignItems:"center"}},
+                      h("span",{style:{fontSize:7.5,color:"#7A7060",fontFamily:"monospace",letterSpacing:0.5,marginRight:3}},r.fontes.length+"/5 fontes:"),
+                      ...r.fontes.map(f=>h("span",{key:"f"+f,style:{fontSize:7.5,padding:"1.5px 5px",background:corFonte[f]+"22",border:"1px solid "+corFonte[f]+"55",borderRadius:8,color:corFonte[f],fontFamily:"monospace",fontWeight:700}},f))
+                    ),
+                    // Linha 4: explicacao racional (curta)
+                    (()=>{
+                      const exps=[];
+                      const co=r.contribuicoes;
+                      if(co.mpt&&co.mpt.recomenda)exps.push("MPT: gap +"+co.mpt.gap.toFixed(1)+"pp vs ponto otimo");
+                      if(co.aw&&co.aw.recomenda)exps.push("AW: gap +"+co.aw.gap.toFixed(1)+"pp vs alvo");
+                      if(co.ypb&&co.ypb.recomenda)exps.push("YPB: bucket "+co.ypb.bucket+" "+co.ypb.gap.toFixed(1)+"pp abaixo do alvo");
+                      if(co.solidez&&co.solidez.recomenda)exps.push("Solidez: classe-chave para gargalos");
+                      if(co.vetores&&co.vetores.recomenda)exps.push("Vetores: equilibra desbalanceamento macro");
+                      if(exps.length===0)return null;
+                      return h("div",{style:{marginTop:5,fontSize:8,color:"#9A9080",fontFamily:"monospace",lineHeight:1.45,fontStyle:"italic"}},
+                        exps.join(" \u00B7 ")
+                      );
+                    })()
+                  );
+                })
+              ),
+              // Rodape: aviso de dinamica
+              h("div",{style:{fontSize:8,color:"#7A7060",fontStyle:"italic",lineHeight:1.55,marginTop:11,paddingTop:9,borderTop:"1px solid rgba(255,255,255,0.06)"}},
+                h("strong",{style:{color:"#C8A96E"}},"\u{1F501} Dinamico: "),
+                "este sumario recalcula automaticamente conforme voce adiciona/remove ativos, ajusta posicoes ou os precos de mercado mexem nos pesos das classes. Aporte e apenas UM dos eventos que altera as recomendacoes."
+              )
+            );
+          }catch(e){
+            console.error("Erro no Sumario das Recomendacoes:",e);
+            return null;
+          }
+        })(),
         // ===== A. VALOR DO APORTE =====
         h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:7}},"Valor do aporte"),
         h("div",{style:{display:"flex",alignItems:"center",gap:7,background:"rgba(200,169,110,0.05)",border:"1px solid rgba(200,169,110,0.25)",borderRadius:9,padding:"11px 14px",marginBottom:14}},
