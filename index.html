@@ -17903,6 +17903,8 @@ h("button",{onClick:async()=>{
         const notaFinal=calcNotaHibrida(statsAtual.ret,statsAtual.vol,sharpeAtual,wAtual_arr);
         // Exporta para escopo externo (regua de eficiencia abaixo do grafico precisa desses valores)
         window.__mptNotaFinal=notaFinal;
+        // Exporta componentes da nota hibrida (usado no subcard de Dicas de Aporte para identificar gargalo)
+        window.__mptComponentes={efFronteira:efFront,efSharpe:efSharpe,efDiv:efDiv};
         // Funcao wrapper para portfolio do MC (recebe objeto com .ret .vol .sharpe .w)
         const calcNotaPortMC=(p)=>calcNotaHibrida(p.ret,p.vol,p.sharpe,p.w);
         // Conceito A-F estilo escolar (faixas calibradas: 5 pontos para A, depois 10pp ate D, 15pp E, <40 F)
@@ -18301,7 +18303,111 @@ h("button",{onClick:async()=>{
                 notaFinal>=notaMedia+15?h("span",{},"esta ",h("strong",{style:{color:"#4CAF82"}},"+"+(notaFinal-notaMedia).toFixed(0)+" pontos acima da media")," dos portfolios simulados. ",notaFinal>=notaMelhor-5?"Posicao muito proxima do otimo possivel.":"Bem acima do tipico."):
                 notaFinal>=notaMedia-5?h("span",{},"esta ",h("strong",{style:{color:"#E8C44A"}},"proxima da media")," (",notaMedia.toFixed(0),") dos portfolios simulados. Ha espaco para otimizacao em direcao ao otimo (",notaMelhor.toFixed(0),")."):
                 h("span",{},"esta ",h("strong",{style:{color:"#E89060"}},(notaMedia-notaFinal).toFixed(0)+" pontos abaixo da media"),". Mesmo um portfolio aleatorio tende a performar melhor - revisao da composicao recomendada.")
-              )
+              ),
+              // ===== DICAS PARA O PROXIMO APORTE (ranking baseado em gap vs portfolio otimo do MC) =====
+              (()=>{
+                try{
+                  // Comparar peso atual vs peso do portfolio com MAIOR nota hibrida no Monte Carlo
+                  if(!pBestNota||!pBestNota.w)return null;
+                  const gapsPorClasse=MPT_CLS.map((cid,i)=>{
+                    const cl=CL.find(c=>c.id===cid)||{};
+                    const pesoAtualPp=(cw[cid]||0);// ja em %
+                    const pesoOtimoPp=(pBestNota.w[i]||0)*100;
+                    const gap=pesoOtimoPp-pesoAtualPp;// positivo = falta aporte; negativo = sobrealocada
+                    return {id:cid,name:cl.name||cid,color:cl.color||"#9A9080",pesoAtual:pesoAtualPp,pesoOtimo:pesoOtimoPp,gap:gap};
+                  });
+                  // Reforcar: classes com gap positivo significativo (sub-alocadas vs otimo)
+                  const reforcar=gapsPorClasse.filter(g=>g.gap>=2).sort((a,b)=>b.gap-a.gap);
+                  // Limitar: classes com gap negativo significativo (sobre-alocadas vs otimo)
+                  const limitar=gapsPorClasse.filter(g=>g.gap<=-2).sort((a,b)=>a.gap-b.gap);
+                  return h("div",{style:{marginTop:11,padding:"11px 13px",background:"linear-gradient(135deg,rgba(200,169,110,0.08),rgba(200,169,110,0.03))",border:"1px solid rgba(200,169,110,0.30)",borderRadius:7}},
+                    h("div",{style:{fontSize:9,letterSpacing:1.5,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,marginBottom:7}},"\u{1F3AF} DICAS PARA O PROXIMO APORTE"),
+                    // Cabecalho com nota hibrida do portfolio ideal
+                    h("div",{style:{fontSize:8,color:"#9A9080",fontStyle:"italic",lineHeight:1.5,marginBottom:9,padding:"6px 9px",background:"rgba(0,0,0,0.20)",borderRadius:4}},
+                      "Referencia: portfolio do Monte Carlo com a maior nota hibrida (",h("strong",{style:{color:"#4CAF82"}},bestNotaVal.toFixed(0),"/100"),") - representa o ponto de Sharpe e diversificacao otimos no espaco simulado. Seu portfolio atual: ",h("strong",{style:{color:corConceito}},notaFinal.toFixed(0)+"/100"),". Gap: ",h("strong",{},((bestNotaVal-notaFinal)>0?"+":"")+(bestNotaVal-notaFinal).toFixed(0)," pontos"),"."
+                    ),
+                    // Prosa direcional
+                    h("p",{style:{fontSize:10,color:"#E8E2D5",lineHeight:1.7,margin:"0 0 9px",fontFamily:"Georgia,serif"}},
+                      reforcar.length===0&&limitar.length===0?
+                        h("span",{},"Seu portfolio esta proximo do ponto otimo MPT - desvios menores que 2pp em todas as classes. O proximo aporte pode seguir distribuicao proporcional ao alvo. "):
+                        null,
+                      reforcar.length>0?h("span",{},
+                        h("strong",{style:{color:"#4CAF82"}},"Reforcar (sub-alocadas vs ponto otimo MPT): "),
+                        reforcar.slice(0,4).map((r,i)=>h("span",{key:"r"+i},
+                          i>0?(i===Math.min(reforcar.length,4)-1?" e ":", "):"",
+                          h("strong",{style:{color:r.color}},r.name),
+                          " (atual ",r.pesoAtual.toFixed(1),"%, otimo ",r.pesoOtimo.toFixed(1),"%, gap ",
+                          h("span",{style:{color:"#4CAF82",fontWeight:700}},"+"+r.gap.toFixed(1)+"pp"),
+                          ")"
+                        )),
+                        ". "
+                      ):null,
+                      limitar.length>0?h("span",{},
+                        h("strong",{style:{color:"#E89060"}},"Limitar (sobre-alocadas vs ponto otimo): "),
+                        limitar.slice(0,3).map((r,i)=>h("span",{key:"l"+i},
+                          i>0?(i===Math.min(limitar.length,3)-1?" e ":", "):"",
+                          h("strong",{style:{color:r.color}},r.name),
+                          " (atual ",r.pesoAtual.toFixed(1),"%, otimo ",r.pesoOtimo.toFixed(1),"%, excesso ",
+                          h("span",{style:{color:"#E89060",fontWeight:700}},r.gap.toFixed(1)+"pp"),
+                          ")"
+                        )),
+                        " - aporte aqui apenas no piso. "
+                      ):null,
+                      // Dica adicional baseada em qual componente da nota esta mais fraco
+                      (()=>{
+                        // efFronteira, efSharpe, efDiv estao em window.__mpt (declarados antes)
+                        // mas e mais seguro recalcular ou usar variaveis acessiveis: dentro do escopo temos efFronteira via window.__mptComponentes
+                        // Usar uma heuristica simples: o componente com menor valor (entre fronteira/sharpe/div) e o gargalo
+                        const efFront=(window.__mptComponentes&&window.__mptComponentes.efFronteira)||0;
+                        const efSharpe=(window.__mptComponentes&&window.__mptComponentes.efSharpe)||0;
+                        const efDivLocal=(window.__mptComponentes&&window.__mptComponentes.efDiv)||0;
+                        const gargalo=Math.min(efFront,efSharpe,efDivLocal);
+                        if(gargalo<60){
+                          if(gargalo===efDivLocal){
+                            return h("span",{style:{color:"#C8A96E",fontStyle:"italic"}},
+                              "O componente mais fraco da sua nota hibrida e ",
+                              h("strong",{style:{color:"#C8A96E"}},"Diversificacao ("+efDivLocal.toFixed(0)+"/100"),
+                              ") - aportar em classes com peso atual baixo ou zero (BTC, Treasuries, NTN-B, Ouro, MUNDO) eleva o componente mecanicamente. "
+                            );
+                          }
+                          if(gargalo===efFront){
+                            return h("span",{style:{color:"#C8A96E",fontStyle:"italic"}},
+                              "O componente mais fraco e ",
+                              h("strong",{style:{color:"#4CAF82"}},"Fronteira ("+efFront.toFixed(0)+"/100"),
+                              ", gap "+gapRet.toFixed(2)+"pp ate o envelope superior) - reforcar classes sub-alocadas vs otimo (ver acima) reduz esse gap. "
+                            );
+                          }
+                          return h("span",{style:{color:"#C8A96E",fontStyle:"italic"}},
+                            "O componente mais fraco e ",
+                            h("strong",{style:{color:"#5B8FD4"}},"Sharpe ("+efSharpe.toFixed(0)+"/100"),
+                            ") - priorize classes com bom retorno por unidade de risco: Treasuries (anti-equity), NTN-B (carrega real), BTC (corr ~0). "
+                          );
+                        }
+                        return null;
+                      })(),
+                      h("span",{style:{color:"#9A9080",fontStyle:"italic"}},
+                        "Considere que o ponto otimo MPT muda a cada execucao do Monte Carlo (e estocastico) - use-o como direcao, nao alvo numerico exato."
+                      )
+                    ),
+                    // Ranking visual top 4 reforcar
+                    reforcar.length>0?h("div",{style:{marginTop:8,padding:"8px 10px",background:"rgba(0,0,0,0.22)",borderRadius:5}},
+                      h("div",{style:{fontSize:7.5,letterSpacing:1.2,color:"#4CAF82",fontFamily:"monospace",fontWeight:700,marginBottom:6}},"\u2191 ORDEM DE PRIORIDADE NO APORTE"),
+                      ...reforcar.slice(0,4).map((r,i)=>h("div",{key:"rk"+i,style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,fontSize:9,fontFamily:"monospace",marginBottom:i<Math.min(reforcar.length,4)-1?3:0}},
+                        h("div",{style:{display:"flex",alignItems:"center",gap:6,flex:"1 1 auto",minWidth:0}},
+                          h("span",{style:{fontSize:9,color:"#7A7060",fontWeight:700,minWidth:14}},"#"+(i+1)),
+                          h("span",{style:{width:7,height:7,borderRadius:"50%",background:r.color,display:"inline-block",flexShrink:0}}),
+                          h("span",{style:{color:"#E8E2D5",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}},r.name)
+                        ),
+                        h("span",{style:{color:"#9A9080",fontSize:8,whiteSpace:"nowrap",flexShrink:0}},r.pesoAtual.toFixed(1),"% \u2192 ",r.pesoOtimo.toFixed(1),"%"),
+                        h("span",{style:{color:"#4CAF82",fontSize:8.5,fontWeight:700,whiteSpace:"nowrap",flexShrink:0}},"+"+r.gap.toFixed(1)+"pp")
+                      ))
+                    ):null
+                  );
+                }catch(e){
+                  console.error("Erro nas dicas MPT:",e);
+                  return null;
+                }
+              })()
             );
           })()
         );
