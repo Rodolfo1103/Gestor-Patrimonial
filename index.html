@@ -7478,6 +7478,8 @@ function App(){
   const [debugResposta,setDebugResposta]=useState(null);
   // Estado para "Sugerir minha divisao": form aberto/fechado, valores por classe, analise da IA
   const [propUsrAberto,setPropUsrAberto]=useState(false);
+  // Drill-down do card "Sua Sensibilidade aos Vetores Macro" (aba Correlacao): expansao do desmembramento por classe
+  const [drillVetoresAberto,setDrillVetoresAberto]=useState(false);
   const [propUsrValores,setPropUsrValores]=useState({}); // {classId: "valor em string"}
   const [propUsrLoad,setPropUsrLoad]=useState(false);
   const [propUsrErr,setPropUsrErr]=useState("");
@@ -10336,7 +10338,7 @@ function App(){
           {classe:"reits",direcao:1,intensidade:"FORTE"},{classe:"bitcoin",direcao:1,intensidade:"MEDIA"},
           {classe:"ouro",direcao:1,intensidade:"MEDIA"}
         ]},
-        {nome:"Liquidez Global",impactos:[
+        {nome:"Juros EUA",impactos:[
           {classe:"bitcoin",direcao:1,intensidade:"FORTE"},{classe:"acoes_eua",direcao:1,intensidade:"FORTE"},{classe:"acoes_mundo",direcao:1,intensidade:"FORTE"},
           {classe:"reits",direcao:1,intensidade:"FORTE"},{classe:"acoes_br",direcao:1,intensidade:"MEDIA"},
           {classe:"fii",direcao:1,intensidade:"MEDIA"},{classe:"infra",direcao:1,intensidade:"BAIXA"},
@@ -15286,7 +15288,7 @@ h("button",{onClick:async()=>{
                     ]
                   },
                   {
-                    nome:"Liquidez Global",
+                    nome:"Juros EUA",
                     icone:"\u{1F30A}",
                     cor:"#9C7DC2",
                     explicacao:"Fluxo internacional de capital. Quando Fed aperta (juros US altos), capital sai de emergentes. Bitcoin e ativos especulativos sofrem mais. REITs sao sensiveis. Quando Fed solta, o oposto.",
@@ -15485,24 +15487,128 @@ h("button",{onClick:async()=>{
                         top2&&top2.absSens>=top1.absSens*0.5?h("span",{}," Em segundo, ",h("strong",{style:{color:top2.cor}},top2.nome)," (",h("strong",{style:{color:corDir(top2.sens)}},(top2.sens>0?"+":"")+top2.sens.toFixed(0)+"%"),")"):"",
                         ". Sensibilidade liquida proxima de zero indica diversificacao genuina (vetor neutro para voce)."
                       ),
-                      // Ranking visual de sensibilidades
-                      h("div",{style:{display:"flex",flexDirection:"column",gap:4,marginTop:8}},
-                        ...exposicoes.map((e,k)=>{
-                          const corBarra=e.sens>5?"#4CAF82":e.sens<-5?"#E05252":"#C8A96E";
-                          const sinal=e.sens>0?"+":e.sens<0?"":"";
-                          return h("div",{key:"e"+k,style:{display:"grid",gridTemplateColumns:"20px 130px 1fr 50px",gap:6,alignItems:"center",fontSize:8,fontFamily:"monospace"}},
-                            h("span",{style:{fontSize:11}},e.icone),
-                            h("span",{style:{color:e.cor,fontWeight:700,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}},e.nome),
-                            h("div",{style:{position:"relative",height:6,background:"rgba(255,255,255,0.04)",borderRadius:2,overflow:"hidden"}},
-                              // Barra centralizada: positiva vai pra direita, negativa pra esquerda
-                              h("div",{style:{position:"absolute",top:0,left:e.sens>=0?"50%":(50-Math.min(50,e.absSens))+"%",height:"100%",width:Math.min(50,e.absSens)+"%",background:corBarra,opacity:0.75,borderRadius:2}}),
-                              // Linha central de referencia
-                              h("div",{style:{position:"absolute",top:0,left:"50%",width:1,height:"100%",background:"rgba(255,255,255,0.15)"}})
+                      // ===== GRAFICO DE VETORES VERTICAIS =====
+                      // Cada vetor macro e uma seta vertical: comprimento = magnitude, sentido = direcao (sobe verde = ganha, desce vermelho = perde)
+                      // Layout: ponto central representa o portfolio. Setas saem dele para cima ou para baixo.
+                      // Ao clicar no portfolio, abre drill-down por classe (mini-grafico de vetores para cada classe componente)
+                      h("div",{style:{marginTop:10}},
+                        (()=>{
+                          // Dimensoes do grafico
+                          const alturaG=180;// altura util de cada lado (acima e abaixo do eixo central)
+                          // Magnitude maxima entre todos os vetores (para normalizar tamanho das setas)
+                          const maxMag=Math.max(...exposicoes.map(e=>e.absSens),1);
+                          // Funcao que retorna altura proporcional da seta
+                          const alturaSeta=(sens)=>{
+                            const mag=Math.abs(sens);
+                            return Math.max(8,(mag/maxMag)*alturaG);// minimo 8px
+                          };
+                          return h("div",{style:{background:"rgba(0,0,0,0.20)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:7,padding:"14px 10px",position:"relative"}},
+                            // Container principal do grafico
+                            h("div",{style:{position:"relative",height:(alturaG*2+50)+"px",display:"flex",alignItems:"center",justifyContent:"space-around",gap:4}},
+                              // Linha do eixo central (horizontal, no meio)
+                              h("div",{style:{position:"absolute",top:"50%",left:8,right:8,height:1,background:"rgba(200,169,110,0.30)",zIndex:0}}),
+                              // PONTO CENTRAL = PORTFOLIO (clicavel)
+                              h("div",{style:{position:"absolute",top:"50%",left:"50%",transform:"translate(-50%,-50%)",zIndex:5}},
+                                h("button",{
+                                  onClick:()=>setDrillVetoresAberto(o=>!o),
+                                  title:"Clique para ver desmembramento por classe",
+                                  style:{width:18,height:18,borderRadius:"50%",background:"linear-gradient(135deg,#C8A96E,#8A6F3E)",border:"2px solid #1A1612",boxShadow:"0 0 8px rgba(200,169,110,0.50)",cursor:"pointer",padding:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,color:"#0D0F14",fontWeight:700,fontFamily:"monospace"}
+                                },drillVetoresAberto?"\u2212":"+")
+                              ),
+                              // Vetores (setas verticais)
+                              ...exposicoes.map((e,k)=>{
+                                const altura=alturaSeta(e.sens);
+                                const positivo=e.sens>=0;
+                                const corBarra=e.sens>5?"#4CAF82":e.sens<-5?"#E05252":"#C8A96E";
+                                // Estrutura: container com height total (alturaG*2), e seta saindo do centro
+                                return h("div",{key:"v"+k,style:{position:"relative",display:"flex",flexDirection:"column",alignItems:"center",height:"100%",flex:"1 1 0",minWidth:0,maxWidth:55,zIndex:2}},
+                                  // Label superior: nome do vetor e icone (sempre acima)
+                                  h("div",{style:{position:"absolute",top:0,left:0,right:0,textAlign:"center",fontSize:7,fontFamily:"monospace",color:e.cor,fontWeight:700,letterSpacing:0.3,lineHeight:1.2,padding:"0 1px",whiteSpace:"normal",wordBreak:"break-word"}},
+                                    h("div",{style:{fontSize:10,marginBottom:1}},e.icone),
+                                    h("div",{},e.nome)
+                                  ),
+                                  // Container central com a seta
+                                  h("div",{style:{position:"absolute",top:"50%",left:"50%",transform:"translate(-50%,-50%)",height:"100%",width:18,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}},
+                                    // Espaco superior (para vetor positivo: ocupar; negativo: vazio)
+                                    h("div",{style:{height:positivo?altura:0,width:6,background:positivo?"linear-gradient(180deg,"+corBarra+","+corBarra+"AA)":"transparent",borderRadius:"3px 3px 0 0",position:"absolute",bottom:"50%",transition:"height 0.3s ease"}}),
+                                    // Ponta de seta superior (positivo)
+                                    positivo&&altura>15?h("div",{style:{position:"absolute",bottom:"calc(50% + "+(altura-1)+"px)",width:0,height:0,borderLeft:"6px solid transparent",borderRight:"6px solid transparent",borderBottom:"7px solid "+corBarra}}):null,
+                                    // Espaco inferior (para vetor negativo: ocupar)
+                                    h("div",{style:{height:positivo?0:altura,width:6,background:positivo?"transparent":"linear-gradient(0deg,"+corBarra+","+corBarra+"AA)",borderRadius:"0 0 3px 3px",position:"absolute",top:"50%",transition:"height 0.3s ease"}}),
+                                    // Ponta de seta inferior (negativo)
+                                    !positivo&&altura>15?h("div",{style:{position:"absolute",top:"calc(50% + "+(altura-1)+"px)",width:0,height:0,borderLeft:"6px solid transparent",borderRight:"6px solid transparent",borderTop:"7px solid "+corBarra}}):null
+                                  ),
+                                  // Label valor (em cima ou embaixo da ponta da seta, conforme direcao)
+                                  h("div",{style:{position:"absolute",left:0,right:0,textAlign:"center",fontSize:8.5,fontFamily:"monospace",color:corBarra,fontWeight:700,
+                                    top:positivo?"calc(50% - "+(altura+18)+"px)":"auto",
+                                    bottom:positivo?"auto":"calc(50% - "+(altura+18)+"px)"
+                                  }},(positivo?"+":"")+e.sens.toFixed(0)+"%")
+                                );
+                              })
                             ),
-                            h("span",{style:{textAlign:"right",color:corBarra,fontWeight:700}},sinal+e.sens.toFixed(0)+"%")
+                            // Legenda do eixo
+                            h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",textAlign:"center",marginTop:6,fontStyle:"italic",lineHeight:1.5}},
+                              "Eixo horizontal = portfolio em equilibrio. Setas para cima (verde) = vetores beneficiam. Setas para baixo (vermelho) = vetores prejudicam."
+                            )
                           );
-                        })
+                        })()
                       ),
+                      // ===== DRILL-DOWN POR CLASSE (colapsavel ao clicar no ponto central) =====
+                      drillVetoresAberto?h("div",{style:{marginTop:11,padding:"11px 12px",background:"linear-gradient(135deg,rgba(91,143,212,0.05),rgba(91,143,212,0.02))",border:"1px solid rgba(91,143,212,0.25)",borderRadius:7}},
+                        h("div",{style:{fontSize:9,letterSpacing:1.5,color:"#7AB0E0",fontFamily:"monospace",fontWeight:700,marginBottom:8}},"\u{1F50D} DESMEMBRAMENTO POR CLASSE"),
+                        h("p",{style:{fontSize:8.5,color:"#9A9080",fontStyle:"italic",lineHeight:1.5,margin:"0 0 11px"}},
+                          "Como cada classe que voce possui se comporta frente aos vetores macro. Quanto maior o peso da classe no portfolio, mais ela puxa a sensibilidade total do portfolio."
+                        ),
+                        (()=>{
+                          // Filtra apenas classes com peso > 0
+                          const classesPresentes=CL.filter(c=>(cw[c.id]||0)>0).sort((a,b)=>(cw[b.id]||0)-(cw[a.id]||0));
+                          if(classesPresentes.length===0){
+                            return h("div",{style:{fontSize:9,color:"#7A7060",fontStyle:"italic",padding:"8px 0"}},"Sem classes com peso para desmembrar.");
+                          }
+                          // Para cada classe, calcular a contribuicao em cada vetor macro
+                          // Reusa a estrutura 'vetores' ja definida no escopo deste card
+                          return classesPresentes.map(cl=>{
+                            const pesoMeu=cw[cl.id]||0;
+                            // Para cada vetor, descobrir se a classe e impactada positivamente, negativamente ou neutro
+                            const contribPorVetor=vetores.map(v=>{
+                              const imp=v.impactos.find(i=>i.classe===cl.id);
+                              if(!imp)return {nome:v.nome,cor:v.cor,icone:v.icone,impacto:0,intensidade:null};
+                              const peso=imp.intensidade==="FORTE"?1.0:imp.intensidade==="MEDIA"?0.6:imp.intensidade==="BAIXA"?0.3:0;
+                              return {nome:v.nome,cor:v.cor,icone:v.icone,impacto:imp.direcao*peso*pesoMeu,intensidade:imp.intensidade};
+                            });
+                            const maxImpAbsCl=Math.max(...contribPorVetor.map(c=>Math.abs(c.impacto)),1);
+                            return h("div",{key:"dc_"+cl.id,style:{marginBottom:9,padding:"9px 10px",background:"rgba(0,0,0,0.18)",border:"1px solid "+cl.color+"30",borderRadius:6}},
+                              h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:7,paddingBottom:5,borderBottom:"1px solid "+cl.color+"20"}},
+                                h("div",{style:{display:"flex",alignItems:"center",gap:6}},
+                                  h("span",{style:{width:8,height:8,borderRadius:"50%",background:cl.color,display:"inline-block"}}),
+                                  h("span",{style:{fontSize:10,color:cl.color,fontFamily:"monospace",fontWeight:700,letterSpacing:0.5}},cl.name)
+                                ),
+                                h("span",{style:{fontSize:8.5,color:"#9A9080",fontFamily:"monospace",fontWeight:600,padding:"2px 6px",background:"rgba(255,255,255,0.04)",borderRadius:3}},pesoMeu.toFixed(1)+"%")
+                              ),
+                              // Mini grafico de vetores verticais para a classe
+                              h("div",{style:{position:"relative",height:80,display:"flex",alignItems:"center",justifyContent:"space-around",gap:3}},
+                                h("div",{style:{position:"absolute",top:"50%",left:4,right:4,height:1,background:"rgba(200,169,110,0.20)",zIndex:0}}),
+                                ...contribPorVetor.map((c,k)=>{
+                                  if(c.impacto===0){
+                                    // Vetor neutro - mostra apenas um pontinho cinza no eixo
+                                    return h("div",{key:"cv"+k,style:{flex:"1 1 0",minWidth:0,position:"relative",zIndex:2,height:"100%",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",opacity:0.4}},
+                                      h("div",{style:{fontSize:8,marginBottom:1}},c.icone),
+                                      h("div",{style:{width:4,height:4,borderRadius:"50%",background:"#7A7060"}})
+                                    );
+                                  }
+                                  const altC=Math.max(5,(Math.abs(c.impacto)/maxImpAbsCl)*32);
+                                  const positivoC=c.impacto>=0;
+                                  const corBC=c.impacto>0?"#4CAF82":"#E05252";
+                                  return h("div",{key:"cv"+k,style:{flex:"1 1 0",minWidth:0,position:"relative",zIndex:2,height:"100%",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}},
+                                    h("div",{style:{fontSize:8,position:"absolute",top:0,left:0,right:0,textAlign:"center"}},c.icone),
+                                    h("div",{title:c.nome+": "+c.intensidade+" "+(positivoC?"positivo":"negativo"),style:{position:"absolute",left:"50%",transform:"translateX(-50%)",width:5,height:altC,background:corBC,borderRadius:positivoC?"2px 2px 0 0":"0 0 2px 2px",top:positivoC?"calc(50% - "+altC+"px)":"50%"}})
+                                  );
+                                })
+                              )
+                            );
+                          });
+                        })()
+                      ):null,
                       // Conclusao estrategica
                       h("div",{style:{fontSize:8.5,color:"#9A9080",fontStyle:"italic",lineHeight:1.55,marginTop:10,paddingTop:8,borderTop:"1px solid rgba(255,255,255,0.06)"}},
                         h("strong",{style:{color:"#C8A96E"}},"Como interpretar"),": sensibilidade liquida ",h("strong",{style:{color:"#4CAF82"}},"+positiva")," (verde) significa que voce ganha quando o vetor sobe; ",h("strong",{style:{color:"#E05252"}},"-negativa")," (vermelho) significa que voce perde; ",h("strong",{style:{color:"#C8A96E"}},"proxima de zero")," (ambar) significa que o portfolio e neutro - sinal de boa diversificacao entre buckets opostos. Para reduzir uma sensibilidade negativa, adicione classes que se beneficiam desse vetor (ex: contra risco fiscal BR -> Treasuries, EUA, MUNDO, REITs)."
@@ -15549,7 +15655,7 @@ h("button",{onClick:async()=>{
                       {classe:"reits",direcao:1,intensidade:"FORTE"},{classe:"bitcoin",direcao:1,intensidade:"MEDIA"},
                       {classe:"ouro",direcao:1,intensidade:"MEDIA"}
                     ]},
-                    {nome:"Liquidez Global",cor:"#9C7DC2",icone:"\u{1F30A}",impactos:[
+                    {nome:"Juros EUA",cor:"#9C7DC2",icone:"\u{1F30A}",impactos:[
                       {classe:"bitcoin",direcao:1,intensidade:"FORTE"},{classe:"acoes_eua",direcao:1,intensidade:"FORTE"},{classe:"acoes_mundo",direcao:1,intensidade:"FORTE"},
                       {classe:"reits",direcao:1,intensidade:"FORTE"},{classe:"acoes_br",direcao:1,intensidade:"MEDIA"},
                       {classe:"fii",direcao:1,intensidade:"MEDIA"},{classe:"infra",direcao:1,intensidade:"BAIXA"},
