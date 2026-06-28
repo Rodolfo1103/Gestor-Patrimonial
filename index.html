@@ -9059,6 +9059,45 @@ function App(){
     }
   },[cw]);
 
+  // ===== BACKFILL retroativo de snapshots de correlacao =====
+  // Detecta aportes em aportesSimples que NAO tem snapshot correspondente em correlacaoHistorico
+  // e cria snapshots usando as metricas ATUAIS (limitacao: nao temos historico de precos para reconstruir o estado do dia)
+  // Marca um flag em localStorage para nao re-executar (evita sobrescrever snapshots reais com retroativos)
+  useEffect(()=>{
+    if(!inited)return;
+    if(!Array.isArray(aportesSimples)||aportesSimples.length===0)return;
+    // Aguarda metricas estarem calculadas com valor real
+    if(!metricasDiversificacao||metricasDiversificacao.enbEfetivo<=0)return;
+    try{
+      const flagKey="correlacao-backfill-done";
+      if(localStorage.getItem(flagKey)==="1")return;// ja fez backfill antes
+      // Identifica aportes sem snapshot correspondente (matching por data)
+      const datasComSnap=new Set((correlacaoHistorico||[]).map(s=>s.date));
+      const semSnap=aportesSimples.filter(a=>!datasComSnap.has(a.date));
+      if(semSnap.length===0){
+        localStorage.setItem(flagKey,"1");
+        return;
+      }
+      // Cria snapshots retroativos usando metricas atuais
+      // (Marca _retroativo:true para distinguir visualmente de snapshots reais futuros)
+      const snapsNovos=semSnap.map(a=>({
+        date:a.date,
+        ts:a.ts||Date.now(),
+        enbEfetivo:metricasDiversificacao.enbEfetivo,
+        enbHerfindahl:metricasDiversificacao.enbHerfindahl,
+        corrMediaPond:metricasDiversificacao.corrMediaPond,
+        hhi:metricasDiversificacao.hhi,
+        _retroativo:true
+      }));
+      setCorrelacaoHistorico(prev=>{
+        const merged=[...prev,...snapsNovos];
+        merged.sort((a,b)=>a.date.localeCompare(b.date));
+        return merged;
+      });
+      localStorage.setItem(flagKey,"1");
+    }catch(e){console.warn("Erro no backfill de correlacao:",e);}
+  },[inited,aportesSimples,correlacaoHistorico,metricasDiversificacao]);
+
   // ===== MPT Monte Carlo cache (recalcula apenas quando cw ou Selic mudam) =====
   // Quantize pra evitar recalcular a cada centesimo de %
   const cwKey=MPT_CLS.map(cid=>Math.round((cw[cid]||0)*10)/10).join(",");
@@ -16088,19 +16127,36 @@ h("button",{onClick:async()=>{
                             h("text",{x:padL+plotW-2,y:yAlvo-2,"text-anchor":"end","font-size":7,fill:"#C8A96E","font-family":"monospace"},"alvo"),
                             // Linha do portfolio (ate o ponto atual)
                             h("path",{d:pathStr,fill:"none",stroke:met.cor,"stroke-width":1.8,"stroke-linejoin":"round","stroke-linecap":"round"}),
-                            // Pontos
-                            ...pts.map((p,i)=>h("circle",{key:"p"+i,cx:p.x,cy:p.y,r:p.s._vivo?4:2.5,fill:p.s._vivo?"#E8E2D5":met.cor,stroke:p.s._vivo?met.cor:"#1A1612","stroke-width":1.5})),
+                            // Pontos: vivo (creme grande), retroativo (vazado com X), normal (sólido)
+                            ...pts.map((p,i)=>{
+                              if(p.s._vivo){
+                                return h("circle",{key:"p"+i,cx:p.x,cy:p.y,r:4,fill:"#E8E2D5",stroke:met.cor,"stroke-width":1.5});
+                              }
+                              if(p.s._retroativo){
+                                // Anel vazado (sem preenchimento) - sinaliza dado estimado
+                                return h("circle",{key:"p"+i,cx:p.x,cy:p.y,r:3,fill:"none",stroke:met.cor,"stroke-width":1.5,"stroke-dasharray":"2,1"});
+                              }
+                              return h("circle",{key:"p"+i,cx:p.x,cy:p.y,r:2.5,fill:met.cor,stroke:"#1A1612","stroke-width":1.5});
+                            }),
                             // Ultimo valor em texto
                             pts.length>0?h("text",{x:pts[pts.length-1].x+6,y:pts[pts.length-1].y+3,"font-size":7,fill:corScoreFinal,"font-family":"monospace","font-weight":700},pts[pts.length-1].valor.toFixed(met.decimais)):null
                           )
                         );
                       }),
                       // Rodape com info dos snapshots
-                      h("div",{style:{marginTop:8,padding:"5px 8px",background:"rgba(200,169,110,0.05)",borderLeft:"2px solid #C8A96E",borderRadius:"0 3px 3px 0",fontSize:7.5,color:"#7A7060",fontStyle:"italic",lineHeight:1.5}},
-                        temHistorico?
-                          h("span",{},h("strong",{style:{color:"#C8A96E"}},historico.length," snapshot"+(historico.length>1?"s":"")+" no historico")," + ponto atual em destaque. Linha tracejada dourada = alvo. Aproximacao continua = direcao certa."):
-                          h("span",{},h("strong",{style:{color:"#C8A96E"}},"Aguardando snapshots"),". Feche um aporte na aba Aporte para gerar o primeiro ponto historico - a partir do segundo, voce ja consegue ver a tendencia.")
-                      )
+                      (()=>{
+                        const nRetroativos=historico.filter(s=>s._retroativo).length;
+                        const nReais=historico.length-nRetroativos;
+                        return h("div",{style:{marginTop:8,padding:"5px 8px",background:"rgba(200,169,110,0.05)",borderLeft:"2px solid #C8A96E",borderRadius:"0 3px 3px 0",fontSize:7.5,color:"#7A7060",fontStyle:"italic",lineHeight:1.5}},
+                          temHistorico?
+                            h("span",{},
+                              h("strong",{style:{color:"#C8A96E"}},historico.length," snapshot"+(historico.length>1?"s":"")+" no historico")," + ponto atual em destaque. Linha tracejada dourada = alvo. ",
+                              nRetroativos>0?h("span",{},h("strong",{style:{color:"#E8C44A"}},nRetroativos," retroativo"+(nRetroativos>1?"s":"")+" (anel vazado)"),": criado",nRetroativos>1?"s":""," automaticamente para aportes ja registrados antes desta funcionalidade existir, usando as metricas atuais como aproximacao. "):null,
+                              "Aproximacao continua aos alvos = direcao certa."
+                            ):
+                            h("span",{},h("strong",{style:{color:"#C8A96E"}},"Aguardando snapshots"),". Feche um aporte na aba Aporte para gerar o primeiro ponto historico - a partir do segundo, voce ja consegue ver a tendencia.")
+                        );
+                      })()
                     )
                   );
                 }catch(e){
