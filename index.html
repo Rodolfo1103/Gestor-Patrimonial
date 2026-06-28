@@ -5153,12 +5153,14 @@ function RiskChart({cw,selicAtual,calibracaoRR_TS,calibracaoRR_texto,calibracaoR
 
 function EvolChart({histMensal,hist,showUSD,setShowUSD,hideVal}){
   // Prioridade: histMensal (consolidado). Fallback para hist agrupado (compatibilidade).
+  // CORTE INICIAL: a partir de 01/07/2026 (inicio dos aportes registrados via PWA). Historico anterior nao exibido.
+  const DATA_CORTE=new Date("2026-07-01T00:00:00");
   let data=[];
   if(Array.isArray(histMensal)&&histMensal.length>0){
-    data=histMensal.filter(r=>r.composicao&&r.totalPatrimBRL>0);
+    data=histMensal.filter(r=>r.composicao&&r.totalPatrimBRL>0&&new Date(r.date)>=DATA_CORTE);
   }else if(Array.isArray(hist)&&hist.length>0){
     // Fallback: agrupa hist por mes
-    const raw=hist.filter(r=>r.composicao&&r.totalPatrimBRL>0).slice().reverse();
+    const raw=hist.filter(r=>r.composicao&&r.totalPatrimBRL>0&&new Date(r.date)>=DATA_CORTE).slice().reverse();
     const porMes={};
     raw.forEach(r=>{
       const d=new Date(r.date);
