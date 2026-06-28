@@ -15898,8 +15898,11 @@ h("button",{onClick:async()=>{
             // diferenca
             b.diff=b.real-b.ypb;
             // status
-            if(b.real>=b.yaleMin&&b.real<=b.yaleMax)b.status="alinhado";
-            else if(b.real<b.yaleMin)b.status="abaixo";
+            // Status: compara o peso real com o alvo YPB calculado (com tolerancia de +/- 2pp)
+            // CORRECAO: antes comparava com yaleMin/yaleMax (bandas Yale puras), o que era inconsistente com a label "vs YPB"
+            const tolerancia=0.02;// 2pp
+            if(Math.abs(b.real-b.ypb)<=tolerancia)b.status="alinhado";
+            else if(b.real<b.ypb)b.status="abaixo";
             else b.status="acima";
           });
 
@@ -15980,20 +15983,17 @@ h("button",{onClick:async()=>{
                         h("span",{style:{color:corStatus[b.status],fontWeight:700,fontSize:7,padding:"1px 5px",background:corStatus[b.status]+"22",borderRadius:3,letterSpacing:1}},txtStatus[b.status])
                       )
                     ),
-                    // Linha 2: barras paralelas
-                    h("div",{style:{position:"relative",height:18,marginBottom:5}},
-                      // Faixa Yale ideal (background)
-                      h("div",{style:{position:"absolute",top:0,bottom:0,left:(b.yaleMin/maxBar*100)+"%",width:((b.yaleMax-b.yaleMin)/maxBar*100)+"%",background:"rgba(76,175,130,0.10)",border:"1px dashed rgba(76,175,130,0.30)",borderRadius:2}}),
-                      // Barra VOCE (em cima)
-                      h("div",{style:{position:"absolute",top:0,height:7,left:0,width:(b.real/maxBar*100)+"%",background:b.color,opacity:0.85,borderRadius:2}}),
-                      // Barra YPB (em baixo)
-                      h("div",{style:{position:"absolute",bottom:0,height:7,left:0,width:(b.ypb/maxBar*100)+"%",background:"#9C7DC2",opacity:0.55,borderRadius:2,border:"1px dashed rgba(156,125,194,0.6)"}})
+                    // Linha 2: barra do portfolio + faixa verde pontilhada do Yale (sem barra roxa de YPB)
+                    h("div",{style:{position:"relative",height:14,marginBottom:5}},
+                      // Faixa Yale ideal (background pontilhada verde)
+                      h("div",{style:{position:"absolute",top:0,bottom:0,left:(b.yaleMin/maxBar*100)+"%",width:((b.yaleMax-b.yaleMin)/maxBar*100)+"%",background:"rgba(76,175,130,0.10)",border:"1px dashed rgba(76,175,130,0.40)",borderRadius:2}}),
+                      // Barra VOCE (unica, ocupando toda altura util)
+                      h("div",{style:{position:"absolute",top:2,bottom:2,left:0,width:(b.real/maxBar*100)+"%",background:b.color,opacity:0.85,borderRadius:2}})
                     ),
                     // Linha 3: diff numerico
                     h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,fontSize:7.5,fontFamily:"monospace"}},
                       h("div",{style:{color:"#7A7060"}},
                         h("span",{style:{color:b.color}},"\u25A0 voce")," | ",
-                        h("span",{style:{color:"#9C7DC2"}},"\u25A0 YPB")," | ",
                         h("span",{style:{color:"#4CAF82"}},"faixa Yale ",formatPct(b.yaleMin),"-",formatPct(b.yaleMax))
                       ),
                       h("div",{style:{color:b.diff>0.03?"#E8C44A":b.diff<-0.03?"#E89060":"#9A9080"}},"\u0394 ",(b.diff>=0?"+":"")+(b.diff*100).toFixed(1),"pp vs YPB")
