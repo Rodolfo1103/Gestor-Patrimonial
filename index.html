@@ -3570,7 +3570,126 @@ function SolidezCard({total,cw,port,metaMensalIF,setTab,fB,hideVal,dataNasciment
           h("div",{style:{marginTop:8,padding:"7px 9px",background:"rgba(91,143,212,0.10)",borderLeft:"3px solid #5B8FD4",borderRadius:"0 4px 4px 0",fontSize:9,color:"#C8C0B0",lineHeight:1.55}},
             h("strong",{style:{color:"#5B8FD4"}},"\u{1F3AF} Pr\u00f3ximo passo estrat\u00e9gico: "),
             proximoPasso
-          )
+          ),
+          // ===== DICAS PARA O PROXIMO APORTE (priorizar classes por dimensao mais fraca) =====
+          (()=>{
+            try{
+              // Mapa: dimensao -> classes que mais impactam (ordenadas por relevancia)
+              // Cada entrada lista nomes de classe (do array CL)
+              const CLASSES_POR_DIMENSAO={
+                tam:[
+                  // Tamanho: qualquer classe cresce o patrimonio. Priorize as ja sub-alocadas em outras dimensoes (Selic/Treasuries/NTN-B/BTC) para nao concentrar.
+                  {id:"selic",justif:"caixa estrategico produtivo (cresce patrimonio sem adicionar risco)"},
+                  {id:"treasuries",justif:"diversifica e cresce patrimonio em USD"},
+                  {id:"rfipca",justif:"carrega real protegido (cresce com IPCA+)"}
+                ],
+                ren:[
+                  // Renda: dividendos e cupons recorrentes
+                  {id:"fii",justif:"pagamentos mensais isentos PF - motor de renda BR"},
+                  {id:"infra",justif:"DY 9-10% isento PF - segundo motor de renda"},
+                  {id:"fiagros",justif:"DY 10%+ isento PF - terceiro motor"},
+                  {id:"reits",justif:"dividendos USD - motor de renda exterior"}
+                ],
+                res:[
+                  // Resiliencia: drawdown baixo + blindagem cambial. NTN-B longa, Treasuries, Selic, Ouro
+                  {id:"rfipca",justif:"hedge anti-equity (corr -0.20 a -0.30 com BR/EUA), duration longa absorve crises deflacionarias"},
+                  {id:"treasuries",justif:"TLT hedge anti-crash + VTIP hedge inflacionario USA + USD ganha em crises BR"},
+                  {id:"selic",justif:"caixa anti-volatilidade - amortecedor universal"},
+                  {id:"ouro",justif:"hedge sistemico - sobe em crises geopoliticas e desvalorizacoes"}
+                ],
+                div:[
+                  // Diversificacao: classes descorrelacionadas
+                  {id:"bitcoin",justif:"corr ~0 com TUDO - traz diversificacao genuina (proposito unico)"},
+                  {id:"treasuries",justif:"corr -0.30 com EUA, -0.20 com BR - hedge anti-equity USD"},
+                  {id:"rfipca",justif:"NTN-B longa corr -0.25 com BR/EUA - hedge real anti-equity"},
+                  {id:"ouro",justif:"corr +0.25 com NTN-B mas neg com USD - hedge complementar"}
+                ],
+                camb:[
+                  // Blindagem cambial: classes em moeda forte
+                  {id:"acoes_eua",justif:"100% USD - core da blindagem"},
+                  {id:"acoes_mundo",justif:"EUR/GBP/JPY/etc - diversifica geograficamente a blindagem"},
+                  {id:"treasuries",justif:"USD via TLT/IEF/VTIP - blindagem com renda fixa"},
+                  {id:"reits",justif:"USD via REIT - blindagem com renda imobiliaria"},
+                  {id:"ouro",justif:"correlaciona negativamente com USD mas tambem ganha em crises BR"}
+                ]
+              };
+              // Ordena dimensoes pelo gargalo (menor score primeiro)
+              const dimsOrdenadas=dims.slice().sort((a,b)=>a.score-b.score);
+              const gargalo1=dimsOrdenadas[0];// menor score
+              const gargalo2=dimsOrdenadas[1];// segundo menor
+              // Helper: pega nome formatado da classe
+              const nomeClasse=(cid)=>{
+                const cl=CL.find(c=>c.id===cid);
+                return cl?{name:cl.name,color:cl.color}:{name:cid,color:"#9A9080"};
+              };
+              return h("div",{style:{marginTop:10,padding:"11px 13px",background:"linear-gradient(135deg,rgba(200,169,110,0.08),rgba(200,169,110,0.03))",border:"1px solid rgba(200,169,110,0.30)",borderRadius:7}},
+                h("div",{style:{fontSize:9,letterSpacing:1.5,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,marginBottom:7}},"\u{1F3AF} DICAS PARA O PROXIMO APORTE"),
+                // Cabecalho com gargalos
+                h("div",{style:{fontSize:8.5,color:"#9A9080",fontStyle:"italic",lineHeight:1.5,marginBottom:9,padding:"6px 9px",background:"rgba(0,0,0,0.20)",borderRadius:4}},
+                  "Indice de Solidez: ",h("strong",{style:{color:"#C8A96E"}},indice.toFixed(0)+"/100"),
+                  ". Gargalos principais: ",
+                  h("strong",{style:{color:gargalo1.cor}},gargalo1.label.replace(/^[^A-Z]*/,""))," (",gargalo1.score.toFixed(0),"/100)",
+                  " e ",
+                  h("strong",{style:{color:gargalo2.cor}},gargalo2.label.replace(/^[^A-Z]*/,""))," (",gargalo2.score.toFixed(0),"/100)",
+                  ". Estas duas dimensoes oferecem o maior ganho marginal por aporte."
+                ),
+                // Prosa direcional - foca no GARGALO 1
+                h("p",{style:{fontSize:10,color:"#E8E2D5",lineHeight:1.7,margin:"0 0 9px",fontFamily:"Georgia,serif"}},
+                  h("strong",{style:{color:gargalo1.cor}},"Para melhorar "+gargalo1.label.replace(/^[^A-Z]*/,"")),
+                  " (",gargalo1.detail,", ",gargalo1.alvo,"), priorize aporte em: ",
+                  (CLASSES_POR_DIMENSAO[gargalo1.id]||[]).slice(0,4).map((entry,i)=>{
+                    const info=nomeClasse(entry.id);
+                    return h("span",{key:"g1c"+i},
+                      i>0?(i===Math.min((CLASSES_POR_DIMENSAO[gargalo1.id]||[]).length,4)-1?" e ":", "):"",
+                      h("strong",{style:{color:info.color}},info.name),
+                      " (",entry.justif,")"
+                    );
+                  }),
+                  ". ",
+                  // Bloco gargalo 2
+                  h("strong",{style:{color:gargalo2.cor}},"Em paralelo, para reforcar "+gargalo2.label.replace(/^[^A-Z]*/,"")),
+                  " (",gargalo2.detail,"), as classes mais relevantes sao: ",
+                  (CLASSES_POR_DIMENSAO[gargalo2.id]||[]).slice(0,3).map((entry,i)=>{
+                    const info=nomeClasse(entry.id);
+                    return h("span",{key:"g2c"+i},
+                      i>0?(i===Math.min((CLASSES_POR_DIMENSAO[gargalo2.id]||[]).length,3)-1?" e ":", "):"",
+                      h("strong",{style:{color:info.color}},info.name)
+                    );
+                  }),
+                  ". ",
+                  h("span",{style:{color:"#9A9080",fontStyle:"italic"}},
+                    "Classes que aparecem em AMBAS as listas (intersecao dos gargalos) tem o maior potencial de mover o indice agregado - sao as prioritarias absolutas do mes."
+                  )
+                ),
+                // Lista de classes nos 2 gargalos com intersecao destacada
+                (()=>{
+                  const ids1=new Set((CLASSES_POR_DIMENSAO[gargalo1.id]||[]).map(e=>e.id));
+                  const ids2=new Set((CLASSES_POR_DIMENSAO[gargalo2.id]||[]).map(e=>e.id));
+                  const intersecao=[...ids1].filter(id=>ids2.has(id));
+                  if(intersecao.length===0)return null;
+                  return h("div",{style:{marginTop:8,padding:"8px 10px",background:"rgba(0,0,0,0.22)",borderRadius:5}},
+                    h("div",{style:{fontSize:7.5,letterSpacing:1.2,color:"#4CAF82",fontFamily:"monospace",fontWeight:700,marginBottom:6}},"\u2191 INTERSECAO DOS GARGALOS (prioridade maxima)"),
+                    ...intersecao.map((cid,i)=>{
+                      const info=nomeClasse(cid);
+                      const pesoAtual=cw[cid]||0;
+                      return h("div",{key:"int"+i,style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,fontSize:9,fontFamily:"monospace",marginBottom:i<intersecao.length-1?3:0}},
+                        h("div",{style:{display:"flex",alignItems:"center",gap:6,flex:"1 1 auto",minWidth:0}},
+                          h("span",{style:{fontSize:9,color:"#7A7060",fontWeight:700,minWidth:14}},"#"+(i+1)),
+                          h("span",{style:{width:7,height:7,borderRadius:"50%",background:info.color,display:"inline-block",flexShrink:0}}),
+                          h("span",{style:{color:"#E8E2D5",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}},info.name)
+                        ),
+                        h("span",{style:{color:"#9A9080",fontSize:8,whiteSpace:"nowrap",flexShrink:0}},"peso atual ",pesoAtual.toFixed(1),"%"),
+                        h("span",{style:{color:"#4CAF82",fontSize:8.5,fontWeight:700,whiteSpace:"nowrap",flexShrink:0,padding:"1px 5px",background:"rgba(76,175,130,0.10)",borderRadius:3}},"+2 dimensoes")
+                      );
+                    })
+                  );
+                })()
+              );
+            }catch(e){
+              console.error("Erro Dicas Solidez:",e);
+              return null;
+            }
+          })()
         );
       })()
       ):null
