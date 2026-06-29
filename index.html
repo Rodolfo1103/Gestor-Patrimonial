@@ -2981,12 +2981,18 @@ function SolidezCard({total,cw,port,metaMensalIF,setTab,fB,hideVal,dataNasciment
 
           // Intro
           h("p",{style:{margin:"0 0 9px"}},
-            "O \u00edndice agrega ",h("strong",{},"4 dimens\u00f5es independentes")," do portfolio em uma nota \u00fanica de 0 a 100. Cada dimens\u00e3o vale ",h("strong",{},"25 pontos m\u00e1ximos"),", e o \u00edndice final \u00e9 a m\u00e9dia simples. A ideia: um portfolio s\u00f3 \u00e9 verdadeiramente tranquilo quando \u00e9 ",h("strong",{},"grande"),", ",h("strong",{},"gera renda perpetua"),", ",h("strong",{},"resiste a crises")," e ",h("strong",{},"\u00e9 diversificado")," - n\u00e3o basta brilhar em uma s\u00f3 dimens\u00e3o."
+            "O \u00edndice agrega ",h("strong",{},"5 dimens\u00f5es complementares")," do portfolio em uma nota \u00fanica de 0 a 100. As dimens\u00f5es t\u00eam ",h("strong",{},"pesos diferenciados")," que refletem sua import\u00e2ncia estrutural: ",
+            h("strong",{style:{color:"#C8A96E"}},"Tamanho 22%"),", ",
+            h("strong",{style:{color:"#F7931A"}},"Renda 22%"),", ",
+            h("strong",{style:{color:"#5B8FD4"}},"Resili\u00eancia 22%"),", ",
+            h("strong",{style:{color:"#9C7DC2"}},"Diversifica\u00e7\u00e3o 17%")," e ",
+            h("strong",{style:{color:"#3DA17C"}},"Blindagem Cambial 17%"),
+            ". A ideia: um portfolio s\u00f3 \u00e9 verdadeiramente tranquilo quando \u00e9 ",h("strong",{},"grande"),", ",h("strong",{},"gera renda perp\u00e9tua"),", ",h("strong",{},"resiste a crises"),", ",h("strong",{},"\u00e9 diversificado")," e tem ",h("strong",{},"blindagem cambial estrutural")," contra crises sist\u00eamicas do real - n\u00e3o basta brilhar em uma s\u00f3 dimens\u00e3o."
           ),
 
           // ===== DIMENSAO 1: TAMANHO =====
           h("div",{style:{marginBottom:9,padding:"9px 11px",background:"rgba(168,139,94,0.08)",borderLeft:"3px solid #C8A96E",borderRadius:"0 4px 4px 0"}},
-            h("div",{style:{fontSize:9,letterSpacing:1.2,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,marginBottom:6}},"\u{1F4B0} 1. TAMANHO DO PATRIMONIO (25%)"),
+            h("div",{style:{fontSize:9,letterSpacing:1.2,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,marginBottom:6}},"\u{1F4B0} 1. TAMANHO DO PATRIMONIO (22%)"),
 
             // O conceito FIRE em linguagem clara
             h("p",{style:{margin:"0 0 7px"}},
@@ -3145,7 +3151,7 @@ function SolidezCard({total,cw,port,metaMensalIF,setTab,fB,hideVal,dataNasciment
 
           // ===== DIMENSAO 3: RESILIENCIA =====
           h("div",{style:{marginBottom:9,padding:"9px 11px",background:"rgba(91,143,212,0.08)",borderLeft:"3px solid #5B8FD4",borderRadius:"0 4px 4px 0"}},
-            h("div",{style:{fontSize:9,letterSpacing:1.2,color:"#5B8FD4",fontFamily:"monospace",fontWeight:700,marginBottom:6}},"\u{1F6E1}\u{FE0F} 3. RESILIENCIA A DRAWDOWNS (25%)"),
+            h("div",{style:{fontSize:9,letterSpacing:1.2,color:"#5B8FD4",fontFamily:"monospace",fontWeight:700,marginBottom:6}},"\u{1F6E1}\u{FE0F} 3. RESILIENCIA A DRAWDOWNS (22%)"),
 
             // O conceito
             h("p",{style:{margin:"0 0 7px"}},
@@ -3326,7 +3332,7 @@ function SolidezCard({total,cw,port,metaMensalIF,setTab,fB,hideVal,dataNasciment
 
           // ===== DIMENSAO 4: DIVERSIFICACAO =====
           h("div",{style:{marginBottom:9,padding:"9px 11px",background:"rgba(156,125,194,0.08)",borderLeft:"3px solid #9C7DC2",borderRadius:"0 4px 4px 0"}},
-            h("div",{style:{fontSize:9,letterSpacing:1.2,color:"#9C7DC2",fontFamily:"monospace",fontWeight:700,marginBottom:6}},"\u{1F517} 4. DIVERSIFICACAO (25%)"),
+            h("div",{style:{fontSize:9,letterSpacing:1.2,color:"#9C7DC2",fontFamily:"monospace",fontWeight:700,marginBottom:6}},"\u{1F517} 4. DIVERSIFICACAO (17%)"),
 
             // O conceito
             h("p",{style:{margin:"0 0 7px"}},
