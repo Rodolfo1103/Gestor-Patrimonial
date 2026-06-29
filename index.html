@@ -9182,12 +9182,16 @@ function App(){
   // Quantize pra evitar recalcular a cada centesimo de %
   const cwKey=MPT_CLS.map(cid=>Math.round((cw[cid]||0)*10)/10).join(",");
   const rfKey=Math.round((selicAtual||14.25)*10)/10;
+  // ATENCAO: o Monte Carlo NAO usa cw - ele gera o ESPACO de portfolios possiveis (aleatoriamente).
+  // Portanto, cwKey nao deve estar nas deps - se estivesse, qualquer mudanca minima de preco
+  // (que altera levemente cw) faria o MC regenerar amostras aleatorias diferentes, deixando
+  // pBest e o card de Dicas/Sumario instaveis. So rfKey afeta o calculo (via Sharpe).
   const mptCache=useMemo(()=>{
     try{
       const rf=(typeof selicAtual==="number"&&selicAtual>0?selicAtual:14.25)*(1-IR_LONGO_PRAZO)/100;
       return mptMonteCarlo(8000,rf);
     }catch(e){console.error("Erro Monte Carlo:",e);return[];}
-  },[cwKey,rfKey]);
+  },[rfKey]);
 
   // === NOTIFICACAO DE INSIGHT MENSAL: dispara quando insight de novo mes fica pronto ===
   // Marca em localStorage qual mes ja foi notificado para nao repetir
