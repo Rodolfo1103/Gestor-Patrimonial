@@ -17988,6 +17988,25 @@ h("button",{onClick:async()=>{
 
             // Top 6 para exibir
             const top6=classesScore.slice(0,6);
+            // ===== DEBUG TEMPORARIO: para investigar instabilidade do ranking =====
+            // Registra cada render no objeto window. Painel visivel abaixo mostra todos os renders.
+            try{
+              window.__sumarioDebug=window.__sumarioDebug||[];
+              const snapshot={
+                ts:Date.now(),
+                top6:top6.map(r=>({
+                  id:r.id,
+                  score:Math.round(r.score*100)/100,
+                  fontes:r.fontes.length,
+                  mpt_gap:r.contribuicoes.mpt?Math.round(r.contribuicoes.mpt.gap*100)/100:null,
+                  aw_gap:r.contribuicoes.aw?Math.round(r.contribuicoes.aw.gap*100)/100:null,
+                  ypb_gap:r.contribuicoes.ypb?Math.round(r.contribuicoes.ypb.gap*100)/100:null,
+                  vetores_score:r.contribuicoes.vetores?Math.round(r.contribuicoes.vetores.score*100)/100:null
+                }))
+              };
+              window.__sumarioDebug.push(snapshot);
+              if(window.__sumarioDebug.length>15)window.__sumarioDebug.shift();
+            }catch(_){}
             if(top6.length===0){
               return h("div",{style:{marginBottom:14,padding:"12px 14px",background:"linear-gradient(135deg,rgba(200,169,110,0.10),rgba(200,169,110,0.04))",border:"1px solid rgba(200,169,110,0.40)",borderRadius:9}},
                 h("div",{style:{fontSize:10,letterSpacing:1.8,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,marginBottom:5}},"\u{1F4CB} SUMARIO DAS RECOMENDACOES ATUAIS"),
@@ -18078,6 +18097,41 @@ h("button",{onClick:async()=>{
               h("div",{style:{fontSize:8,color:"#7A7060",fontStyle:"italic",lineHeight:1.55,marginTop:11,paddingTop:9,borderTop:"1px solid rgba(255,255,255,0.06)"}},
                 h("strong",{style:{color:"#C8A96E"}},"\u{1F501} Dinamico: "),
                 "este sumario recalcula automaticamente conforme voce adiciona/remove ativos, ajusta posicoes ou os precos de mercado mexem nos pesos das classes. Aporte e apenas UM dos eventos que altera as recomendacoes."
+              ),
+              // ===== PAINEL DE DEBUG TEMPORARIO =====
+              // Mostra o historico de renders deste card (ate 15). Toque "COPIAR" e cole aqui no chat.
+              h("div",{style:{marginTop:10,padding:"9px 11px",background:"rgba(224,82,82,0.06)",border:"1px dashed rgba(224,82,82,0.40)",borderRadius:6}},
+                h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:6,marginBottom:7,flexWrap:"wrap"}},
+                  h("div",{style:{fontSize:8,letterSpacing:1.2,color:"#E89060",fontFamily:"monospace",fontWeight:700}},"\u{1F41B} DEBUG: ULTIMOS RENDERS"),
+                  h("button",{onClick:()=>{
+                    try{
+                      const txt=JSON.stringify(window.__sumarioDebug||[],null,2);
+                      const ta=document.createElement("textarea");
+                      ta.value=txt;
+                      ta.style.position="fixed";
+                      ta.style.opacity="0";
+                      document.body.appendChild(ta);
+                      ta.select();
+                      const ok=document.execCommand("copy");
+                      document.body.removeChild(ta);
+                      if(ok){
+                        // Feedback visual breve
+                        const btn=document.activeElement;if(btn){const o=btn.textContent;btn.textContent="\u2713 COPIADO!";setTimeout(()=>{btn.textContent=o;},1500);}
+                      }else{
+                        alert("Falha ao copiar. Selecione o texto manualmente abaixo.");
+                      }
+                    }catch(e){alert("Erro: "+e.message);}
+                  },style:{padding:"4px 10px",background:"#E89060",color:"#1a1a1a",border:"none",borderRadius:4,fontSize:9,fontFamily:"monospace",fontWeight:700,cursor:"pointer",letterSpacing:0.5}},"COPIAR"),
+                  h("button",{onClick:()=>{window.__sumarioDebug=[];alert("Historico limpo. Entre e saia da aba algumas vezes para registrar novos renders.");},style:{padding:"4px 10px",background:"transparent",color:"#E89060",border:"1px solid #E89060",borderRadius:4,fontSize:9,fontFamily:"monospace",fontWeight:700,cursor:"pointer",letterSpacing:0.5}},"LIMPAR")
+                ),
+                h("p",{style:{margin:"0 0 7px",fontSize:8.5,color:"#9A9080",lineHeight:1.5,fontStyle:"italic"}},
+                  "Instrucao: clique em ",h("strong",{},"LIMPAR")," primeiro, depois saia da aba e volte 3-4 vezes. Em seguida clique ",h("strong",{},"COPIAR"),", cole aqui no chat. Cada render aparece como uma entrada com timestamp e top 6 classes. Se o ranking estiver mudando, vamos ver onde."
+                ),
+                h("textarea",{
+                  readOnly:true,
+                  value:(window.__sumarioDebug||[]).map((s,i)=>"#"+(i+1)+" ("+new Date(s.ts).toLocaleTimeString("pt-BR")+"): "+s.top6.map(t=>t.id+"="+t.score+" ("+t.fontes+"f)").join(", ")).join("\n")||"Nenhum render registrado ainda.",
+                  style:{width:"100%",minHeight:80,maxHeight:200,padding:7,background:"rgba(0,0,0,0.40)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:4,color:"#C8C0B0",fontFamily:"monospace",fontSize:8,lineHeight:1.5,resize:"vertical",boxSizing:"border-box"}
+                })
               )
             );
           }catch(e){
