@@ -20961,8 +20961,8 @@ h("button",{onClick:async()=>{
             // Equity bias
             h("div",{style:{background:"rgba(76,175,130,0.05)",border:"1px solid rgba(76,175,130,0.25)",borderRadius:6,padding:"9px 11px"}},
               h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5,gap:6}},
-                h("div",{},h("span",{style:{fontSize:10,color:"#4CAF82",fontWeight:700}},"EQUITY BIAS"),h("span",{style:{fontSize:8,color:"#7A7060",marginLeft:6,fontStyle:"italic"}},"acoes BR + EXT")),
-                h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace"}},"alvo Swensen: 40-45%")
+                h("div",{},h("span",{style:{fontSize:10,color:"#4CAF82",fontWeight:700}},"EQUITY BIAS"),h("span",{style:{fontSize:8,color:"#7A7060",marginLeft:6,fontStyle:"italic"}},"Acoes BR + Acoes EUA + Acoes MUNDO")),
+                h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace"}},"alvo YPB: 40-55%")
               ),
               barraComp(bktAtual.equity,bktYPB.equity,"#4CAF82"),
               h("div",{style:{fontSize:8,color:"#9A9080",marginTop:5,fontStyle:"italic"}},
@@ -20987,11 +20987,11 @@ h("button",{onClick:async()=>{
             // Hedge Inflacionario classico
             h("div",{style:{background:"rgba(232,196,74,0.05)",border:"1px solid rgba(232,196,74,0.25)",borderRadius:6,padding:"9px 11px"}},
               h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5,gap:6}},
-                h("div",{},h("span",{style:{fontSize:10,color:"#E8C44A",fontWeight:700}},"HEDGE INFLACIONARIO"),h("span",{style:{fontSize:8,color:"#7A7060",marginLeft:6,fontStyle:"italic"}},"ouro")),
-                h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace"}},"alvo Swensen: 4-7%")
+                h("div",{},h("span",{style:{fontSize:10,color:"#E8C44A",fontWeight:700}},"HEDGE INFLACIONARIO"),h("span",{style:{fontSize:8,color:"#7A7060",marginLeft:6,fontStyle:"italic"}},"ouro + NTN-B IPCA+")),
+                h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace"}},"alvo YPB: 5-10%")
               ),
               barraComp(bktAtual.inflationHedge,bktYPB.inflationHedge,"#E8C44A"),
-              h("div",{style:{fontSize:8,color:"#9A9080",marginTop:5,fontStyle:"italic"}},"Recursos naturais como hedge classico contra inflacao. Yale historicamente mantem 4-7% em commodities/recursos.")
+              h("div",{style:{fontSize:8,color:"#9A9080",marginTop:5,fontStyle:"italic"}},"Protecao contra inflacao estrutural e desordem monetaria. Ouro como hedge classico nao-soberano + NTN-B IPCA+ como protecao real garantida pelo Tesouro (juro real acima de IPCA). YPB pondera ~5-10% pelo cenario brasileiro de juros volateis e fiscal incerto.")
             ),
             // Alternativos liquidos
             h("div",{style:{background:"rgba(247,147,26,0.05)",border:"1px solid rgba(247,147,26,0.25)",borderRadius:6,padding:"9px 11px"}},
