@@ -7789,6 +7789,22 @@ function App(){
     const id=setInterval(()=>setLockTick(t=>t+1),1000);
     return()=>clearInterval(id);
   },[pinAttempts.lockUntil]);
+
+  // Sincroniza port.BTC.price com cotacao USD atual.
+  // Sempre que btcUsd mudar (via fetch da API a cada poucos minutos),
+  // o price da posicao BTC eh atualizado automaticamente em USD.
+  // O cambio USD/BRL eh aplicado em pv() na hora do calculo (igual outros ativos USD).
+  // Assim o investidor cadastra so a quantidade, e o valor de mercado e sempre
+  // refletido pela cotacao mais recente sem qualquer acao manual.
+  useEffect(()=>{
+    if(typeof btcUsd!=="number"||btcUsd<=0)return;
+    setPort(prev=>{
+      const p=prev["BTC"];
+      if(!p||!(p.qty>0))return prev;// so atualiza se ha posicao
+      if(p.price===btcUsd)return prev;// no-op se ja esta sincronizado
+      return{...prev,"BTC":{...p,price:btcUsd}};
+    });
+  },[btcUsd]);
   // Programacao do proximo aporte
   const [aporteProg,setAporteProg]=useState(()=>{
     try{
@@ -9819,6 +9835,11 @@ function App(){
       setEDataCompra(new Date().toISOString().substring(0,10));
     }
     else if(VB.includes(ticker)){setEQty(p.totalBRL!=null?String(p.totalBRL):"");setEPrice("");}
+    else if(ticker==="BTC"){
+      // Modo BTC: so quantidade. Preco eh atualizado automaticamente via useEffect que sincroniza com btcUsd.
+      setEQty(p.qty!=null?String(p.qty):"");
+      setEPrice("");// nao usado - preco vem da cotacao em tempo real
+    }
     else{setEQty(p.qty!=null?String(p.qty):"");setEPrice(p.price!=null?String(p.price):"");}
   };
   const saveEdit=()=>{
@@ -9841,6 +9862,17 @@ function App(){
       });
     }
     else if(VB.includes(ticker)){const v=pN(eQty);setPort(prev=>({...prev,[ticker]:{...prev[ticker],classId,totalBRL:v,qty:1,price:v}}));}
+    else if(ticker==="BTC"){
+      // BTC: salva apenas qty. Price eh derivado da cotacao em tempo real (btcUsd via useEffect).
+      // Se btcUsd ja esta disponivel, ja salva direto. Senao, o useEffect aplica assim que carregar.
+      const qty=pN(eQty);
+      setPort(prev=>{
+        const prevP=prev["BTC"]||{};
+        const novo={...prevP,classId,qty};
+        if(typeof btcUsd==="number"&&btcUsd>0)novo.price=btcUsd;
+        return {...prev,"BTC":novo};
+      });
+    }
     else{const qty=pN(eQty),price=pN(ePrice);setPort(prev=>({...prev,[ticker]:{...prev[ticker],classId,qty,price}}));}
     setEditA(null);
   };
@@ -14921,6 +14953,33 @@ h("button",{onClick:async()=>{
         isCustom&&refreshMsg&&h("div",{style:{padding:"6px 9px",marginBottom:10,background:refreshMsg.startsWith("OK")||refreshMsg.startsWith("Nome")?"rgba(76,175,130,0.08)":"rgba(232,196,74,0.08)",border:"1px solid "+(refreshMsg.startsWith("OK")||refreshMsg.startsWith("Nome")?"rgba(76,175,130,0.3)":"rgba(232,196,74,0.3)"),borderRadius:5,fontSize:9,color:refreshMsg.startsWith("OK")||refreshMsg.startsWith("Nome")?"#4CAF82":"#E8C44A",fontFamily:"monospace",lineHeight:1.5}},refreshMsg),
         isVB?row("Valor total aplicado (R$)",inp(eQty,setEQty,"0,00"),"Saldo atual em reais. Atualize a cada aporte."):
         isGB?h("div",{},row("Quantidade em gramas",inp(eQty,setEQty,"0,000")),row("Preco de venda por grama (R$/g)",inp(ePrice,setEPrice,"0,00"))):
+        ticker==="BTC"?h("div",{},
+          // Header informativo
+          h("div",{style:{marginBottom:12,padding:"9px 11px",background:"rgba(247,147,26,0.08)",border:"1px solid rgba(247,147,26,0.30)",borderRadius:6}},
+            h("div",{style:{fontSize:9,color:"#F7931A",fontFamily:"monospace",letterSpacing:1.5,fontWeight:700,marginBottom:4}},"\u20BF BITCOIN"),
+            h("div",{style:{fontSize:10,color:"#9A9080",fontFamily:"Georgia,serif",fontStyle:"italic",lineHeight:1.5}},"Informe apenas a ",h("strong",{style:{color:"#F7931A"}},"quantidade de BTC")," que voce possui. O valor de mercado em USD e BRL eh calculado automaticamente pela cotacao em tempo real - nao precisa atualizar manualmente.")
+          ),
+          row("Quantidade de BTC (frações OK, ex: 0.02500000)",inp(eQty,setEQty,"0,00000000")),
+          // Painel de cotacao + valor calculado
+          h("div",{style:{marginBottom:14,padding:"10px 12px",background:"linear-gradient(135deg,rgba(247,147,26,0.08),rgba(247,147,26,0.03))",border:"1px solid rgba(247,147,26,0.25)",borderRadius:7}},
+            h("div",{style:{fontSize:8,color:"#9A9080",fontFamily:"monospace",letterSpacing:1.5,marginBottom:6,textTransform:"uppercase"}},"COTACAO ATUAL (tempo real)"),
+            typeof btcUsd==="number"&&btcUsd>0?h("div",{},
+              h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:3}},
+                h("span",{style:{fontSize:11,color:"#9A9080"}},"1 BTC ="),
+                h("span",{style:{fontFamily:"monospace",fontSize:14,color:"#F7931A",fontWeight:700}},"US$ "+btcUsd.toLocaleString("pt-BR",{minimumFractionDigits:0,maximumFractionDigits:0}))
+              ),
+              FX&&typeof FX.USD==="number"&&h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:3}},
+                h("span",{style:{fontSize:11,color:"#9A9080"}},"1 BTC ="),
+                h("span",{style:{fontFamily:"monospace",fontSize:14,color:"#C8A96E",fontWeight:700}},"R$ "+(btcUsd*FX.USD).toLocaleString("pt-BR",{minimumFractionDigits:0,maximumFractionDigits:0}))
+              ),
+              pN(eQty)>0&&FX&&typeof FX.USD==="number"&&h("div",{style:{marginTop:8,paddingTop:7,borderTop:"1px solid rgba(247,147,26,0.20)",display:"flex",justifyContent:"space-between",alignItems:"baseline"}},
+                h("span",{style:{fontSize:10,color:"#9A9080",fontStyle:"italic"}},"Valor desta posicao:"),
+                h("span",{style:{fontFamily:"monospace",fontSize:15,color:"#F7931A",fontWeight:700}},"R$ "+(pN(eQty)*btcUsd*FX.USD).toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2}))
+              ),
+              btcTs&&h("div",{style:{marginTop:6,fontSize:8,color:"#7A7060",fontFamily:"monospace",fontStyle:"italic"}},"atualizado em "+new Date(btcTs).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}))
+            ):h("div",{style:{fontSize:11,color:"#E8C44A",fontStyle:"italic"}},"aguardando cotacao online... (sera buscada automaticamente)")
+          )
+        ):
         isNT?h("div",{},
           // Header informativo
           h("div",{style:{marginBottom:12,padding:"9px 11px",background:"rgba(168,139,94,0.08)",border:"1px solid rgba(168,139,94,0.30)",borderRadius:6}},
