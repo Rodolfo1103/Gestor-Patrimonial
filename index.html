@@ -8440,20 +8440,32 @@ function App(){
       // Aplica todas as mudancas de cambio de uma vez (re-render automatico)
       setFxState(prev=>({...prev,...upd}));
     })();
-    // Busca BTC em USD da CoinGecko com variacao 24h
+    // Busca BTC em USD via cascata CoinGecko -> Coinbase -> Binance (fallback robusto)
     (async()=>{
-      try{
-        const ctrl=new AbortController();
-        const tid=setTimeout(()=>ctrl.abort(),8000);
-        const r=await fetch("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd&include_24hr_change=true",{signal:ctrl.signal});
-        clearTimeout(tid);
-        if(!r.ok)return;
-        const d=await r.json();
-        if(cancelado||!d||!d.bitcoin||!d.bitcoin.usd)return;
-        setBtcUsd(d.bitcoin.usd);
-        setBtcTs(new Date().toISOString());
-        if(typeof d.bitcoin.usd_24h_change==="number")setBtcVar(d.bitcoin.usd_24h_change);
-      }catch(e){/* silencioso */}
+      const fontes=[
+        {nome:"CoinGecko",url:"https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd&include_24hr_change=true",parse:d=>({preco:d&&d.bitcoin&&d.bitcoin.usd,var24h:d&&d.bitcoin&&d.bitcoin.usd_24h_change})},
+        {nome:"Coinbase",url:"https://api.coinbase.com/v2/prices/BTC-USD/spot",parse:d=>({preco:d&&d.data&&parseFloat(d.data.amount),var24h:null})},
+        {nome:"Binance",url:"https://api.binance.com/api/v3/ticker/24hr?symbol=BTCUSDT",parse:d=>({preco:d&&parseFloat(d.lastPrice),var24h:d&&parseFloat(d.priceChangePercent)})}
+      ];
+      for(const f of fontes){
+        if(cancelado)return;
+        try{
+          const ctrl=new AbortController();
+          const tid=setTimeout(()=>ctrl.abort(),7000);
+          const r=await fetch(f.url,{signal:ctrl.signal});
+          clearTimeout(tid);
+          if(!r.ok)continue;
+          const d=await r.json();
+          const out=f.parse(d);
+          if(cancelado)return;
+          if(out&&typeof out.preco==="number"&&out.preco>0){
+            setBtcUsd(out.preco);
+            setBtcTs(new Date().toISOString());
+            if(typeof out.var24h==="number")setBtcVar(out.var24h);
+            return;// primeira fonte ok, encerra
+          }
+        }catch(e){/* silencioso - tenta proxima fonte */}
+      }
     })();
     // Busca Ouro spot internacional via Coinbase XAU-USD (USD/onca troy) + tambem GoldAPI fallback
     // Calcula BRL/g = (USD/oz / 31.1035) * FX.USD
@@ -9532,27 +9544,42 @@ function App(){
         }
         if(queremOuro&&!okOuro)failed.push("OURO_FISICO");
       }
-      // Bitcoin via CoinGecko
-      if(tickers.includes("BTC")){
+      // Bitcoin via cascata de fontes (CoinGecko -> Coinbase -> Binance)
+      // CoinGecko eh fonte principal (variacao 24h disponivel). Coinbase/Binance sao fallbacks.
+      // Sempre tenta, mesmo sem posicao em BTC, para exibir cotacao no header.
+      const fontesBTC=[
+        {
+          nome:"CoinGecko",
+          url:"https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd&include_24hr_change=true",
+          parse:d=>({preco:d&&d.bitcoin&&d.bitcoin.usd,var24h:d&&d.bitcoin&&d.bitcoin.usd_24h_change})
+        },
+        {
+          nome:"Coinbase",
+          url:"https://api.coinbase.com/v2/prices/BTC-USD/spot",
+          parse:d=>({preco:d&&d.data&&parseFloat(d.data.amount),var24h:null})
+        },
+        {
+          nome:"Binance",
+          url:"https://api.binance.com/api/v3/ticker/24hr?symbol=BTCUSDT",
+          parse:d=>({preco:d&&parseFloat(d.lastPrice),var24h:d&&parseFloat(d.priceChangePercent)})
+        }
+      ];
+      let btcOk=false;
+      for(const f of fontesBTC){
+        if(btcOk)break;
         try{
-          const d=await fetchJSON("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd&include_24hr_change=true",8000);
-          if(d.bitcoin&&d.bitcoin.usd>0){
-            allPrices["BTC"]=d.bitcoin.usd;dbg.push("BTC:ok");
-            setBtcUsd(d.bitcoin.usd);setBtcTs(new Date().toISOString());
-            if(typeof d.bitcoin.usd_24h_change==="number")setBtcVar(d.bitcoin.usd_24h_change);
+          const d=await fetchJSON(f.url,7000);
+          const r=f.parse(d);
+          if(r&&typeof r.preco==="number"&&r.preco>0){
+            if(tickers.includes("BTC"))allPrices["BTC"]=r.preco;
+            setBtcUsd(r.preco);setBtcTs(new Date().toISOString());
+            if(typeof r.var24h==="number")setBtcVar(r.var24h);
+            dbg.push("BTC:ok-"+f.nome);
+            btcOk=true;
           }
-          else{failed.push("BTC");dbg.push("BTC:semvalor");}
-        }catch(e){failed.push("BTC");dbg.push("BTC-erro:"+e.message);}
-      }else{
-        // Mesmo sem posicao em BTC, busca o preco pra exibir no header
-        try{
-          const d=await fetchJSON("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd&include_24hr_change=true",6000);
-          if(d.bitcoin&&d.bitcoin.usd>0){
-            setBtcUsd(d.bitcoin.usd);setBtcTs(new Date().toISOString());
-            if(typeof d.bitcoin.usd_24h_change==="number")setBtcVar(d.bitcoin.usd_24h_change);
-          }
-        }catch(e){/* silencioso */}
+        }catch(e){dbg.push("BTC-"+f.nome+"-erro:"+e.message);}
       }
+      if(!btcOk&&tickers.includes("BTC"))failed.push("BTC");
       // Mapeamento de tickers para Yahoo Finance
       const YH={
         MSFT:"MSFT",APH:"APH",MU:"MU",AMAT:"AMAT",GOOGL:"GOOGL",WM:"WM",O:"O",FPI:"FPI",BRKB:"BRK-B",
