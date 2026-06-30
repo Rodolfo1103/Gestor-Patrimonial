@@ -2269,11 +2269,18 @@ function pvNTNBCarrego(t,p,vnaAtual){
   return (p.qty||0)*(p.puCompra||0);
 }
 
-function pv(t,p,ccy,ntnbTaxas,vnaAtual){
+function pv(t,p,ccy,ntnbTaxas,vnaAtual,btcUsd){
   if(!p)return 0;
   if(isNTNB(t))return pvNTNB(t,p,ntnbTaxas,vnaAtual);
   if(VB.includes(t)||isImv(t))return p.totalBRL||0;
   if(GB.includes(t))return(p.qty||0)*(p.price||0);
+  // BTC: sempre usar cotacao em tempo real (btcUsd em USD), fallback para p.price se nao disponivel.
+  // Isto garante que mesmo se o useEffect ainda nao sincronizou p.price, o valor de mercado
+  // eh refletido corretamente pelo btcUsd atual.
+  if(t==="BTC"){
+    const priceUSD=(typeof btcUsd==="number"&&btcUsd>0)?btcUsd:(p.price||0);
+    return(p.qty||0)*priceUSD*(FX.USD||1);
+  }
   return(p.qty||0)*(p.price||0)*(FX[ccy[t]||"BRL"]||1);
 }
 function hq(t,p){if(!p)return false;if(isNTNB(t))return(p.qty||0)>0;if(VB.includes(t)||isImv(t))return(p.totalBRL||0)>0;return(p.qty||0)>0;}
@@ -9163,7 +9170,7 @@ function App(){
 
   const stats=useCallback(()=>{
     let total=0;const ct={};CL.forEach(c=>{ct[c.id]=0;});
-    Object.entries(port).forEach(([t,p])=>{const v=pv(t,p,ccy,ntnbTaxas,ntnbVNA);if(!v)return;total+=v;const cid=p.classId||cls[t];if(cid)ct[cid]=(ct[cid]||0)+v;});
+    Object.entries(port).forEach(([t,p])=>{const v=pv(t,p,ccy,ntnbTaxas,ntnbVNA,btcUsd);if(!v)return;total+=v;const cid=p.classId||cls[t];if(cid)ct[cid]=(ct[cid]||0)+v;});
     // Adiciona Caixa Cambial ao patrimonio total (convertido em BRL via FX)
     // Itera dinamicamente todas as moedas presentes no cambialCash.
     // Caixa Cambial e classe nao-motora, similar a Selic 2031, mas em moeda forte aguardando
@@ -9181,7 +9188,7 @@ function App(){
   // fxState esta nas deps para tornar EXPLICITA a dependencia do cambio.
   // pv() le FX (objeto global sincronizado via effect com fxState). Sem fxState nas deps,
   // a relacao ficaria implicita - o callback nao mudaria de identidade quando o cambio mudasse.
-  },[port,ccy,cls,ntnbTaxas,ntnbVNA,fxState,cambialCash]);
+  },[port,ccy,cls,ntnbTaxas,ntnbVNA,fxState,cambialCash,btcUsd]);
   const {total,ct,cw}=stats();
   const hasPos=Object.entries(port).some(([t,p])=>hq(t,p));
 
@@ -10255,7 +10262,7 @@ function App(){
               anosAteVenc:vRest,
               durationModificada:durMod.toFixed(1),
               bucketDuration:bktDur,
-              valorBRL:p?pv(t,p,ccy,ntnbTaxas,ntnbVNA):0
+              valorBRL:p?pv(t,p,ccy,ntnbTaxas,ntnbVNA,btcUsd):0
             };
             if(historico)obj.historico=historico;
             if(naMira)obj.naMira=true;
@@ -13325,7 +13332,7 @@ function App(){
           if(!t)return;
           const p=port[t]||null;// pode nao ter posicao - tudo bem
           // pv funciona com null tratando como qty=0
-          const v=p?pv(t,p,ccy,ntnbTaxas,ntnbVNA):0;
+          const v=p?pv(t,p,ccy,ntnbTaxas,ntnbVNA,btcUsd):0;
           const temPosicao=v>0;
           const pesoNaClasse=temPosicao&&cw[cid]>0?(v/(total*(cw[cid]/100)))*100:0;
           const pesoNoTotalNum=temPosicao&&total>0?(v/total)*100:0;
@@ -13383,7 +13390,7 @@ function App(){
         if(!p||!t)return;
         const cid=cls[t];
         if(cid&&classesElegiveis.includes(cid)){
-          const v=pv(t,p,ccy,ntnbTaxas,ntnbVNA);
+          const v=pv(t,p,ccy,ntnbTaxas,ntnbVNA,btcUsd);
           if(v>0)classesNoPortfolio.add(cid);
         }
       });
@@ -15012,7 +15019,7 @@ h("button",{onClick:async()=>{
           ),
           ...tickers.map(ticker=>{
             const pos=port[ticker],isHid=hidden.includes(ticker),cc=ccy[ticker]||"BRL";
-            const val=pv(ticker,pos,ccy),has=val>0||hq(ticker,pos);
+            const val=pv(ticker,pos,ccy,ntnbTaxas,ntnbVNA,btcUsd),has=val>0||hq(ticker,pos);
             const isCustom=!!(custom[c.id]||[]).find(a=>a.ticker===ticker);
             return h("div",{key:ticker,onClick:()=>openEdit(ticker,c.id),style:{display:"flex",alignItems:"center",padding:"6px 8px",marginBottom:2,background:isHid?"rgba(255,255,255,0.01)":has?c.color+"0A":"rgba(255,255,255,0.02)",border:"1px solid "+(isHid?"rgba(255,255,255,0.03)":has?c.color+"22":"rgba(255,255,255,0.04)"),borderRadius:6,gap:7,opacity:isHid?0.4:1,cursor:"pointer"}},
               h("div",{style:{width:3,height:22,borderRadius:2,background:has?c.color:"rgba(255,255,255,0.08)",flexShrink:0}}),
@@ -26642,7 +26649,7 @@ h("button",{onClick:async()=>{
 
     // Tabela das posicoes NTN-B atuais (resumo)
     const ntnbPos=Object.entries(port).filter(([t,p])=>isNTNB(t)&&p&&p.qty>0);
-    const totalNTNB=ntnbPos.reduce((s,[t,p])=>s+pv(t,p,ccy,ntnbTaxas,ntnbVNA),0);
+    const totalNTNB=ntnbPos.reduce((s,[t,p])=>s+pv(t,p,ccy,ntnbTaxas,ntnbVNA,btcUsd),0);
     const totalCarrego=ntnbPos.reduce((s,[t,p])=>s+pvNTNBCarrego(t,p,ntnbVNA),0);
 
     // Calcula GAP relativo (mercado vs carrego)
@@ -27032,7 +27039,7 @@ h("button",{onClick:async()=>{
           // pct: percentual DENTRO da classe NTN-B (peso relativo entre os titulos)
           // pctTotal: percentual no PATRIMONIO TOTAL (peso absoluto na carteira completa)
           const composicao=ntnbPos.map(([t,p])=>{
-            const valor=pv(t,p,ccy,ntnbTaxas,ntnbVNA);
+            const valor=pv(t,p,ccy,ntnbTaxas,ntnbVNA,btcUsd);
             const anos=anosAteVenc(NTNB_VENCIMENTOS[t]);
             return {
               ticker:t,
@@ -27152,7 +27159,7 @@ h("button",{onClick:async()=>{
 
         // Lista de posicoes
         ...ntnbPos.map(([t,p])=>{
-          const valorMercado=pv(t,p,ccy,ntnbTaxas,ntnbVNA);
+          const valorMercado=pv(t,p,ccy,ntnbTaxas,ntnbVNA,btcUsd);
           const valorCarrego=pvNTNBCarrego(t,p,ntnbVNA);
           const gap=valorCarrego>0?((valorMercado-valorCarrego)/valorCarrego)*100:0;
           const tx=ntnbTaxas&&ntnbTaxas[t]?ntnbTaxas[t]:null;
