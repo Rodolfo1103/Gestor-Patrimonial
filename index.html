@@ -221,7 +221,7 @@ const NAMES={
   PVBI11:"VBI Prime Properties",TGAR11:"TG Ativo Real",HSML11:"HSI Malls",XPML11:"XP Malls",
   RECR11:"REC Recebiveis Imob",KNHY11:"Kinea High Yield",KNUQ11:"Kinea Unique",
   KNIP11:"Kinea Indice Precos",AFHI11:"AF Invest CRI",
-  BRZP11:"Briza Infra",AZIN11:"Azimut Infra",KDIF11:"Kinea Infra",
+  BRZP11:"BRZ Infra Portos",AZIN11:"AZ Quest Infra-Yield II",KDIF11:"Kinea Infra",
   PSSA3:"Porto Seguro",EGIE3:"Engie Brasil",WEGE3:"WEG",BBAS3:"Banco do Brasil",
   ITUB3:"Itau Unibanco",KLBN4:"Klabin",CXSE3:"Caixa Seguridade",MULT3:"Multiplan",
   CMIN3:"CSN Mineracao",FRAS3:"Fras-le",TAEE11:"Taesa",
@@ -1207,7 +1207,7 @@ const DEFAULTS_POR_CLASSE={
 const DESCRICOES_FACTUAIS={
   // Fundos de Infraestrutura
   BRZP11:"BRZ Infra Portos FIP-IE - fundo de participacoes (FIP-IE) com 22,9% indireto no Porto Itapoá/SC (terminal de containers operado em parceria com Maersk). NAO E fundo de debentures incentivadas. NAO E FII tradicional. Exposicao indireta a inflacao via receitas portuarias.",
-  AZIN11:"Azimut Infra - FI-Infra investindo em debentures incentivadas (isencao IR) de empresas de infraestrutura. Diversificado em setores (energia, saneamento, transportes).",
+  AZIN11:"AZ Quest Infra-Yield II FIP-IE - fundo de participacoes em infraestrutura (gestora AZ Quest), foco em divida via debentures incentivadas (Lei 12.431) de empresas de infra (energia solar/hidrica, telecom, biometano, data centers). Distribuicao mensal, isencao IR PF. CNPJ 51.484.496/0001-57.",
   KDIF11:"Kinea Infra - FI-Infra investindo em debentures incentivadas (isencao IR) de empresas de infraestrutura. Foco em projetos brownfield com fluxos previsiveis.",
   // FIIs com nomenclatura potencialmente confusa
   HGLG11:"CSHG Logistica - FII de tijolo, galpoes logisticos (locatarios Mercado Livre, Magazine Luiza, etc).",
@@ -12819,7 +12819,7 @@ function App(){
         "6a) SUBTIPO OBRIGATORIO para FII/infra/agro - identifica natureza do fundo (afeta como TIR e calculada):\n"+
         "    - 'tijolo': FII com imoveis fisicos (lajes corporativas, logistica, shopping, varejo, residencial multifamily, galpoes, hospitais). Exemplos: HGRU11, ALZR11, HGLG11, XPML11, JFLL11 (multifamily), RBVA11, TRXF11, BTLG11, FIIB11, PVBI11, TEPP11, TGAR11, HSML11, XPIN11.\n"+
         "    - 'papel': FII de CRIs (recebiveis imobiliarios) - puro instrumento de divida, retorno = yield contratado dos CRIs. Exemplos: KNHY11, KNUQ11, KNIP11, RECR11, AFHI11.\n"+
-        "    - 'fip_ie': FIP de Infraestrutura (Fundo de Participacoes em Infraestrutura) - EQUITY em projetos de infra como portos, energia, rodovias. NAO eh divida. Exemplo: BRZP11 (Briza Infra Portos com 22,9% indireto Porto Itapoa/SC).\n"+
+        "    - 'fip_ie': FIP de Infraestrutura (Fundo de Participacoes em Infraestrutura) - EQUITY em projetos de infra como portos, energia, rodovias. NAO eh divida. Exemplo: BRZP11 (BRZ Infra Portos com 22,9% indireto Porto Itapoa/SC).\n"+
         "    - 'debentureIncentivada': FI-Infra de debentures incentivadas Lei 12.431 - divida pura isenta IR. Exemplos: AZIN11, KDIF11.\n"+
         "    - 'fiagro_terras': FIAGRO de terras agricolas com arrendamento - equity de real assets. Exemplos: SNFZ11 (Suno Fazenda), RZTR11 (Riza Terrax).\n"+
         "    - 'fiagro_papel': FIAGRO de CRAs (recebiveis do agronegocio) - puro instrumento de divida. Exemplo: KNCA11 (Kinea Credito Agronegocio).\n"+
