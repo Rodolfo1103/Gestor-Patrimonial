@@ -14968,13 +14968,13 @@ h("button",{onClick:async()=>{
                 h("span",{style:{fontSize:11,color:"#9A9080"}},"1 BTC ="),
                 h("span",{style:{fontFamily:"monospace",fontSize:14,color:"#F7931A",fontWeight:700}},"US$ "+btcUsd.toLocaleString("pt-BR",{minimumFractionDigits:0,maximumFractionDigits:0}))
               ),
-              FX&&typeof FX.USD==="number"&&h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:3}},
+              fxState&&typeof fxState.USD==="number"&&h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:3}},
                 h("span",{style:{fontSize:11,color:"#9A9080"}},"1 BTC ="),
-                h("span",{style:{fontFamily:"monospace",fontSize:14,color:"#C8A96E",fontWeight:700}},"R$ "+(btcUsd*FX.USD).toLocaleString("pt-BR",{minimumFractionDigits:0,maximumFractionDigits:0}))
+                h("span",{style:{fontFamily:"monospace",fontSize:14,color:"#C8A96E",fontWeight:700}},"R$ "+(btcUsd*fxState.USD).toLocaleString("pt-BR",{minimumFractionDigits:0,maximumFractionDigits:0}))
               ),
-              pN(eQty)>0&&FX&&typeof FX.USD==="number"&&h("div",{style:{marginTop:8,paddingTop:7,borderTop:"1px solid rgba(247,147,26,0.20)",display:"flex",justifyContent:"space-between",alignItems:"baseline"}},
+              pN(eQty)>0&&fxState&&typeof fxState.USD==="number"&&h("div",{style:{marginTop:8,paddingTop:7,borderTop:"1px solid rgba(247,147,26,0.20)",display:"flex",justifyContent:"space-between",alignItems:"baseline"}},
                 h("span",{style:{fontSize:10,color:"#9A9080",fontStyle:"italic"}},"Valor desta posicao:"),
-                h("span",{style:{fontFamily:"monospace",fontSize:15,color:"#F7931A",fontWeight:700}},"R$ "+(pN(eQty)*btcUsd*FX.USD).toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2}))
+                h("span",{style:{fontFamily:"monospace",fontSize:15,color:"#F7931A",fontWeight:700}},"R$ "+(pN(eQty)*btcUsd*fxState.USD).toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2}))
               ),
               btcTs&&h("div",{style:{marginTop:6,fontSize:8,color:"#7A7060",fontFamily:"monospace",fontStyle:"italic"}},"atualizado em "+new Date(btcTs).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}))
             ):h("div",{style:{fontSize:11,color:"#E8C44A",fontStyle:"italic"}},"aguardando cotacao online... (sera buscada automaticamente)")
