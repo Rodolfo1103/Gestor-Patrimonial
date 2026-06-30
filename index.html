@@ -238,12 +238,9 @@ const NAMES={
   AAAU:"Perth Mint Gold ETF",BTC:"Bitcoin",
   OURO_FISICO:"Ouro Fisico (Ourominas)",SELIC2031:"Tesouro Selic 2031",
   TLT:"iShares 20+ Year Treasury",IEF:"iShares 7-10 Year Treasury",VTIP:"Vanguard Short-Term TIPS",
-  "NTNB-2029":"Tesouro IPCA+ 2029 (NTN-B Principal)",
-  "NTNB-2035":"Tesouro IPCA+ 2035 (NTN-B Principal)",
+  "NTNB-2032":"Tesouro IPCA+ 2032 (NTN-B Principal)",
   "NTNB-2040":"Tesouro IPCA+ 2040 (NTN-B Principal)",
-  "NTNB-2045":"Tesouro IPCA+ 2045 (NTN-B Principal)",
   "NTNB-2050":"Tesouro IPCA+ 2050 (NTN-B Principal)",
-  "NTNB-2060":"Tesouro IPCA+ 2060 (NTN-B Principal)",
 };
 const BCCY={
   HGRU11:"BRL",RBVA11:"BRL",ALZR11:"BRL",TRXF11:"BRL",FIIB11:"BRL",BTLG11:"BRL",HGLG11:"BRL",
@@ -258,7 +255,7 @@ const BCCY={
   REA:"AUD",WES:"AUD",HKG0700:"HKD",HKG1299:"HKD",HKG0001:"HKD",HKG0087:"HKD",J36:"SGD",
   SELIC2031:"BRL",OURO_FISICO:"BRL",AAAU:"USD",BTC:"USD",BRZP11:"BRL",AZIN11:"BRL",KDIF11:"BRL",
   TLT:"USD",IEF:"USD",VTIP:"USD",
-  "NTNB-2029":"BRL","NTNB-2035":"BRL","NTNB-2040":"BRL","NTNB-2045":"BRL","NTNB-2050":"BRL","NTNB-2060":"BRL",
+  "NTNB-2032":"BRL","NTNB-2040":"BRL","NTNB-2050":"BRL",
 };
 const VB=["SELIC2031"];
 // Pesos-alvo internos da classe Treasuries (estrategia escolhida: 40% TLT + 20% IEF + 40% VTIP)
@@ -268,31 +265,31 @@ const VB=["SELIC2031"];
 const TRE_TARGET={TLT:0.40,IEF:0.20,VTIP:0.40};
 
 // ============= CONSTANTES NTN-B (Tesouro IPCA+) =============
-// Vencimentos conhecidos da NTN-B Principal (sem cupom semestral).
-// IMPORTANTE: este mapa contem APENAS vencimentos ofertados como NTN-B Principal pelo TD.
-// O Tesouro Direto NAO oferta 2055 e 2060 como Principal - apenas na versao "com Juros Semestrais"
-// (que e descartada pelo filtro pois o investidor so usa Principal).
-// Esta lista e MUTAVEL: a funcao fetchNTNBTaxas() adiciona automaticamente novos vencimentos
-// Principal descobertos via API (ex: quando o Tesouro voltar a ofertar 2055/2060 Principal, ou novos como 2065).
-const NTNB_VENCIMENTOS_INICIAL={
-  "NTNB-2026":"2026-05-15",
-  "NTNB-2029":"2029-05-15",
+// Vencimentos da NTN-B Principal (sem cupom semestral) DISPONIVEIS NO BANCO DO BRASIL.
+// IMPORTANTE: o BB oferta um subconjunto dos vencimentos do Tesouro Direto. Outros
+// vencimentos podem aparecer na API publica mas nao sao acessiveis para investimento
+// na corretora do BB - alguns sao apenas com Juros Semestrais (incompativel com
+// estrategia exclusiva de Principal), outros nao estao na grade da corretora.
+// Whitelist explicita: o fetch automatico SO adiciona vencimentos desta lista,
+// ignorando extras retornados pela API.
+// Se o BB voltar a ofertar outros vencimentos como Principal, adicionar a whitelist.
+const NTNB_DISPONIVEIS_BB={
   "NTNB-2032":"2032-08-15",
-  "NTNB-2035":"2035-05-15",
   "NTNB-2040":"2040-08-15",
-  "NTNB-2045":"2045-05-15",
-  "NTNB-2050":"2050-08-15",
+  "NTNB-2050":"2050-08-15"
 };
-// Versao mutavel - comeca igual ao inicial e e expandida quando novos vencimentos sao descobertos
+const NTNB_VENCIMENTOS_INICIAL={...NTNB_DISPONIVEIS_BB};
+// Versao mutavel - comeca igual ao inicial; mesclarVencimentosNTNB pode adicionar
+// novos vencimentos descobertos via API SE estiverem na whitelist NTNB_DISPONIVEIS_BB.
 const NTNB_VENCIMENTOS={...NTNB_VENCIMENTOS_INICIAL};
-// Helper para mesclar vencimentos descobertos via API
-// Tambem registra automaticamente NAMES e BCCY para o novo ticker
+// Helper para mesclar vencimentos descobertos via API.
+// Filtros: (1) ticker no formato NTNB-AAAA, (2) data ISO valida, (3) presente na whitelist.
 function mesclarVencimentosNTNB(novos){
   if(!novos||typeof novos!=="object")return;
   Object.entries(novos).forEach(([tk,data])=>{
-    if(/^NTNB-20\d{2}$/.test(tk)&&/^\d{4}-\d{2}-\d{2}$/.test(data)){
+    if(/^NTNB-20\d{2}$/.test(tk)&&/^\d{4}-\d{2}-\d{2}$/.test(data)&&NTNB_DISPONIVEIS_BB[tk]){
       NTNB_VENCIMENTOS[tk]=data;
-      // Adiciona em NAMES se ainda nao houver (para novos vencimentos descobertos via API)
+      // Adiciona em NAMES se ainda nao houver
       if(typeof NAMES!=="undefined"&&!NAMES[tk]){
         NAMES[tk]="Tesouro IPCA+ "+tk.split("-")[1]+" (NTN-B Principal)";
       }
@@ -6116,12 +6113,12 @@ function TesouroNTNBCard({ntnbTaxas,ntnbVNA,ntnbUpdTs,ntnbStatus,ntnbDataCotacao
     h("div",{style:{fontSize:7,color:"#5A5550",fontFamily:"monospace",marginBottom:8,letterSpacing:1}},
       "ultimo fetch do app: "+(ntnbUpdTs?new Date(ntnbUpdTs).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):"nunca")
     ),
-    // Nota informativa sobre disponibilidade no Tesouro Direto
+    // Nota informativa sobre disponibilidade no Banco do Brasil
     h("div",{style:{fontSize:8,color:"#8A7560",marginBottom:8,padding:"6px 9px",background:"rgba(168,139,94,0.06)",border:"1px solid rgba(168,139,94,0.18)",borderRadius:5,lineHeight:1.5}},
       h("span",{style:{color:"#C8A96E",fontFamily:"monospace",fontWeight:700,letterSpacing:1}},"\u2139 NOTA: "),
-      "O Tesouro Direto oferta NTN-B 2055 e 2060 ",
-      h("strong",{style:{color:"#A88B5E"}},"apenas na versao com cupom semestral"),
-      ", nao como Principal. Como sua estrategia e exclusivamente Principal (sem cupom), esses vencimentos ficam fora. Se o TD voltar a ofertar como Principal, eles aparecem automaticamente."
+      "Lista limitada aos vencimentos ",
+      h("strong",{style:{color:"#A88B5E"}},"NTN-B Principal disponiveis no Banco do Brasil"),
+      " (IPCA+ 2032, 2040 e 2050). Outros vencimentos do Tesouro Direto sao ofertados apenas com Juros Semestrais (incompativel com estrategia exclusiva de Principal) ou nao estao na grade da corretora. Se o BB voltar a ofertar novos vencimentos como Principal, atualizar manualmente."
     ),
     // Cabecalho
     h("div",{style:{display:"grid",gridTemplateColumns:"1fr 0.9fr 0.9fr 1fr 0.8fr",gap:8,padding:"6px 8px",background:"rgba(0,0,0,0.20)",borderRadius:4,fontSize:7,color:"#7A7060",fontFamily:"monospace",letterSpacing:1,fontWeight:700,marginBottom:4}},
