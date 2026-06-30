@@ -2222,9 +2222,18 @@ function isNTNB(t){return typeof t==="string"&&t.startsWith("NTNB-");}
 // Estrategia: MtM = quantidade * PU_atual_mercado(taxa_atual,vencimento)
 // Fallback: valor de carrego se nao tiver taxa de mercado
 // p deve conter: qty, puCompra, taxaCompra, dataCompra
+//   OU (modo simplificado): qty, valorTotalManual (em BRL)
 // ntnbTaxas[t] = {taxaBrutaVenda, taxaBrutaCompra, puVenda, puCompra, ts}
 function pvNTNB(t,p,ntnbTaxas,vnaAtual){
   if(!p||!p.qty)return 0;
+  // ===== MODO SIMPLIFICADO (preferencial) =====
+  // Se o investidor informou diretamente o valor total da posicao em BRL,
+  // usar esse numero como verdade. Eh o valor real do extrato bancario.
+  // Este modo IGNORA taxa, PU, VNA, etc - confianca total no extrato.
+  if(typeof p.valorTotalManual==="number"&&p.valorTotalManual>0){
+    return p.valorTotalManual;
+  }
+  // ===== MODO LEGADO (posicoes antigas com taxa+PU) =====
   const vna=vnaAtual||NTNB_VNA_BASE;
   const vencISO=NTNB_VENCIMENTOS[t];
   if(!vencISO)return (p.qty||0)*(p.puCompra||0);
@@ -9790,9 +9799,24 @@ function App(){
     const p=port[ticker]||{};setEditA({ticker,classId});
     if(isNTNB(ticker)){
       setEQty(p.qty!=null?String(p.qty):"");
-      setEPrice(p.puCompra!=null?String(p.puCompra):"");// reaproveita ePrice para puCompra
-      setETaxaCompra(p.taxaCompra!=null?String((p.taxaCompra*100).toFixed(4)).replace(/\.?0+$/,""):"");
-      setEDataCompra(p.dataCompra?p.dataCompra.substring(0,10):new Date().toISOString().substring(0,10));
+      // Pre-preenche o input "Valor de mercado atual" (eh o ePrice agora):
+      // - Se ja tem valorTotalManual (modo novo): usar diretamente
+      // - Senao, se tem posicao antiga (qty+puCompra+taxaCompra): mostrar valor calculado
+      //   do MODO ANTIGO (carrego) como sugestao - ja sai migrado para o modo novo
+      if(typeof p.valorTotalManual==="number"&&p.valorTotalManual>0){
+        setEPrice(String(p.valorTotalManual));
+      }else if((p.qty||0)>0&&p.puCompra>0&&p.taxaCompra>0&&p.dataCompra){
+        // Calcula o valor de carrego atual da posicao antiga como ponto de partida
+        const dataC=new Date(p.dataCompra);
+        const anosDecorridos=Math.max(0,(new Date()-dataC)/(365.25*86400000));
+        const valorCarrego=(p.qty||0)*calcPUCarrego(p.puCompra,p.taxaCompra,anosDecorridos);
+        setEPrice(valorCarrego>0?valorCarrego.toFixed(2):"");
+      }else{
+        setEPrice("");
+      }
+      // Limpa os campos antigos do form para nao confundir (mesmo invisiveis)
+      setETaxaCompra("");
+      setEDataCompra(new Date().toISOString().substring(0,10));
     }
     else if(VB.includes(ticker)){setEQty(p.totalBRL!=null?String(p.totalBRL):"");setEPrice("");}
     else{setEQty(p.qty!=null?String(p.qty):"");setEPrice(p.price!=null?String(p.price):"");}
@@ -9800,9 +9824,21 @@ function App(){
   const saveEdit=()=>{
     if(!editA)return;const{ticker,classId}=editA;
     if(isNTNB(ticker)){
-      const qty=pN(eQty),puCompra=pN(ePrice),taxaCompra=pN(eTaxaCompra)/100;
-      const dataCompra=eDataCompra?new Date(eDataCompra+"T12:00:00").toISOString():new Date().toISOString();
-      setPort(prev=>({...prev,[ticker]:{...prev[ticker],classId,qty,puCompra,taxaCompra,dataCompra,price:puCompra}}));
+      // MODO SIMPLIFICADO: salva qty + valorTotalManual (R$).
+      // Limpa campos antigos (taxa/PU/data) caso existissem - posicao agora opera no modo novo.
+      const qty=pN(eQty);
+      const valorTotalManual=pN(ePrice);// ePrice virou "Valor de mercado atual em R$"
+      setPort(prev=>{
+        const prevP=prev[ticker]||{};
+        // Cria o objeto novo preservando apenas campos que nao sao do modo legado
+        const novo={...prevP,classId,qty,valorTotalManual};
+        // Remove campos do modo legado para evitar ambiguidade futura
+        delete novo.puCompra;
+        delete novo.taxaCompra;
+        delete novo.dataCompra;
+        delete novo.price;
+        return {...prev,[ticker]:novo};
+      });
     }
     else if(VB.includes(ticker)){const v=pN(eQty);setPort(prev=>({...prev,[ticker]:{...prev[ticker],classId,totalBRL:v,qty:1,price:v}}));}
     else{const qty=pN(eQty),price=pN(ePrice);setPort(prev=>({...prev,[ticker]:{...prev[ticker],classId,qty,price}}));}
@@ -14889,12 +14925,10 @@ h("button",{onClick:async()=>{
           // Header informativo
           h("div",{style:{marginBottom:12,padding:"9px 11px",background:"rgba(168,139,94,0.08)",border:"1px solid rgba(168,139,94,0.30)",borderRadius:6}},
             h("div",{style:{fontSize:9,color:"#C8A96E",fontFamily:"monospace",letterSpacing:1.5,fontWeight:700,marginBottom:4}},"NTN-B Principal - "+ticker),
-            h("div",{style:{fontSize:10,color:"#9A9080",fontFamily:"Georgia,serif",fontStyle:"italic",lineHeight:1.5}},"Vencimento: "+(NTNB_VENCIMENTOS[ticker]||"-")+" ("+anosAteVenc(NTNB_VENCIMENTOS[ticker]).toFixed(1)+" anos). Insira os dados da SUA aquisicao para acompanhamento do carrego.")
+            h("div",{style:{fontSize:10,color:"#9A9080",fontFamily:"Georgia,serif",fontStyle:"italic",lineHeight:1.5}},"Vencimento: "+(NTNB_VENCIMENTOS[ticker]||"-")+" ("+anosAteVenc(NTNB_VENCIMENTOS[ticker]).toFixed(1)+" anos). Informe a ",h("strong",{style:{color:"#C8A96E"}},"quantidade")," e o ",h("strong",{style:{color:"#C8A96E"}},"valor de mercado atual em R$")," (conforme extrato do BB). Atualize quando quiser refletir nova marcacao a mercado.")
           ),
           row("Quantidade (frações OK, ex: 0.05)",inp(eQty,setEQty,"0,0500")),
-          row("PU de compra (R$)",inp(ePrice,setEPrice,"3.500,00"),"Preco unitario que voce pagou no Tesouro Direto"),
-          row("Taxa de aquisicao (% acima de IPCA)",inp(eTaxaCompra,setETaxaCompra,"6.30"),"Ex: 6.30 para IPCA+6,30% bruto. Em LIQUIDO de IR (15%) seria IPCA+5,36%."),
-          row("Data da compra",h("input",{type:"date",value:eDataCompra,onChange:e=>setEDataCompra(e.target.value),style:{width:"100%",background:"rgba(0,0,0,0.3)",border:"1px solid "+(cl?cl.color:"#C8A96E")+"44",borderRadius:5,padding:"8px 10px",color:"#F0EAD8",fontSize:13,fontFamily:"monospace",outline:"none",boxSizing:"border-box"}}),"Usado para calcular o valor de carrego acumulado")
+          row("Valor de mercado atual (R$)",inp(ePrice,setEPrice,"23.500,00"),"Valor total da posicao em R$ - o que aparece no extrato do BB hoje. Substitui taxa+PU - o app aceita esse numero como verdade.")
         ):
         h("div",{},
           h("div",{style:{marginBottom:10,padding:"6px 9px",background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:5,display:"flex",justifyContent:"space-between",alignItems:"center"}},h("span",{style:{fontSize:8,color:"#8A8070",fontFamily:"monospace",textTransform:"uppercase",letterSpacing:2}},"Moeda"),h("span",{style:{fontFamily:"monospace",fontSize:12,color:cl?cl.color:"#C8A96E",fontWeight:700}},cc)),
@@ -14931,7 +14965,7 @@ h("button",{onClick:async()=>{
                   isCustom&&h("span",{style:{fontSize:6,color:c.color,border:"1px solid "+c.color+"55",borderRadius:2,padding:"1px 3px",fontFamily:"monospace"}},"+"),
                   isHid&&h("span",{style:{fontSize:6,color:"#8A8070",border:"1px solid #8A807044",borderRadius:2,padding:"1px 3px",fontFamily:"monospace"}},"oculto")
                 ),
-                has&&pos&&h("div",{style:{fontSize:8,color:"#8A8070",marginTop:2}},isNTNB(ticker)?(fN(pos.qty||0,4)+" un \u00B7 "+(pos.taxaCompra?"IPCA+"+(pos.taxaCompra*100).toFixed(2)+"%":"-")+" \u00B7 "+anosAteVenc(NTNB_VENCIMENTOS[ticker]).toFixed(1)+"a"):VB.includes(ticker)?MV(fB(pos.totalBRL||0)):GB.includes(ticker)?(fN(pos.qty,3)+" g x R$ "+fN(pos.price||0,2)):(fN(pos.qty,pos.qty<100?4:0)+" x "+(cc!="BRL"?cc+" ":"R$ ")+fN(pos.price||0,2)))
+                has&&pos&&h("div",{style:{fontSize:8,color:"#8A8070",marginTop:2}},isNTNB(ticker)?(fN(pos.qty||0,4)+" un \u00B7 "+(typeof pos.valorTotalManual==="number"&&pos.valorTotalManual>0?"valor R$ informado":pos.taxaCompra?"IPCA+"+(pos.taxaCompra*100).toFixed(2)+"%":"-")+" \u00B7 "+anosAteVenc(NTNB_VENCIMENTOS[ticker]).toFixed(1)+"a"):VB.includes(ticker)?MV(fB(pos.totalBRL||0)):GB.includes(ticker)?(fN(pos.qty,3)+" g x R$ "+fN(pos.price||0,2)):(fN(pos.qty,pos.qty<100?4:0)+" x "+(cc!="BRL"?cc+" ":"R$ ")+fN(pos.price||0,2)))
               ),
               val>0&&h("div",{style:{textAlign:"right",flexShrink:0}},
                 h("div",{style:{fontSize:10,color:"#F0EAD8",fontFamily:"monospace"}},MV(fB(val))),
