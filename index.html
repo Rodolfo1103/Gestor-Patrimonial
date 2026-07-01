@@ -16298,11 +16298,12 @@ h("button",{onClick:async()=>{
       });
       // Bloco de configuracao de bandas
       const bandsTotal=CL.reduce((s,c)=>s+c.max,0);
+      const bandsCentroTotal=CL.reduce((s,c)=>s+(c.min+c.max)/2,0);
       const bandsBlock=h("div",{key:"bands-"+bandsVer,style:{marginBottom:14,padding:"11px 13px",background:"rgba(91,143,212,0.04)",border:"1px solid rgba(91,143,212,0.2)",borderRadius:8}},
         h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:editBands?10:0,gap:6}},
           h("div",{},
             h("div",{style:{fontSize:9,letterSpacing:3,color:"#5B8FD4",fontFamily:"monospace",textTransform:"uppercase"}},"Bandas Alvo das Classes"),
-            !editBands&&h("div",{style:{fontSize:9,color:"#5A5550",marginTop:2,fontStyle:"italic"}},"Soma dos maximos: "+bandsTotal+"%")
+            !editBands&&h("div",{style:{fontSize:9,color:"#5A5550",marginTop:2,fontStyle:"italic"}},"Soma dos centros: ",h("span",{style:{color:Math.abs(bandsCentroTotal-100)<=2?"#4CAF82":Math.abs(bandsCentroTotal-100)<=5?"#E8C44A":"#E05252",fontWeight:"bold",fontFamily:"monospace"}},bandsCentroTotal.toFixed(1)+"%")," (alvo 100%) - Max: ",bandsTotal+"%")
           ),
           h("div",{style:{display:"flex",gap:5}},
             editBands&&h("button",{onClick:resetBandas,style:{background:"none",border:"1px solid rgba(224,82,82,0.3)",borderRadius:4,color:"#E05252",fontSize:9,padding:"3px 8px",cursor:"pointer",fontFamily:"monospace"}},"resetar"),
@@ -16310,20 +16311,32 @@ h("button",{onClick:async()=>{
           )
         ),
         editBands&&h("div",{style:{display:"flex",flexDirection:"column",gap:6}},
-          ...CL.map(c=>h("div",{key:c.id,style:{display:"flex",alignItems:"center",gap:8,padding:"6px 8px",background:"rgba(0,0,0,0.2)",borderRadius:5,borderLeft:"3px solid "+c.color}},
-            h("div",{style:{minWidth:80,flexShrink:0}},
-              h("div",{style:{fontSize:10,color:c.color,fontFamily:"monospace",fontWeight:"bold"}},c.tag),
-              h("div",{style:{fontSize:8,color:"#7A7570"}},c.name)
-            ),
-            h("div",{style:{display:"flex",alignItems:"center",gap:4,flex:1}},
-              h("span",{style:{fontSize:8,color:"#7A7570",fontFamily:"monospace"}},"min"),
-              h("input",{type:"text",inputMode:"decimal",defaultValue:String(c.min),onBlur:e=>updateBand(c.id,"min",e.target.value),style:{width:50,background:"rgba(0,0,0,0.4)",border:"1px solid "+c.color+"44",borderRadius:3,padding:"4px 6px",color:"#F0EAD8",fontSize:11,fontFamily:"monospace",outline:"none",textAlign:"center"}}),
-              h("span",{style:{fontSize:9,color:"#5A5550"}},"a"),
-              h("input",{type:"text",inputMode:"decimal",defaultValue:String(c.max),onBlur:e=>updateBand(c.id,"max",e.target.value),style:{width:50,background:"rgba(0,0,0,0.4)",border:"1px solid "+c.color+"44",borderRadius:3,padding:"4px 6px",color:"#F0EAD8",fontSize:11,fontFamily:"monospace",outline:"none",textAlign:"center"}}),
-              h("span",{style:{fontSize:9,color:"#7A7570",fontFamily:"monospace"}},"%")
-            )
-          )),
-          h("div",{style:{fontSize:9,color:"#7A7570",fontStyle:"italic",marginTop:4,lineHeight:1.5}},"Soma dos maximos atual: ",h("span",{style:{color:Math.abs(bandsTotal-100)<=5?"#4CAF82":"#E8C44A",fontWeight:"bold",fontFamily:"monospace"}},bandsTotal+"%"),Math.abs(bandsTotal-100)>5?" (recomendado ficar perto de 100%)":"")
+          ...CL.map(c=>{
+            const centro=(c.min+c.max)/2;
+            return h("div",{key:c.id,style:{display:"flex",alignItems:"center",gap:8,padding:"6px 8px",background:"rgba(0,0,0,0.2)",borderRadius:5,borderLeft:"3px solid "+c.color}},
+              h("div",{style:{minWidth:80,flexShrink:0}},
+                h("div",{style:{fontSize:10,color:c.color,fontFamily:"monospace",fontWeight:"bold"}},c.tag),
+                h("div",{style:{fontSize:8,color:"#7A7570"}},c.name)
+              ),
+              h("div",{style:{display:"flex",alignItems:"center",gap:4,flex:1}},
+                h("span",{style:{fontSize:8,color:"#7A7570",fontFamily:"monospace"}},"min"),
+                h("input",{type:"text",inputMode:"decimal",defaultValue:String(c.min),onBlur:e=>updateBand(c.id,"min",e.target.value),style:{width:44,background:"rgba(0,0,0,0.4)",border:"1px solid "+c.color+"44",borderRadius:3,padding:"4px 6px",color:"#F0EAD8",fontSize:11,fontFamily:"monospace",outline:"none",textAlign:"center"}}),
+                h("span",{style:{fontSize:9,color:"#5A5550"}},"a"),
+                h("input",{type:"text",inputMode:"decimal",defaultValue:String(c.max),onBlur:e=>updateBand(c.id,"max",e.target.value),style:{width:44,background:"rgba(0,0,0,0.4)",border:"1px solid "+c.color+"44",borderRadius:3,padding:"4px 6px",color:"#F0EAD8",fontSize:11,fontFamily:"monospace",outline:"none",textAlign:"center"}}),
+                h("span",{style:{fontSize:9,color:"#7A7570",fontFamily:"monospace"}},"%"),
+                h("div",{style:{marginLeft:8,paddingLeft:8,borderLeft:"1px solid rgba(255,255,255,0.08)",display:"flex",flexDirection:"column",alignItems:"center",minWidth:52}},
+                  h("span",{style:{fontSize:7,color:"#7A7570",fontFamily:"monospace",letterSpacing:1}},"CENTRO"),
+                  h("span",{style:{fontSize:11,color:c.color,fontFamily:"monospace",fontWeight:"bold"}},centro.toFixed(1)+"%")
+                )
+              )
+            );
+          }),
+          h("div",{style:{fontSize:9,color:"#7A7570",fontStyle:"italic",marginTop:4,lineHeight:1.5,padding:"6px 8px",background:"rgba(0,0,0,0.15)",borderRadius:4}},
+            "Soma dos ",h("strong",{style:{color:"#5B8FD4"}},"CENTROS"),": ",h("span",{style:{color:Math.abs(bandsCentroTotal-100)<=2?"#4CAF82":Math.abs(bandsCentroTotal-100)<=5?"#E8C44A":"#E05252",fontWeight:"bold",fontFamily:"monospace",fontSize:11}},bandsCentroTotal.toFixed(1)+"%"),
+            Math.abs(bandsCentroTotal-100)<=2?" ✓ (alvo 100%)":Math.abs(bandsCentroTotal-100)<=5?" (proximo do alvo 100%)":" (recomendado ajustar para 100%)",
+            h("br",{}),
+            h("span",{style:{color:"#5A5550",fontSize:8}},"Soma dos maximos: "+bandsTotal+"% (permite flexibilidade)")
+          )
         )
       );
       // Bloco de programacao de aporte
