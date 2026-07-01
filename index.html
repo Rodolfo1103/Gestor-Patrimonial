@@ -19268,37 +19268,69 @@ h("button",{onClick:async()=>{
     const betaAW=mptBeta(wAW);
 
     // ===== SHARPE/SORTINO HISTORICO (baseado em retornos mensais reais do portfolio) =====
-    // Diferente do Sharpe modelo (que usa premissas), estes usam DADOS REAIS dos ultimos 12 meses
+    // Coleta retornos mensais de 2 fontes, com prioridade:
+    //   1. idxMensal[mes]._portOverride (valor manual, ex: junho +2.30%)
+    //   2. histMensal (calculo automatico entre snapshots mensais, respeitando cutoff)
+    // Permite calcular com N>=1 mes (com aviso de amostra pequena).
     let sharpeHist=null,sortinoHist=null,retAnualHist=null,volAnualHist=null,volDownAnualHist=null,nMesesHist=0;
     try{
-      if(Array.isArray(histMensal)&&histMensal.length>=4){
-        const snapsHist=histMensal.slice().sort((a,b)=>new Date(a.date)-new Date(b.date));
+      const retornosMensais=[];// {mes, ret (decimal, nao percentual), fonte}
+      const mesesJaColetados=new Set();
+      // FONTE 1: overrides manuais (_portOverride em idxMensal)
+      if(idxMensal&&typeof idxMensal==="object"){
+        Object.entries(idxMensal).forEach(([mes,dados])=>{
+          if(dados&&typeof dados._portOverride==="number"){
+            retornosMensais.push({mes,ret:dados._portOverride/100,fonte:"manual"});
+            mesesJaColetados.add(mes);
+          }
+        });
+      }
+      // FONTE 2: histMensal (respeitando cutoff se configurado)
+      if(Array.isArray(histMensal)&&histMensal.length>=2){
+        const snapsHist=histMensal.slice()
+          .filter(r=>{
+            if(!r||!r.date||!r.totalPatrimBRL)return false;
+            const d=new Date(r.date);
+            // Cutoff: ignora snaps antes da marca de reset
+            if(typeof histCutoff==="number"&&d.getTime()<histCutoff)return false;
+            return true;
+          })
+          .sort((a,b)=>new Date(a.date)-new Date(b.date));
         // Pega os ultimos 13 snapshots (gera ate 12 retornos mensais)
         const ultimos=snapsHist.slice(-13);
-        const retornosMensais=[];
         for(let i=1;i<ultimos.length;i++){
           const ant=ultimos[i-1],atu=ultimos[i];
           if(!ant.totalPatrimBRL||!atu.totalPatrimBRL)continue;
           const aporte=atu.apValue||0;
-          // Retorno = (Vfinal - Aporte) / Vinicial - 1
           const ret=(atu.totalPatrimBRL-aporte)/ant.totalPatrimBRL-1;
-          if(!isNaN(ret)&&isFinite(ret)){
-            retornosMensais.push(ret);
-          }
+          if(isNaN(ret)||!isFinite(ret))continue;
+          // Sanity check: rentabilidades absurdas indicam dados corrompidos
+          if(ret>5||ret<-0.9)continue;
+          const d=new Date(atu.date);
+          const mesKey=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");
+          // Se ja tem override manual desse mes, NAO sobrescreve com calculo
+          if(mesesJaColetados.has(mesKey))continue;
+          retornosMensais.push({mes:mesKey,ret,fonte:"calculado"});
+          mesesJaColetados.add(mesKey);
         }
-        nMesesHist=retornosMensais.length;
-        if(nMesesHist>=3){
-          // Retorno medio mensal e anualizado
-          const retMedioMes=retornosMensais.reduce((s,r)=>s+r,0)/nMesesHist;
-          retAnualHist=Math.pow(1+retMedioMes,12)-1;// composto anual
-          // Volatilidade mensal (desvio padrao) e anualizada
-          const variancia=retornosMensais.reduce((s,r)=>s+Math.pow(r-retMedioMes,2),0)/nMesesHist;
+      }
+      // Ordena por mes para consistencia temporal
+      retornosMensais.sort((a,b)=>a.mes.localeCompare(b.mes));
+      nMesesHist=retornosMensais.length;
+      if(nMesesHist>=1){
+        const rets=retornosMensais.map(r=>r.ret);
+        // Retorno medio mensal e anualizado
+        const retMedioMes=rets.reduce((s,r)=>s+r,0)/nMesesHist;
+        retAnualHist=Math.pow(1+retMedioMes,12)-1;// composto anual
+        if(nMesesHist>=2){
+          // Volatilidade mensal (desvio padrao) e anualizada - so faz sentido com 2+ pontos
+          const variancia=rets.reduce((s,r)=>s+Math.pow(r-retMedioMes,2),0)/nMesesHist;
           const volMes=Math.sqrt(variancia);
           volAnualHist=volMes*Math.sqrt(12);
-          // Volatilidade Downside (so retornos abaixo do alvo = 0, ou seja, retornos negativos)
-          const downsideRets=retornosMensais.filter(r=>r<0);
+          // Volatilidade Downside (so retornos abaixo do alvo = 0)
+          const downsideRets=rets.filter(r=>r<0);
           if(downsideRets.length>0){
-            const downsideVariancia=downsideRets.reduce((s,r)=>s+Math.pow(r,2),0)/nMesesHist;// nota: divide por n total (Sortino classico)
+            const downsideVariancia=downsideRets.reduce((s,r)=>s+Math.pow(r,2),0)/nMesesHist;
             const volDownMes=Math.sqrt(downsideVariancia);
             volDownAnualHist=volDownMes*Math.sqrt(12);
           }
@@ -19308,6 +19340,7 @@ h("button",{onClick:async()=>{
           if(volDownAnualHist&&volDownAnualHist>0)sortinoHist=excessoAnual/volDownAnualHist;
           else if(downsideRets.length===0)sortinoHist=Infinity;// nenhum retorno negativo no periodo
         }
+        // Com N=1, calcula retorno anualizado mas Sharpe/Sortino ficam null (vol nao definida com 1 ponto)
       }
     }catch(e){console.warn("Erro calculo Sharpe/Sortino:",e);}
 
@@ -20985,9 +21018,96 @@ h("button",{onClick:async()=>{
             h("div",{style:{fontSize:11,color:"#5B8FD4",fontFamily:"monospace",fontWeight:700}},(rfAtual*100).toFixed(2)+"% a.a.")
           )
         ),
-        nMesesHist<3?(
+        nMesesHist===0?(
           h("div",{style:{padding:"12px 14px",background:"rgba(0,0,0,0.18)",borderRadius:6,fontSize:10,color:"#9A9080",lineHeight:1.6,fontStyle:"italic"}},
-            "\u26A0 Sao necessarios pelo menos 3 meses de historico para calcular Sharpe e Sortino confiaveis. Voce tem "+nMesesHist+" mes(es) de retornos mensais. Continue registrando snapshots mensais para que essas metricas fiquem disponiveis."
+            "\u26A0 Nenhum retorno mensal registrado ainda. Cadastre a rentabilidade do primeiro mes no Ranking dos Investimentos (dashboard) ou aguarde snapshots automaticos para popular esta secao."
+          )
+        ):nMesesHist===1?(
+          // N=1: mostra retorno anualizado com aviso, Sharpe/Sortino insuficientes
+          h("div",{},
+            // Retorno anualizado sozinho
+            h("div",{style:{background:"rgba(0,0,0,0.20)",borderRadius:6,padding:"11px 13px",marginBottom:10,borderLeft:"3px solid "+(retAnualHist>=0?"#4CAF82":"#E05252")}},
+              h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,flexWrap:"wrap",marginBottom:6}},
+                h("div",{},
+                  h("div",{style:{fontSize:9,letterSpacing:1.5,color:"#C8A96E",fontFamily:"monospace",fontWeight:700}},"RETORNO MENSAL EFETIVO"),
+                  h("div",{style:{fontSize:8,color:"#7A7060",fontStyle:"italic",marginTop:2}},"Rentabilidade do mes fechado unico")
+                ),
+                h("div",{style:{textAlign:"right"}},
+                  h("div",{style:{fontSize:18,color:retAnualHist>=0?"#4CAF82":"#E05252",fontFamily:"monospace",fontWeight:700}},((Math.pow(1+retAnualHist,1/12)-1)*100).toFixed(2)+"%"),
+                  h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace"}},"NO MES")
+                )
+              ),
+              h("div",{style:{fontSize:9,color:"#9A9080",lineHeight:1.55,marginTop:4}},
+                h("strong",{style:{color:"#C8A96E"}},"Extrapolacao anualizada (composta)"),": ",
+                h("span",{style:{color:retAnualHist>=0?"#4CAF82":"#E05252",fontWeight:700}},(retAnualHist*100).toFixed(2)+"% a.a."),
+                " - considera que este ritmo se repete por 12 meses. ",
+                h("strong",{},"Estatisticamente fragil"),": e apenas 1 observacao. Podera oscilar substancialmente conforme mais meses forem registrados."
+              )
+            ),
+            // Aviso de amostra insuficiente para Sharpe/Sortino
+            h("div",{style:{padding:"10px 12px",background:"rgba(232,196,74,0.05)",border:"1px solid rgba(232,196,74,0.20)",borderRadius:6,fontSize:9,color:"#A89070",lineHeight:1.55}},
+              h("strong",{style:{color:"#E8C44A"}},"\u26A0 Volatilidade e razoes ajustadas ao risco requerem >=2 meses"),": Sharpe e Sortino medem dispersao dos retornos, portanto precisam de pelo menos dois pontos de dados. Com o segundo mes fechado, este card se popula automaticamente com volatilidade, Sharpe e Sortino. ",
+              h("br",{}),h("br",{}),
+              "\u2022 Sharpe Realizado: aguardando ",
+              h("strong",{style:{color:"#5B8FD4"}},"2\u00BA mes"),h("br",{}),
+              "\u2022 Sortino: aguardando ",h("strong",{style:{color:"#5B8FD4"}},"2\u00BA mes"),h("br",{}),
+              "\u2022 Amostra estatisticamente solida: ",h("strong",{style:{color:"#5B8FD4"}},"6\u00BA mes")
+            )
+          )
+        ):nMesesHist<3?(
+          // N=2: mostra tudo mas com aviso de amostra pequena
+          h("div",{},
+            h("div",{style:{padding:"9px 12px",background:"rgba(232,196,74,0.06)",border:"1px solid rgba(232,196,74,0.25)",borderRadius:6,fontSize:9,color:"#B89070",lineHeight:1.55,marginBottom:10,fontStyle:"italic"}},
+              "\u26A0 Amostra ainda pequena (",nMesesHist," meses). Metricas calculadas mas com incerteza estatistica alta - considere referencia inicial. Robustez adequada a partir de 6 meses."
+            ),
+            // Grid com Retorno, Vol total, Vol Downside
+            h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:12}},
+              h("div",{style:{background:"rgba(0,0,0,0.20)",borderRadius:6,padding:"9px 11px",borderLeft:"3px solid #4CAF82"}},
+                h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",letterSpacing:1.2,marginBottom:3}},"RETORNO ANUAL"),
+                h("div",{style:{fontSize:14,color:retAnualHist>=0?"#4CAF82":"#E05252",fontFamily:"monospace",fontWeight:700}},(retAnualHist*100).toFixed(2)+"%"),
+                h("div",{style:{fontSize:7,color:"#5A5550",marginTop:2,fontFamily:"monospace"}},"composto a.a.")
+              ),
+              h("div",{style:{background:"rgba(0,0,0,0.20)",borderRadius:6,padding:"9px 11px",borderLeft:"3px solid #E8C44A"}},
+                h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",letterSpacing:1.2,marginBottom:3}},"VOL. TOTAL"),
+                h("div",{style:{fontSize:14,color:"#E8C44A",fontFamily:"monospace",fontWeight:700}},volAnualHist!==null?(volAnualHist*100).toFixed(2)+"%":"---"),
+                h("div",{style:{fontSize:7,color:"#5A5550",marginTop:2,fontFamily:"monospace"}},"desvio padrao a.a.")
+              ),
+              h("div",{style:{background:"rgba(0,0,0,0.20)",borderRadius:6,padding:"9px 11px",borderLeft:"3px solid #E89060"}},
+                h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",letterSpacing:1.2,marginBottom:3}},"VOL. DOWNSIDE"),
+                h("div",{style:{fontSize:14,color:"#E89060",fontFamily:"monospace",fontWeight:700}},volDownAnualHist?(volDownAnualHist*100).toFixed(2)+"%":"0,00%"),
+                h("div",{style:{fontSize:7,color:"#5A5550",marginTop:2,fontFamily:"monospace"}},"so quedas a.a.")
+              )
+            ),
+            (()=>{
+              const sh=sharpeHist;
+              const corS=sh===null?"#7A7060":sh>=1?"#4CAF82":sh>=0.5?"#E8C44A":sh>=0?"#E89060":"#E05252";
+              const intS=sh===null?"Insuficiente":sh>=1?"PROMISSOR":sh>=0.5?"BOM":sh>=0?"REGULAR":"NEGATIVO";
+              return h("div",{style:{background:"rgba(0,0,0,0.20)",borderRadius:6,padding:"11px 13px",marginBottom:10,borderLeft:"3px solid "+corS}},
+                h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6,gap:6,flexWrap:"wrap"}},
+                  h("div",{},h("div",{style:{fontSize:9,letterSpacing:1.5,color:"#C8A96E",fontFamily:"monospace",fontWeight:700}},"SHARPE REALIZADO (PRELIMINAR)")),
+                  h("div",{style:{textAlign:"right"}},
+                    h("div",{style:{fontSize:16,color:corS,fontFamily:"monospace",fontWeight:700}},sh!==null?sh.toFixed(3):"---"),
+                    h("div",{style:{fontSize:8,color:corS,fontFamily:"monospace",fontWeight:700,letterSpacing:1.5}},intS)
+                  )
+                )
+              );
+            })(),
+            (()=>{
+              const so=sortinoHist;
+              const finita=so!==null&&isFinite(so);
+              const corS=!finita?"#4CAF82":so>=1.5?"#4CAF82":so>=0.8?"#E8C44A":so>=0?"#E89060":"#E05252";
+              const intS=so===null?"Insuficiente":!finita?"EXCEPCIONAL":so>=1.5?"EXCELENTE":so>=0.8?"BOM":so>=0?"REGULAR":"NEGATIVO";
+              const valDisplay=so===null?"---":!finita?"\u221E":so.toFixed(3);
+              return h("div",{style:{background:"rgba(0,0,0,0.20)",borderRadius:6,padding:"11px 13px",borderLeft:"3px solid "+corS}},
+                h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:6,flexWrap:"wrap"}},
+                  h("div",{},h("div",{style:{fontSize:9,letterSpacing:1.5,color:"#C8A96E",fontFamily:"monospace",fontWeight:700}},"SORTINO (PRELIMINAR)")),
+                  h("div",{style:{textAlign:"right"}},
+                    h("div",{style:{fontSize:16,color:corS,fontFamily:"monospace",fontWeight:700}},valDisplay),
+                    h("div",{style:{fontSize:8,color:corS,fontFamily:"monospace",fontWeight:700,letterSpacing:1.5}},intS)
+                  )
+                )
+              );
+            })()
           )
         ):h("div",{},
           // Grid com Retorno, Vol total, Vol Downside
