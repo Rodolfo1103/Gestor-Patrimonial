@@ -4674,9 +4674,10 @@ function AllocChart({cw,ct,fB,MV,hideVal}){
 // Benchmarks preenchidos manualmente pelo usuario (persistem em idxMensal)
 // Junho/2026: Portfolio = +2,30% (fornecido pelo usuario diretamente)
 // ============================================================
-function RankingMensalCard({histMensal,hist,idxMensal,setIdxMensal}){
+function RankingMensalCard({histMensal,hist,idxMensal,setIdxMensal,histCutoff,setHistCutoff}){
   const [editando,setEditando]=React.useState(false);
   const [rascunho,setRascunho]=React.useState({});
+  const [mostrarConfig,setMostrarConfig]=React.useState(false);
   // ========== CAMPOS DO RANKING (ordem solicitada) ==========
   const campos=[
     {k:"port",nome:"Portfolio",cor:"#C8A96E",manual:false},
@@ -4716,10 +4717,13 @@ function RankingMensalCard({histMensal,hist,idxMensal,setIdxMensal}){
     const override=(idxMensal&&idxMensal[mes]&&typeof idxMensal[mes]._portOverride==="number")?idxMensal[mes]._portOverride:null;
     if(typeof override==="number")return {valor:override,fonte:"manual"};
     // Prioridade 2: calcula via primeiro-ultimo snap do hist dentro do mes
+    // Aplica histCutoff se configurado: ignora snaps com timestamp < cutoff
     if(!Array.isArray(hist)||hist.length<2)return {valor:null,fonte:"sem_dados"};
     const arr=hist.filter(r=>{
       if(!r||!r.date||!r.totalPatrimBRL)return false;
       const d=new Date(r.date);
+      // Cutoff: ignora snaps antes da marca de reset
+      if(typeof histCutoff==="number"&&d.getTime()<histCutoff)return false;
       return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")===mes;
     }).sort((a,b)=>new Date(a.date)-new Date(b.date));
     if(arr.length<2)return {valor:null,fonte:"sem_dados"};
@@ -4824,9 +4828,39 @@ function RankingMensalCard({histMensal,hist,idxMensal,setIdxMensal}){
     // Header com titulo + botao editar
     h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6,gap:8,flexWrap:"wrap"}},
       h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase"}},"Ranking dos investimentos do mes"),
-      setIdxMensal&&h("button",{onClick:editando?()=>setEditando(false):abrirEditor,style:{background:editando?"rgba(224,82,82,0.15)":"rgba(91,143,212,0.15)",border:"1px solid "+(editando?"rgba(224,82,82,0.40)":"rgba(91,143,212,0.40)"),borderRadius:4,color:editando?"#E05252":"#5B8FD4",fontSize:9,padding:"3px 9px",cursor:"pointer",fontFamily:"monospace",letterSpacing:1}},editando?"cancelar":"editar benchmarks")
+      h("div",{style:{display:"flex",gap:6,alignItems:"center"}},
+        setHistCutoff&&h("button",{onClick:()=>setMostrarConfig(v=>!v),style:{background:mostrarConfig?"rgba(232,196,74,0.15)":"transparent",border:"1px solid "+(mostrarConfig?"rgba(232,196,74,0.40)":"rgba(255,255,255,0.15)"),borderRadius:4,color:mostrarConfig?"#E8C44A":"#7A7570",fontSize:9,padding:"3px 8px",cursor:"pointer",fontFamily:"monospace",letterSpacing:1}},"config"),
+        setIdxMensal&&h("button",{onClick:editando?()=>setEditando(false):abrirEditor,style:{background:editando?"rgba(224,82,82,0.15)":"rgba(91,143,212,0.15)",border:"1px solid "+(editando?"rgba(224,82,82,0.40)":"rgba(91,143,212,0.40)"),borderRadius:4,color:editando?"#E05252":"#5B8FD4",fontSize:9,padding:"3px 9px",cursor:"pointer",fontFamily:"monospace",letterSpacing:1}},editando?"cancelar":"editar benchmarks")
+      )
     ),
     h("div",{style:{fontSize:9,color:"#5A5550",marginBottom:10,fontStyle:"italic"}},"Portfolio calculado automatico (primeiro\u2194ultimo snap descontando aportes). Benchmarks preenchidos manualmente."),
+    // ===== PAINEL CONFIG (cutoff de snapshots) =====
+    mostrarConfig&&setHistCutoff&&h("div",{style:{marginBottom:14,padding:"12px",background:"rgba(232,196,74,0.06)",border:"1px solid rgba(232,196,74,0.25)",borderRadius:8}},
+      h("div",{style:{fontSize:9,color:"#E8C44A",fontFamily:"monospace",letterSpacing:1,marginBottom:8,fontWeight:700}},"MARCO DE RESET DE SNAPSHOTS"),
+      h("div",{style:{fontSize:9,color:"#8A8070",marginBottom:10,fontStyle:"italic",lineHeight:1.5}},"Snapshots do historico gravados ANTES desta data serao IGNORADOS no calculo de rentabilidade. Util quando houve recadastros que distorceram o hist. Junho/2026 ja fechado nao eh afetado (usa override manual +2,30%)."),
+      // Status atual
+      h("div",{style:{padding:"7px 10px",background:"rgba(0,0,0,0.30)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:5,marginBottom:10,fontSize:9,fontFamily:"monospace"}},
+        h("div",{style:{color:"#8A8070",marginBottom:3,fontSize:8,letterSpacing:1}},"STATUS ATUAL"),
+        h("div",{style:{color:typeof histCutoff==="number"?"#E8C44A":"#7A7570"}},
+          typeof histCutoff==="number"?
+            "Marco de reset: "+new Date(histCutoff).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit"}):
+            "Sem marco definido - todos os snapshots sao considerados"
+        )
+      ),
+      // Botoes de acao
+      h("div",{style:{display:"flex",flexWrap:"wrap",gap:8}},
+        h("button",{onClick:()=>{
+          if(!confirm("Definir marco de reset AGORA?\n\nTodos os snapshots do historico anteriores a este momento serao ignorados no calculo de rentabilidade. Continuar?"))return;
+          setHistCutoff(Date.now());
+          setMostrarConfig(false);
+        },style:{background:"rgba(232,196,74,0.20)",border:"1px solid rgba(232,196,74,0.50)",borderRadius:4,color:"#E8C44A",fontSize:10,padding:"7px 12px",cursor:"pointer",fontFamily:"monospace",letterSpacing:1,fontWeight:700,flex:"1 1 auto",minWidth:140}},"MARCAR RESET AGORA"),
+        typeof histCutoff==="number"&&h("button",{onClick:()=>{
+          if(!confirm("Remover marco de reset?\n\nO calculo voltara a considerar TODOS os snapshots do historico (incluindo os antigos possivelmente distorcidos). Continuar?"))return;
+          setHistCutoff(null);
+          setMostrarConfig(false);
+        },style:{background:"transparent",border:"1px solid rgba(255,255,255,0.20)",borderRadius:4,color:"#8A8070",fontSize:10,padding:"7px 12px",cursor:"pointer",fontFamily:"monospace",letterSpacing:1,flex:"1 1 auto",minWidth:120}},"remover marco")
+      )
+    ),
     // ===== EDITOR =====
     editando&&h("div",{style:{marginBottom:14,padding:"12px",background:"rgba(91,143,212,0.06)",border:"1px solid rgba(91,143,212,0.25)",borderRadius:8}},
       h("div",{style:{fontSize:9,color:"#5B8FD4",fontFamily:"monospace",letterSpacing:1,marginBottom:8,fontWeight:700}},"EDITAR VALORES (% MENSAL)"),
@@ -8298,6 +8332,9 @@ function App(){
   const [execE,setExecE]=useState({});
   const [step,setStep]=useState("r");
   const [hist,setHist]=useState([]);
+  // histCutoff: timestamp (ms) marcador de reset. Snapshots do hist com data ANTES do cutoff
+  // sao ignorados no calculo de rentabilidade (proteção contra dados contaminados por recadastros).
+  const [histCutoff,setHistCutoff]=useState(null);
   // Aportes simples: registros manuais [{id, date, valor, ts, classes?:{fii,acoes_br,...}}]
   // classes (opcional): decomposicao por classe quando o usuario quis detalhar. Quando ausente, aporte e "nao decomposto".
   const [aportesSimples,setAportesSimples]=useState([]);
@@ -8715,6 +8752,8 @@ function App(){
         }
         setPort(portMigrado);setCustom(customMigrado);setHidden(dd.hidden||[]);
         setLastPU(dd.lastPU||null);setHist(dd.hist||[]);
+        // Carregar histCutoff (timestamp de reset)
+        if(typeof dd.histCutoff==="number")setHistCutoff(dd.histCutoff);
         // Aportes simples (registro manual independente dos snapshots)
         if(Array.isArray(dd.aportesSimples)){
           const valido=dd.aportesSimples.filter(a=>a&&typeof a==="object"&&typeof a.valor==="number"&&a.valor>0&&typeof a.date==="string");
@@ -9036,14 +9075,14 @@ function App(){
     if(!inited||!aesKey)return;
     (async()=>{
       try{
-        const obj={port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,selicAtual,metaMensalIF,cenarioIPCA,dataNascimento,insightRenda,insightRendaTs,insightRendaSnap,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,piCycle,nupl,goldSilver,goldSP500,realGoldZ,fx:{...FX},btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,insightSnap,infIPCA,infIGPM,infINCC,infCPI,infHICP,juroFed,juroECB,juroBoJ,ntnbTaxas,ntnbVNA,ntnbUpdTs,ntnbDataCotacao,ntnbDiasDefasagem,ntnbVencimentos:{...NTNB_VENCIMENTOS},cambialCash,rendaMotoraHist,rendaAuxiliarHist,aportesSimples,ativosEmEstudo,riscoRetornoData,calibracoesCustom,ntnbHistoricoTaxas,miraIA,apR,apV,aporteValores,aporteTickers,aportePeriodoInicio,aportePeriodoFim};
+        const obj={port,custom,hidden,lastPU,hist,histCutoff,histMensal,idxMensal,insightMensal,selicAtual,metaMensalIF,cenarioIPCA,dataNascimento,insightRenda,insightRendaTs,insightRendaSnap,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,piCycle,nupl,goldSilver,goldSP500,realGoldZ,fx:{...FX},btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,insightSnap,infIPCA,infIGPM,infINCC,infCPI,infHICP,juroFed,juroECB,juroBoJ,ntnbTaxas,ntnbVNA,ntnbUpdTs,ntnbDataCotacao,ntnbDiasDefasagem,ntnbVencimentos:{...NTNB_VENCIMENTOS},cambialCash,rendaMotoraHist,rendaAuxiliarHist,aportesSimples,ativosEmEstudo,riscoRetornoData,calibracoesCustom,ntnbHistoricoTaxas,miraIA,apR,apV,aporteValores,aporteTickers,aportePeriodoInicio,aportePeriodoFim};
         const enc=await aesEncrypt(aesKey,obj);
         localStorage.setItem(SK_ENC,enc);
       }catch(e){
         console.error("SAVE ENC falhou:",e&&e.message?e.message:e);
       }
     })();
-  },[port,custom,hidden,lastPU,hist,histMensal,idxMensal,insightMensal,selicAtual,metaMensalIF,cenarioIPCA,dataNascimento,insightRenda,insightRendaTs,insightRendaSnap,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,piCycle,nupl,goldSilver,goldSP500,realGoldZ,btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,insightSnap,infIPCA,infIGPM,infINCC,infCPI,infHICP,juroFed,juroECB,juroBoJ,ntnbTaxas,ntnbVNA,ntnbUpdTs,cambialCash,rendaMotoraHist,rendaAuxiliarHist,aportesSimples,ativosEmEstudo,riscoRetornoData,calibracoesCustom,ntnbHistoricoTaxas,miraIA,apR,apV,aporteValores,aporteTickers,aportePeriodoInicio,aportePeriodoFim,inited,aesKey]);
+  },[port,custom,hidden,lastPU,hist,histCutoff,histMensal,idxMensal,insightMensal,selicAtual,metaMensalIF,cenarioIPCA,dataNascimento,insightRenda,insightRendaTs,insightRendaSnap,ajustesRR_IA,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,mvrvZ,mvrvZTs,piCycle,nupl,goldSilver,goldSP500,realGoldZ,btcUsd,btcTs,btcVar,usdVar,usdYday,xauBrl,xauTs,xauVar,xauYday,insight,insightTs,insightSnap,infIPCA,infIGPM,infINCC,infCPI,infHICP,juroFed,juroECB,juroBoJ,ntnbTaxas,ntnbVNA,ntnbUpdTs,cambialCash,rendaMotoraHist,rendaAuxiliarHist,aportesSimples,ativosEmEstudo,riscoRetornoData,calibracoesCustom,ntnbHistoricoTaxas,miraIA,apR,apV,aporteValores,aporteTickers,aportePeriodoInicio,aportePeriodoFim,inited,aesKey]);
 
   // Auto-lock por inatividade (15 min)
   useEffect(()=>{
@@ -15749,7 +15788,7 @@ h("button",{onClick:async()=>{
         )
       );
 
-      content=h("div",{},dateHeader,h(BolsasCard,{port,cls}),h(SolidezCard,{total,cw,port,metaMensalIF,setTab,fB,hideVal,dataNascimento,cambialCash,rendaMotoraHist,rendaAuxiliarHist,FX}),h(ModelosPortfolioMap,{cw,selicAtual,hideVal}),aporteCard,insightCard,h(AllocChart,{cw,ct,fB,MV,hideVal}),h(RankingMensalCard,{histMensal,hist,idxMensal,setIdxMensal}),insightMensalCard,topPos);
+      content=h("div",{},dateHeader,h(BolsasCard,{port,cls}),h(SolidezCard,{total,cw,port,metaMensalIF,setTab,fB,hideVal,dataNascimento,cambialCash,rendaMotoraHist,rendaAuxiliarHist,FX}),h(ModelosPortfolioMap,{cw,selicAtual,hideVal}),aporteCard,insightCard,h(AllocChart,{cw,ct,fB,MV,hideVal}),h(RankingMensalCard,{histMensal,hist,idxMensal,setIdxMensal,histCutoff,setHistCutoff}),insightMensalCard,topPos);
     }
   }  // POSITIONS
   if(tab==="positions"||tab==="correlacao"){
