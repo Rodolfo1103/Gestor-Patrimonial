@@ -5427,7 +5427,7 @@ function EvolChart({histMensal,hist,showUSD,setShowUSD,hideVal}){
 // Componente que mostra rentabilidade do portfolio vs indices comparativos
 // histMensal: array dos snapshots do portfolio por mes
 // idxMensal: objeto {"YYYY-MM": {ibov, ifix, cdi, imab, sp500, nasdaq, poupanca}}
-function ComparativoChart({histMensal,idxMensal,hideVal}){
+function ComparativoChart({histMensal,idxMensal,hideVal,hist}){
   // Calcula rentabilidade do portfolio por mes: (Vfinal - Aporte) / Vinicial - 1
   // Precisa de pelo menos 2 snapshots mensais para ter 1 retorno
   if(!Array.isArray(histMensal)||histMensal.length<1)return null;
@@ -5435,6 +5435,30 @@ function ComparativoChart({histMensal,idxMensal,hideVal}){
   const snaps=histMensal.slice().sort((a,b)=>new Date(a.date)-new Date(b.date));
   // Calcula retornos mensais do portfolio
   const retPortfolio={};// {"YYYY-MM": retorno%}
+  // ===== NOVO: retorno intra-mes para o PRIMEIRO mes do historico =====
+  // Se o hist tem multiplos snapshots dentro do primeiro mes (ex: 01/06 e 30/06),
+  // calcula o retorno "de dentro" do mes: (ultimo - primeiro - aportes) / primeiro.
+  // Isto permite comparar com indices do mes inicial mesmo sem mes anterior de referencia.
+  if(snaps.length>=1&&Array.isArray(hist)&&hist.length>=2){
+    const primeiraData=new Date(snaps[0].date);
+    const primeiroMesKey=primeiraData.getFullYear()+"-"+String(primeiraData.getMonth()+1).padStart(2,"0");
+    const snapsDoMes=hist.filter(r=>{
+      if(!r||!r.date||!r.totalPatrimBRL)return false;
+      const d=new Date(r.date);
+      const k=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");
+      return k===primeiroMesKey;
+    }).sort((a,b)=>new Date(a.date)-new Date(b.date));
+    if(snapsDoMes.length>=2){
+      const primeiroSnap=snapsDoMes[0];
+      const ultimoSnap=snapsDoMes[snapsDoMes.length-1];
+      const aportesNoMes=snapsDoMes.slice(1).reduce((s,r)=>s+(r.apValue||0),0);
+      const vIni=primeiroSnap.totalPatrimBRL;
+      const vFim=ultimoSnap.totalPatrimBRL;
+      const ret=vIni>0?((vFim-aportesNoMes-vIni)/vIni)*100:0;
+      if(!isNaN(ret))retPortfolio[primeiroMesKey]=ret;
+    }
+  }
+  // ===== Retornos mes-a-mes (comportamento original) =====
   for(let i=1;i<snaps.length;i++){
     const ant=snaps[i-1],atu=snaps[i];
     if(!ant.totalPatrimBRL||!atu.totalPatrimBRL)continue;
@@ -14992,7 +15016,7 @@ h("button",{onClick:async()=>{
         )
       );
 
-      content=h("div",{},dateHeader,h(BolsasCard,{port,cls}),h(SolidezCard,{total,cw,port,metaMensalIF,setTab,fB,hideVal,dataNascimento,cambialCash,rendaMotoraHist,rendaAuxiliarHist,FX}),h(ModelosPortfolioMap,{cw,selicAtual,hideVal}),aporteCard,insightCard,h(AllocChart,{cw,ct,fB,MV,hideVal}),h(EvolChart,{histMensal,hist,showUSD,setShowUSD,hideVal}),h(ComparativoChart,{histMensal,idxMensal,hideVal}),insightMensalCard,h(HeatmapChart,{hist,histMensal}),topPos);
+      content=h("div",{},dateHeader,h(BolsasCard,{port,cls}),h(SolidezCard,{total,cw,port,metaMensalIF,setTab,fB,hideVal,dataNascimento,cambialCash,rendaMotoraHist,rendaAuxiliarHist,FX}),h(ModelosPortfolioMap,{cw,selicAtual,hideVal}),aporteCard,insightCard,h(AllocChart,{cw,ct,fB,MV,hideVal}),h(EvolChart,{histMensal,hist,showUSD,setShowUSD,hideVal}),h(ComparativoChart,{histMensal,idxMensal,hideVal,hist}),insightMensalCard,h(HeatmapChart,{hist,histMensal}),topPos);
     }
   }  // POSITIONS
   if(tab==="positions"||tab==="correlacao"){
