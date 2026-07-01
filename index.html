@@ -5669,6 +5669,262 @@ function ComparativoChart({histMensal,idxMensal,hideVal,hist}){
   );
 }
 
+// ============================================================
+// EstabilidadeChart: 3 visualizacoes de amortecimento vs indices
+// (1) Rolling volatility (janela 3-6 meses) - portfolio vs indices ao longo do tempo
+// (2) Beta implicito vs cesta de indices - se <1, portfolio amortece
+// (3) Distribuicao % de meses positivos - portfolio vs indices
+// Renderiza previa desde ~2 meses com aviso quando amostra pequena
+// ============================================================
+function EstabilidadeChart({histMensal,idxMensal,hist}){
+  if(!Array.isArray(histMensal)||histMensal.length<1)return null;
+  // ===== Constroi retP com fase 1 (histMensal) + fase 2 (intra-mes via hist) =====
+  const snaps=histMensal.slice().sort((a,b)=>new Date(a.date)-new Date(b.date));
+  const retP={};
+  for(let i=1;i<snaps.length;i++){
+    const ant=snaps[i-1],atu=snaps[i];
+    if(!ant.totalPatrimBRL||!atu.totalPatrimBRL)continue;
+    const ap=atu.apValue||0;
+    const ret=((atu.totalPatrimBRL-ap)/ant.totalPatrimBRL-1)*100;
+    if(!isNaN(ret)){
+      const d=new Date(atu.date);
+      retP[d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")]=ret;
+    }
+  }
+  if(Array.isArray(hist)&&hist.length>=2){
+    const snapsPorMes={};
+    hist.forEach(r=>{
+      if(!r||!r.date||!r.totalPatrimBRL)return;
+      const d=new Date(r.date);
+      const k=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");
+      if(!snapsPorMes[k])snapsPorMes[k]=[];
+      snapsPorMes[k].push(r);
+    });
+    Object.keys(snapsPorMes).forEach(k=>{
+      if(typeof retP[k]==="number")return;
+      const arr=snapsPorMes[k].slice().sort((a,b)=>new Date(a.date)-new Date(b.date));
+      if(arr.length<2)return;
+      const primeiro=arr[0],ultimo=arr[arr.length-1];
+      const vIni=primeiro.totalPatrimBRL,vFim=ultimo.totalPatrimBRL;
+      if(!vIni||!vFim)return;
+      const aportesNoMes=arr.slice(1).reduce((s,r)=>s+(r.apValue||0),0);
+      const ret=((vFim-aportesNoMes-vIni)/vIni)*100;
+      if(!isNaN(ret))retP[k]=ret;
+    });
+  }
+  // ===== Determina meses fechados (exclui mes corrente) =====
+  const hoje=new Date();
+  const mesCorrenteKey=hoje.getFullYear()+"-"+String(hoje.getMonth()+1).padStart(2,"0");
+  const todosM=new Set([...Object.keys(retP),...Object.keys(idxMensal||{})]);
+  const mesesTodos=Array.from(todosM).sort();
+  const meses=mesesTodos.filter(k=>k!==mesCorrenteKey&&typeof retP[k]==="number");
+  const N=meses.length;
+  // ===== Header + placeholder se zero meses =====
+  const header=h("div",{style:{marginBottom:12}},
+    h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:4}},"Estabilidade Comparativa"),
+    h("div",{style:{fontSize:9,color:"#5A5550",fontStyle:"italic"}},"Amortecimento de volatilidade e resiliencia do portfolio ao longo do tempo")
+  );
+  if(N===0){
+    return h("div",{style:{marginBottom:20,paddingTop:14,borderTop:"1px solid rgba(255,255,255,0.05)"}},
+      header,
+      h("div",{style:{padding:"14px",textAlign:"center",color:"#5A5550",fontSize:11,fontStyle:"italic",border:"1px solid rgba(255,255,255,0.05)",borderRadius:8}},"Aguardando primeiro mes fechado")
+    );
+  }
+  // ===== Series =====
+  const cols=[
+    {key:"port",nome:"Portfolio",cor:"#C8A96E",get:k=>retP[k]},
+    {key:"ibov",nome:"IBOV",cor:"#4CAF82",get:k=>(idxMensal[k]||{}).ibov},
+    {key:"ifix",nome:"IFIX",cor:"#5B8FD4",get:k=>(idxMensal[k]||{}).ifix},
+    {key:"imab",nome:"IMA-B",cor:"#A56FD4",get:k=>(idxMensal[k]||{}).imab},
+    {key:"cdi",nome:"CDI",cor:"#E8C44A",get:k=>(idxMensal[k]||{}).cdi},
+    {key:"sp500",nome:"S&P 500",cor:"#7AC494",get:k=>(idxMensal[k]||{}).sp500},
+    {key:"nasdaq",nome:"NASDAQ",cor:"#E89060",get:k=>(idxMensal[k]||{}).nasdaq},
+    {key:"poup",nome:"Poup.",cor:"#7A7570",get:k=>(idxMensal[k]||{}).poupanca}
+  ];
+  // ===== Aviso de amostra pequena =====
+  const amostraStatus=N>=12?"solida":N>=6?"aceitavel":N>=3?"fraca":"pre-liminar";
+  const avisoAmostra=N<6?h("div",{style:{marginBottom:12,padding:"8px 11px",background:"rgba(232,196,74,0.06)",border:"1px solid rgba(232,196,74,0.20)",borderRadius:6,fontSize:9,color:"#A89070",fontStyle:"italic"}},"\u26A0 Amostra "+amostraStatus+" ("+N+"/6 meses fechados). Numeros abaixo sao previa - torne-se estatisticamente robusta a partir de 6 meses."):null;
+  // ============================================================
+  // Visualizacao 1: Rolling Volatility (janela dinamica)
+  // ============================================================
+  // Se tem <6 meses: janela = N (calcula um unico ponto no fim)
+  // Se tem >=6 meses: janela deslizante de 6 meses
+  // A vol e o desvio-padrao anualizado (*sqrt(12))
+  const janela=Math.min(N,6);
+  const calcVol=(serie,mesesArr)=>{
+    const vals=mesesArr.map(k=>serie[k]).filter(v=>typeof v==="number"&&!isNaN(v));
+    if(vals.length<2)return null;
+    const m=vals.reduce((s,v)=>s+v,0)/vals.length;
+    const sd=Math.sqrt(vals.reduce((s,v)=>s+Math.pow(v-m,2),0)/vals.length);
+    return sd*Math.sqrt(12);
+  };
+  const construirSerieRollingVol=col=>{
+    const dados=[];
+    // Precisamos de valores por mes na ordem correta
+    const serieCol={};
+    meses.forEach(k=>{const v=col.get(k);if(typeof v==="number"&&!isNaN(v))serieCol[k]=v;});
+    for(let i=janela-1;i<N;i++){
+      const janelaMeses=meses.slice(i-janela+1,i+1);
+      const vol=calcVol(serieCol,janelaMeses);
+      if(vol!==null)dados.push({mes:meses[i],vol});
+    }
+    return dados;
+  };
+  const seriesVol={};
+  cols.forEach(c=>{seriesVol[c.key]=construirSerieRollingVol(c);});
+  // Grafico SVG: se so ha 1 ponto, mostra como pontos; se ha 2+, mostra linhas
+  const W1=340,H1=170,pL1=42,pR1=90,pT1=10,pB1=22,cW1=W1-pL1-pR1,cH1=H1-pB1-pT1;
+  const todosPontos=Object.values(seriesVol).flat();
+  const volMax=todosPontos.length?Math.max(...todosPontos.map(p=>p.vol),5):20;
+  const volMin=0;
+  const rngV=volMax-volMin||1;
+  const numPontos=seriesVol.port.length;
+  const xVol=i=>numPontos<=1?pL1+cW1/2:pL1+(i/(numPontos-1))*cW1;
+  const yVol=v=>pT1+cH1-((v-volMin)/rngV)*cH1;
+  const viz1=h("div",{style:{marginBottom:14,padding:"10px",background:"rgba(0,0,0,0.20)",border:"1px solid rgba(255,255,255,0.05)",borderRadius:8}},
+    h("div",{style:{fontSize:9,color:"#8A8070",marginBottom:6,fontFamily:"monospace",letterSpacing:1}},"VOLATILIDADE ANUALIZADA (janela "+janela+" meses)"),
+    numPontos===0?h("div",{style:{fontSize:9,color:"#7A7570",fontStyle:"italic",padding:"20px",textAlign:"center"}},"Aguardando 2+ meses fechados para calcular volatilidade"):h("svg",{viewBox:"0 0 "+W1+" "+H1,style:{width:"100%",height:"auto",display:"block"}},
+      // grade
+      ...[0,0.25,0.5,0.75,1].map(f=>{
+        const y=pT1+cH1-f*cH1,v=volMin+f*rngV;
+        return h(Fragment,{key:"g1"+f},
+          h("line",{x1:pL1,y1:y,x2:W1-pR1,y2:y,stroke:"rgba(255,255,255,0.04)",strokeWidth:"1"}),
+          h("text",{x:pL1-3,y:y+3,textAnchor:"end",fill:"#5A5550",fontSize:"7",fontFamily:"monospace"},v.toFixed(0)+"%")
+        );
+      }),
+      // linhas ou pontos por serie
+      ...cols.map(c=>{
+        const s=seriesVol[c.key];
+        if(!s.length)return null;
+        if(s.length===1){
+          return h("circle",{key:"pt"+c.key,cx:xVol(0),cy:yVol(s[0].vol),r:4,fill:c.cor,stroke:"#0D0F14",strokeWidth:1.5});
+        }
+        const path=s.map((p,i)=>(i===0?"M":"L")+xVol(i)+","+yVol(p.vol)).join(" ");
+        return h(Fragment,{key:"ln"+c.key},
+          h("path",{d:path,fill:"none",stroke:c.cor,strokeWidth:c.key==="port"?2.5:1.5,opacity:c.key==="port"?1:0.75}),
+          ...s.map((p,i)=>h("circle",{key:"p"+c.key+i,cx:xVol(i),cy:yVol(p.vol),r:c.key==="port"?3:2,fill:c.cor}))
+        );
+      }),
+      // labels dos indices na direita
+      ...cols.map((c,i)=>{
+        const s=seriesVol[c.key];
+        if(!s.length)return null;
+        const ultimo=s[s.length-1];
+        return h("g",{key:"lab"+c.key,transform:"translate("+(W1-pR1+6)+","+(yVol(ultimo.vol)+3)+")"},
+          h("text",{fill:c.cor,fontSize:"8",fontFamily:"monospace",fontWeight:c.key==="port"?700:400},c.nome+" "+ultimo.vol.toFixed(1)+"%")
+        );
+      }),
+      // eixo X
+      ...(numPontos>1?[0,Math.floor(numPontos/2),numPontos-1]:[0]).map(i=>h("text",{key:"x1"+i,x:xVol(i),y:H1-6,textAnchor:"middle",fill:"#5A5550",fontSize:"7",fontFamily:"monospace"},seriesVol.port[i]?seriesVol.port[i].mes.slice(2):""))
+    ),
+    h("div",{style:{fontSize:8,color:"#5A5550",marginTop:6,fontStyle:"italic",lineHeight:1.5}},"Sua linha (dourada) descendo mais rapido que as demais = seu portfolio esta amortecendo mais que o mercado.")
+  );
+  // ============================================================
+  // Visualizacao 2: Beta implicito vs cesta de indices
+  // ============================================================
+  // Beta = covariancia(portfolio, indice) / variancia(indice)
+  // Cesta de referencia: mistura ponderada de IBOV(30%), IFIX(20%), CDI(15%), S&P500(20%), IMA-B(15%)
+  // representando exposicao tipica de um portfolio B&H diversificado
+  const pesosCesta={ibov:0.30,ifix:0.20,cdi:0.15,sp500:0.20,imab:0.15};
+  const cestaRet=k=>{
+    let r=0,peso=0;
+    Object.entries(pesosCesta).forEach(([kk,pp])=>{
+      const v=(idxMensal[k]||{})[kk];
+      if(typeof v==="number"&&!isNaN(v)){r+=v*pp;peso+=pp;}
+    });
+    return peso>0?r/peso:null;
+  };
+  const calcBeta=(mesesArr,semiJanela)=>{
+    // Se semiJanela informada, usa apenas os ultimos N meses
+    const usar=semiJanela?mesesArr.slice(-semiJanela):mesesArr;
+    const paresValidos=[];
+    usar.forEach(k=>{
+      const rp=retP[k],ri=cestaRet(k);
+      if(typeof rp==="number"&&typeof ri==="number")paresValidos.push({rp,ri});
+    });
+    if(paresValidos.length<2)return null;
+    const mP=paresValidos.reduce((s,p)=>s+p.rp,0)/paresValidos.length;
+    const mI=paresValidos.reduce((s,p)=>s+p.ri,0)/paresValidos.length;
+    const cov=paresValidos.reduce((s,p)=>s+(p.rp-mP)*(p.ri-mI),0)/paresValidos.length;
+    const varI=paresValidos.reduce((s,p)=>s+Math.pow(p.ri-mI,2),0)/paresValidos.length;
+    return varI>0?cov/varI:null;
+  };
+  const betaGlobal=calcBeta(meses);
+  const betaRecente=N>=6?calcBeta(meses,Math.min(N,6)):null;
+  const betaAntigo=N>=8?calcBeta(meses.slice(0,-Math.min(N,6))):null;
+  const deltaBeta=(betaRecente!==null&&betaAntigo!==null)?(betaRecente-betaAntigo):null;
+  // Gauge visual: barra 0-2 com marcador do beta
+  const betaMax=2;
+  const betaClamp=v=>Math.max(0,Math.min(betaMax,v));
+  const betaPct=v=>(betaClamp(v)/betaMax)*100;
+  const corBeta=v=>v===null?"#6A6055":v<0.7?"#4CAF82":v<1.05?"#5B8FD4":v<1.35?"#E8C44A":"#E05252";
+  const rotuloBeta=v=>v===null?"n/d":v<0.7?"amortece muito":v<1.05?"em linha":v<1.35?"amplifica":"amplifica muito";
+  const viz2=h("div",{style:{marginBottom:14,padding:"12px",background:"rgba(0,0,0,0.20)",border:"1px solid rgba(255,255,255,0.05)",borderRadius:8}},
+    h("div",{style:{fontSize:9,color:"#8A8070",marginBottom:9,fontFamily:"monospace",letterSpacing:1}},"BETA vs CESTA DE INDICES"),
+    // Gauge principal
+    betaGlobal===null?h("div",{style:{fontSize:9,color:"#7A7570",fontStyle:"italic",padding:"12px",textAlign:"center"}},"Aguardando 2+ meses fechados para calcular beta"):h(Fragment,{},
+      h("div",{style:{display:"flex",alignItems:"baseline",gap:12,marginBottom:8,flexWrap:"wrap"}},
+        h("div",{style:{fontSize:26,color:corBeta(betaGlobal),fontFamily:"Georgia,serif",fontWeight:700,fontStyle:"italic",lineHeight:1}},"\u03B2 = "+betaGlobal.toFixed(2)),
+        h("div",{style:{fontSize:10,color:corBeta(betaGlobal),fontFamily:"monospace",letterSpacing:0.5}},rotuloBeta(betaGlobal))
+      ),
+      // Barra gauge
+      h("div",{style:{position:"relative",height:14,background:"linear-gradient(to right,#4CAF8240 0%,#4CAF8240 35%,#5B8FD440 35%,#5B8FD440 52%,#E8C44A40 52%,#E8C44A40 67%,#E0525240 67%,#E0525240 100%)",borderRadius:7,marginBottom:6,border:"1px solid rgba(255,255,255,0.08)"}},
+        h("div",{style:{position:"absolute",left:betaPct(betaGlobal)+"%",top:-4,width:2,height:22,background:corBeta(betaGlobal),transform:"translateX(-1px)",boxShadow:"0 0 6px "+corBeta(betaGlobal)}}),
+        // marca 1.0 (neutralidade)
+        h("div",{style:{position:"absolute",left:"50%",top:0,bottom:0,width:1,background:"rgba(255,255,255,0.30)",borderLeft:"1px dashed rgba(255,255,255,0.20)"}})
+      ),
+      h("div",{style:{display:"flex",justifyContent:"space-between",fontSize:7,color:"#6A6055",fontFamily:"monospace",marginBottom:8}},
+        h("span",{},"0.0 amortece"),h("span",{style:{opacity:0.6}},"1.0 neutro"),h("span",{},"2.0 amplifica")
+      ),
+      // Evolucao temporal do beta
+      deltaBeta!==null?h("div",{style:{padding:"7px 10px",background:deltaBeta<-0.05?"rgba(76,175,130,0.10)":deltaBeta>0.05?"rgba(224,82,82,0.10)":"rgba(255,255,255,0.03)",border:"1px solid "+(deltaBeta<-0.05?"rgba(76,175,130,0.30)":deltaBeta>0.05?"rgba(224,82,82,0.30)":"rgba(255,255,255,0.08)"),borderRadius:6}},
+        h("div",{style:{fontSize:9,color:deltaBeta<-0.05?"#4CAF82":deltaBeta>0.05?"#E05252":"#8A8070",fontFamily:"monospace",fontWeight:600,marginBottom:2}},
+          deltaBeta<-0.05?"\u2193 Resiliencia AUMENTANDO":deltaBeta>0.05?"\u2191 Volatilidade AUMENTANDO":"\u2192 Estavel"
+        ),
+        h("div",{style:{fontSize:8,color:"#8A8070",fontFamily:"monospace"}},"\u03B2 antigo: "+betaAntigo.toFixed(2)+" \u2192 recente: "+betaRecente.toFixed(2)+" (\u0394 "+(deltaBeta>=0?"+":"")+deltaBeta.toFixed(2)+")")
+      ):(N<8?h("div",{style:{padding:"6px 10px",fontSize:8,color:"#6A6055",fontStyle:"italic",fontFamily:"monospace"}},"Comparativo temporal disponivel a partir de 8 meses de historico ("+N+"/8)"):null)
+    ),
+    h("div",{style:{fontSize:8,color:"#5A5550",marginTop:8,fontStyle:"italic",lineHeight:1.5}},"Cesta = 30% IBOV + 20% IFIX + 20% S&P + 15% IMA-B + 15% CDI. \u03B2<1: quando cesta cai/sobe X%, portfolio se move menos.")
+  );
+  // ============================================================
+  // Visualizacao 3: Distribuicao % de meses positivos
+  // ============================================================
+  const pctPositivos={};
+  const magnitudeMedia={};
+  cols.forEach(c=>{
+    const vals=meses.map(k=>c.get(k)).filter(v=>typeof v==="number"&&!isNaN(v));
+    if(vals.length===0){pctPositivos[c.key]=null;magnitudeMedia[c.key]=null;return;}
+    const pos=vals.filter(v=>v>0).length;
+    pctPositivos[c.key]=(pos/vals.length)*100;
+    magnitudeMedia[c.key]=vals.reduce((s,v)=>s+v,0)/vals.length;
+  });
+  const viz3=h("div",{style:{marginBottom:8,padding:"10px 12px",background:"rgba(0,0,0,0.20)",border:"1px solid rgba(255,255,255,0.05)",borderRadius:8}},
+    h("div",{style:{fontSize:9,color:"#8A8070",marginBottom:9,fontFamily:"monospace",letterSpacing:1}},"MESES POSITIVOS ("+N+" meses)"),
+    ...cols.map(c=>{
+      const pct=pctPositivos[c.key];
+      const mag=magnitudeMedia[c.key];
+      if(pct===null)return null;
+      const cheias=Math.round(pct/10);
+      const vazias=10-cheias;
+      const barra="\u2588".repeat(cheias)+"\u2591".repeat(vazias);
+      return h("div",{key:"pos"+c.key,style:{display:"flex",alignItems:"baseline",gap:8,marginBottom:3,fontSize:10,fontFamily:"monospace"}},
+        h("div",{style:{width:52,color:c.cor,fontWeight:c.key==="port"?700:400,flexShrink:0}},c.nome),
+        h("div",{style:{color:c.cor,letterSpacing:1,opacity:c.key==="port"?1:0.75}},barra),
+        h("div",{style:{color:"#B0A890",fontSize:9,flexShrink:0}},pct.toFixed(0)+"%"),
+        typeof mag==="number"?h("div",{style:{color:"#6A6055",fontSize:8,marginLeft:4,fontStyle:"italic"}},"("+(mag>=0?"+":"")+mag.toFixed(1)+"% media)"):null
+      );
+    }),
+    h("div",{style:{fontSize:8,color:"#5A5550",marginTop:7,fontStyle:"italic",lineHeight:1.5}},"Maior % positivos + media positiva > 0 = portfolio consistentemente construtivo. B&H bem estruturado tende a superar indices puros nesse quesito.")
+  );
+  return h("div",{style:{marginBottom:20,paddingTop:14,borderTop:"1px solid rgba(255,255,255,0.05)"}},
+    header,
+    avisoAmostra,
+    viz1,
+    viz2,
+    viz3
+  );
+}
+
 function HeatmapChart({hist,histMensal}){
   // Fallback amigável - mostra mensagem em vez de retornar null silenciosamente
   const semDados=(motivo,detalhes)=>h("div",{style:{marginBottom:20,paddingTop:14,borderTop:"1px solid rgba(255,255,255,0.05)"}},
@@ -15073,7 +15329,7 @@ h("button",{onClick:async()=>{
         )
       );
 
-      content=h("div",{},dateHeader,h(BolsasCard,{port,cls}),h(SolidezCard,{total,cw,port,metaMensalIF,setTab,fB,hideVal,dataNascimento,cambialCash,rendaMotoraHist,rendaAuxiliarHist,FX}),h(ModelosPortfolioMap,{cw,selicAtual,hideVal}),aporteCard,insightCard,h(AllocChart,{cw,ct,fB,MV,hideVal}),h(EvolChart,{histMensal,hist,showUSD,setShowUSD,hideVal}),h(ComparativoChart,{histMensal,idxMensal,hideVal,hist}),insightMensalCard,h(HeatmapChart,{hist,histMensal}),topPos);
+      content=h("div",{},dateHeader,h(BolsasCard,{port,cls}),h(SolidezCard,{total,cw,port,metaMensalIF,setTab,fB,hideVal,dataNascimento,cambialCash,rendaMotoraHist,rendaAuxiliarHist,FX}),h(ModelosPortfolioMap,{cw,selicAtual,hideVal}),aporteCard,insightCard,h(AllocChart,{cw,ct,fB,MV,hideVal}),h(EvolChart,{histMensal,hist,showUSD,setShowUSD,hideVal}),h(ComparativoChart,{histMensal,idxMensal,hideVal,hist}),h(EstabilidadeChart,{histMensal,idxMensal,hist}),insightMensalCard,h(HeatmapChart,{hist,histMensal}),topPos);
     }
   }  // POSITIONS
   if(tab==="positions"||tab==="correlacao"){
