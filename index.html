@@ -9440,48 +9440,92 @@ function App(){
         return result;
       };
       const novoIdx={};
+      const idxDebug={};// para diagnostico: {"cdi":"ok N meses","ibov":"vazio",...}
       // CDI (serie 12 - taxa diaria %)
       try{
         const d=await buscaSerieBCB(12,800);// ~3 anos de dias uteis
-        if(d&&Array.isArray(d)){const m=diariasParaMensal(d);Object.entries(m).forEach(([k,v])=>{novoIdx[k]=novoIdx[k]||{};novoIdx[k].cdi=v;});}
-      }catch(e){}
+        if(d&&Array.isArray(d)&&d.length>0){
+          const m=diariasParaMensal(d);
+          const nMeses=Object.keys(m).length;
+          Object.entries(m).forEach(([k,v])=>{novoIdx[k]=novoIdx[k]||{};novoIdx[k].cdi=v;});
+          idxDebug.cdi="ok "+nMeses+" meses (BCB)";
+        }else{idxDebug.cdi="vazio/null (BCB)";}
+      }catch(e){idxDebug.cdi="erro: "+(e.message||"").slice(0,40);}
       // Poupanca (serie 25 - rendimento %)
       try{
         const d=await buscaSerieBCB(25,36);
-        if(d&&Array.isArray(d)){const m=mensalDireta(d);Object.entries(m).forEach(([k,v])=>{novoIdx[k]=novoIdx[k]||{};novoIdx[k].poupanca=v;});}
-      }catch(e){}
-      // IBOV (serie 7846 - variacao mensal %)
+        if(d&&Array.isArray(d)&&d.length>0){
+          const m=mensalDireta(d);
+          const nMeses=Object.keys(m).length;
+          Object.entries(m).forEach(([k,v])=>{novoIdx[k]=novoIdx[k]||{};novoIdx[k].poupanca=v;});
+          idxDebug.poup="ok "+nMeses+" meses (BCB)";
+        }else{idxDebug.poup="vazio (BCB)";}
+      }catch(e){idxDebug.poup="erro: "+(e.message||"").slice(0,40);}
+      // IBOV: tenta BCB primeiro (serie 7846), fallback Yahoo (^BVSP) se falhar ou nao ter mes recente
+      let ibovOk=false;
       try{
         const d=await buscaSerieBCB(7846,36);
-        if(d&&Array.isArray(d)){const m=mensalDireta(d);Object.entries(m).forEach(([k,v])=>{novoIdx[k]=novoIdx[k]||{};novoIdx[k].ibov=v;});}
-      }catch(e){}
+        if(d&&Array.isArray(d)&&d.length>0){
+          const m=mensalDireta(d);
+          const nMeses=Object.keys(m).length;
+          Object.entries(m).forEach(([k,v])=>{novoIdx[k]=novoIdx[k]||{};novoIdx[k].ibov=v;});
+          idxDebug.ibov="ok "+nMeses+" meses (BCB)";
+          ibovOk=nMeses>0;
+        }
+      }catch(e){idxDebug.ibov="BCB erro: "+(e.message||"").slice(0,40);}
       // IMA-B (serie 12466)
+      let imabOk=false;
       try{
         const d=await buscaSerieBCB(12466,36);
-        if(d&&Array.isArray(d)){const m=mensalDireta(d);Object.entries(m).forEach(([k,v])=>{novoIdx[k]=novoIdx[k]||{};novoIdx[k].imab=v;});}
-      }catch(e){}
-      // IFIX e S&P 500 e NASDAQ via Yahoo Chart API
+        if(d&&Array.isArray(d)&&d.length>0){
+          const m=mensalDireta(d);
+          const nMeses=Object.keys(m).length;
+          Object.entries(m).forEach(([k,v])=>{novoIdx[k]=novoIdx[k]||{};novoIdx[k].imab=v;});
+          idxDebug.imab="ok "+nMeses+" meses (BCB)";
+          imabOk=nMeses>0;
+        }
+      }catch(e){idxDebug.imab="BCB erro: "+(e.message||"").slice(0,40);}
+      // Yahoo Chart API para IFIX, S&P, NASDAQ + fallback IBOV
       const buscaYahooMensal=async(ticker)=>{
         const url="https://query1.finance.yahoo.com/v8/finance/chart/"+encodeURIComponent(ticker)+"?interval=1mo&range=3y";
         return await fetchProxy(url,10000);
       };
       const procYahoo=(j,campo)=>{
-        if(!j||!j.chart||!j.chart.result||!j.chart.result[0])return;
+        if(!j||!j.chart||!j.chart.result||!j.chart.result[0])return 0;
         const r=j.chart.result[0];
         const ts=r.timestamp;
         const closes=r.indicators&&r.indicators.quote&&r.indicators.quote[0]&&r.indicators.quote[0].close;
-        if(!ts||!closes||ts.length!==closes.length)return;
+        if(!ts||!closes||ts.length!==closes.length)return 0;
+        let inseridos=0;
         for(let i=1;i<ts.length;i++){
           if(!closes[i]||!closes[i-1])continue;
           const d=new Date(ts[i]*1000);
           const k=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");
           const ret=((closes[i]/closes[i-1])-1)*100;
-          if(!isNaN(ret)){novoIdx[k]=novoIdx[k]||{};novoIdx[k][campo]=ret;}
+          if(!isNaN(ret)){novoIdx[k]=novoIdx[k]||{};if(typeof novoIdx[k][campo]!=="number")novoIdx[k][campo]=ret;inseridos++;}
         }
+        return inseridos;
       };
-      try{const j=await buscaYahooMensal("IFIX.SA");procYahoo(j,"ifix");}catch(e){}
-      try{const j=await buscaYahooMensal("%5EGSPC");procYahoo(j,"sp500");}catch(e){}
-      try{const j=await buscaYahooMensal("%5EIXIC");procYahoo(j,"nasdaq");}catch(e){}
+      try{const j=await buscaYahooMensal("IFIX.SA");const n=procYahoo(j,"ifix");idxDebug.ifix=n>0?"ok "+n+" meses (Yahoo)":"vazio (Yahoo)";}catch(e){idxDebug.ifix="Yahoo erro";}
+      try{const j=await buscaYahooMensal("%5EGSPC");const n=procYahoo(j,"sp500");idxDebug.sp500=n>0?"ok "+n+" meses (Yahoo)":"vazio (Yahoo)";}catch(e){idxDebug.sp500="Yahoo erro";}
+      try{const j=await buscaYahooMensal("%5EIXIC");const n=procYahoo(j,"nasdaq");idxDebug.nasdaq=n>0?"ok "+n+" meses (Yahoo)":"vazio (Yahoo)";}catch(e){idxDebug.nasdaq="Yahoo erro";}
+      // Fallback IBOV via Yahoo (%5EBVSP) - preenche apenas meses que BCB nao trouxe
+      if(!ibovOk){
+        try{
+          const j=await buscaYahooMensal("%5EBVSP");
+          const n=procYahoo(j,"ibov");
+          idxDebug.ibov=(idxDebug.ibov||"")+" | Yahoo fallback: "+(n>0?n+" meses":"vazio");
+        }catch(e){idxDebug.ibov=(idxDebug.ibov||"")+" | Yahoo erro";}
+      }else{
+        // Mesmo com BCB ok, tenta Yahoo para preencher mes atual/recente que BCB pode nao ter
+        try{
+          const j=await buscaYahooMensal("%5EBVSP");
+          const n=procYahoo(j,"ibov");// procYahoo nao sobrescreve (mantem BCB, so preenche buracos)
+          if(n>0)idxDebug.ibov+=" +Yahoo compl.";
+        }catch(e){}
+      }
+      // Logs no console para diagnostico
+      try{console.log("[idxMensal] fetched:",idxDebug,"meses cobertos:",Object.keys(novoIdx).sort());}catch(e){}
       if(!cancelado&&Object.keys(novoIdx).length>0){
         setIdxMensal(prev=>({...prev,...novoIdx}));
       }
