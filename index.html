@@ -5549,18 +5549,17 @@ function calcRetornosMensais(histMensal,hist){
 // Componente que mostra rentabilidade do portfolio vs indices comparativos
 // histMensal: array dos snapshots do portfolio por mes
 // idxMensal: objeto {"YYYY-MM": {ibov, ifix, cdi, imab, sp500, nasdaq, poupanca}}
-function ComparativoChart({histMensal,idxMensal,hideVal,hist}){
+function ComparativoChart({histMensal,idxMensal,hideVal,hist,setIdxMensal}){
   // Usa a funcao unificada calcRetornosMensais (Opcao A intra-mes com fallback B entre-meses)
-  if(!Array.isArray(histMensal)||histMensal.length<1)return null;
-  const retPortfolio=calcRetornosMensais(histMensal,hist);
+  const [editando,setEditando]=React.useState(false);
+  const [rascunho,setRascunho]=React.useState({});// {"YYYY-MM":{ibov,ifix,...}}
+  const retPortfolio=Array.isArray(histMensal)&&histMensal.length>=1?calcRetornosMensais(histMensal,hist):{};
 
   // Coleta todos os meses que tem dados (portfolio OU indices)
   const todosM=new Set([...Object.keys(retPortfolio),...Object.keys(idxMensal||{})]);
   const meses=Array.from(todosM).sort();
-  if(meses.length===0)return h("div",{style:{marginBottom:20,paddingTop:14,borderTop:"1px solid rgba(255,255,255,0.05)"}},
-    h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:8}},"Rentabilidade comparativa"),
-    h("div",{style:{padding:"14px",textAlign:"center",color:"#5A5550",fontSize:11,fontStyle:"italic",border:"1px solid rgba(255,255,255,0.05)",borderRadius:8}},"Aguardando dados. Sera populado nos proximos meses.")
-  );
+  // NAO retorna cedo quando meses.length===0 - o botao "editar benchmarks" precisa estar sempre acessivel
+  // para permitir preencher manualmente antes de ter dados do portfolio.
   // Mostra apenas os ultimos 12 meses na tabela (scroll vertical se mais)
   const mesesExibidos=meses.slice(-12);
   // Calcula acumulado de cada indice
@@ -5571,7 +5570,12 @@ function ComparativoChart({histMensal,idxMensal,hideVal,hist}){
   };
   // Constrói séries por indice
   const cols=[
-    {key:"port",nome:"Portfolio",cor:"#C8A96E",get:(k)=>retPortfolio[k]},
+    {key:"port",nome:"Portfolio",cor:"#C8A96E",get:(k)=>{
+      // Prioriza override manual em idxMensal[k]._portOverride, senao usa calculo automatico
+      const ov=(idxMensal[k]||{})._portOverride;
+      if(typeof ov==="number")return ov;
+      return retPortfolio[k];
+    }},
     {key:"ibov",nome:"IBOV",cor:"#4CAF82",get:(k)=>(idxMensal[k]||{}).ibov},
     {key:"ifix",nome:"IFIX",cor:"#5B8FD4",get:(k)=>(idxMensal[k]||{}).ifix},
     {key:"imab",nome:"IMA-B",cor:"#A56FD4",get:(k)=>(idxMensal[k]||{}).imab},
@@ -5639,9 +5643,130 @@ function ComparativoChart({histMensal,idxMensal,hideVal,hist}){
   // Numero maximo de linhas (todos os cols que aparecem em pelo menos um mes)
   const maxLinhas=cols.length;
 
+  // Meses a mostrar no editor: junho/2026 em diante, ate o mes corrente inclusive
+  const gerarMesesEditor=()=>{
+    const arr=[];
+    const inicio=new Date(2026,5,1);// junho 2026 (mes=5 em JS)
+    const fim=new Date();
+    let d=new Date(inicio);
+    while(d<=fim){
+      arr.push(d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0"));
+      d.setMonth(d.getMonth()+1);
+    }
+    return arr;
+  };
+  const camposEditor=[
+    {k:"port",nome:"Portfolio",cor:"#C8A96E"},
+    {k:"ibov",nome:"IBOV",cor:"#4CAF82"},
+    {k:"ifix",nome:"IFIX",cor:"#5B8FD4"},
+    {k:"imab",nome:"IMA-B",cor:"#A56FD4"},
+    {k:"cdi",nome:"CDI",cor:"#E8C44A"},
+    {k:"sp500",nome:"S&P 500",cor:"#7AC494"},
+    {k:"nasdaq",nome:"NASDAQ",cor:"#E89060"},
+    {k:"poupanca",nome:"Poup.",cor:"#7A7570"}
+  ];
+  const abrirEditor=()=>{
+    // Inicia rascunho com valores atuais (se existirem)
+    const rasc={};
+    gerarMesesEditor().forEach(k=>{
+      rasc[k]={};
+      camposEditor.forEach(c=>{
+        // Portfolio: prioriza override manual, senao usa calculo automatico
+        if(c.k==="port"){
+          const override=(idxMensal[k]||{})._portOverride;
+          if(typeof override==="number")rasc[k].port=String(override);
+          else if(typeof retPortfolio[k]==="number")rasc[k].port=retPortfolio[k].toFixed(2);
+          else rasc[k].port="";
+        }else{
+          const v=(idxMensal[k]||{})[c.k];
+          rasc[k][c.k]=typeof v==="number"?String(v):"";
+        }
+      });
+    });
+    setRascunho(rasc);
+    setEditando(true);
+  };
+  const salvarEditor=()=>{
+    if(!setIdxMensal){setEditando(false);return;}
+    setIdxMensal(prev=>{
+      const novo={...prev};
+      Object.entries(rascunho).forEach(([mes,campos])=>{
+        novo[mes]=novo[mes]||{};
+        Object.entries(campos).forEach(([k,strVal])=>{
+          const s=String(strVal||"").trim().replace(",",".");
+          // Portfolio: campo especial _portOverride (nao eh benchmark, eh sua rentabilidade)
+          if(k==="port"){
+            if(s===""){
+              if(novo[mes]._portOverride!==undefined)delete novo[mes]._portOverride;
+            }else{
+              const n=parseFloat(s);
+              if(!isNaN(n))novo[mes]._portOverride=n;
+            }
+            return;
+          }
+          // Indices normais
+          if(s===""){
+            if(novo[mes][k]!==undefined)delete novo[mes][k];
+            if(novo[mes]._manual)delete novo[mes]._manual[k];
+          }else{
+            const n=parseFloat(s);
+            if(!isNaN(n)){
+              novo[mes][k]=n;
+              novo[mes]._manual=novo[mes]._manual||{};
+              novo[mes]._manual[k]=true;
+            }
+          }
+        });
+      });
+      return novo;
+    });
+    setEditando(false);
+  };
+
   return h("div",{style:{marginBottom:20,paddingTop:14,borderTop:"1px solid rgba(255,255,255,0.05)"}},
-    h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:4}},"Rentabilidade comparativa"),
+    // Header com botao editar
+    h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4,gap:8,flexWrap:"wrap"}},
+      h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase"}},"Rentabilidade comparativa"),
+      setIdxMensal&&h("button",{onClick:editando?()=>setEditando(false):abrirEditor,style:{background:editando?"rgba(224,82,82,0.15)":"rgba(91,143,212,0.15)",border:"1px solid "+(editando?"rgba(224,82,82,0.40)":"rgba(91,143,212,0.40)"),borderRadius:4,color:editando?"#E05252":"#5B8FD4",fontSize:9,padding:"3px 9px",cursor:"pointer",fontFamily:"monospace",letterSpacing:1}},editando?"cancelar":"editar benchmarks")
+    ),
     h("div",{style:{fontSize:9,color:"#5A5550",marginBottom:10,fontStyle:"italic"}},"Retorno time-weighted descontando aportes vs indices de mercado"),
+    // ===== EDITOR MANUAL DE BENCHMARKS =====
+    editando&&h("div",{style:{marginBottom:14,padding:"12px",background:"rgba(91,143,212,0.06)",border:"1px solid rgba(91,143,212,0.25)",borderRadius:8}},
+      h("div",{style:{fontSize:9,color:"#5B8FD4",fontFamily:"monospace",letterSpacing:1,marginBottom:8,fontWeight:700}},"EDITAR BENCHMARKS (% MENSAL)"),
+      h("div",{style:{fontSize:9,color:"#8A8070",marginBottom:10,fontStyle:"italic",lineHeight:1.4}},"Digite o retorno % de cada indice em cada mes. Valores editados sao marcados como manuais e nao sao sobrescritos por fetch automatico. Deixe em branco para remover uma entrada manual."),
+      h("div",{style:{overflowX:"auto",WebkitOverflowScrolling:"touch"}},
+        h("table",{style:{borderCollapse:"collapse",fontFamily:"monospace",fontSize:9,width:"100%",minWidth:520}},
+          h("thead",{},
+            h("tr",{},
+              h("th",{style:{padding:"5px 6px",textAlign:"left",color:"#8A8070",borderBottom:"1px solid rgba(255,255,255,0.08)",fontSize:8,letterSpacing:1,position:"sticky",left:0,background:"#0D0F14"}},"MES"),
+              ...camposEditor.map(c=>h("th",{key:c.k,style:{padding:"5px 6px",textAlign:"center",color:c.cor,borderBottom:"1px solid rgba(255,255,255,0.08)",fontSize:8,letterSpacing:1,fontWeight:600,minWidth:52}},c.nome))
+            )
+          ),
+          h("tbody",{},
+            ...gerarMesesEditor().map(mes=>h("tr",{key:mes,style:{borderBottom:"1px solid rgba(255,255,255,0.04)"}},
+              h("td",{style:{padding:"5px 6px",color:"#C8A96E",fontSize:9,fontWeight:700,position:"sticky",left:0,background:"#0D0F14",whiteSpace:"nowrap"}},fmtMes(mes)),
+              ...camposEditor.map(c=>h("td",{key:c.k,style:{padding:"3px 4px"}},
+                h("input",{
+                  type:"text",
+                  inputMode:"decimal",
+                  value:(rascunho[mes]&&rascunho[mes][c.k])||"",
+                  onChange:e=>{
+                    const val=e.target.value;
+                    setRascunho(prev=>({...prev,[mes]:{...(prev[mes]||{}),[c.k]:val}}));
+                  },
+                  placeholder:"-",
+                  style:{width:"100%",boxSizing:"border-box",background:"rgba(0,0,0,0.30)",border:"1px solid rgba(255,255,255,0.10)",borderRadius:3,color:"#F0EAD8",fontSize:10,padding:"4px 5px",fontFamily:"monospace",textAlign:"right"}
+                })
+              ))
+            ))
+          )
+        )
+      ),
+      h("div",{style:{display:"flex",justifyContent:"flex-end",gap:8,marginTop:10}},
+        h("button",{onClick:()=>setEditando(false),style:{background:"transparent",border:"1px solid rgba(255,255,255,0.20)",borderRadius:4,color:"#8A8070",fontSize:10,padding:"6px 14px",cursor:"pointer",fontFamily:"monospace",letterSpacing:1}},"cancelar"),
+        h("button",{onClick:salvarEditor,style:{background:"rgba(76,175,130,0.20)",border:"1px solid rgba(76,175,130,0.50)",borderRadius:4,color:"#4CAF82",fontSize:10,padding:"6px 14px",cursor:"pointer",fontFamily:"monospace",letterSpacing:1,fontWeight:700}},"salvar")
+      )
+    ),
     // ===== RANKING MENSAL (LEADERBOARD) =====
     // Substitui o grafico de linhas. Meses no eixo horizontal, ranking na vertical.
     // Scroll lateral se passar de ~4 meses (2 na tela de celular).
@@ -9536,7 +9661,22 @@ function App(){
       // Logs no console para diagnostico
       try{console.log("[idxMensal] fetched:",idxDebug,"meses cobertos:",Object.keys(novoIdx).sort());}catch(e){}
       if(!cancelado&&Object.keys(novoIdx).length>0){
-        setIdxMensal(prev=>({...prev,...novoIdx}));
+        // Merge respeitando valores manuais: se algum campo tem _manual[k]=true no prev,
+        // NAO sobrescreve com valor do fetch (protecao contra API vir com valor errado)
+        setIdxMensal(prev=>{
+          const merged={...prev};
+          Object.entries(novoIdx).forEach(([mes,campos])=>{
+            const prevMes=prev[mes]||{};
+            const prevManual=prevMes._manual||{};
+            const novoMes={...prevMes};
+            Object.entries(campos).forEach(([k,v])=>{
+              // So sobrescreve se nao foi marcado manual
+              if(!prevManual[k])novoMes[k]=v;
+            });
+            merged[mes]=novoMes;
+          });
+          return merged;
+        });
       }
     })();
     // ====== FETCH TAXAS NTN-B ======
@@ -15418,7 +15558,7 @@ h("button",{onClick:async()=>{
         )
       );
 
-      content=h("div",{},dateHeader,h(BolsasCard,{port,cls}),h(SolidezCard,{total,cw,port,metaMensalIF,setTab,fB,hideVal,dataNascimento,cambialCash,rendaMotoraHist,rendaAuxiliarHist,FX}),h(ModelosPortfolioMap,{cw,selicAtual,hideVal}),aporteCard,insightCard,h(AllocChart,{cw,ct,fB,MV,hideVal}),h(ComparativoChart,{histMensal,idxMensal,hideVal,hist}),h(EstabilidadeChart,{histMensal,idxMensal,hist}),insightMensalCard,h(HeatmapChart,{hist,histMensal}),topPos);
+      content=h("div",{},dateHeader,h(BolsasCard,{port,cls}),h(SolidezCard,{total,cw,port,metaMensalIF,setTab,fB,hideVal,dataNascimento,cambialCash,rendaMotoraHist,rendaAuxiliarHist,FX}),h(ModelosPortfolioMap,{cw,selicAtual,hideVal}),aporteCard,insightCard,h(AllocChart,{cw,ct,fB,MV,hideVal}),insightMensalCard,topPos);
     }
   }  // POSITIONS
   if(tab==="positions"||tab==="correlacao"){
