@@ -4837,10 +4837,14 @@ function RankingMensalCard({histMensal,hist,idxMensal,setIdxMensal}){
               ...campos.map(c=>h("td",{key:c.k,style:{padding:"3px 4px"}},
                 h("input",{
                   type:"text",
-                  inputMode:"decimal",
+                  inputMode:"text",
+                  autoComplete:"off",
+                  autoCorrect:"off",
+                  spellCheck:false,
                   value:(rascunho[mes]&&rascunho[mes][c.k])||"",
                   onChange:e=>{
-                    const val=e.target.value;
+                    // Aceita apenas digitos, sinal - e ponto/virgula
+                    const val=e.target.value.replace(/[^0-9.,\-]/g,"");
                     setRascunho(prev=>({...prev,[mes]:{...(prev[mes]||{}),[c.k]:val}}));
                   },
                   placeholder:c.k==="port"?"auto":"-",
