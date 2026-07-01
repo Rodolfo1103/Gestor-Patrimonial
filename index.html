@@ -235,7 +235,7 @@ const NAMES={
   TSE8058:"Mitsubishi Corp",TSE8031:"Mitsui Co",REA:"REA Group",WES:"Wesfarmers",
   HKG0700:"Tencent Holdings",HKG1299:"AIA Group",HKG0001:"CK Hutchison",
   HKG0087:"Swire Pacific",J36:"Jardine Matheson",
-  AAAU:"Perth Mint Gold ETF",BTC:"Bitcoin",
+  AAAU:"Goldman Sachs Physical Gold ETF",BTC:"Bitcoin",
   OURO_FISICO:"Ouro Fisico (Ourominas)",SELIC2031:"Tesouro Selic 2031",
   TLT:"iShares 20+ Year Treasury",IEF:"iShares 7-10 Year Treasury",VTIP:"Vanguard Short-Term TIPS",
   "NTNB-2032":"Tesouro IPCA+ 2032 (NTN-B Principal)",
@@ -815,10 +815,7 @@ async function fetchPtaxMes(moeda,mes){
   const fmt=(d)=>String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0")+"-"+d.getFullYear();
   const url="https://olinda.bcb.gov.br/olinda/servico/PTAX/versao/v1/odata/CotacaoMoedaPeriodo(moeda=@moeda,dataInicial=@dataInicial,dataFinalCotacao=@dataFinalCotacao)?@moeda=%27"+moeda+"%27&@dataInicial=%27"+fmt(dtInicial)+"%27&@dataFinalCotacao=%27"+fmt(dtFinal)+"%27&$format=json&$select=cotacaoVenda,dataHoraCotacao";
   try{
-    const ctrl=new AbortController();
-    const tid=setTimeout(()=>ctrl.abort(),8000);
-    const r=await fetch(url,{signal:ctrl.signal});
-    clearTimeout(tid);
+    const r=await fetch(url,{signal:(typeof AbortSignal!=="undefined"&&AbortSignal.timeout)?AbortSignal.timeout(8000):undefined});
     if(!r.ok)return null;
     const j=await r.json();
     if(!j||!Array.isArray(j.value)||j.value.length===0)return null;
@@ -6431,10 +6428,7 @@ async function fetchNTNBTaxas(){
   const tentarAA40=async(proxyFn)=>{
     const url="https://www.aposenteaos40.org/fire-dash/includes/api_tesouro.php?titulo=All";
     try{
-      const ctrl=new AbortController();
-      const tid=setTimeout(()=>ctrl.abort(),7000);
-      const r=await fetch(proxyFn(url),{signal:ctrl.signal});
-      clearTimeout(tid);
+      const r=await fetch(proxyFn(url),{signal:(typeof AbortSignal!=="undefined"&&AbortSignal.timeout)?AbortSignal.timeout(7000):undefined});
       if(!r.ok)return null;
       const text=await r.text();
       if(!text||text.toLowerCase().includes("host not in allowlist"))return null;
@@ -6467,10 +6461,7 @@ async function fetchNTNBTaxas(){
   // mas pode voltar a funcionar - codigo robusto a falha.
   const tentarRadar=async(proxyFn)=>{
     try{
-      const ctrl=new AbortController();
-      const tid=setTimeout(()=>ctrl.abort(),7000);
-      const r=await fetch(proxyFn("https://api.radaropcoes.com/bonds.json"),{signal:ctrl.signal});
-      clearTimeout(tid);
+      const r=await fetch(proxyFn("https://api.radaropcoes.com/bonds.json"),{signal:(typeof AbortSignal!=="undefined"&&AbortSignal.timeout)?AbortSignal.timeout(7000):undefined});
       if(!r.ok)return null;
       const text=await r.text();
       if(!text||text.toLowerCase().includes("host not in allowlist"))return null;
@@ -8862,10 +8853,7 @@ function App(){
       const upd={};// acumula mudancas pra aplicar via setFxState no fim
       // 1) AwesomeAPI (PTAX brasileira, atualizada a cada minuto, retorna BRL direto)
       try{
-        const ctrl=new AbortController();
-        const tid=setTimeout(()=>ctrl.abort(),6000);
-        const r=await fetch("https://economia.awesomeapi.com.br/json/last/USD-BRL,EUR-BRL,GBP-BRL,CHF-BRL,JPY-BRL,AUD-BRL,CAD-BRL",{signal:ctrl.signal,cache:"no-store"});
-        clearTimeout(tid);
+        const r=await fetch("https://economia.awesomeapi.com.br/json/last/USD-BRL,EUR-BRL,GBP-BRL,CHF-BRL,JPY-BRL,AUD-BRL,CAD-BRL",{signal:(typeof AbortSignal!=="undefined"&&AbortSignal.timeout)?AbortSignal.timeout(6000):undefined,cache:"no-store"});
         if(r.ok){
           const d=await r.json();
           if(!cancelado&&d){
@@ -8879,10 +8867,7 @@ function App(){
       }catch(e){/* fallback abaixo */}
       // 2) Fallback open.er-api.com (cache 12h, mas tem mais moedas como HKD/SGD/NOK/DKK/MXN)
       try{
-        const ctrl=new AbortController();
-        const tid=setTimeout(()=>ctrl.abort(),6000);
-        const r=await fetch("https://open.er-api.com/v6/latest/BRL",{signal:ctrl.signal});
-        clearTimeout(tid);
+        const r=await fetch("https://open.er-api.com/v6/latest/BRL",{signal:(typeof AbortSignal!=="undefined"&&AbortSignal.timeout)?AbortSignal.timeout(6000):undefined});
         if(r.ok){
           const d=await r.json();
           if(!cancelado&&d&&d.rates){
@@ -8918,10 +8903,7 @@ function App(){
       for(const f of fontes){
         if(cancelado)return;
         try{
-          const ctrl=new AbortController();
-          const tid=setTimeout(()=>ctrl.abort(),7000);
-          const r=await fetch(f.url,{signal:ctrl.signal});
-          clearTimeout(tid);
+          const r=await fetch(f.url,{signal:(typeof AbortSignal!=="undefined"&&AbortSignal.timeout)?AbortSignal.timeout(7000):undefined});
           if(!r.ok)continue;
           const d=await r.json();
           const out=f.parse(d);
@@ -8949,10 +8931,7 @@ function App(){
       for(const f of fontes){
         if(cancelado)return;
         try{
-          const ctrl=new AbortController();
-          const tid=setTimeout(()=>ctrl.abort(),6000);
-          const r=await fetch(f.url,{signal:ctrl.signal});
-          clearTimeout(tid);
+          const r=await fetch(f.url,{signal:(typeof AbortSignal!=="undefined"&&AbortSignal.timeout)?AbortSignal.timeout(6000):undefined});
           if(!r.ok)continue;
           const d=await r.json();
           const v=f.parse(d);
@@ -8991,10 +8970,7 @@ function App(){
         for(const proxyFn of proxies){
           if(cancelado)return null;
           try{
-            const ctrl=new AbortController();
-            const tid=setTimeout(()=>ctrl.abort(),6000);
-            const r=await fetch(proxyFn(url),{signal:ctrl.signal});
-            clearTimeout(tid);
+            const r=await fetch(proxyFn(url),{signal:(typeof AbortSignal!=="undefined"&&AbortSignal.timeout)?AbortSignal.timeout(6000):undefined});
             if(!r.ok)continue;
             const text=await r.text();
             if(!text||text.toLowerCase().includes("host not in allowlist"))continue;
@@ -9063,10 +9039,7 @@ function App(){
             for(const mk of proxiesCPI){
               if(cancelado)return null;
               try{
-                const ctrl=new AbortController();
-                const tid=setTimeout(()=>ctrl.abort(),8000);
-                const r=await fetch(mk(url),{signal:ctrl.signal});
-                clearTimeout(tid);
+                const r=await fetch(mk(url),{signal:(typeof AbortSignal!=="undefined"&&AbortSignal.timeout)?AbortSignal.timeout(8000):undefined});
                 if(!r.ok)continue;
                 const text=await r.text();
                 if(!text||text.toLowerCase().includes("host not in allowlist"))continue;
@@ -9161,10 +9134,7 @@ function App(){
       for(const mk of proxies){
         if(cancelado)return;
         try{
-          const ctrl=new AbortController();
-          const tid=setTimeout(()=>ctrl.abort(),7000);
-          const r=await fetch(mk(url),{signal:ctrl.signal});
-          clearTimeout(tid);
+          const r=await fetch(mk(url),{signal:(typeof AbortSignal!=="undefined"&&AbortSignal.timeout)?AbortSignal.timeout(7000):undefined});
           if(!r.ok)continue;
           const text=await r.text();
           if(!text||text.toLowerCase().includes("host not in allowlist"))continue;
@@ -9223,12 +9193,9 @@ function App(){
             if(cancelado||achou)break;
             try{
               const proxiedUrl=px.wrap(cfg.url);
-              const ctrl=new AbortController();
-              const tid=setTimeout(()=>ctrl.abort(),7000);
               // Proxies que reencaminham headers podem nao funcionar; melhor usar query string com proxy
               const useHeaders=px.name==="direct"?cfg.headers:{"accept":"application/json"};
-              const r=await fetch(proxiedUrl,{signal:ctrl.signal,headers:useHeaders});
-              clearTimeout(tid);
+              const r=await fetch(proxiedUrl,{signal:(typeof AbortSignal!=="undefined"&&AbortSignal.timeout)?AbortSignal.timeout(7000):undefined,headers:useHeaders});
               if(!r.ok){
                 if(r.status===429){erros.push("RATE LIMIT - aguarde 1h");achou=true;break;}
                 if(r.status===401||r.status===403){erros.push("401/403 (chave invalida ou auth errada)");continue;}
@@ -9299,11 +9266,9 @@ function App(){
         for(let i=0;i<proxies2.length;i++){
           if(cancelado)return null;
           try{
-            const ctrl=new AbortController();
-            const tid=setTimeout(()=>ctrl.abort(),ms||7000);
             const useHdr=i===0?headers:{"accept":"application/json"};
-            const r=await fetch(proxies2[i](url),{signal:ctrl.signal,headers:useHdr});
-            clearTimeout(tid);
+            const sig=(typeof AbortSignal!=="undefined"&&AbortSignal.timeout)?AbortSignal.timeout(ms||7000):undefined;
+            const r=await fetch(proxies2[i](url),{signal:sig,headers:useHdr,cache:"no-store"});
             if(!r.ok)continue;
             const txt=await r.text();
             if(!txt||txt.toLowerCase().includes("not allowed"))continue;
@@ -9969,15 +9934,12 @@ function App(){
     const tickers=[...tickersComPos,...tickersEmEstudo];
     if(!tickers.length){setPErr("Nenhum ativo com quantidade cadastrada");return;}
     setLoadP(true);setPErr("");
-    // Helper de fetch com timeout manual (compativel com todos os navegadores)
+    // Helper de fetch com timeout via AbortSignal.timeout nativo (Chrome 103+)
     const fetchJSON=async(url,ms)=>{
-      const ctrl=new AbortController();
-      const timer=setTimeout(()=>ctrl.abort(),ms||10000);
-      try{
-        const r=await fetch(url,{signal:ctrl.signal});
-        if(!r.ok)throw new Error("HTTP "+r.status);
-        return await r.json();
-      }finally{clearTimeout(timer);}
+      const sig=(typeof AbortSignal!=="undefined"&&AbortSignal.timeout)?AbortSignal.timeout(ms||10000):undefined;
+      const r=await fetch(url,{signal:sig,cache:"no-store"});
+      if(!r.ok)throw new Error("HTTP "+r.status);
+      return await r.json();
     };
     // Helper que tenta varios proxies CORS em cascata ate algum funcionar
     const fetchViaProxy=async(targetUrl,ms)=>{
@@ -10144,10 +10106,7 @@ function App(){
           const tickersList=brTickers.join(",");
           const url="https://brapi.dev/api/quote/"+encodeURIComponent(tickersList)+"?token="+encodeURIComponent(brapiKey)+"&_t="+Date.now();
           // Forca no-store pra eliminar cache de browser/service-worker
-          const ctrl=new AbortController();
-          const tid=setTimeout(()=>ctrl.abort(),12000);
-          const resp=await fetch(url,{signal:ctrl.signal,cache:"no-store",headers:{"cache-control":"no-cache","pragma":"no-cache"}});
-          clearTimeout(tid);
+          const resp=await fetch(url,{signal:(typeof AbortSignal!=="undefined"&&AbortSignal.timeout)?AbortSignal.timeout(12000):undefined,cache:"no-store",headers:{"cache-control":"no-cache","pragma":"no-cache"}});
           const d=resp.ok?await resp.json():null;
           if(d&&Array.isArray(d.results)){
             let bN=0;
@@ -10463,8 +10422,7 @@ function App(){
     if(isBR&&brapiKey){
       try{
         const url="https://brapi.dev/api/quote/"+encodeURIComponent(symbol)+"?token="+encodeURIComponent(brapiKey);
-        const ctrl=new AbortController();const tid=setTimeout(()=>ctrl.abort(),8000);
-        const r=await fetch(url,{signal:ctrl.signal});clearTimeout(tid);
+        const r=await fetch(url,{signal:(typeof AbortSignal!=="undefined"&&AbortSignal.timeout)?AbortSignal.timeout(8000):undefined});
         if(r.ok){
           const j=await r.json();
           const q=j&&Array.isArray(j.results)&&j.results[0];
@@ -10515,8 +10473,7 @@ function App(){
         const searchUrl="https://query2.finance.yahoo.com/v1/finance/search?q="+encodeURIComponent(symbol)+"&quotesCount=5&newsCount=0";
         for(const mk of proxies){
           try{
-            const ctrl=new AbortController();const tid=setTimeout(()=>ctrl.abort(),6000);
-            const r=await fetch(mk(searchUrl),{signal:ctrl.signal});clearTimeout(tid);
+            const r=await fetch(mk(searchUrl),{signal:(typeof AbortSignal!=="undefined"&&AbortSignal.timeout)?AbortSignal.timeout(6000):undefined});
             if(!r.ok)continue;
             const j=await r.json();
             if(j&&Array.isArray(j.quotes)){
@@ -10546,8 +10503,7 @@ function App(){
       const yhUrl="https://query1.finance.yahoo.com/v7/finance/quote?symbols="+encodeURIComponent(yhSym);
       for(const mk of proxies){
         try{
-          const ctrl=new AbortController();const tid=setTimeout(()=>ctrl.abort(),6000);
-          const r=await fetch(mk(yhUrl),{signal:ctrl.signal});clearTimeout(tid);
+          const r=await fetch(mk(yhUrl),{signal:(typeof AbortSignal!=="undefined"&&AbortSignal.timeout)?AbortSignal.timeout(6000):undefined});
           if(!r.ok)continue;
           const j=await r.json();
           const q=j&&j.quoteResponse&&j.quoteResponse.result&&j.quoteResponse.result[0];
@@ -10569,8 +10525,7 @@ function App(){
       const chartUrl="https://query1.finance.yahoo.com/v8/finance/chart/"+encodeURIComponent(yhSym)+"?interval=1d&range=5d";
       for(const mk of proxies){
         try{
-          const ctrl=new AbortController();const tid=setTimeout(()=>ctrl.abort(),6000);
-          const r=await fetch(mk(chartUrl),{signal:ctrl.signal});clearTimeout(tid);
+          const r=await fetch(mk(chartUrl),{signal:(typeof AbortSignal!=="undefined"&&AbortSignal.timeout)?AbortSignal.timeout(6000):undefined});
           if(!r.ok)continue;
           const j=await r.json();
           const res=j&&j.chart&&j.chart.result&&j.chart.result[0];
@@ -10585,8 +10540,8 @@ function App(){
               const searchUrl="https://query2.finance.yahoo.com/v1/finance/search?q="+encodeURIComponent(symbol)+"&quotesCount=3";
               for(const mk2 of proxies){
                 try{
-                  const ctrl2=new AbortController();const tid2=setTimeout(()=>ctrl2.abort(),5000);
-                  const r2=await fetch(mk2(searchUrl),{signal:ctrl2.signal});clearTimeout(tid2);
+                  const sig2=(typeof AbortSignal!=="undefined"&&AbortSignal.timeout)?AbortSignal.timeout(5000):undefined;
+                  const r2=await fetch(mk2(searchUrl),{signal:sig2});
                   if(!r2.ok)continue;
                   const j2=await r2.json();
                   if(j2&&Array.isArray(j2.quotes)){
@@ -10620,8 +10575,7 @@ function App(){
           const stUrl="https://stooq.com/q/l/?s="+sq+"&f=sd2t2ohlcv&h&e=json";
           for(const mk of proxies){
             try{
-              const ctrl=new AbortController();const tid=setTimeout(()=>ctrl.abort(),6000);
-              const r=await fetch(mk(stUrl),{signal:ctrl.signal});clearTimeout(tid);
+              const r=await fetch(mk(stUrl),{signal:(typeof AbortSignal!=="undefined"&&AbortSignal.timeout)?AbortSignal.timeout(6000):undefined});
               if(!r.ok)continue;
               const j=await r.json();
               const s=j&&j.symbols&&j.symbols[0];
@@ -10634,8 +10588,8 @@ function App(){
                   const searchUrl="https://query2.finance.yahoo.com/v1/finance/search?q="+encodeURIComponent(symbol)+"&quotesCount=3";
                   for(const mk2 of proxies){
                     try{
-                      const ctrl2=new AbortController();const tid2=setTimeout(()=>ctrl2.abort(),5000);
-                      const r2=await fetch(mk2(searchUrl),{signal:ctrl2.signal});clearTimeout(tid2);
+                      const sig2=(typeof AbortSignal!=="undefined"&&AbortSignal.timeout)?AbortSignal.timeout(5000):undefined;
+                      const r2=await fetch(mk2(searchUrl),{signal:sig2});
                       if(!r2.ok)continue;
                       const j2=await r2.json();
                       if(j2&&Array.isArray(j2.quotes)){
@@ -15119,11 +15073,8 @@ h("button",{onClick:()=>{
               const key=baseUrl.split("/").slice(-2).join("/")+" + "+auth.name+" + "+px.name;
               try{
                 const proxiedUrl=px.wrap(cfg.url);
-                const ctrl=new AbortController();
-                const tid=setTimeout(()=>ctrl.abort(),6000);
                 const useHeaders=px.name==="direct"?cfg.headers:{"accept":"application/json"};
-                const r=await fetch(proxiedUrl,{signal:ctrl.signal,headers:useHeaders});
-                clearTimeout(tid);
+                const r=await fetch(proxiedUrl,{signal:(typeof AbortSignal!=="undefined"&&AbortSignal.timeout)?AbortSignal.timeout(6000):undefined,headers:useHeaders});
                 if(!r.ok){
                   erros[key]="HTTP "+r.status;
                   continue;
