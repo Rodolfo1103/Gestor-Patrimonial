@@ -5789,10 +5789,12 @@ function HeatmapChart({hist,histMensal}){
       const validas=variacoesValidas.filter(v=>v.mes!==mesCorrenteKey);
       // Captura o mes corrente separadamente (se existir na lista)
       const mesCorrenteData=variacoesValidas.find(v=>v.mes===mesCorrenteKey);
-      // Se nao houver meses fechados, mostra mensagem amigavel
-      if(validas.length<1){
+      // Se nao houver 2+ meses fechados, mostra mensagem amigavel
+      // (com 1 mes so, "maior alta" e "maior baixa" seriam o mesmo mes - inutil)
+      if(validas.length<2){
         return h("div",{style:{marginTop:14,padding:"12px 14px",background:"rgba(200,169,110,0.05)",border:"1px dashed rgba(200,169,110,0.25)",borderRadius:8,textAlign:"center"}},
-          h("div",{style:{fontSize:10,color:"#9A9080",fontFamily:"Georgia,serif",fontStyle:"italic"}},"Estatisticas disponiveis a partir do 1\u00ba mes fechado"),
+          h("div",{style:{fontSize:10,color:"#9A9080",fontFamily:"Georgia,serif",fontStyle:"italic"}},validas.length===0?"Estatisticas disponiveis a partir do 1\u00ba mes fechado":"Estatisticas comparativas disponiveis a partir do 2\u00ba mes fechado"),
+          validas.length===1&&h("div",{style:{fontSize:9,color:"#7A7060",fontFamily:"monospace",marginTop:6}},"1 m\u00eas fechado: "+(validas[0].pct>=0?"+":"")+validas[0].pct.toFixed(2)+"% (aguardando o pr\u00f3ximo para comparar)"),
           mesCorrenteData&&h("div",{style:{fontSize:9,color:"#7A7060",fontFamily:"monospace",marginTop:6}},"Mes corrente em curso: "+(mesCorrenteData.pct>=0?"+":"")+mesCorrenteData.pct.toFixed(2)+"%")
         );
       }
