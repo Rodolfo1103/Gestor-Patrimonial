@@ -9378,24 +9378,39 @@ function App(){
       await new Promise(r=>setTimeout(r,4500));
       if(cancelado)return;
       const proxies=[
+        u=>u,// TENTA DIRETO PRIMEIRO (BCB e Yahoo suportam CORS nativamente)
         u=>"https://corsproxy.io/?url="+encodeURIComponent(u),
         u=>"https://api.allorigins.win/raw?url="+encodeURIComponent(u),
         u=>"https://api.codetabs.com/v1/proxy/?quest="+encodeURIComponent(u)
       ];
       const fetchProxy=async(url,ms)=>{
-        for(const mk of proxies){
+        const erros=[];
+        const timeout=ms||12000;
+        for(let i=0;i<proxies.length;i++){
           if(cancelado)return null;
+          const mk=proxies[i];
+          const label=i===0?"direct":["corsproxy","allorigins","codetabs"][i-1];
           try{
-            const ctrl=new AbortController();
-            const tid=setTimeout(()=>ctrl.abort(),ms||7000);
-            const r=await fetch(mk(url),{signal:ctrl.signal});
-            clearTimeout(tid);
-            if(!r.ok)continue;
+            // Usa AbortSignal.timeout() nativo (Chrome 103+) em vez de AbortController + setTimeout,
+            // que estava causando DataCloneError em alguns dispositivos (Chromium bug de serializacao).
+            // Fallback para browsers antigos: sem timeout (fetch natural).
+            const opts={
+              cache:"no-store",
+              mode:"cors",
+              credentials:"omit"
+            };
+            if(typeof AbortSignal!=="undefined"&&typeof AbortSignal.timeout==="function"){
+              opts.signal=AbortSignal.timeout(timeout);
+            }
+            const r=await fetch(mk(url),opts);
+            if(!r.ok){erros.push(label+":HTTP"+r.status);continue;}
             const text=await r.text();
-            if(!text||text.toLowerCase().includes("host not in allowlist"))continue;
-            return JSON.parse(text);
-          }catch(e){continue;}
+            if(!text||text.toLowerCase().includes("host not in allowlist")){erros.push(label+":vazio");continue;}
+            try{const j=JSON.parse(text);return j;}catch(e){erros.push(label+":parse-err");continue;}
+          }catch(e){erros.push(label+":"+(e.name||"err"));continue;}
         }
+        // Log erros no console para diagnostico
+        try{console.log("[fetchProxy] falhou:",url.slice(0,80),"tentativas:",erros.join("|"));}catch(e){}
         return null;
       };
       // Series BCB SGS: cada serie retorna [{data:"DD/MM/YYYY", valor:"X.XX"}]
@@ -9403,7 +9418,7 @@ function App(){
       // IFIX nao tem BCB - usa Yahoo Finance "IFIX.SA" (B3)
       const buscaSerieBCB=async(serie,n)=>{
         const url="https://api.bcb.gov.br/dados/serie/bcdata.sgs."+serie+"/dados/ultimos/"+(n||60)+"?formato=json";
-        return await fetchProxy(url,8000);
+        return await fetchProxy(url,12000);
       };
       // Helper: agrega serie diaria em mensal (composta)
       const diariasParaMensal=(arr)=>{
@@ -9482,7 +9497,7 @@ function App(){
       // Yahoo Chart API para IFIX, S&P, NASDAQ + fallback IBOV
       const buscaYahooMensal=async(ticker)=>{
         const url="https://query1.finance.yahoo.com/v8/finance/chart/"+encodeURIComponent(ticker)+"?interval=1mo&range=3y";
-        return await fetchProxy(url,10000);
+        return await fetchProxy(url,12000);
       };
       const procYahoo=(j,campo)=>{
         if(!j||!j.chart||!j.chart.result||!j.chart.result[0])return 0;
