@@ -5086,6 +5086,132 @@ function ResilienciaAtualCard({cw,total}){
 }
 
 // ============================================================
+// HeatmapMensal: Matriz anos x meses da rentabilidade do portfolio
+// Fonte prioritaria: idxMensal[mes]._portOverride (manual, ex: junho +2.30%)
+// Fallback: calcRetornosMensais(histMensal, hist) - ex-aportes via apValue
+// Cores: verde positivo, vermelho negativo, intensidade proporcional ao modulo
+// ============================================================
+function HeatmapMensal({histMensal,hist,idxMensal}){
+  const meses3=["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
+  // ==== Passo 1: coletar retornos por mes ====
+  const retornos={};// {"YYYY-MM": retorno em %}
+  // Fonte 1: overrides manuais
+  if(idxMensal&&typeof idxMensal==="object"){
+    Object.keys(idxMensal).forEach(mes=>{
+      const d=idxMensal[mes];
+      if(d&&typeof d._portOverride==="number"&&!isNaN(d._portOverride)){
+        retornos[mes]=d._portOverride;
+      }
+    });
+  }
+  // Fonte 2: calcRetornosMensais (nao sobrescreve overrides)
+  try{
+    const calc=calcRetornosMensais(histMensal||[],hist||[]);
+    Object.keys(calc).forEach(mes=>{
+      if(!(mes in retornos)&&typeof calc[mes]==="number"&&!isNaN(calc[mes])){
+        retornos[mes]=calc[mes];
+      }
+    });
+  }catch(e){/* silencio */}
+  // ==== Passo 2: determinar anos a exibir ====
+  const anosSet=new Set();
+  Object.keys(retornos).forEach(mes=>{
+    const y=parseInt(mes.slice(0,4));
+    if(!isNaN(y))anosSet.add(y);
+  });
+  // Se nao ha dados, mostra ano corrente
+  const anoAtual=new Date().getFullYear();
+  if(anosSet.size===0)anosSet.add(anoAtual);
+  const anos=Array.from(anosSet).sort((a,b)=>b-a);// mais recente primeiro
+  const mesAtual=new Date().getMonth();// 0-11
+  // ==== Passo 3: helper de cor por intensidade ====
+  // -10%+ = vermelho forte / +10%+ = verde forte / 0 = neutro
+  const corCelula=(r)=>{
+    if(typeof r!=="number"||isNaN(r))return null;
+    const abs=Math.min(Math.abs(r),10);// clip em 10
+    const intensidade=abs/10;// 0..1
+    if(r>=0){
+      // verde: rgba(76,175,130, alpha) intensidade de 0.15 a 0.85
+      const a=0.15+intensidade*0.7;
+      return {bg:"rgba(76,175,130,"+a.toFixed(2)+")",fg:intensidade>0.5?"#F0EAD8":"#4CAF82"};
+    }else{
+      const a=0.15+intensidade*0.7;
+      return {bg:"rgba(224,82,82,"+a.toFixed(2)+")",fg:intensidade>0.5?"#F0EAD8":"#E05252"};
+    }
+  };
+  // ==== Passo 4: calcular YTD por ano ====
+  const ytdPorAno={};
+  anos.forEach(y=>{
+    let acumulado=1;
+    let temAlgum=false;
+    for(let m=0;m<12;m++){
+      const chave=y+"-"+String(m+1).padStart(2,"0");
+      const r=retornos[chave];
+      if(typeof r==="number"&&!isNaN(r)){
+        acumulado*=(1+r/100);
+        temAlgum=true;
+      }
+    }
+    if(temAlgum)ytdPorAno[y]=(acumulado-1)*100;
+  });
+  // ==== Passo 5: renderizacao ====
+  return h("div",{style:{marginBottom:16,padding:"14px 14px 12px",background:"rgba(15,17,21,0.5)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:10}},
+    h("div",{style:{display:"flex",alignItems:"baseline",justifyContent:"space-between",marginBottom:11,flexWrap:"wrap",gap:6}},
+      h("div",{},
+        h("div",{style:{fontSize:9,letterSpacing:3,color:"#8AAECD",fontFamily:"monospace",textTransform:"uppercase"}},"Heatmap Mensal"),
+        h("div",{style:{fontSize:9,color:"#7A7060",marginTop:2,fontStyle:"italic"}},"Rentabilidade do portfolio, ex-aportes")
+      ),
+      h("div",{style:{display:"flex",gap:9,fontSize:8,color:"#7A7060",fontFamily:"monospace",alignItems:"center"}},
+        h("span",{},"legenda:"),
+        h("span",{style:{background:"rgba(224,82,82,0.7)",color:"#F0EAD8",padding:"2px 6px",borderRadius:3}},"neg"),
+        h("span",{style:{background:"rgba(255,255,255,0.04)",padding:"2px 6px",borderRadius:3,border:"1px dashed rgba(255,255,255,0.15)",color:"#5A5550"}},"-"),
+        h("span",{style:{background:"rgba(76,175,130,0.7)",color:"#F0EAD8",padding:"2px 6px",borderRadius:3}},"pos")
+      )
+    ),
+    // Grade responsiva: 1 col ano + 12 meses + YTD = 14 colunas
+    h("div",{style:{overflowX:"auto",WebkitOverflowScrolling:"touch"}},
+      h("div",{style:{minWidth:640}},
+        // Cabecalho
+        h("div",{style:{display:"grid",gridTemplateColumns:"46px repeat(12,minmax(38px,1fr)) 54px",gap:3,marginBottom:4}},
+          h("div",{style:{fontSize:8,color:"#5A5550",fontFamily:"monospace",padding:"3px 0"}},"ANO"),
+          ...meses3.map((m,i)=>h("div",{key:m,style:{fontSize:8,color:i===mesAtual&&anos[0]===anoAtual?"#C8A96E":"#5A5550",fontFamily:"monospace",textAlign:"center",padding:"3px 0",fontWeight:i===mesAtual&&anos[0]===anoAtual?"bold":"normal"}},m.toUpperCase())),
+          h("div",{style:{fontSize:8,color:"#8AAECD",fontFamily:"monospace",textAlign:"center",padding:"3px 0",fontWeight:"bold"}},"YTD")
+        ),
+        // Linhas por ano
+        ...anos.map(y=>{
+          const cells=[];
+          for(let m=0;m<12;m++){
+            const chave=y+"-"+String(m+1).padStart(2,"0");
+            const r=retornos[chave];
+            const futuro=(y>anoAtual)||(y===anoAtual&&m>mesAtual);
+            if(typeof r==="number"&&!isNaN(r)){
+              const cor=corCelula(r);
+              cells.push(h("div",{key:chave,title:chave+": "+(r>=0?"+":"")+r.toFixed(2)+"%",style:{background:cor.bg,borderRadius:4,padding:"7px 2px",textAlign:"center",fontSize:9,fontWeight:"bold",fontFamily:"monospace",color:cor.fg,minHeight:26,display:"flex",alignItems:"center",justifyContent:"center"}},(r>=0?"+":"")+r.toFixed(1)));
+            }else if(futuro){
+              cells.push(h("div",{key:chave,style:{background:"transparent",borderRadius:4,padding:"7px 2px",textAlign:"center",fontSize:9,color:"#3A3530",minHeight:26,display:"flex",alignItems:"center",justifyContent:"center"}},"·"));
+            }else{
+              cells.push(h("div",{key:chave,style:{background:"rgba(255,255,255,0.02)",border:"1px dashed rgba(255,255,255,0.08)",borderRadius:4,padding:"7px 2px",textAlign:"center",fontSize:9,color:"#5A5550",minHeight:26,display:"flex",alignItems:"center",justifyContent:"center"}},"-"));
+            }
+          }
+          const ytd=ytdPorAno[y];
+          const corYTD=(typeof ytd==="number")?corCelula(ytd):null;
+          return h("div",{key:y,style:{display:"grid",gridTemplateColumns:"46px repeat(12,minmax(38px,1fr)) 54px",gap:3,marginBottom:3}},
+            h("div",{style:{fontSize:10,color:"#C8A96E",fontFamily:"monospace",fontWeight:"bold",padding:"7px 0",display:"flex",alignItems:"center"}},String(y)),
+            ...cells,
+            (typeof ytd==="number"&&corYTD)?
+              h("div",{title:"YTD "+y+": "+(ytd>=0?"+":"")+ytd.toFixed(2)+"%",style:{background:corYTD.bg,borderRadius:4,padding:"7px 2px",textAlign:"center",fontSize:9,fontWeight:"bold",fontFamily:"monospace",color:corYTD.fg,minHeight:26,display:"flex",alignItems:"center",justifyContent:"center",borderLeft:"2px solid rgba(138,174,205,0.4)"}},(ytd>=0?"+":"")+ytd.toFixed(1)):
+              h("div",{style:{background:"rgba(255,255,255,0.02)",borderRadius:4,padding:"7px 2px",textAlign:"center",fontSize:9,color:"#5A5550",minHeight:26,display:"flex",alignItems:"center",justifyContent:"center",borderLeft:"2px solid rgba(138,174,205,0.15)"}},"-")
+          );
+        })
+      )
+    ),
+    h("div",{style:{fontSize:8,color:"#5A5550",fontFamily:"monospace",marginTop:9,lineHeight:1.5,fontStyle:"italic"}},
+      "Fonte: overrides manuais > snaps intra-mes (primeiro vs ultimo, ex-aportes via apValue). Meses futuros aparecem vazios. Junho/2026 travado em +2,30% (marco de reset)."
+    )
+  );
+}
+
+// ============================================================
 // EstabilidadeHistoricoCard: 3 visualizacoes que amadurecem com o tempo
 // (rolling vol, beta implicito, % meses positivos)
 // Baseado em historico REAL do portfolio - matura ao longo dos meses
@@ -16172,7 +16298,7 @@ h("button",{onClick:async()=>{
         )
       );
 
-      content=h("div",{},dateHeader,h(BolsasCard,{port,cls}),h(SolidezCard,{total,cw,port,metaMensalIF,setTab,fB,hideVal,dataNascimento,cambialCash,rendaMotoraHist,rendaAuxiliarHist,FX}),h(ModelosPortfolioMap,{cw,selicAtual,hideVal}),aporteCard,insightCard,h(AllocChart,{cw,ct,fB,MV,hideVal}),h(RankingMensalCard,{histMensal,hist,idxMensal,setIdxMensal,histCutoff,setHistCutoff}),h(EstabilidadeHistoricoCard,{histMensal,idxMensal,hist,histCutoff}),insightMensalCard,topPos);
+      content=h("div",{},dateHeader,h(BolsasCard,{port,cls}),h(SolidezCard,{total,cw,port,metaMensalIF,setTab,fB,hideVal,dataNascimento,cambialCash,rendaMotoraHist,rendaAuxiliarHist,FX}),h(ModelosPortfolioMap,{cw,selicAtual,hideVal}),aporteCard,insightCard,h(AllocChart,{cw,ct,fB,MV,hideVal}),h(RankingMensalCard,{histMensal,hist,idxMensal,setIdxMensal,histCutoff,setHistCutoff}),h(HeatmapMensal,{histMensal,hist,idxMensal}),h(EstabilidadeHistoricoCard,{histMensal,idxMensal,hist,histCutoff}),insightMensalCard,topPos);
     }
   }  // POSITIONS
   if(tab==="positions"||tab==="correlacao"){
