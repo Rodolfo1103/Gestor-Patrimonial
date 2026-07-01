@@ -14151,10 +14151,11 @@ Responda APENAS com o texto do insight, sem prefacio ou comentarios meta.`;
 
   const genInsightMensal=useCallback(async(mesAlvo,forcar)=>{
     if(!apiKey||insightMensalLoad)return;
-    if(!Array.isArray(histMensal)||histMensal.length<2)return;
+    if(!Array.isArray(histMensal)||histMensal.length<1)return;
     // Constroi serie de retornos mensais do portfolio
     const snaps=histMensal.slice().sort((a,b)=>new Date(a.date)-new Date(b.date));
     const retP={};
+    // Fase 1: retornos mes-a-mes (comportamento original)
     for(let i=1;i<snaps.length;i++){
       const ant=snaps[i-1],atu=snaps[i];
       if(!ant.totalPatrimBRL||!atu.totalPatrimBRL)continue;
@@ -14164,20 +14165,67 @@ Responda APENAS com o texto do insight, sem prefacio ou comentarios meta.`;
       const k=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");
       retP[k]=ret;
     }
-    // Mes-alvo: passado como parametro ou usa o ultimo
-    const mesUsar=mesAlvo||Object.keys(retP).sort().pop();
+    // Fase 2: preencher meses ausentes via retorno intra-mes (hist multiplos snaps)
+    // Consistente com HeatmapChart e ComparativoChart - primeiro mes do historico
+    // e meses sem antecessor recebem retorno intra-mes.
+    if(Array.isArray(hist)&&hist.length>=2){
+      const snapsPorMes={};
+      hist.forEach(r=>{
+        if(!r||!r.date||!r.totalPatrimBRL)return;
+        const d=new Date(r.date);
+        const k=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");
+        if(!snapsPorMes[k])snapsPorMes[k]=[];
+        snapsPorMes[k].push(r);
+      });
+      Object.keys(snapsPorMes).forEach(k=>{
+        if(typeof retP[k]==="number")return;// ja tem via fase 1
+        const arr=snapsPorMes[k].slice().sort((a,b)=>new Date(a.date)-new Date(b.date));
+        if(arr.length<2)return;
+        const primeiro=arr[0],ultimo=arr[arr.length-1];
+        const vIni=primeiro.totalPatrimBRL,vFim=ultimo.totalPatrimBRL;
+        if(!vIni||!vFim)return;
+        const aportesNoMes=arr.slice(1).reduce((s,r)=>s+(r.apValue||0),0);
+        const ret=((vFim-aportesNoMes-vIni)/vIni)*100;
+        if(!isNaN(ret))retP[k]=ret;
+      });
+    }
+    // Mes-alvo: passado como parametro OU o ULTIMO MES FECHADO (nao o mes corrente em curso)
+    // Prioridade: mesAlvo explicito > ultimo mes fechado disponivel > null
+    const hoje=new Date();
+    const mesCorrenteKey=hoje.getFullYear()+"-"+String(hoje.getMonth()+1).padStart(2,"0");
+    const mesesDisponiveis=Object.keys(retP).sort();
+    const mesesFechados=mesesDisponiveis.filter(k=>k!==mesCorrenteKey);
+    const mesUsar=mesAlvo||mesesFechados.pop()||mesesDisponiveis.pop();
     if(!mesUsar)return;
     // Se ja existe insight para esse mes e nao foi forcado, nao regenera
     if(!forcar&&insightMensal&&insightMensal.mes===mesUsar)return;
     // Composicao atual por classe
     const composicaoAtual={};CL.forEach(c=>{composicaoAtual[c.tag]=(cw[c.id]||0).toFixed(1)+"%";});
-    // Contribuicao por classe: variacao do valor BRL de cada classe entre 2 ultimos snapshots
+    // Contribuicao por classe: variacao do valor BRL de cada classe DENTRO do mesUsar
+    // Se ha 2+ snaps de histMensal cobrindo o mes, usa esses. Senao, tenta hist intra-mes.
     const contribClasses={};
-    if(snaps.length>=2){
-      const ult=snaps[snaps.length-1],pen=snaps[snaps.length-2];
+    // Tenta obter primeiro e ultimo snapshot do mesUsar (do hist se necessario)
+    let snapIniDoMes=null,snapFimDoMes=null;
+    if(Array.isArray(hist)&&hist.length>=2){
+      const arr=hist.filter(r=>{
+        if(!r||!r.date||!r.totalPatrimBRL)return false;
+        const d=new Date(r.date);
+        return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")===mesUsar;
+      }).sort((a,b)=>new Date(a.date)-new Date(b.date));
+      if(arr.length>=2){snapIniDoMes=arr[0];snapFimDoMes=arr[arr.length-1];}
+    }
+    // Fallback: usa histMensal (mes anterior -> mesUsar)
+    if(!snapIniDoMes||!snapFimDoMes){
+      const idxAtu=snaps.findIndex(s=>{
+        const d=new Date(s.date);
+        return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")===mesUsar;
+      });
+      if(idxAtu>0){snapIniDoMes=snaps[idxAtu-1];snapFimDoMes=snaps[idxAtu];}
+    }
+    if(snapIniDoMes&&snapFimDoMes){
       CL.forEach(c=>{
-        const vAtu=((ult.composicao&&ult.composicao[c.id])||0)/100*(ult.totalPatrimBRL||0);
-        const vAnt=((pen.composicao&&pen.composicao[c.id])||0)/100*(pen.totalPatrimBRL||0);
+        const vAtu=((snapFimDoMes.composicao&&snapFimDoMes.composicao[c.id])||0)/100*(snapFimDoMes.totalPatrimBRL||0);
+        const vAnt=((snapIniDoMes.composicao&&snapIniDoMes.composicao[c.id])||0)/100*(snapIniDoMes.totalPatrimBRL||0);
         const delta=vAtu-vAnt;
         contribClasses[c.tag]={de:Math.round(vAnt),para:Math.round(vAtu),delta:Math.round(delta)};
       });
@@ -14219,7 +14267,7 @@ Responda APENAS com o texto do insight, sem prefacio ou comentarios meta.`;
       setInsightMensal({mes:mesUsar,texto:txt,ts:Date.now()});
     }catch(e){setInsightMensalErr(e.message||"Erro");}
     setInsightMensalLoad(false);
-  },[apiKey,histMensal,idxMensal,cw,insightMensal,insightMensalLoad]);
+  },[apiKey,histMensal,hist,idxMensal,cw,insightMensal,insightMensalLoad]);
 
   // Trigger automatico: ao abrir o app, se ja temos snapshot do mes anterior e ainda nao geramos insight mensal pra ele, dispara
   useEffect(()=>{
