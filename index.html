@@ -5428,37 +5428,17 @@ function EvolChart({histMensal,hist,showUSD,setShowUSD,hideVal}){
 // histMensal: array dos snapshots do portfolio por mes
 // idxMensal: objeto {"YYYY-MM": {ibov, ifix, cdi, imab, sp500, nasdaq, poupanca}}
 function ComparativoChart({histMensal,idxMensal,hideVal,hist}){
-  // Calcula rentabilidade do portfolio por mes: (Vfinal - Aporte) / Vinicial - 1
-  // Precisa de pelo menos 2 snapshots mensais para ter 1 retorno
+  // Calcula rentabilidade do portfolio por mes.
+  // Estrategia hibrida:
+  //   1) histMensal (1 snap por mes, sem limite) -> retornos mes-a-mes classicos
+  //   2) hist (multiplos snaps por mes, limitado a ~100) -> retorno INTRA-MES para o primeiro mes
+  //      (compara primeiro snap do mes vs ultimo snap do mes, descontando aportes)
   if(!Array.isArray(histMensal)||histMensal.length<1)return null;
   // Ordena por data crescente
   const snaps=histMensal.slice().sort((a,b)=>new Date(a.date)-new Date(b.date));
-  // Calcula retornos mensais do portfolio
   const retPortfolio={};// {"YYYY-MM": retorno%}
-  // ===== NOVO: retorno intra-mes para o PRIMEIRO mes do historico =====
-  // Se o hist tem multiplos snapshots dentro do primeiro mes (ex: 01/06 e 30/06),
-  // calcula o retorno "de dentro" do mes: (ultimo - primeiro - aportes) / primeiro.
-  // Isto permite comparar com indices do mes inicial mesmo sem mes anterior de referencia.
-  if(snaps.length>=1&&Array.isArray(hist)&&hist.length>=2){
-    const primeiraData=new Date(snaps[0].date);
-    const primeiroMesKey=primeiraData.getFullYear()+"-"+String(primeiraData.getMonth()+1).padStart(2,"0");
-    const snapsDoMes=hist.filter(r=>{
-      if(!r||!r.date||!r.totalPatrimBRL)return false;
-      const d=new Date(r.date);
-      const k=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");
-      return k===primeiroMesKey;
-    }).sort((a,b)=>new Date(a.date)-new Date(b.date));
-    if(snapsDoMes.length>=2){
-      const primeiroSnap=snapsDoMes[0];
-      const ultimoSnap=snapsDoMes[snapsDoMes.length-1];
-      const aportesNoMes=snapsDoMes.slice(1).reduce((s,r)=>s+(r.apValue||0),0);
-      const vIni=primeiroSnap.totalPatrimBRL;
-      const vFim=ultimoSnap.totalPatrimBRL;
-      const ret=vIni>0?((vFim-aportesNoMes-vIni)/vIni)*100:0;
-      if(!isNaN(ret))retPortfolio[primeiroMesKey]=ret;
-    }
-  }
-  // ===== Retornos mes-a-mes (comportamento original) =====
+
+  // ===== Fase 1: retornos mes-a-mes (comportamento original) =====
   for(let i=1;i<snaps.length;i++){
     const ant=snaps[i-1],atu=snaps[i];
     if(!ant.totalPatrimBRL||!atu.totalPatrimBRL)continue;
@@ -5469,6 +5449,35 @@ function ComparativoChart({histMensal,idxMensal,hideVal,hist}){
       const k=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");
       retPortfolio[k]=ret;
     }
+  }
+
+  // ===== Fase 2: retorno intra-mes para qualquer mes AUSENTE em retPortfolio =====
+  // Usa hist (multiplos snaps por mes) para preencher meses que a fase 1 nao cobriu.
+  // Isto cobre o primeiro mes do historico (sem mes anterior de referencia)
+  // e tambem meses onde histMensal teve apenas 1 snap.
+  if(Array.isArray(hist)&&hist.length>=2){
+    // Agrupa hist por mes
+    const snapsPorMes={};
+    hist.forEach(r=>{
+      if(!r||!r.date||!r.totalPatrimBRL)return;
+      const d=new Date(r.date);
+      const k=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");
+      if(!snapsPorMes[k])snapsPorMes[k]=[];
+      snapsPorMes[k].push(r);
+    });
+    // Para cada mes, se ainda nao tem retorno em retPortfolio E tem 2+ snaps: calcula intra-mes
+    Object.keys(snapsPorMes).forEach(k=>{
+      if(typeof retPortfolio[k]==="number")return;// ja calculado por Fase 1
+      const arr=snapsPorMes[k].slice().sort((a,b)=>new Date(a.date)-new Date(b.date));
+      if(arr.length<2)return;
+      const primeiro=arr[0],ultimo=arr[arr.length-1];
+      const vIni=primeiro.totalPatrimBRL,vFim=ultimo.totalPatrimBRL;
+      if(!vIni||!vFim)return;
+      // Soma aportes ocorridos dentro do mes (exceto o primeiro snap, que e a base)
+      const aportesNoMes=arr.slice(1).reduce((s,r)=>s+(r.apValue||0),0);
+      const ret=((vFim-aportesNoMes-vIni)/vIni)*100;
+      if(!isNaN(ret))retPortfolio[k]=ret;
+    });
   }
   // Coleta todos os meses que tem dados (portfolio OU indices)
   const todosM=new Set([...Object.keys(retPortfolio),...Object.keys(idxMensal||{})]);
