@@ -14525,22 +14525,40 @@ Responda APENAS com o texto do insight, sem prefacio ou comentarios meta.`;
     setInsightMensalLoad(false);
   },[apiKey,histMensal,hist,idxMensal,cw,insightMensal,insightMensalLoad]);
 
-  // Trigger automatico: ao abrir o app, se ja temos snapshot do mes anterior e ainda nao geramos insight mensal pra ele, dispara
+  // Trigger automatico: ao abrir o app, se ja temos snapshot do ULTIMO MES FECHADO
+  // (nao o mes corrente em curso) e ainda nao geramos insight pra ele, dispara.
   useEffect(()=>{
     if(!inited||!apiKey||insightMensalLoad)return;
-    if(!Array.isArray(histMensal)||histMensal.length<2)return;
-    const snaps=histMensal.slice().sort((a,b)=>new Date(a.date)-new Date(b.date));
-    const ultSnap=snaps[snaps.length-1];
-    if(!ultSnap)return;
-    const d=new Date(ultSnap.date);
-    const k=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");
+    if(!Array.isArray(histMensal)||histMensal.length<1)return;
+    const hoje=new Date();
+    const mesCorrenteKey=hoje.getFullYear()+"-"+String(hoje.getMonth()+1).padStart(2,"0");
+    // Coleta todos os meses que tem snap E nao sao o mes corrente
+    const mesesFechados=histMensal
+      .map(s=>{const d=new Date(s.date);return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");})
+      .filter(k=>k!==mesCorrenteKey);
+    // Adiciona meses do hist que tenham 2+ snaps (fase 2 intra-mes cobre eles)
+    if(Array.isArray(hist)&&hist.length>=2){
+      const snapsPorMes={};
+      hist.forEach(r=>{
+        if(!r||!r.date||!r.totalPatrimBRL)return;
+        const d=new Date(r.date);
+        const k=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");
+        if(k===mesCorrenteKey)return;
+        if(!snapsPorMes[k])snapsPorMes[k]=0;
+        snapsPorMes[k]++;
+      });
+      Object.entries(snapsPorMes).forEach(([k,n])=>{if(n>=2&&!mesesFechados.includes(k))mesesFechados.push(k);});
+    }
+    if(mesesFechados.length===0)return;
+    // Pega o mais recente mes fechado
+    const k=mesesFechados.sort().pop();
     // Se ainda nao temos insight desse mes, gera
     if(!insightMensal||insightMensal.mes!==k){
       // Espera um pouco para que idxMensal tambem esteja populado
       const t=setTimeout(()=>{genInsightMensal(k,false);},6000);
       return ()=>clearTimeout(t);
     }
-  },[inited,apiKey,histMensal,idxMensal,insightMensal,insightMensalLoad,genInsightMensal]);
+  },[inited,apiKey,histMensal,hist,idxMensal,insightMensal,insightMensalLoad,genInsightMensal]);
 
   // Grava snapshot da composicao quando atualiza precos (para heatmap)
   useEffect(()=>{
@@ -15281,8 +15299,20 @@ h("button",{onClick:async()=>{
         ),
         notifStatus==="granted"&&h("div",{style:{marginTop:6,fontSize:9,color:"#4CAF82",fontFamily:"monospace",letterSpacing:1}},"notificacoes ativas")
       ):null;
-      // Card do insight mensal IA (so aparece se tem >=2 snapshots mensais)
-      const insightMensalCard=(hasPos&&Array.isArray(histMensal)&&histMensal.length>=2)?h("div",{style:{marginBottom:18,padding:"14px",background:"linear-gradient(135deg,rgba(91,143,212,0.08),rgba(165,111,212,0.04))",border:"1px solid "+(insightMensalErr?"rgba(224,82,82,0.35)":"rgba(91,143,212,0.25)"),borderRadius:10}},
+      // Card do insight mensal IA (aparece se ha 1+ mes fechado - histMensal>=1 OU hist com 2+ snaps num mes diferente do corrente)
+      const temMesFechado=(()=>{
+        if(!hasPos)return false;
+        const hoje=new Date();
+        const mesCorrenteKey=hoje.getFullYear()+"-"+String(hoje.getMonth()+1).padStart(2,"0");
+        if(Array.isArray(histMensal)&&histMensal.some(s=>{const d=new Date(s.date);return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")!==mesCorrenteKey;}))return true;
+        if(Array.isArray(hist)&&hist.length>=2){
+          const cnt={};
+          hist.forEach(r=>{if(!r||!r.date||!r.totalPatrimBRL)return;const d=new Date(r.date);const k=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");if(k===mesCorrenteKey)return;cnt[k]=(cnt[k]||0)+1;});
+          if(Object.values(cnt).some(n=>n>=2))return true;
+        }
+        return false;
+      })();
+      const insightMensalCard=temMesFechado?h("div",{style:{marginBottom:18,padding:"14px",background:"linear-gradient(135deg,rgba(91,143,212,0.08),rgba(165,111,212,0.04))",border:"1px solid "+(insightMensalErr?"rgba(224,82,82,0.35)":"rgba(91,143,212,0.25)"),borderRadius:10}},
         h("div",{style:{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:8,marginBottom:8,flexWrap:"wrap"}},
           h("div",{},
             h("div",{style:{fontSize:9,letterSpacing:3,color:"#5B8FD4",fontFamily:"monospace",textTransform:"uppercase"}},"Insight Mensal Claude IA"),
@@ -15291,10 +15321,21 @@ h("button",{onClick:async()=>{
           h("div",{style:{display:"flex",alignItems:"center",gap:7}},
             insightMensal&&insightMensal.ts&&h("div",{style:{fontSize:8,color:"#5A5550",fontFamily:"monospace"}},"gerado: "+new Date(insightMensal.ts).toLocaleDateString("pt-BR")),
             apiKey&&h("button",{onClick:()=>{
-              const snaps=histMensal.slice().sort((a,b)=>new Date(a.date)-new Date(b.date));
-              const ultSnap=snaps[snaps.length-1];if(!ultSnap)return;
-              const d=new Date(ultSnap.date);
-              const k=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");
+              // Pega o ULTIMO MES FECHADO (nao o mes corrente em curso)
+              const hoje=new Date();
+              const mesCorrenteKey=hoje.getFullYear()+"-"+String(hoje.getMonth()+1).padStart(2,"0");
+              const mesesDisponiveis=new Set();
+              // De histMensal
+              histMensal.forEach(s=>{const d=new Date(s.date);const k=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");if(k!==mesCorrenteKey)mesesDisponiveis.add(k);});
+              // De hist (meses com 2+ snaps, fase intra-mes)
+              if(Array.isArray(hist)&&hist.length>=2){
+                const cnt={};
+                hist.forEach(r=>{if(!r||!r.date||!r.totalPatrimBRL)return;const d=new Date(r.date);const k=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");if(k===mesCorrenteKey)return;cnt[k]=(cnt[k]||0)+1;});
+                Object.entries(cnt).forEach(([k,n])=>{if(n>=2)mesesDisponiveis.add(k);});
+              }
+              const arr=Array.from(mesesDisponiveis).sort();
+              const k=arr.pop();
+              if(!k)return;
               genInsightMensal(k,true);
             },disabled:insightMensalLoad,style:{background:"rgba(91,143,212,0.15)",border:"1px solid rgba(91,143,212,0.4)",borderRadius:4,color:"#5B8FD4",fontSize:9,padding:"3px 9px",cursor:insightMensalLoad?"not-allowed":"pointer",fontFamily:"monospace",letterSpacing:1}},insightMensalLoad?"gerando...":"atualizar")
           )
