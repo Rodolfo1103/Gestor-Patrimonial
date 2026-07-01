@@ -4942,6 +4942,366 @@ function RankingMensalCard({histMensal,hist,idxMensal,setIdxMensal,histCutoff,se
   );
 }
 
+// ============================================================
+// ResilienciaAtualCard: PROJECAO ESTRUTURAL do portfolio hoje
+// Funciona SEM historico - usa composicao atual + correlacoes MPT
+// para estimar sensibilidade a 4 stress scenarios
+// ============================================================
+function ResilienciaAtualCard({cw,total}){
+  if(!cw||typeof cw!=="object")return null;
+  // Vetor de pesos (fracao 0-1)
+  const w=MPT_CLS.map(cid=>(cw[cid]||0)/100);
+  const somaW=w.reduce((a,b)=>a+b,0);
+  if(somaW<0.01)return null;
+  // Beta implicito do portfolio vs cada driver (via correlacao ponderada * vol)
+  const iBR=MPT_CLS.indexOf("acoes_br");
+  const iEUA=MPT_CLS.indexOf("acoes_eua");
+  const iMND=MPT_CLS.indexOf("acoes_mundo");
+  const cov=(()=>{
+    const n=MPT_CLS.length;const c=[];
+    for(let i=0;i<n;i++){c[i]=[];for(let j=0;j<n;j++)c[i][j]=MPT_COR[i][j]*MPT_VOL[MPT_CLS[i]]*MPT_VOL[MPT_CLS[j]];}
+    return c;
+  })();
+  // Beta = cov(portfolio, indice) / var(indice)
+  const betaVs=(idx)=>{
+    let cp=0;for(let i=0;i<w.length;i++)cp+=w[i]*cov[i][idx];
+    const varI=MPT_VOL[MPT_CLS[idx]]*MPT_VOL[MPT_CLS[idx]];
+    return varI>0?cp/varI:0;
+  };
+  const betaBR=betaVs(iBR);
+  const betaEUA=betaVs(iEUA);
+  const betaMND=betaVs(iMND);
+  // Cenarios de stress: quanto o portfolio "sofre" (aproximacao linear)
+  // Ex: se IBOV cai 15%, expect portfolio ~ betaBR * -0.15
+  const cenarios=[
+    {nome:"Crash Ibov -15%",subtitulo:"Crise BR local (fiscal/politico)",cor:"#4CAF82",queda:0.15,beta:betaBR,tipo:"equity_br"},
+    {nome:"Crash S&P -20%",subtitulo:"Recessao EUA (2008/2020)",cor:"#7AC494",queda:0.20,beta:betaEUA,tipo:"equity_eua"},
+    {nome:"Crash Mundo -18%",subtitulo:"Crise sincronizada global",cor:"#5B8FD4",queda:0.18,beta:betaMND,tipo:"equity_mundo"}
+  ];
+  // Cenario adicional: alta do USD +15% (favorece exposicao USD)
+  // Portfolio ganha com USD = sum(pesos em ativos USD * 0.15) menos custo em BRL de importados
+  // Aproximacao: soma dos pesos em USD (eua + mundo (parcial) + treasuries + reits + btc + ouro)
+  const pesoUSD=(cw.acoes_eua||0)+(cw.treasuries||0)+(cw.reits||0)+(cw.bitcoin||0)+(cw.ouro||0)*0.7+(cw.acoes_mundo||0)*0.4;
+  const impactoUSD=pesoUSD/100*0.15;// ganho aproximado com USD +15%
+  // Cenario adicional: alta IPCA +2pp (favorece NTN-B, ouro, infra, agro; prejudica RF nominal)
+  const hedgesInflacao=(cw.rfipca||0)+(cw.ouro||0)+(cw.infra||0)*0.5+(cw.agro||0)*0.5+(cw.imoveis||0)*0.3;
+  const pisoInflacao=(cw.selic||0)+(cw.treasuries||0)*0.3;// classes que sofrem
+  // Score: quanto maior hedge - quanto pior a exposicao, melhor
+  const scoreInflacao=(hedgesInflacao-pisoInflacao*0.5)/100;// -1 a +1 aproximado
+  // Cenario adicional: alta juros USA +100bps (Fed hawkish)
+  // Prejudica: treasuries longos (TLT), REITs, growth EUA, BTC
+  // Favorece: cash USD, VTIP
+  const perdaJurosUSA=(cw.treasuries||0)*0.3+(cw.reits||0)*0.15+(cw.acoes_eua||0)*0.10+(cw.bitcoin||0)*0.20;
+  const impactoJurosUSA=-perdaJurosUSA/100;// negativo
+  // Cenarios finais consolidados
+  const cenariosFinais=[
+    {nome:"IBOV cai -15%",impacto:-betaBR*0.15,cor:"#4CAF82"},
+    {nome:"S&P 500 cai -20%",impacto:-betaEUA*0.20,cor:"#7AC494"},
+    {nome:"Mundo cai -18%",impacto:-betaMND*0.18,cor:"#5B8FD4"},
+    {nome:"USD sobe +15%",impacto:impactoUSD,cor:"#A56FD4"},
+    {nome:"IPCA acelera +2pp",impacto:scoreInflacao*0.05,cor:"#E8C44A"},
+    {nome:"Fed sobe +100bps",impacto:impactoJurosUSA,cor:"#E89060"}
+  ];
+  // Interpretacao: score de resiliencia global (0-100)
+  const somaAbsImpactos=cenariosFinais.reduce((s,c)=>s+Math.abs(c.impacto),0);
+  const scoreResiliencia=Math.max(0,Math.min(100,100-somaAbsImpactos*100));// menos impacto = mais resiliente
+  const corResil=scoreResiliencia>=70?"#4CAF82":scoreResiliencia>=50?"#E8C44A":scoreResiliencia>=30?"#E89060":"#E05252";
+  const rotResil=scoreResiliencia>=70?"ALTA":scoreResiliencia>=50?"MEDIA":scoreResiliencia>=30?"BAIXA":"MUITO BAIXA";
+  // SVG dimensions
+  const W=340,H=200,pL=110,pR=15,pT=15,pB=15;
+  const cH=H-pT-pB;
+  const barH=Math.floor(cH/cenariosFinais.length)-4;
+  const maxAbs=Math.max(...cenariosFinais.map(c=>Math.abs(c.impacto)),0.05);
+  const escala=(W-pL-pR-20)/2/maxAbs;// meia-largura para positivo/negativo
+  const xZero=pL+((W-pL-pR)/2);
+  // Insight interpretativo
+  const insightTxt=(()=>{
+    const piorCen=cenariosFinais.reduce((a,b)=>a.impacto<b.impacto?a:b);
+    const melhorCen=cenariosFinais.reduce((a,b)=>a.impacto>b.impacto?a:b);
+    return "Sua maior vulnerabilidade estrutural hoje: "+piorCen.nome+" (perda esperada "+(piorCen.impacto*100).toFixed(1)+"%). Seu maior benefit: "+melhorCen.nome+" (ganho esperado "+(melhorCen.impacto*100).toFixed(1)+"%). Portfolio B&H bem diversificado tipicamente reduz vulnerabilidade concentrada e distribui exposicao entre choques opostos.";
+  })();
+  return h("div",{style:{marginBottom:20,paddingTop:14,borderTop:"1px solid rgba(255,255,255,0.05)"}},
+    // Header
+    h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6,gap:8,flexWrap:"wrap"}},
+      h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase"}},"Resiliencia estrutural (projecao)"),
+      h("div",{style:{fontSize:10,color:corResil,fontFamily:"monospace",fontWeight:700,letterSpacing:1}},rotResil+" "+scoreResiliencia.toFixed(0)+"/100")
+    ),
+    h("div",{style:{fontSize:9,color:"#5A5550",marginBottom:10,fontStyle:"italic"}},"Impacto ESPERADO do portfolio em cenarios de stress. Baseado em composicao atual e correlacoes MPT - nao depende de historico."),
+    // SVG com barras horizontais divergentes
+    h("div",{style:{padding:"12px",background:"rgba(0,0,0,0.20)",border:"1px solid rgba(255,255,255,0.05)",borderRadius:8,marginBottom:8}},
+      h("svg",{viewBox:"0 0 "+W+" "+H,style:{width:"100%",height:"auto",display:"block"}},
+        // Linha zero vertical
+        h("line",{x1:xZero,y1:pT,x2:xZero,y2:H-pB,stroke:"rgba(255,255,255,0.20)",strokeWidth:1,strokeDasharray:"2,2"}),
+        ...cenariosFinais.map((c,i)=>{
+          const y=pT+i*(barH+4);
+          const barW=Math.abs(c.impacto)*escala;
+          const x=c.impacto>=0?xZero:xZero-barW;
+          const cor=c.impacto>=0?"#4CAF82":"#E05252";
+          return h(Fragment,{key:i},
+            // Label a esquerda
+            h("text",{x:pL-6,y:y+barH/2+3,textAnchor:"end",fill:"#B0A890",fontSize:9,fontFamily:"monospace"},c.nome),
+            // Barra
+            h("rect",{x:x.toFixed(1),y:y.toFixed(1),width:barW.toFixed(1),height:barH,fill:cor,opacity:0.75,rx:2}),
+            // Valor a direita da barra
+            h("text",{
+              x:(c.impacto>=0?x+barW+3:x-3).toFixed(1),
+              y:y+barH/2+3,
+              textAnchor:c.impacto>=0?"start":"end",
+              fill:cor,
+              fontSize:9,
+              fontFamily:"monospace",
+              fontWeight:700
+            },(c.impacto>=0?"+":"")+(c.impacto*100).toFixed(1)+"%")
+          );
+        })
+      )
+    ),
+    // Insight interpretativo
+    h("div",{style:{padding:"9px 11px",background:"rgba(200,169,110,0.05)",border:"1px solid rgba(200,169,110,0.20)",borderRadius:6,fontSize:9,color:"#B0A890",lineHeight:1.5,fontStyle:"italic"}},
+      h("strong",{style:{color:"#C8A96E",fontStyle:"normal"}},"\u{1F4A1} "),insightTxt
+    )
+  );
+}
+
+// ============================================================
+// EstabilidadeHistoricoCard: 3 visualizacoes que amadurecem com o tempo
+// (rolling vol, beta implicito, % meses positivos)
+// Baseado em historico REAL do portfolio - matura ao longo dos meses
+// ============================================================
+function EstabilidadeHistoricoCard({histMensal,idxMensal,hist,histCutoff}){
+  // Coleta retornos mensais do portfolio (prioridade _portOverride > histMensal com cutoff)
+  const retP={};// {"YYYY-MM": retorno em %}
+  // Fonte 1: overrides manuais
+  if(idxMensal&&typeof idxMensal==="object"){
+    Object.entries(idxMensal).forEach(([mes,dados])=>{
+      if(dados&&typeof dados._portOverride==="number")retP[mes]=dados._portOverride;
+    });
+  }
+  // Fonte 2: histMensal com cutoff
+  if(Array.isArray(histMensal)&&histMensal.length>=2){
+    const snapsHM=histMensal.slice()
+      .filter(r=>{
+        if(!r||!r.date||!r.totalPatrimBRL)return false;
+        const d=new Date(r.date);
+        if(typeof histCutoff==="number"&&d.getTime()<histCutoff)return false;
+        return true;
+      })
+      .sort((a,b)=>new Date(a.date)-new Date(b.date));
+    for(let i=1;i<snapsHM.length;i++){
+      const ant=snapsHM[i-1],atu=snapsHM[i];
+      if(!ant.totalPatrimBRL||!atu.totalPatrimBRL)continue;
+      const ap=atu.apValue||0;
+      const ret=((atu.totalPatrimBRL-ap)/ant.totalPatrimBRL-1)*100;
+      if(isNaN(ret)||ret>500||ret<-90)continue;
+      const d=new Date(atu.date);
+      const k=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");
+      if(typeof retP[k]!=="number")retP[k]=ret;
+    }
+  }
+  // Colecao de meses fechados (exclui corrente)
+  const hoje=new Date();
+  const mesCorr=hoje.getFullYear()+"-"+String(hoje.getMonth()+1).padStart(2,"0");
+  const todosM=new Set([...Object.keys(retP),...Object.keys(idxMensal||{})]);
+  const mesesTodos=Array.from(todosM).sort();
+  const meses=mesesTodos.filter(k=>k!==mesCorr&&typeof retP[k]==="number");
+  const N=meses.length;
+  // Header + placeholder se zero meses
+  const header=h("div",{style:{marginBottom:10}},
+    h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:4}},"Estabilidade ao longo do tempo"),
+    h("div",{style:{fontSize:9,color:"#5A5550",fontStyle:"italic"}},"Amortecimento de volatilidade e resiliencia do portfolio vs indices \u2013 evolucao real dos meses fechados")
+  );
+  if(N===0){
+    return h("div",{style:{marginBottom:20,paddingTop:14,borderTop:"1px solid rgba(255,255,255,0.05)"}},
+      header,
+      h("div",{style:{padding:"14px",textAlign:"center",color:"#5A5550",fontSize:11,fontStyle:"italic",border:"1px solid rgba(255,255,255,0.05)",borderRadius:8}},"Aguardando primeiro mes fechado")
+    );
+  }
+  // Series a comparar (portfolio + indices que sao populados pelo Ranking manual/fetch)
+  const cols=[
+    {key:"port",nome:"Portfolio",cor:"#C8A96E",get:k=>retP[k]},
+    {key:"ibov",nome:"IBOV",cor:"#4CAF82",get:k=>(idxMensal[k]||{})._rank_ibov},
+    {key:"ifix",nome:"IFIX",cor:"#5B8FD4",get:k=>(idxMensal[k]||{})._rank_ifix},
+    {key:"cdiliq",nome:"CDI",cor:"#E8C44A",get:k=>(idxMensal[k]||{})._rank_cdiliq},
+    {key:"sp500",nome:"S&P",cor:"#7AC494",get:k=>(idxMensal[k]||{})._rank_sp500},
+    {key:"nasdaq",nome:"NASDAQ",cor:"#E89060",get:k=>(idxMensal[k]||{})._rank_nasdaq}
+  ];
+  // Aviso sobre amostra
+  const amostraStatus=N>=12?"solida":N>=6?"aceitavel":N>=3?"fraca":"preliminar";
+  const aviso=N<6?h("div",{style:{marginBottom:12,padding:"8px 11px",background:"rgba(232,196,74,0.06)",border:"1px solid rgba(232,196,74,0.20)",borderRadius:6,fontSize:9,color:"#A89070",fontStyle:"italic"}},"\u26A0 Amostra "+amostraStatus+" ("+N+"/6 meses fechados). O card matura automaticamente conforme mais meses fecharem."):null;
+  // ============ Viz 1: Rolling Volatility ============
+  const janela=Math.min(N,6);
+  const calcVol=(serie,mesesArr)=>{
+    const vals=mesesArr.map(k=>serie[k]).filter(v=>typeof v==="number"&&!isNaN(v));
+    if(vals.length<2)return null;
+    const m=vals.reduce((s,v)=>s+v,0)/vals.length;
+    const sd=Math.sqrt(vals.reduce((s,v)=>s+Math.pow(v-m,2),0)/vals.length);
+    return sd*Math.sqrt(12);
+  };
+  const construirSerieVol=col=>{
+    const dados=[];
+    const serieCol={};
+    meses.forEach(k=>{const v=col.get(k);if(typeof v==="number"&&!isNaN(v))serieCol[k]=v;});
+    for(let i=janela-1;i<N;i++){
+      const janelaMeses=meses.slice(i-janela+1,i+1);
+      const vol=calcVol(serieCol,janelaMeses);
+      if(vol!==null)dados.push({mes:meses[i],vol});
+    }
+    return dados;
+  };
+  const seriesVol={};
+  cols.forEach(c=>{seriesVol[c.key]=construirSerieVol(c);});
+  const todosPontos=Object.values(seriesVol).flat();
+  const volMax=todosPontos.length?Math.max(...todosPontos.map(p=>p.vol),5):20;
+  const rngV=volMax||1;
+  const numPontos=seriesVol.port.length;
+  const W1=340,H1=170,pL1=42,pR1=90,pT1=10,pB1=22,cW1=W1-pL1-pR1,cH1=H1-pB1-pT1;
+  const xVol=i=>numPontos<=1?pL1+cW1/2:pL1+(i/(numPontos-1))*cW1;
+  const yVol=v=>pT1+cH1-(v/rngV)*cH1;
+  const viz1=h("div",{style:{marginBottom:14,padding:"10px",background:"rgba(0,0,0,0.20)",border:"1px solid rgba(255,255,255,0.05)",borderRadius:8}},
+    h("div",{style:{fontSize:9,color:"#8A8070",marginBottom:6,fontFamily:"monospace",letterSpacing:1}},"VOLATILIDADE ANUALIZADA (janela "+janela+" meses)"),
+    numPontos===0?h("div",{style:{fontSize:9,color:"#7A7570",fontStyle:"italic",padding:"20px",textAlign:"center"}},"Aguardando 2+ meses fechados"):h("svg",{viewBox:"0 0 "+W1+" "+H1,style:{width:"100%",height:"auto",display:"block"}},
+      ...[0,0.25,0.5,0.75,1].map(f=>{
+        const y=pT1+cH1-f*cH1,v=f*rngV;
+        return h(Fragment,{key:"g"+f},
+          h("line",{x1:pL1,y1:y,x2:W1-pR1,y2:y,stroke:"rgba(255,255,255,0.04)",strokeWidth:1}),
+          h("text",{x:pL1-3,y:y+3,textAnchor:"end",fill:"#5A5550",fontSize:7,fontFamily:"monospace"},v.toFixed(0)+"%")
+        );
+      }),
+      ...cols.map(c=>{
+        const s=seriesVol[c.key];
+        if(!s.length)return null;
+        if(s.length===1){
+          return h("circle",{key:"pt"+c.key,cx:xVol(0),cy:yVol(s[0].vol),r:4,fill:c.cor,stroke:"#0D0F14",strokeWidth:1.5});
+        }
+        const path=s.map((p,i)=>(i===0?"M":"L")+xVol(i)+","+yVol(p.vol)).join(" ");
+        return h(Fragment,{key:"ln"+c.key},
+          h("path",{d:path,fill:"none",stroke:c.cor,strokeWidth:c.key==="port"?2.5:1.5,opacity:c.key==="port"?1:0.75}),
+          ...s.map((p,i)=>h("circle",{key:"p"+c.key+i,cx:xVol(i),cy:yVol(p.vol),r:c.key==="port"?3:2,fill:c.cor}))
+        );
+      }),
+      ...cols.map(c=>{
+        const s=seriesVol[c.key];
+        if(!s.length)return null;
+        const ultimo=s[s.length-1];
+        return h("g",{key:"lab"+c.key,transform:"translate("+(W1-pR1+6)+","+(yVol(ultimo.vol)+3)+")"},
+          h("text",{fill:c.cor,fontSize:8,fontFamily:"monospace",fontWeight:c.key==="port"?700:400},c.nome+" "+ultimo.vol.toFixed(1)+"%")
+        );
+      })
+    ),
+    h("div",{style:{fontSize:8,color:"#5A5550",marginTop:6,fontStyle:"italic",lineHeight:1.5}},"Sua linha (dourada) descendo mais rapido que as demais = portfolio amortecendo melhor que o mercado.")
+  );
+  // ============ Viz 2: Beta implicito vs cesta ============
+  const pesosCesta={ibov:0.30,ifix:0.20,cdiliq:0.15,sp500:0.20,nasdaq:0.15};
+  const cestaRet=k=>{
+    let r=0,peso=0;
+    Object.entries(pesosCesta).forEach(([kk,pp])=>{
+      const v=(idxMensal[k]||{})["_rank_"+kk];
+      if(typeof v==="number"&&!isNaN(v)){r+=v*pp;peso+=pp;}
+    });
+    return peso>0?r/peso:null;
+  };
+  const calcBeta=(mesesArr)=>{
+    const pares=[];
+    mesesArr.forEach(k=>{
+      const rp=retP[k],ri=cestaRet(k);
+      if(typeof rp==="number"&&typeof ri==="number")pares.push({rp,ri});
+    });
+    if(pares.length<2)return null;
+    const mP=pares.reduce((s,p)=>s+p.rp,0)/pares.length;
+    const mI=pares.reduce((s,p)=>s+p.ri,0)/pares.length;
+    const cov=pares.reduce((s,p)=>s+(p.rp-mP)*(p.ri-mI),0)/pares.length;
+    const varI=pares.reduce((s,p)=>s+Math.pow(p.ri-mI,2),0)/pares.length;
+    return varI>0?cov/varI:null;
+  };
+  const betaGlobal=calcBeta(meses);
+  const betaRecente=N>=6?calcBeta(meses.slice(-6)):null;
+  const betaAntigo=N>=8?calcBeta(meses.slice(0,N-6)):null;
+  const deltaBeta=(betaRecente!==null&&betaAntigo!==null)?(betaRecente-betaAntigo):null;
+  const corBeta=v=>v===null?"#6A6055":v<0.7?"#4CAF82":v<1.05?"#5B8FD4":v<1.35?"#E8C44A":"#E05252";
+  const rotuloBeta=v=>v===null?"n/d":v<0.7?"amortece muito":v<1.05?"em linha":v<1.35?"amplifica":"amplifica muito";
+  const viz2=h("div",{style:{marginBottom:14,padding:"12px",background:"rgba(0,0,0,0.20)",border:"1px solid rgba(255,255,255,0.05)",borderRadius:8}},
+    h("div",{style:{fontSize:9,color:"#8A8070",marginBottom:9,fontFamily:"monospace",letterSpacing:1}},"BETA vs CESTA DE INDICES"),
+    betaGlobal===null?h("div",{style:{fontSize:9,color:"#7A7570",fontStyle:"italic",padding:"12px",textAlign:"center"}},"Aguardando 2+ meses fechados com benchmarks preenchidos"):h(Fragment,{},
+      h("div",{style:{display:"flex",alignItems:"baseline",gap:12,marginBottom:8,flexWrap:"wrap"}},
+        h("div",{style:{fontSize:26,color:corBeta(betaGlobal),fontFamily:"Georgia,serif",fontWeight:700,fontStyle:"italic",lineHeight:1}},"\u03B2 = "+betaGlobal.toFixed(2)),
+        h("div",{style:{fontSize:10,color:corBeta(betaGlobal),fontFamily:"monospace",letterSpacing:0.5}},rotuloBeta(betaGlobal))
+      ),
+      h("div",{style:{position:"relative",height:14,background:"linear-gradient(to right,#4CAF8240 0%,#4CAF8240 35%,#5B8FD440 35%,#5B8FD440 52%,#E8C44A40 52%,#E8C44A40 67%,#E0525240 67%,#E0525240 100%)",borderRadius:7,marginBottom:6,border:"1px solid rgba(255,255,255,0.08)"}},
+        h("div",{style:{position:"absolute",left:Math.max(0,Math.min(100,(betaGlobal/2)*100))+"%",top:-4,width:2,height:22,background:corBeta(betaGlobal),transform:"translateX(-1px)",boxShadow:"0 0 6px "+corBeta(betaGlobal)}}),
+        h("div",{style:{position:"absolute",left:"50%",top:0,bottom:0,width:1,background:"rgba(255,255,255,0.30)",borderLeft:"1px dashed rgba(255,255,255,0.20)"}})
+      ),
+      h("div",{style:{display:"flex",justifyContent:"space-between",fontSize:7,color:"#6A6055",fontFamily:"monospace",marginBottom:8}},
+        h("span",{},"0.0 amortece"),h("span",{style:{opacity:0.6}},"1.0 neutro"),h("span",{},"2.0 amplifica")
+      ),
+      deltaBeta!==null?h("div",{style:{padding:"7px 10px",background:deltaBeta<-0.05?"rgba(76,175,130,0.10)":deltaBeta>0.05?"rgba(224,82,82,0.10)":"rgba(255,255,255,0.03)",border:"1px solid "+(deltaBeta<-0.05?"rgba(76,175,130,0.30)":deltaBeta>0.05?"rgba(224,82,82,0.30)":"rgba(255,255,255,0.08)"),borderRadius:6}},
+        h("div",{style:{fontSize:9,color:deltaBeta<-0.05?"#4CAF82":deltaBeta>0.05?"#E05252":"#8A8070",fontFamily:"monospace",fontWeight:600,marginBottom:2}},
+          deltaBeta<-0.05?"\u2193 Resiliencia AUMENTANDO":deltaBeta>0.05?"\u2191 Volatilidade AUMENTANDO":"\u2192 Estavel"
+        ),
+        h("div",{style:{fontSize:8,color:"#8A8070",fontFamily:"monospace"}},"\u03B2 antigo: "+betaAntigo.toFixed(2)+" \u2192 recente: "+betaRecente.toFixed(2)+" (\u0394 "+(deltaBeta>=0?"+":"")+deltaBeta.toFixed(2)+")")
+      ):(N<8?h("div",{style:{padding:"6px 10px",fontSize:8,color:"#6A6055",fontStyle:"italic",fontFamily:"monospace"}},"Comparativo antigo x recente a partir de 8 meses ("+N+"/8)"):null)
+    ),
+    h("div",{style:{fontSize:8,color:"#5A5550",marginTop:8,fontStyle:"italic",lineHeight:1.5}},"Cesta = 30% IBOV + 20% IFIX + 20% S&P + 15% CDI + 15% NASDAQ. \u03B2<1 = portfolio se move menos que o mercado.")
+  );
+  // ============ Viz 3: % Meses Positivos ============
+  const pctPos={};const magMedia={};
+  cols.forEach(c=>{
+    const vals=meses.map(k=>c.get(k)).filter(v=>typeof v==="number"&&!isNaN(v));
+    if(vals.length===0){pctPos[c.key]=null;magMedia[c.key]=null;return;}
+    const pos=vals.filter(v=>v>0).length;
+    pctPos[c.key]=(pos/vals.length)*100;
+    magMedia[c.key]=vals.reduce((s,v)=>s+v,0)/vals.length;
+  });
+  const viz3=h("div",{style:{marginBottom:10,padding:"10px 12px",background:"rgba(0,0,0,0.20)",border:"1px solid rgba(255,255,255,0.05)",borderRadius:8}},
+    h("div",{style:{fontSize:9,color:"#8A8070",marginBottom:9,fontFamily:"monospace",letterSpacing:1}},"MESES POSITIVOS ("+N+" meses)"),
+    ...cols.map(c=>{
+      const pct=pctPos[c.key];const mag=magMedia[c.key];
+      if(pct===null)return null;
+      const cheias=Math.round(pct/10);
+      const barra="\u2588".repeat(cheias)+"\u2591".repeat(10-cheias);
+      return h("div",{key:"pos"+c.key,style:{display:"flex",alignItems:"baseline",gap:8,marginBottom:3,fontSize:10,fontFamily:"monospace"}},
+        h("div",{style:{width:52,color:c.cor,fontWeight:c.key==="port"?700:400,flexShrink:0}},c.nome),
+        h("div",{style:{color:c.cor,letterSpacing:1,opacity:c.key==="port"?1:0.75}},barra),
+        h("div",{style:{color:"#B0A890",fontSize:9,flexShrink:0}},pct.toFixed(0)+"%"),
+        typeof mag==="number"?h("div",{style:{color:"#6A6055",fontSize:8,marginLeft:4,fontStyle:"italic"}},"("+(mag>=0?"+":"")+mag.toFixed(1)+"% media)"):null
+      );
+    }),
+    h("div",{style:{fontSize:8,color:"#5A5550",marginTop:7,fontStyle:"italic",lineHeight:1.5}},"Maior % positivos + media positiva > 0 = portfolio consistentemente construtivo.")
+  );
+  // ============ Insight interpretativo ============
+  const insightHist=(()=>{
+    if(N===1)return "Com 1 mes de historico, ainda nao ha volatilidade calculada (precisa de 2+ pontos). Continue acompanhando: a evolucao das linhas mostrara se seu portfolio esta amortecendo mais que os indices ao longo do tempo.";
+    if(N<3)return "Amostra ainda preliminar ("+N+" meses). A tendencia real de amortecimento so fica visivel com 3+ meses. Se rebalanceamento contraciclico esta funcionando, a sua vol (linha dourada) tende a ficar abaixo da media dos indices.";
+    if(N<6){
+      const volPort=seriesVol.port[seriesVol.port.length-1];
+      const volMedia=cols.filter(c=>c.key!=="port").map(c=>{const s=seriesVol[c.key];return s.length?s[s.length-1].vol:null;}).filter(v=>v!==null);
+      const mediaOutros=volMedia.length?volMedia.reduce((s,v)=>s+v,0)/volMedia.length:0;
+      if(volPort&&mediaOutros>0){
+        const diff=volPort.vol-mediaOutros;
+        if(diff<-3)return "Sinal ANIMADOR: sua vol ("+volPort.vol.toFixed(1)+"% a.a.) esta "+Math.abs(diff).toFixed(1)+"pp abaixo da media dos indices ("+mediaOutros.toFixed(1)+"% a.a.). Rebalanceamento parece estar amortecendo. Continue e valide com mais meses.";
+        if(diff>3)return "Sua vol ("+volPort.vol.toFixed(1)+"% a.a.) esta "+diff.toFixed(1)+"pp ACIMA da media dos indices. Amostra pequena ainda - reveja concentracao em classes se persistir por 3+ meses.";
+        return "Volatilidade em linha com os indices ("+volPort.vol.toFixed(1)+"% vs media "+mediaOutros.toFixed(1)+"%). Continue acompanhando para ver a tendencia real emergir.";
+      }
+      return "Aguardando dados dos benchmarks para comparativo preciso.";
+    }
+    // N>=6: com beta calculado
+    if(betaGlobal!==null){
+      if(betaGlobal<0.7)return "Portfolio esta AMORTECENDO fortemente (\u03B2="+betaGlobal.toFixed(2)+"). Quando cesta cai 10%, voce cai ~"+(betaGlobal*10).toFixed(1)+"%. Rebalanceamento contraciclico esta funcionando.";
+      if(betaGlobal<1.05)return "Portfolio em linha com o mercado (\u03B2="+betaGlobal.toFixed(2)+"). Diversificacao razoavel, mas rebalanceamento pode ser mais agressivo em classes descorrelacionadas.";
+      return "Portfolio esta AMPLIFICANDO oscilacoes (\u03B2="+betaGlobal.toFixed(2)+"). Considere reforcar hedges (NTN-B, ouro, Treasuries) no proximo aporte.";
+    }
+    return "Metricas robustas em "+N+" meses. Continue registrando para ver evolucao.";
+  })();
+  return h("div",{style:{marginBottom:20,paddingTop:14,borderTop:"1px solid rgba(255,255,255,0.05)"}},
+    header,
+    aviso,
+    viz1,viz2,viz3,
+    // Insight
+    h("div",{style:{padding:"9px 11px",background:"rgba(200,169,110,0.05)",border:"1px solid rgba(200,169,110,0.20)",borderRadius:6,fontSize:9,color:"#B0A890",lineHeight:1.5,fontStyle:"italic"}},
+      h("strong",{style:{color:"#C8A96E",fontStyle:"normal"}},"\u{1F4A1} "),insightHist
+    )
+  );
+}
+
 function CompareChart({cw}){
   // Radar/polygon chart: actual vs target for each class - versao clean
   const W=340,H=290,cx=170,cy=140,maxR=95;
@@ -15788,7 +16148,7 @@ h("button",{onClick:async()=>{
         )
       );
 
-      content=h("div",{},dateHeader,h(BolsasCard,{port,cls}),h(SolidezCard,{total,cw,port,metaMensalIF,setTab,fB,hideVal,dataNascimento,cambialCash,rendaMotoraHist,rendaAuxiliarHist,FX}),h(ModelosPortfolioMap,{cw,selicAtual,hideVal}),aporteCard,insightCard,h(AllocChart,{cw,ct,fB,MV,hideVal}),h(RankingMensalCard,{histMensal,hist,idxMensal,setIdxMensal,histCutoff,setHistCutoff}),insightMensalCard,topPos);
+      content=h("div",{},dateHeader,h(BolsasCard,{port,cls}),h(SolidezCard,{total,cw,port,metaMensalIF,setTab,fB,hideVal,dataNascimento,cambialCash,rendaMotoraHist,rendaAuxiliarHist,FX}),h(ModelosPortfolioMap,{cw,selicAtual,hideVal}),aporteCard,insightCard,h(AllocChart,{cw,ct,fB,MV,hideVal}),h(RankingMensalCard,{histMensal,hist,idxMensal,setIdxMensal,histCutoff,setHistCutoff}),h(ResilienciaAtualCard,{cw,total}),h(EstabilidadeHistoricoCard,{histMensal,idxMensal,hist,histCutoff}),insightMensalCard,topPos);
     }
   }  // POSITIONS
   if(tab==="positions"||tab==="correlacao"){
