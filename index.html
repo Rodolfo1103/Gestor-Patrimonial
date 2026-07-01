@@ -5666,7 +5666,8 @@ function HeatmapChart({hist,histMensal}){
   }
   if(!fonte||!Array.isArray(fonte))return semDados("nenhum historico disponivel",detalheGeral);
   const data=fonte;
-  if(data.length<2)return semDados("registros validos: "+data.length+" / minimo: 2 ("+fonteTipo+")",detalheGeral);
+  // Nota: nao exige mais 2 registros minimos aqui - pode ter 1 mes se hist tiver multiplos snaps
+  if(data.length<1)return semDados("registros validos: "+data.length+" ("+fonteTipo+")",detalheGeral);
 
   // Agrupa por mes (YYYY-MM), pega ultimo valor de cada mes
   const byMonth={};
@@ -5676,9 +5677,34 @@ function HeatmapChart({hist,histMensal}){
     byMonth[k]={v:r.totalPatrimBRL,ap:r.totalExecuted||r.apValue||0,date:d};
   });
   const keys=Object.keys(byMonth).sort();
-  if(keys.length<2)return semDados("meses distintos: "+keys.length+" / minimo: 2 ("+fonteTipo+")","Meses encontrados: "+keys.join(", "));
+  if(keys.length<1)return semDados("meses distintos: "+keys.length+" ("+fonteTipo+")","Meses encontrados: "+keys.join(", "));
   // Calcular variacao mes a mes descontando aportes (rentabilidade mensal aproximada)
   const variacoes=[];
+  // ===== NOVO: retorno intra-mes para o PRIMEIRO mes do historico =====
+  // Se o hist tem multiplos snapshots dentro do primeiro mes (ex: 01/06 e 30/06),
+  // calcula o retorno "de dentro" do mes: (ultimo - primeiro - aportes) / primeiro.
+  // Isto permite mostrar rentabilidade do mes inicial mesmo sem mes anterior de referencia.
+  if(keys.length>=1&&Array.isArray(hist)&&hist.length>=2){
+    const primeiroMes=keys[0];
+    // Filtra snaps do hist que caem no primeiro mes
+    const snapsDoMes=hist.filter(r=>{
+      if(!r||!r.date||!r.totalPatrimBRL)return false;
+      const d=new Date(r.date);
+      const k=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");
+      return k===primeiroMes;
+    }).sort((a,b)=>new Date(a.date)-new Date(b.date));
+    if(snapsDoMes.length>=2){
+      const primeiroSnap=snapsDoMes[0];
+      const ultimoSnap=snapsDoMes[snapsDoMes.length-1];
+      // Soma aportes ocorridos dentro do mes (exceto o primeiro snap, que e a base)
+      const aportesNoMes=snapsDoMes.slice(1).reduce((s,r)=>s+(r.apValue||0),0);
+      const vIni=primeiroSnap.totalPatrimBRL;
+      const vFim=ultimoSnap.totalPatrimBRL;
+      const varPct=vIni>0?((vFim-aportesNoMes-vIni)/vIni)*100:0;
+      variacoes.push({mes:primeiroMes,date:new Date(ultimoSnap.date),pct:varPct,intraMes:true});
+    }
+  }
+  // ===== Retornos mes-a-mes (comportamento original) =====
   for(let i=1;i<keys.length;i++){
     const prev=byMonth[keys[i-1]],cur=byMonth[keys[i]];
     const aporteMes=cur.ap;
@@ -5686,13 +5712,15 @@ function HeatmapChart({hist,histMensal}){
     const varPct=prev.v>0?((cur.v-aporteMes-prev.v)/prev.v)*100:0;
     variacoes.push({mes:keys[i],date:cur.date,pct:varPct});
   }
-  if(!variacoes.length)return semDados("variacoes calculadas: 0",detalheGeral);
-  // Agrupa por ano para grade
+  if(!variacoes.length)return semDados("variacoes calculadas: 0 (aguardando mais snapshots)",detalheGeral);
+  // Agrupa por ano para grade (armazena tanto pct quanto flag intraMes)
   const byYear={};
+  const intraMesMap={};// {"YYYY-M": true} para marcar celulas calculadas intra-mes
   variacoes.forEach(v=>{
     const y=v.date.getFullYear();
     if(!byYear[y])byYear[y]=Array(12).fill(null);
     byYear[y][v.date.getMonth()]=v.pct;
+    if(v.intraMes)intraMesMap[y+"-"+v.date.getMonth()]=true;
   });
   const years=Object.keys(byYear).sort();
   const meses=["J","F","M","A","M","J","J","A","S","O","N","D"];
@@ -5715,9 +5743,10 @@ function HeatmapChart({hist,histMensal}){
         const ehHoje=new Date();
         const ehMesCorrente=parseInt(y)===ehHoje.getFullYear()&&i===ehHoje.getMonth();
         const ehFuturo=parseInt(y)>ehHoje.getFullYear()||(parseInt(y)===ehHoje.getFullYear()&&i>ehHoje.getMonth());
+        const ehIntraMes=!!intraMesMap[y+"-"+i];
         return h("div",{
           key:i,
-          title:meses[i]+" "+y+": "+(p===null?(ehMesCorrente?"em curso":(ehFuturo?"futuro":"sem dados")):(p>=0?"+":"")+p.toFixed(2)+"%"+(ehMesCorrente?" (em curso - nao entra nas estatisticas)":"")),
+          title:meses[i]+" "+y+": "+(p===null?(ehMesCorrente?"em curso":(ehFuturo?"futuro":"sem dados")):(p>=0?"+":"")+p.toFixed(2)+"%"+(ehMesCorrente?" (em curso - nao entra nas estatisticas)":(ehIntraMes?" (intra-mes: 1o snap -> ultimo snap do mes)":""))),
           style:{
             flex:1,
             aspectRatio:"1",
