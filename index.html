@@ -4685,11 +4685,13 @@ function RankingMensalCard({histMensal,hist,idxMensal,setIdxMensal,histCutoff,se
     {k:"ifix",nome:"IFIX",cor:"#5B8FD4",manual:true},
     {k:"cdiliq",nome:"CDI liq. IR",cor:"#E8C44A",manual:true},
     {k:"ipca",nome:"IPCA",cor:"#A56FD4",manual:true},
+    {k:"imab",nome:"IMA-B",cor:"#B884D4",manual:true},
     {k:"sp500",nome:"S&P 500",cor:"#7AC494",manual:true},
     {k:"nasdaq",nome:"NASDAQ",cor:"#E89060",manual:true},
     {k:"dolar",nome:"Dolar",cor:"#8AAECD",manual:true},
     {k:"ouro",nome:"Ouro",cor:"#D4AF37",manual:true},
-    {k:"btc",nome:"Bitcoin",cor:"#F7931A",manual:true}
+    {k:"btc",nome:"Bitcoin",cor:"#F7931A",manual:true},
+    {k:"poup",nome:"Poupanca",cor:"#7A7570",manual:true}
   ];
   // ========== GERAR MESES ==========
   // Comeca em junho/2026 (mes de arranque), vai ate o mes corrente inclusive
@@ -4905,15 +4907,18 @@ function RankingMensalCard({histMensal,hist,idxMensal,setIdxMensal,histCutoff,se
     // ===== TABELAS DE RANKING (uma por mes, empilhadas verticalmente) =====
     meses.map(mes=>{
       const ranking=rankingPorMes[mes]||[];
+      // Campos aguardando: os que estao em campos[] mas nao em ranking
+      const preenchidos=new Set(ranking.map(l=>l.k));
+      const aguardando=campos.filter(c=>!preenchidos.has(c.k));
       return h("div",{key:mes,style:{marginBottom:12,background:"rgba(0,0,0,0.20)",border:"1px solid rgba(255,255,255,0.05)",borderRadius:8,overflow:"hidden"}},
         // Header do mes
         h("div",{style:{padding:"7px 11px",background:"linear-gradient(to right,rgba(200,169,110,0.10),rgba(200,169,110,0.02))",borderBottom:"1px solid rgba(200,169,110,0.15)",display:"flex",justifyContent:"space-between",alignItems:"center"}},
           h("span",{style:{fontSize:10,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,letterSpacing:2,textTransform:"uppercase"}},fmtMes(mes)),
-          ranking.length>0?h("span",{style:{fontSize:8,color:"#7A7570",fontFamily:"monospace",fontStyle:"italic"}},ranking.length+" ativos ranqueados"):h("span",{style:{fontSize:8,color:"#5A5550",fontFamily:"monospace",fontStyle:"italic"}},"aguardando dados")
+          h("span",{style:{fontSize:8,color:"#7A7570",fontFamily:"monospace",fontStyle:"italic"}},ranking.length+"/"+campos.length+" preenchidos")
         ),
-        // Linhas do ranking
-        ranking.length===0?h("div",{style:{padding:"10px 12px",fontSize:9,color:"#5A5550",fontStyle:"italic",textAlign:"center"}},"Preencha os benchmarks manualmente para gerar o ranking deste mes"):
+        // Linhas do ranking (valores preenchidos)
         h("div",{style:{padding:"6px 8px"}},
+          // Preenchidos - ranqueados
           ...ranking.map((l,i)=>{
             const isPort=l.k==="port";
             const posColor=i===0?"#4CAF82":i===1?"#7AC494":i===2?"#B0A890":i===ranking.length-1?"#E05252":i>=ranking.length-2?"#D99A55":"#8A8070";
@@ -4935,7 +4940,24 @@ function RankingMensalCard({histMensal,hist,idxMensal,setIdxMensal,histCutoff,se
               isPort&&l.fontePortfolio==="manual"&&h("span",{style:{fontSize:7,color:"#7A7570",fontStyle:"italic",marginRight:4}},"manual"),
               h("span",{style:{color:l.valor>=0?"#5DBF82":"#E05252",fontWeight:700,fontSize:11,minWidth:52,textAlign:"right"}},(l.valor>=0?"+":"")+l.valor.toFixed(2)+"%")
             );
-          })
+          }),
+          // Separador se houver preenchidos + aguardando
+          ranking.length>0&&aguardando.length>0&&h("div",{style:{height:1,background:"rgba(255,255,255,0.04)",margin:"6px 0 4px 0"}}),
+          // Aguardando - listados sem ranking
+          ...aguardando.map(c=>h("div",{key:"ag"+c.k,style:{
+            display:"flex",
+            alignItems:"center",
+            gap:8,
+            padding:"5px 8px",
+            marginBottom:2,
+            fontSize:11,
+            fontFamily:"monospace",
+            opacity:0.55
+          }},
+            h("span",{style:{color:"#5A5550",fontWeight:400,minWidth:22,textAlign:"center",fontSize:9,fontStyle:"italic"}},"\u2014"),
+            h("span",{style:{color:c.cor,flex:1,fontWeight:400,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",opacity:0.7}},c.nome),
+            h("span",{style:{color:"#6A6055",fontSize:9,fontStyle:"italic",fontFamily:"monospace"}},"aguardando")
+          ))
         )
       );
     })
@@ -5122,8 +5144,10 @@ function EstabilidadeHistoricoCard({histMensal,idxMensal,hist,histCutoff}){
     {key:"ibov",nome:"IBOV",cor:"#4CAF82",get:k=>(idxMensal[k]||{})._rank_ibov},
     {key:"ifix",nome:"IFIX",cor:"#5B8FD4",get:k=>(idxMensal[k]||{})._rank_ifix},
     {key:"cdiliq",nome:"CDI",cor:"#E8C44A",get:k=>(idxMensal[k]||{})._rank_cdiliq},
+    {key:"imab",nome:"IMA-B",cor:"#B884D4",get:k=>(idxMensal[k]||{})._rank_imab},
     {key:"sp500",nome:"S&P",cor:"#7AC494",get:k=>(idxMensal[k]||{})._rank_sp500},
-    {key:"nasdaq",nome:"NASDAQ",cor:"#E89060",get:k=>(idxMensal[k]||{})._rank_nasdaq}
+    {key:"nasdaq",nome:"NASDAQ",cor:"#E89060",get:k=>(idxMensal[k]||{})._rank_nasdaq},
+    {key:"poup",nome:"Poup.",cor:"#7A7570",get:k=>(idxMensal[k]||{})._rank_poup}
   ];
   // Aviso sobre amostra
   const amostraStatus=N>=12?"solida":N>=6?"aceitavel":N>=3?"fraca":"preliminar";
@@ -16148,7 +16172,7 @@ h("button",{onClick:async()=>{
         )
       );
 
-      content=h("div",{},dateHeader,h(BolsasCard,{port,cls}),h(SolidezCard,{total,cw,port,metaMensalIF,setTab,fB,hideVal,dataNascimento,cambialCash,rendaMotoraHist,rendaAuxiliarHist,FX}),h(ModelosPortfolioMap,{cw,selicAtual,hideVal}),aporteCard,insightCard,h(AllocChart,{cw,ct,fB,MV,hideVal}),h(RankingMensalCard,{histMensal,hist,idxMensal,setIdxMensal,histCutoff,setHistCutoff}),h(ResilienciaAtualCard,{cw,total}),h(EstabilidadeHistoricoCard,{histMensal,idxMensal,hist,histCutoff}),insightMensalCard,topPos);
+      content=h("div",{},dateHeader,h(BolsasCard,{port,cls}),h(SolidezCard,{total,cw,port,metaMensalIF,setTab,fB,hideVal,dataNascimento,cambialCash,rendaMotoraHist,rendaAuxiliarHist,FX}),h(ModelosPortfolioMap,{cw,selicAtual,hideVal}),aporteCard,insightCard,h(AllocChart,{cw,ct,fB,MV,hideVal}),h(RankingMensalCard,{histMensal,hist,idxMensal,setIdxMensal,histCutoff,setHistCutoff}),h(EstabilidadeHistoricoCard,{histMensal,idxMensal,hist,histCutoff}),insightMensalCard,topPos);
     }
   }  // POSITIONS
   if(tab==="positions"||tab==="correlacao"){
