@@ -5339,10 +5339,11 @@ function EvolChart({histMensal,hist,showUSD,setShowUSD,hideVal}){
     const valBRL=totalBRL*pct;
     return showUSD?valBRL/(FX.USD||5):valBRL;
   });});
-  // Range Y
-  const allVals=Object.values(serie).flat().filter(v=>v>0);
-  const minV=allVals.length?Math.min(...allVals)*0.9:0;
-  const maxV=allVals.length?Math.max(...allVals)*1.05:1;
+  // Range Y baseado no TOTAL POR MES (barras empilhadas)
+  const totaisPorMes=data.map((r,i)=>CL.reduce((s,c)=>s+(serie[c.id][i]||0),0));
+  const maxT=Math.max(...totaisPorMes,1);
+  const minV=0;
+  const maxV=maxT*1.05;
   const rng=maxV-minV||1;
   // LARGURA ADAPTATIVA: 12 meses cabem na tela; cada mes extra estica o SVG
   const MESES_VISIVEIS=12;
@@ -5392,14 +5393,41 @@ function EvolChart({histMensal,hist,showUSD,setShowUSD,hideVal}){
       }),
       // Linhas verticais sutis nos meses com label
       ...idxLabels.map(i=>h("line",{key:"v"+i,x1:xScale(i),y1:pT,x2:xScale(i),y2:pT+cH,stroke:"rgba(255,255,255,0.03)",strokeWidth:"1"})),
-      // Linhas + pontos por classe
-      ...CL.map(c=>{
-        const vals=serie[c.id];
-        const pts=vals.map((v,i)=>({x:xScale(i),y:yScale(v),v}));
-        const lineD=pts.map((p,i)=>(i===0?"M":"L")+p.x.toFixed(1)+" "+p.y.toFixed(1)).join(" ");
-        return h(Fragment,{key:c.id},
-          data.length>=2&&h("path",{d:lineD,fill:"none",stroke:c.color,strokeWidth:"1.2",strokeLinejoin:"round",strokeLinecap:"round",opacity:"0.55"}),
-          ...pts.map((p,i)=>h("circle",{key:"p"+c.id+i,cx:p.x.toFixed(1),cy:p.y.toFixed(1),r:i===pts.length-1?"3":"2.4",fill:c.color,stroke:"#0D0F14",strokeWidth:"1",opacity:i===pts.length-1?"1":"0.85"}))
+      // ===== Barras empilhadas por mes (stacked bars) =====
+      // Cada mes eh uma barra vertical com fatias coloridas empilhadas por classe.
+      // Ordem de empilhamento: fixo por CL.id (mesma ordem sempre) para consistencia visual.
+      // Largura da barra: ~65% do espaco entre meses (deixa espacinho de respiro).
+      ...data.map((r,i)=>{
+        const totalMes=CL.reduce((s,c)=>s+(serie[c.id][i]||0),0);
+        if(totalMes<=0)return null;
+        // Largura da barra: metade da distancia ate o proximo mes (ou 24px se so 1 mes)
+        const gap=data.length>1?(xScale(1)-xScale(0)):48;
+        const barW=Math.max(8,Math.min(40,gap*0.62));
+        const cx=xScale(i);
+        const xBar=cx-barW/2;
+        // Empilhar: comeca do topo do grafico (topo do valor total) e desce
+        // yTop = yScale(totalMes); depois cada classe consome altura proporcional a seu valor
+        let yAcum=yScale(totalMes);
+        const alturaTotal=yScale(minV)-yScale(totalMes);
+        return h(Fragment,{key:"bar"+i},
+          ...CL.map(c=>{
+            const val=serie[c.id][i]||0;
+            if(val<=0)return null;
+            const h_=(val/totalMes)*alturaTotal;
+            const rect=h("rect",{
+              key:"seg"+c.id+i,
+              x:xBar.toFixed(1),
+              y:yAcum.toFixed(1),
+              width:barW.toFixed(1),
+              height:Math.max(0.5,h_).toFixed(1),
+              fill:c.color,
+              opacity:i===data.length-1?0.92:0.75,
+              stroke:"#0D0F14",
+              strokeWidth:"0.3"
+            });
+            yAcum+=h_;
+            return rect;
+          })
         );
       }),
       // Labels mes/ano no eixo X
@@ -5423,41 +5451,45 @@ function EvolChart({histMensal,hist,showUSD,setShowUSD,hideVal}){
   );
 }
 
-// Heatmap mensal: variacao % do patrimonio mes a mes
-// Componente que mostra rentabilidade do portfolio vs indices comparativos
-// histMensal: array dos snapshots do portfolio por mes
-// idxMensal: objeto {"YYYY-MM": {ibov, ifix, cdi, imab, sp500, nasdaq, poupanca}}
-function ComparativoChart({histMensal,idxMensal,hideVal,hist}){
-  // Calcula rentabilidade do portfolio por mes.
-  // Estrategia hibrida:
-  //   1) histMensal (1 snap por mes, sem limite) -> retornos mes-a-mes classicos
-  //   2) hist (multiplos snaps por mes, limitado a ~100) -> retorno INTRA-MES para o primeiro mes
-  //      (compara primeiro snap do mes vs ultimo snap do mes, descontando aportes)
-  if(!Array.isArray(histMensal)||histMensal.length<1)return null;
-  // Ordena por data crescente
-  const snaps=histMensal.slice().sort((a,b)=>new Date(a.date)-new Date(b.date));
-  const retPortfolio={};// {"YYYY-MM": retorno%}
-
-  // ===== Fase 1: retornos mes-a-mes (comportamento original) =====
-  for(let i=1;i<snaps.length;i++){
-    const ant=snaps[i-1],atu=snaps[i];
-    if(!ant.totalPatrimBRL||!atu.totalPatrimBRL)continue;
-    const aporte=atu.apValue||0;
-    const ret=((atu.totalPatrimBRL-aporte)/ant.totalPatrimBRL-1)*100;
-    if(!isNaN(ret)){
-      const d=new Date(atu.date);
-      const k=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");
-      retPortfolio[k]=ret;
+// ============================================================
+// calcRetornosMensais: fonte unica da verdade para rentabilidade mensal
+// Convencao (Opcao A - intra-mes puro com fallback B - entre-meses):
+//   PARA CADA MES:
+//     Se ha 2+ snapshots no hist dentro do mes -> usa primeiro_snap vs ultimo_snap (INTRA-MES)
+//     Senao, se ha snap do mes anterior no histMensal -> usa ultimo_snap(N-1) vs snap(N) (ENTRE-MESES)
+//     Senao, mes nao aparece
+//   Aportes: sempre descontados via campo apValue dos snaps posteriores ao "inicio" do mes
+// Retorna: objeto {"YYYY-MM": retorno%}
+// ============================================================
+function calcRetornosMensais(histMensal,hist){
+  const ret={};
+  if(!Array.isArray(histMensal)||histMensal.length===0){
+    // Sem histMensal - tenta apenas fase intra-mes com hist
+    if(Array.isArray(hist)&&hist.length>=2){
+      const snapsPorMes={};
+      hist.forEach(r=>{
+        if(!r||!r.date||!r.totalPatrimBRL)return;
+        const d=new Date(r.date);
+        const k=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");
+        if(!snapsPorMes[k])snapsPorMes[k]=[];
+        snapsPorMes[k].push(r);
+      });
+      Object.keys(snapsPorMes).forEach(k=>{
+        const arr=snapsPorMes[k].slice().sort((a,b)=>new Date(a.date)-new Date(b.date));
+        if(arr.length<2)return;
+        const primeiro=arr[0],ultimo=arr[arr.length-1];
+        const vIni=primeiro.totalPatrimBRL,vFim=ultimo.totalPatrimBRL;
+        if(!vIni||!vFim)return;
+        const aportesNoMes=arr.slice(1).reduce((s,r)=>s+(r.apValue||0),0);
+        const r=((vFim-aportesNoMes-vIni)/vIni)*100;
+        if(!isNaN(r))ret[k]=r;
+      });
     }
+    return ret;
   }
-
-  // ===== Fase 2: retorno intra-mes para qualquer mes AUSENTE em retPortfolio =====
-  // Usa hist (multiplos snaps por mes) para preencher meses que a fase 1 nao cobriu.
-  // Isto cobre o primeiro mes do historico (sem mes anterior de referencia)
-  // e tambem meses onde histMensal teve apenas 1 snap.
-  if(Array.isArray(hist)&&hist.length>=2){
-    // Agrupa hist por mes
-    const snapsPorMes={};
+  // ===== Passo 1: agrupa hist por mes (para fase intra-mes) =====
+  const snapsPorMes={};
+  if(Array.isArray(hist)){
     hist.forEach(r=>{
       if(!r||!r.date||!r.totalPatrimBRL)return;
       const d=new Date(r.date);
@@ -5465,20 +5497,63 @@ function ComparativoChart({histMensal,idxMensal,hideVal,hist}){
       if(!snapsPorMes[k])snapsPorMes[k]=[];
       snapsPorMes[k].push(r);
     });
-    // Para cada mes, se ainda nao tem retorno em retPortfolio E tem 2+ snaps: calcula intra-mes
-    Object.keys(snapsPorMes).forEach(k=>{
-      if(typeof retPortfolio[k]==="number")return;// ja calculado por Fase 1
-      const arr=snapsPorMes[k].slice().sort((a,b)=>new Date(a.date)-new Date(b.date));
-      if(arr.length<2)return;
+    Object.keys(snapsPorMes).forEach(k=>snapsPorMes[k].sort((a,b)=>new Date(a.date)-new Date(b.date)));
+  }
+  // ===== Passo 2: monta lista de todos os meses relevantes (do histMensal) =====
+  const snapsHM=histMensal.slice().sort((a,b)=>new Date(a.date)-new Date(b.date));
+  const mesesHM=new Set();
+  snapsHM.forEach(s=>{const d=new Date(s.date);mesesHM.add(d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0"));});
+  // Tambem inclui meses que so aparecem no hist (com 2+ snaps)
+  Object.entries(snapsPorMes).forEach(([k,arr])=>{if(arr.length>=2)mesesHM.add(k);});
+  const meses=Array.from(mesesHM).sort();
+  // ===== Passo 3: para cada mes, tenta A (intra-mes) primeiro, depois B (entre-meses) =====
+  for(let idx=0;idx<meses.length;idx++){
+    const k=meses[idx];
+    // Opcao A: intra-mes puro (primeiro_snap vs ultimo_snap DENTRO do mes)
+    if(snapsPorMes[k]&&snapsPorMes[k].length>=2){
+      const arr=snapsPorMes[k];
       const primeiro=arr[0],ultimo=arr[arr.length-1];
       const vIni=primeiro.totalPatrimBRL,vFim=ultimo.totalPatrimBRL;
-      if(!vIni||!vFim)return;
-      // Soma aportes ocorridos dentro do mes (exceto o primeiro snap, que e a base)
-      const aportesNoMes=arr.slice(1).reduce((s,r)=>s+(r.apValue||0),0);
-      const ret=((vFim-aportesNoMes-vIni)/vIni)*100;
-      if(!isNaN(ret))retPortfolio[k]=ret;
-    });
+      if(vIni>0&&vFim>0){
+        // Aportes DENTRO do mes (todos os snaps apos o primeiro)
+        const aportesNoMes=arr.slice(1).reduce((s,r)=>s+(r.apValue||0),0);
+        const r=((vFim-aportesNoMes-vIni)/vIni)*100;
+        if(!isNaN(r)){ret[k]=r;continue;}
+      }
+    }
+    // Opcao B (fallback): entre-meses (ultimo snap do mes anterior vs snap deste mes)
+    // So tenta se o mes anterior existe no histMensal
+    if(idx>0){
+      const kAnt=meses[idx-1];
+      // Snap do mes anterior: pega do histMensal (ultimo salvo daquele mes)
+      const snapAnt=snapsHM.find(s=>{
+        const d=new Date(s.date);
+        return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")===kAnt;
+      });
+      // Snap deste mes: pega do histMensal
+      const snapAtu=snapsHM.find(s=>{
+        const d=new Date(s.date);
+        return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")===k;
+      });
+      if(snapAnt&&snapAtu&&snapAnt.totalPatrimBRL>0&&snapAtu.totalPatrimBRL>0){
+        const aporte=snapAtu.apValue||0;
+        const r=((snapAtu.totalPatrimBRL-aporte)/snapAnt.totalPatrimBRL-1)*100;
+        if(!isNaN(r))ret[k]=r;
+      }
+    }
   }
+  return ret;
+}
+
+// Heatmap mensal: variacao % do patrimonio mes a mes
+// Componente que mostra rentabilidade do portfolio vs indices comparativos
+// histMensal: array dos snapshots do portfolio por mes
+// idxMensal: objeto {"YYYY-MM": {ibov, ifix, cdi, imab, sp500, nasdaq, poupanca}}
+function ComparativoChart({histMensal,idxMensal,hideVal,hist}){
+  // Usa a funcao unificada calcRetornosMensais (Opcao A intra-mes com fallback B entre-meses)
+  if(!Array.isArray(histMensal)||histMensal.length<1)return null;
+  const retPortfolio=calcRetornosMensais(histMensal,hist);
+
   // Coleta todos os meses que tem dados (portfolio OU indices)
   const todosM=new Set([...Object.keys(retPortfolio),...Object.keys(idxMensal||{})]);
   const meses=Array.from(todosM).sort();
@@ -5678,40 +5753,8 @@ function ComparativoChart({histMensal,idxMensal,hideVal,hist}){
 // ============================================================
 function EstabilidadeChart({histMensal,idxMensal,hist}){
   if(!Array.isArray(histMensal)||histMensal.length<1)return null;
-  // ===== Constroi retP com fase 1 (histMensal) + fase 2 (intra-mes via hist) =====
-  const snaps=histMensal.slice().sort((a,b)=>new Date(a.date)-new Date(b.date));
-  const retP={};
-  for(let i=1;i<snaps.length;i++){
-    const ant=snaps[i-1],atu=snaps[i];
-    if(!ant.totalPatrimBRL||!atu.totalPatrimBRL)continue;
-    const ap=atu.apValue||0;
-    const ret=((atu.totalPatrimBRL-ap)/ant.totalPatrimBRL-1)*100;
-    if(!isNaN(ret)){
-      const d=new Date(atu.date);
-      retP[d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")]=ret;
-    }
-  }
-  if(Array.isArray(hist)&&hist.length>=2){
-    const snapsPorMes={};
-    hist.forEach(r=>{
-      if(!r||!r.date||!r.totalPatrimBRL)return;
-      const d=new Date(r.date);
-      const k=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");
-      if(!snapsPorMes[k])snapsPorMes[k]=[];
-      snapsPorMes[k].push(r);
-    });
-    Object.keys(snapsPorMes).forEach(k=>{
-      if(typeof retP[k]==="number")return;
-      const arr=snapsPorMes[k].slice().sort((a,b)=>new Date(a.date)-new Date(b.date));
-      if(arr.length<2)return;
-      const primeiro=arr[0],ultimo=arr[arr.length-1];
-      const vIni=primeiro.totalPatrimBRL,vFim=ultimo.totalPatrimBRL;
-      if(!vIni||!vFim)return;
-      const aportesNoMes=arr.slice(1).reduce((s,r)=>s+(r.apValue||0),0);
-      const ret=((vFim-aportesNoMes-vIni)/vIni)*100;
-      if(!isNaN(ret))retP[k]=ret;
-    });
-  }
+  // Usa a fonte unica de verdade
+  const retP=calcRetornosMensais(histMensal,hist);
   // ===== Determina meses fechados (exclui mes corrente) =====
   const hoje=new Date();
   const mesCorrenteKey=hoje.getFullYear()+"-"+String(hoje.getMonth()+1).padStart(2,"0");
@@ -5958,49 +6001,35 @@ function HeatmapChart({hist,histMensal}){
   // Nota: nao exige mais 2 registros minimos aqui - pode ter 1 mes se hist tiver multiplos snaps
   if(data.length<1)return semDados("registros validos: "+data.length+" ("+fonteTipo+")",detalheGeral);
 
-  // Agrupa por mes (YYYY-MM), pega ultimo valor de cada mes
+  // Agrupa por mes (YYYY-MM), pega ultimo valor de cada mes (usado apenas para intraMesMap)
   const byMonth={};
   data.forEach(r=>{
     const d=new Date(r.date),k=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");
-    // Para histMensal cada chave já é única; para hist (fallback) pega ultimo valor do mes
     byMonth[k]={v:r.totalPatrimBRL,ap:r.totalExecuted||r.apValue||0,date:d};
   });
-  const keys=Object.keys(byMonth).sort();
-  if(keys.length<1)return semDados("meses distintos: "+keys.length+" ("+fonteTipo+")","Meses encontrados: "+keys.join(", "));
-  // Calcular variacao mes a mes descontando aportes (rentabilidade mensal aproximada)
+  // ===== Calcula retornos via fonte unica calcRetornosMensais =====
+  // Convencao (Opcao A intra-mes com fallback B entre-meses).
+  const retMes=calcRetornosMensais(histMensal,hist);
+  // Monta variacoes[] a partir de retMes e byMonth (para pegar as datas)
   const variacoes=[];
-  // ===== NOVO: retorno intra-mes para o PRIMEIRO mes do historico =====
-  // Se o hist tem multiplos snapshots dentro do primeiro mes (ex: 01/06 e 30/06),
-  // calcula o retorno "de dentro" do mes: (ultimo - primeiro - aportes) / primeiro.
-  // Isto permite mostrar rentabilidade do mes inicial mesmo sem mes anterior de referencia.
-  if(keys.length>=1&&Array.isArray(hist)&&hist.length>=2){
-    const primeiroMes=keys[0];
-    // Filtra snaps do hist que caem no primeiro mes
-    const snapsDoMes=hist.filter(r=>{
-      if(!r||!r.date||!r.totalPatrimBRL)return false;
-      const d=new Date(r.date);
-      const k=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");
-      return k===primeiroMes;
-    }).sort((a,b)=>new Date(a.date)-new Date(b.date));
-    if(snapsDoMes.length>=2){
-      const primeiroSnap=snapsDoMes[0];
-      const ultimoSnap=snapsDoMes[snapsDoMes.length-1];
-      // Soma aportes ocorridos dentro do mes (exceto o primeiro snap, que e a base)
-      const aportesNoMes=snapsDoMes.slice(1).reduce((s,r)=>s+(r.apValue||0),0);
-      const vIni=primeiroSnap.totalPatrimBRL;
-      const vFim=ultimoSnap.totalPatrimBRL;
-      const varPct=vIni>0?((vFim-aportesNoMes-vIni)/vIni)*100:0;
-      variacoes.push({mes:primeiroMes,date:new Date(ultimoSnap.date),pct:varPct,intraMes:true});
+  // Meses que tem retorno + estao em byMonth (com data)
+  const keys=Object.keys(retMes).sort();
+  keys.forEach(k=>{
+    // Data do mes: usa o snap do byMonth se existir; senao, primeiro dia do mes
+    const [y,m]=k.split("-").map(Number);
+    const d=(byMonth[k]&&byMonth[k].date)||new Date(y,m-1,15);
+    // Detecta se este mes usou fase A (intra-mes) - tem 2+ snaps no hist para o mes
+    let intraMes=false;
+    if(Array.isArray(hist)){
+      const cnt=hist.filter(r=>{
+        if(!r||!r.date||!r.totalPatrimBRL)return false;
+        const dd=new Date(r.date);
+        return dd.getFullYear()+"-"+String(dd.getMonth()+1).padStart(2,"0")===k;
+      }).length;
+      if(cnt>=2)intraMes=true;
     }
-  }
-  // ===== Retornos mes-a-mes (comportamento original) =====
-  for(let i=1;i<keys.length;i++){
-    const prev=byMonth[keys[i-1]],cur=byMonth[keys[i]];
-    const aporteMes=cur.ap;
-    // (valor_atual - aporte_do_mes - valor_anterior) / valor_anterior
-    const varPct=prev.v>0?((cur.v-aporteMes-prev.v)/prev.v)*100:0;
-    variacoes.push({mes:keys[i],date:cur.date,pct:varPct});
-  }
+    variacoes.push({mes:k,date:d,pct:retMes[k],intraMes});
+  });
   if(!variacoes.length)return semDados("variacoes calculadas: 0 (aguardando mais snapshots)",detalheGeral);
   // Agrupa por ano para grade (armazena tanto pct quanto flag intraMes)
   const byYear={};
@@ -14408,43 +14437,9 @@ Responda APENAS com o texto do insight, sem prefacio ou comentarios meta.`;
   const genInsightMensal=useCallback(async(mesAlvo,forcar)=>{
     if(!apiKey||insightMensalLoad)return;
     if(!Array.isArray(histMensal)||histMensal.length<1)return;
-    // Constroi serie de retornos mensais do portfolio
+    // Serie de retornos mensais via fonte unica (Opcao A intra-mes com fallback B entre-meses)
     const snaps=histMensal.slice().sort((a,b)=>new Date(a.date)-new Date(b.date));
-    const retP={};
-    // Fase 1: retornos mes-a-mes (comportamento original)
-    for(let i=1;i<snaps.length;i++){
-      const ant=snaps[i-1],atu=snaps[i];
-      if(!ant.totalPatrimBRL||!atu.totalPatrimBRL)continue;
-      const ap=atu.apValue||0;
-      const ret=((atu.totalPatrimBRL-ap)/ant.totalPatrimBRL-1)*100;
-      const d=new Date(atu.date);
-      const k=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");
-      retP[k]=ret;
-    }
-    // Fase 2: preencher meses ausentes via retorno intra-mes (hist multiplos snaps)
-    // Consistente com HeatmapChart e ComparativoChart - primeiro mes do historico
-    // e meses sem antecessor recebem retorno intra-mes.
-    if(Array.isArray(hist)&&hist.length>=2){
-      const snapsPorMes={};
-      hist.forEach(r=>{
-        if(!r||!r.date||!r.totalPatrimBRL)return;
-        const d=new Date(r.date);
-        const k=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");
-        if(!snapsPorMes[k])snapsPorMes[k]=[];
-        snapsPorMes[k].push(r);
-      });
-      Object.keys(snapsPorMes).forEach(k=>{
-        if(typeof retP[k]==="number")return;// ja tem via fase 1
-        const arr=snapsPorMes[k].slice().sort((a,b)=>new Date(a.date)-new Date(b.date));
-        if(arr.length<2)return;
-        const primeiro=arr[0],ultimo=arr[arr.length-1];
-        const vIni=primeiro.totalPatrimBRL,vFim=ultimo.totalPatrimBRL;
-        if(!vIni||!vFim)return;
-        const aportesNoMes=arr.slice(1).reduce((s,r)=>s+(r.apValue||0),0);
-        const ret=((vFim-aportesNoMes-vIni)/vIni)*100;
-        if(!isNaN(ret))retP[k]=ret;
-      });
-    }
+    const retP=calcRetornosMensais(histMensal,hist);
     // Mes-alvo: passado como parametro OU o ULTIMO MES FECHADO (nao o mes corrente em curso)
     // Prioridade: mesAlvo explicito > ultimo mes fechado disponivel > null
     const hoje=new Date();
