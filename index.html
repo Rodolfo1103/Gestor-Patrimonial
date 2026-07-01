@@ -9805,7 +9805,8 @@ function App(){
             // Sucesso pratico: tudo essencial buscado, soh apis auxiliares falharam (ouro/BTC/IPCA)
             setPErr("OK: "+n+"/"+tickers.length+" ativos atualizados (apenas APIs auxiliares falharam: BCB/Brapi)");
           }else{
-            setPErr("Parcial: "+n+"/"+tickers.length+" ["+dbg.join(" ")+"]"+(uniq.length?" falhou: "+uniq.slice(0,5).join(","):""));
+            // Falha marginal ou desconhecida - nao poluir UI com mensagem
+            setPErr("");
           }
         }
       } else {setPErr("Sem cotacoes ["+dbg.join(" ")+"]");}
