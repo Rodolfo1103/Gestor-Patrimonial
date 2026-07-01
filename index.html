@@ -19944,36 +19944,8 @@ h("button",{onClick:async()=>{
           // Titulos eixos
           h("text",{x:pL+cW/2,y:H-6,textAnchor:"middle",fill:"#8A8070",fontSize:8,fontFamily:"monospace",letterSpacing:1.5},"VOLATILIDADE \u2192"),
           h("text",{x:8,y:pT+cH/2,textAnchor:"middle",fill:"#8A8070",fontSize:8,fontFamily:"monospace",letterSpacing:1.5,transform:"rotate(-90 8 "+(pT+cH/2)+")"},"RETORNO \u2192"),
-          // Pontos Monte Carlo (amostra de 5000 dos 50000 calculados)
+          // Pontos Monte Carlo (amostra de 5000 dos 50000 calculados) - formam a nuvem da fronteira
           ...mcRender.map((p,i)=>h("circle",{key:"mc"+i,cx:xOf(p.vol),cy:yOf(p.ret),r:1.2,fill:colorSharpe(p.sharpe),opacity:0.4})),
-          // Ponto: Taxa livre de risco (Selic)
-          h("circle",{cx:xOf(0),cy:yOf(rfAtual),r:4,fill:"none",stroke:"#9B9B9B",strokeWidth:2}),
-          h("text",{x:xOf(0)+8,y:yOf(rfAtual)+3,fill:"#9B9B9B",fontSize:8,fontFamily:"monospace",fontWeight:700},"SELIC"),
-          // Ponto: Portfolio otimo (tangencia / max Sharpe)
-          h("circle",{cx:xOf(bestSharpe.vol),cy:yOf(bestSharpe.ret),r:5,fill:"#C8A96E",stroke:"#0D0F14",strokeWidth:1.5}),
-          (()=>{
-            const px=xOf(bestSharpe.vol);
-            const py=yOf(bestSharpe.ret);
-            // Se ponto perto da borda direita, label vai pra esquerda
-            const labelDireita=px<pL+cW-50;
-            return h("text",{x:labelDireita?px+8:px-8,y:py-4,textAnchor:labelDireita?"start":"end",fill:"#C8A96E",fontSize:8,fontFamily:"monospace",fontWeight:700},"OTIMO");
-          })(),
-          // Ponto: ALL WEATHER (Dalio adaptado BR)
-          h("circle",{cx:xOf(statsAW.vol),cy:yOf(statsAW.ret),r:5,fill:"#2EBFA5",stroke:"#0D0F14",strokeWidth:1.5}),
-          (()=>{
-            const px=xOf(statsAW.vol);
-            const labelDireita=px<pL+cW-30;
-            return h("text",{x:labelDireita?px+8:px-8,y:yOf(statsAW.ret)+10,textAnchor:labelDireita?"start":"end",fill:"#2EBFA5",fontSize:8,fontFamily:"monospace",fontWeight:700},"AW");
-          })(),
-          // Ponto: ALVO (portfolio baseado nas bandas medias)
-          h("circle",{cx:xOf(statsAlvo.vol),cy:yOf(statsAlvo.ret),r:6,fill:"#5B8FD4",stroke:"#FFF",strokeWidth:1.5}),
-          (()=>{
-            const px=xOf(statsAlvo.vol);
-            const labelDireita=px<pL+cW-45;
-            return h("text",{x:labelDireita?px+9:px-9,y:yOf(statsAlvo.ret)+3,textAnchor:labelDireita?"start":"end",fill:"#5B8FD4",fontSize:9,fontFamily:"monospace",fontWeight:700},"ALVO");
-          })(),
-          // Linha tracejada VOCE -> ALVO (mostra o caminho)
-          h("line",{x1:xOf(statsAtual.vol),y1:yOf(statsAtual.ret),x2:xOf(statsAlvo.vol),y2:yOf(statsAlvo.ret),stroke:"#5B8FD4",strokeWidth:1,strokeDasharray:"3,3",opacity:0.4}),
           // ===== LINHA DE DISTANCIA ATE A FRONTEIRA EFICIENTE =====
           // Acha o melhor retorno alcancavel na mesma volatilidade (margem 1.5%)
           (()=>{
@@ -20009,12 +19981,9 @@ h("button",{onClick:async()=>{
           })()
         ),
         h("div",{style:{fontSize:8,color:"#6A6050",padding:"6px 10px",fontStyle:"italic",lineHeight:1.5}},
-          h("span",{style:{color:"#E05252",fontWeight:700}},"\u25CF VOCE"),": atual. ",
-          h("span",{style:{color:"#5B8FD4",fontWeight:700}},"\u25CF ALVO"),": bandas medias. ",
-          h("span",{style:{color:"#2EBFA5",fontWeight:700}},"\u25CF AW"),": All Weather. ",
-          h("span",{style:{color:"#C8A96E",fontWeight:700}},"\u25CF OTIMO"),": max Sharpe. ",
-          h("span",{style:{color:"#9B9B9B",fontWeight:700}},"\u25CB SELIC"),": livre risco. ",
-          h("span",{style:{color:"#E05252",fontWeight:700}},"\u2716 gap"),": retorno faltante para fronteira."
+          h("span",{style:{color:"#E05252",fontWeight:700}},"\u25CF VOCE"),": seu portfolio atual. ",
+          h("span",{style:{color:"#9A9080"}},"Nuvem colorida"),": fronteira eficiente (Monte Carlo - cor pelo Sharpe). ",
+          h("span",{style:{color:"#E05252",fontWeight:700}},"\u2716 gap"),": retorno faltante para a fronteira na sua volatilidade."
         ),
         // ===== REGUA HORIZONTAL DE EFICIENCIA C- a A+ =====
         (function(){
