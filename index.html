@@ -16339,6 +16339,95 @@ h("button",{onClick:async()=>{
           )
         )
       );
+      // Bloco Racional do Portfolio Alvo (expandivel)
+      const racionalBlock=h("details",{style:{marginBottom:14,background:"rgba(200,169,110,0.03)",border:"1px solid rgba(200,169,110,0.18)",borderRadius:8,overflow:"hidden"}},
+        h("summary",{style:{padding:"11px 13px",cursor:"pointer",listStyle:"none",display:"flex",alignItems:"center",justifyContent:"space-between"}},
+          h("div",{},
+            h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase"}},"\u{1F4D6} Racional do Portfolio Alvo"),
+            h("div",{style:{fontSize:9,color:"#5A5550",marginTop:2,fontStyle:"italic"}},"Construcao das bandas: buckets funcionais + alinhamento Yale/AW/MPT")
+          ),
+          h("span",{style:{fontSize:9,color:"#7A7060",fontFamily:"monospace"}},"expandir")
+        ),
+        h("div",{style:{padding:"0 14px 14px 14px",lineHeight:1.6,fontSize:10.5,color:"#B0A890"}},
+          // Intro
+          h("p",{style:{margin:"0 0 12px",color:"#9A9080",fontStyle:"italic",fontSize:10}},"O portfolio alvo foi construido em 5 buckets funcionais que somam 100%, calibrados para maximizar renda passiva + captura de crescimento com equity + resiliencia macro + blindagem cambial, respeitando os benchmarks Yale (Swensen), All Weather (Dalio) e a fronteira eficiente MPT ajustada ao contexto brasileiro."),
+          // Bucket 1
+          h("div",{style:{marginBottom:11,padding:"9px 11px",background:"rgba(76,175,130,0.05)",borderLeft:"3px solid #4CAF82",borderRadius:"0 5px 5px 0"}},
+            h("div",{style:{fontSize:10,fontWeight:700,color:"#4CAF82",fontFamily:"monospace",letterSpacing:1,marginBottom:5}},"1. RENDA PASSIVA BR - 30%"),
+            h("div",{style:{fontSize:10,color:"#B0A890",marginBottom:4}},"FII 18% + Infra 8% + Fiagros 4%"),
+            h("div",{style:{fontSize:9,color:"#8A8070",lineHeight:1.55}},"Isentos de IR para PF. Com DY medio ~10%, um portfolio de R$ 7,8MM alocando 30% neste bucket (~R$ 2,34MM) gera aprox. ",h("strong",{style:{color:"#4CAF82"}},"R$ 234k/ano em dividendos liquidos"),", equivalente a ",h("strong",{style:{color:"#4CAF82"}},"~R$ 19,5k/mes de renda passiva")," so deste bucket. Base de fluxo previsivel que sustenta a fase FIRE independentemente de venda de ativos.")
+          ),
+          // Bucket 2
+          h("div",{style:{marginBottom:11,padding:"9px 11px",background:"rgba(122,196,148,0.05)",borderLeft:"3px solid #7AC494",borderRadius:"0 5px 5px 0"}},
+            h("div",{style:{fontSize:10,fontWeight:700,color:"#7AC494",fontFamily:"monospace",letterSpacing:1,marginBottom:5}},"2. EQUITY CRESCIMENTO - 31%"),
+            h("div",{style:{fontSize:10,color:"#B0A890",marginBottom:4}},"BR 8% + EUA 11% + Mundo 7% + REIT 5%"),
+            h("div",{style:{fontSize:9,color:"#8A8070",lineHeight:1.55}},"Motor de retorno real de longo prazo. ",h("strong",{style:{color:"#7AC494"}},"23% ja em moeda forte")," (EUA+Mundo+REIT) - dupla funcao de crescimento + hedge cambial estrutural. BR mantido em 8% para capturar premio Brasil quando ha desconto relativo vs EUA/Mundo. Diversificacao geografica: EUA como core de qualidade, Mundo (Europa+Asia) para descorrelacao dolar-centrica, REITs para exposicao imobiliaria USD-denominada.")
+          ),
+          // Bucket 3
+          h("div",{style:{marginBottom:11,padding:"9px 11px",background:"rgba(184,132,212,0.05)",borderLeft:"3px solid #B884D4",borderRadius:"0 5px 5px 0"}},
+            h("div",{style:{fontSize:10,fontWeight:700,color:"#B884D4",fontFamily:"monospace",letterSpacing:1,marginBottom:5}},"3. HEDGE INFLACIONARIO / CRISE - 19%"),
+            h("div",{style:{fontSize:10,color:"#B0A890",marginBottom:4}},"NTN-B 11% + Ouro 5% + BTC 3%"),
+            h("div",{style:{fontSize:9,color:"#8A8070",lineHeight:1.55}},"Cobertura para ",h("strong",{style:{color:"#B884D4"}},"cenario c3 (estagflacao)")," e crises sistemicas. NTN-B trava juro real longo (IPCA+ garantido). Ouro e o hedge classico anti-crise. BTC tem correlacao quase zero com tudo - traz diversificacao genuina. Os 3 juntos protegem em regimes onde equity e RF nominal sofrem simultaneamente (raro mas historicamente devastador quando ocorre).")
+          ),
+          // Bucket 4
+          h("div",{style:{marginBottom:11,padding:"9px 11px",background:"rgba(232,196,74,0.05)",borderLeft:"3px solid #E8C44A",borderRadius:"0 5px 5px 0"}},
+            h("div",{style:{fontSize:10,fontWeight:700,color:"#E8C44A",fontFamily:"monospace",letterSpacing:1,marginBottom:5}},"4. RF NOMINAL / ANTI-CRASH - 19%"),
+            h("div",{style:{fontSize:10,color:"#B0A890",marginBottom:4}},"Selic 11% + Treasuries 8%"),
+            h("div",{style:{fontSize:9,color:"#8A8070",lineHeight:1.55}},"Selic ancora volatilidade do portfolio (caixa estrategico produtivo em BRL, ~14% nominal). ",h("strong",{style:{color:"#E8C44A"}},"Treasuries (TLT 40% + IEF 20% + VTIP 40%)")," faz hedge anti-crash de equity em USD - em crises deflacionarias TLT sobe forte enquanto equity cai. Composicao 40/20/40 balanceia hedge anti-crash (TLT), amortecimento (IEF) e protecao inflacionaria USA (VTIP).")
+          ),
+          // Bucket 5
+          h("div",{style:{marginBottom:14,padding:"9px 11px",background:"rgba(209,122,34,0.05)",borderLeft:"3px solid #D17A22",borderRadius:"0 5px 5px 0"}},
+            h("div",{style:{fontSize:10,fontWeight:700,color:"#D17A22",fontFamily:"monospace",letterSpacing:1,marginBottom:5}},"5. LEGADO - 1%"),
+            h("div",{style:{fontSize:10,color:"#B0A890",marginBottom:4}},"Imoveis fisicos"),
+            h("div",{style:{fontSize:9,color:"#8A8070",lineHeight:1.55}},"Posicao legado, ",h("strong",{style:{color:"#D17A22"}},"nao recebe aportes"),". Reajustado por IPCA automaticamente.")
+          ),
+          // Analise multi-benchmark
+          h("div",{style:{marginTop:14,paddingTop:12,borderTop:"1px solid rgba(255,255,255,0.06)"}},
+            h("div",{style:{fontSize:9,letterSpacing:2,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,marginBottom:9,textTransform:"uppercase"}},"\u{1F3AF} Alinhamento Multi-Benchmark"),
+            // Yale
+            h("div",{style:{marginBottom:11,padding:"8px 10px",background:"rgba(91,143,212,0.06)",borderRadius:5}},
+              h("div",{style:{fontSize:9,color:"#5B8FD4",fontFamily:"monospace",fontWeight:700,marginBottom:5,letterSpacing:1}},"YALE ENDOWMENT (Swensen)"),
+              h("div",{style:{fontSize:9,color:"#9A9080",fontFamily:"monospace",lineHeight:1.7}},
+                "Equity: ",h("strong",{style:{color:"#B0A890"}},"31%")," (alvo Yale 35%) - levemente abaixo",h("br",{}),
+                "Real Assets: ",h("strong",{style:{color:"#B0A890"}},"31%")," (alvo 40%) - abaixo, mas BR nao tem infra listada tao ampla",h("br",{}),
+                "Inflation Hedge: ",h("strong",{style:{color:"#B0A890"}},"16%")," (alvo 12%) - acima, apropriado para Brasil",h("br",{}),
+                "RF Nominal: ",h("strong",{style:{color:"#B0A890"}},"19%")," (alvo 15%) - acima, apropriado para Selic 14%",h("br",{}),
+                "Alt Liquid: ",h("strong",{style:{color:"#B0A890"}},"3%")," (alvo ~5%) - dentro do range"
+              )
+            ),
+            // All Weather
+            h("div",{style:{marginBottom:11,padding:"8px 10px",background:"rgba(46,191,165,0.06)",borderRadius:5}},
+              h("div",{style:{fontSize:9,color:"#2EBFA5",fontFamily:"monospace",fontWeight:700,marginBottom:5,letterSpacing:1}},"ALL WEATHER (Dalio) - Cenarios Balanceados"),
+              h("div",{style:{fontSize:9,color:"#9A9080",fontFamily:"monospace",lineHeight:1.7}},
+                "c1 (cresc+ infl+): ",h("strong",{style:{color:"#4CAF82"}},"55%")," (FII+Infra+Agro+BR+Ouro+NTNB) \u2713",h("br",{}),
+                "c2 (cresc+ infl-): ",h("strong",{style:{color:"#4CAF82"}},"31%")," (EUA+Mundo+REIT+BR) \u2713",h("br",{}),
+                "c3 (estagflacao): ",h("strong",{style:{color:"#4CAF82"}},"28%")," (NTNB+Ouro+Infra+Agro) \u2713",h("br",{}),
+                "c4 (cresc- infl-): ",h("strong",{style:{color:"#4CAF82"}},"19%")," (Selic+Treasuries) \u2713"
+              )
+            ),
+            // Blindagem Cambial
+            h("div",{style:{marginBottom:11,padding:"8px 10px",background:"rgba(138,174,205,0.06)",borderRadius:5}},
+              h("div",{style:{fontSize:9,color:"#8AAECD",fontFamily:"monospace",fontWeight:700,marginBottom:5,letterSpacing:1}},"BLINDAGEM CAMBIAL"),
+              h("div",{style:{fontSize:9,color:"#9A9080",lineHeight:1.55}},
+                "EUA 11% + Mundo 7% + REIT 5% + Treasuries 8% + Ouro 5% + BTC 3% = ",h("strong",{style:{color:"#8AAECD"}},"39%")," em moeda forte.",h("br",{}),
+                h("span",{style:{fontSize:8,color:"#7A7060",fontStyle:"italic"}},"Target ideal 30-40% - excelente hedge anti-crise BR.")
+              )
+            ),
+            // Diversificacao
+            h("div",{style:{padding:"8px 10px",background:"rgba(232,196,74,0.06)",borderRadius:5}},
+              h("div",{style:{fontSize:9,color:"#E8C44A",fontFamily:"monospace",fontWeight:700,marginBottom:5,letterSpacing:1}},"CORRELACAO MEDIA PONDERADA"),
+              h("div",{style:{fontSize:9,color:"#9A9080",lineHeight:1.55}},
+                "Estimativa: cai de ",h("strong",{style:{color:"#E89060"}},"~0,45 (atual)")," para ",h("strong",{style:{color:"#4CAF82"}},"~0,32 (alvo)"),".",h("br",{}),
+                h("span",{style:{fontSize:8,color:"#7A7060",fontStyle:"italic"}},"Melhora significativa do score de Diversificacao do Indice de Solidez Patrimonial conforme portfolio migra para as bandas alvo via aportes mensais.")
+              )
+            )
+          ),
+          // Footer conceitual
+          h("div",{style:{marginTop:14,paddingTop:11,borderTop:"1px solid rgba(255,255,255,0.06)",fontSize:9,color:"#7A7060",fontStyle:"italic",lineHeight:1.6}},
+            "\u{1F3D4}\uFE0F ",h("strong",{style:{color:"#C8A96E",fontStyle:"normal"}},"Filosofia Aletsch"),": construcao paciente e disciplinada de um portfolio glacial - resiliente a multiplos cenarios macro, com renda passiva forte, motor de crescimento em moeda forte, hedges inflacionarios e anti-crash. Convergencia para os centros das bandas se da EXCLUSIVAMENTE via direcao dos aportes mensais (Buy & Hold rigoroso, zero vendas)."
+          )
+        )
+      );
       // Bloco de programacao de aporte
       const aporteConfBlock=h("div",{style:{marginBottom:14,padding:"11px 13px",background:"rgba(200,169,110,0.04)",border:"1px solid rgba(200,169,110,0.2)",borderRadius:8}},
         h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:editAporte?10:0,gap:6}},
@@ -18404,6 +18493,7 @@ h("button",{onClick:async()=>{
         // Aba positions normal: cadastro de ativos
         content=h("div",{},
           bandsBlock,
+          racionalBlock,
           aporteConfBlock,
           imoveisBlock,
           manutencaoBlock,
