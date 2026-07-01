@@ -4696,8 +4696,12 @@ function RankingMensalCard({histMensal,hist,idxMensal,setIdxMensal}){
     const arr=[];
     const inicio=new Date(2026,5,1);// junho 2026 (mes=5 em JS, 0-indexed)
     const hoje=new Date();
+    // Mes corrente eh EXCLUIDO - ranking so mostra meses FECHADOS
+    // Ex: se hoje eh 05/jul/2026, para = 30/jun/2026 (ultimo fechado)
+    const anoCorr=hoje.getFullYear();
+    const mesCorr=hoje.getMonth();// 0-indexed
     let d=new Date(inicio);
-    while(d.getFullYear()<hoje.getFullYear()||(d.getFullYear()===hoje.getFullYear()&&d.getMonth()<=hoje.getMonth())){
+    while(d.getFullYear()<anoCorr||(d.getFullYear()===anoCorr&&d.getMonth()<mesCorr)){
       arr.push(d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0"));
       d.setMonth(d.getMonth()+1);
     }
@@ -4725,7 +4729,11 @@ function RankingMensalCard({histMensal,hist,idxMensal,setIdxMensal}){
     // Aportes = todos os apValue dos snaps APOS o primeiro
     const aportes=arr.slice(1).reduce((s,r)=>s+(r.apValue||0),0);
     const ret=((vFim-aportes-vIni)/vIni)*100;
-    return {valor:isNaN(ret)?null:ret,fonte:"calculado"};
+    if(isNaN(ret))return {valor:null,fonte:"sem_dados"};
+    // Sanity check: rentabilidades absurdas indicam dados corrompidos (ex: recadastro no meio do mes)
+    // Descarta valores fora de [-90%, +500%] para meses fechados normais
+    if(ret>500||ret<-90)return {valor:null,fonte:"dados_invalidos"};
+    return {valor:ret,fonte:"calculado"};
   };
   // ========== VALORES POR MES/CAMPO ==========
   const valoresPorMes={};
