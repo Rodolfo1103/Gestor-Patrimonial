@@ -5620,74 +5620,68 @@ function ComparativoChart({histMensal,idxMensal,hideVal,hist}){
     const meses=["jan","fev","mar","abr","mai","jun","jul","ago","set","out","nov","dez"];
     return meses[parseInt(m)-1]+"/"+a.slice(2);
   };
-  // === SVG: gráfico de retorno acumulado ===
-  const construirAcumulado=(c)=>{
-    // serie de acumulado mes a mes
-    let acum=1;
-    const arr=[];
-    meses.forEach(k=>{
-      const v=c.get(k);
-      if(typeof v==="number"&&!isNaN(v))acum*=(1+v/100);
-      arr.push((acum-1)*100);
-    });
-    return arr;
-  };
-  const seriesAcum={};
-  cols.forEach(c=>{seriesAcum[c.key]=construirAcumulado(c);});
-  const todosVals=Object.values(seriesAcum).flat().filter(v=>!isNaN(v));
-  const yMin=todosVals.length?Math.min(...todosVals,0):0;
-  const yMax=todosVals.length?Math.max(...todosVals,0):1;
-  const yRng=(yMax-yMin)||1;
-  const W=340,H=180,pL=36,pR=10,pT=10,pB=22,cW=W-pL-pR,cH=H-pB-pT;
-  const xScale=i=>meses.length<=1?pL+cW/2:pL+(i/(meses.length-1))*cW;
-  const yScale=v=>pT+cH-((v-yMin)/yRng)*cH;
-  // Eixo X com max 6 labels
-  const stepLabels=Math.max(1,Math.ceil(meses.length/6));
-  const idxLabels=[];for(let i=0;i<meses.length;i+=stepLabels)idxLabels.push(i);
-  if(idxLabels[idxLabels.length-1]!==meses.length-1)idxLabels.push(meses.length-1);
+  // === RANKING MENSAL (LEADERBOARD) ===
+  // Substitui o grafico de linhas por uma grade de ranking por mes.
+  // Cada mes eh uma coluna vertical, cada linha eh um ranking (1o ao ultimo).
+  // Portfolio destacado com borda dourada em qualquer posicao que estiver.
+  // Filtra apenas MESES FECHADOS (exclui o mes corrente em curso).
+  const hoje=new Date();
+  const mesCorrenteKey=hoje.getFullYear()+"-"+String(hoje.getMonth()+1).padStart(2,"0");
+  const mesesFechados=meses.filter(k=>k!==mesCorrenteKey);
+  // Para cada mes, monta o ranking dos cols com retorno definido
+  const rankingPorMes={};
+  mesesFechados.forEach(k=>{
+    const linhas=cols.map(c=>({key:c.key,nome:c.nome,cor:c.cor,valor:c.get(k)}))
+      .filter(l=>typeof l.valor==="number"&&!isNaN(l.valor))
+      .sort((a,b)=>b.valor-a.valor);
+    rankingPorMes[k]=linhas;
+  });
+  // Numero maximo de linhas (todos os cols que aparecem em pelo menos um mes)
+  const maxLinhas=cols.length;
 
   return h("div",{style:{marginBottom:20,paddingTop:14,borderTop:"1px solid rgba(255,255,255,0.05)"}},
     h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:4}},"Rentabilidade comparativa"),
     h("div",{style:{fontSize:9,color:"#5A5550",marginBottom:10,fontStyle:"italic"}},"Retorno time-weighted descontando aportes vs indices de mercado"),
-    // Grafico de acumulado
-    h("div",{style:{marginBottom:14,padding:"10px",background:"rgba(0,0,0,0.2)",border:"1px solid rgba(255,255,255,0.05)",borderRadius:8}},
-      h("div",{style:{fontSize:9,color:"#8A8070",marginBottom:6,fontFamily:"monospace",letterSpacing:1}},"RETORNO ACUMULADO (%) "+(meses.length>1?meses[0]+" \u2192 "+meses[meses.length-1]:meses[0])),
-      h("svg",{viewBox:"0 0 "+W+" "+H,style:{width:"100%",height:"auto",display:"block"}},
-        // grade
-        ...[0,0.25,0.5,0.75,1].map(f=>{
-          const y=pT+cH-f*cH,v=yMin+f*yRng;
-          return h(Fragment,{key:"g"+f},
-            h("line",{x1:pL,y1:y,x2:W-pR,y2:y,stroke:"rgba(255,255,255,0.04)",strokeWidth:"1"}),
-            h("text",{x:pL-3,y:y+3,textAnchor:"end",fill:"#5A5550",fontSize:"7",fontFamily:"monospace"},(v>=0?"+":"")+v.toFixed(0)+"%")
-          );
-        }),
-        // linha zero
-        Math.abs(yMin)>0.01&&h("line",{x1:pL,y1:yScale(0),x2:W-pR,y2:yScale(0),stroke:"rgba(255,255,255,0.15)",strokeWidth:"1",strokeDasharray:"3,2"}),
-        // Linhas das series
-        ...cols.map(c=>{
-          const pts=seriesAcum[c.key].map((v,i)=>({x:xScale(i),y:yScale(v)}));
-          if(pts.length===0)return null;
-          const d=pts.map((p,i)=>(i===0?"M":"L")+p.x.toFixed(1)+" "+p.y.toFixed(1)).join(" ");
-          const isPort=c.key==="port";
-          return h(Fragment,{key:c.key},
-            h("path",{d,fill:"none",stroke:c.cor,strokeWidth:isPort?"2.2":"1.1",opacity:isPort?"1":"0.55",strokeLinejoin:"round",strokeLinecap:"round"}),
-            // ponto final destacado so para portfolio
-            isPort&&pts.length>0&&h("circle",{cx:pts[pts.length-1].x.toFixed(1),cy:pts[pts.length-1].y.toFixed(1),r:"3",fill:c.cor,stroke:"#0D0F14",strokeWidth:"1.5"})
-          );
-        }),
-        // Labels eixo X
-        ...idxLabels.map(i=>{
-          const x=xScale(i);
-          return h("text",{key:"l"+i,x:x.toFixed(1),y:H-pB+12,textAnchor:"middle",fill:"#7A7060",fontSize:"7",fontFamily:"monospace"},fmtMes(meses[i]));
-        })
+    // ===== RANKING MENSAL (LEADERBOARD) =====
+    // Substitui o grafico de linhas. Meses no eixo horizontal, ranking na vertical.
+    // Scroll lateral se passar de ~4 meses (2 na tela de celular).
+    mesesFechados.length===0?h("div",{style:{marginBottom:14,padding:"14px",background:"rgba(0,0,0,0.20)",border:"1px dashed rgba(200,169,110,0.20)",borderRadius:8,textAlign:"center",color:"#7A7060",fontSize:10,fontStyle:"italic"}},"Aguardando fechamento do primeiro mes para gerar ranking"):
+    h("div",{style:{marginBottom:14,padding:"10px",background:"rgba(0,0,0,0.20)",border:"1px solid rgba(255,255,255,0.05)",borderRadius:8}},
+      h("div",{style:{fontSize:9,color:"#8A8070",marginBottom:8,fontFamily:"monospace",letterSpacing:1}},"RANKING MENSAL DE RENTABILIDADE"),
+      h("div",{style:{overflowX:"auto",WebkitOverflowScrolling:"touch",paddingBottom:4}},
+        h("div",{style:{display:"flex",gap:8,minWidth:mesesFechados.length*140+"px"}},
+          ...mesesFechados.map(k=>{
+            const ranking=rankingPorMes[k]||[];
+            return h("div",{key:k,style:{flex:"0 0 130px",background:"rgba(0,0,0,0.25)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:6,padding:"7px 6px"}},
+              // Header do mes
+              h("div",{style:{fontSize:9,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,letterSpacing:2,textAlign:"center",marginBottom:6,paddingBottom:5,borderBottom:"1px solid rgba(200,169,110,0.20)"}},fmtMes(k).toUpperCase()),
+              // Lista ranqueada
+              ...ranking.map((l,i)=>{
+                const isPort=l.key==="port";
+                const posColor=i===0?"#4CAF82":i===1?"#7AC494":i===2?"#B0A890":i===ranking.length-1?"#E05252":i>=ranking.length-2?"#D99A55":"#8A8070";
+                return h("div",{key:l.key,style:{
+                  display:"flex",
+                  alignItems:"center",
+                  gap:4,
+                  padding:"3px 5px",
+                  marginBottom:2,
+                  background:isPort?"rgba(200,169,110,0.10)":"transparent",
+                  border:isPort?"1px solid rgba(200,169,110,0.55)":"1px solid transparent",
+                  borderRadius:4,
+                  fontSize:9,
+                  fontFamily:"monospace"
+                }},
+                  h("span",{style:{color:posColor,fontWeight:700,minWidth:14,textAlign:"center",fontSize:8}},(i+1)+"\u00B0"),
+                  h("span",{style:{color:l.cor,flex:1,fontWeight:isPort?700:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},l.nome),
+                  h("span",{style:{color:l.valor>=0?"#5DBF82":"#E05252",fontWeight:700,fontSize:9,minWidth:38,textAlign:"right"}},(l.valor>=0?"+":"")+l.valor.toFixed(2)+"%")
+                );
+              }),
+              ranking.length===0&&h("div",{style:{fontSize:9,color:"#5A5550",fontStyle:"italic",textAlign:"center",padding:"6px"}},"sem dados")
+            );
+          })
+        )
       ),
-      // Legenda compacta
-      h("div",{style:{display:"flex",flexWrap:"wrap",gap:"8px 12px",marginTop:8,fontSize:8,fontFamily:"monospace"}},
-        ...cols.map(c=>h("div",{key:c.key,style:{display:"flex",alignItems:"center",gap:4}},
-          h("span",{style:{width:8,height:c.key==="port"?3:2,background:c.cor,borderRadius:1}}),
-          h("span",{style:{color:c.key==="port"?"#F0EAD8":"#8A8070",fontWeight:c.key==="port"?700:400}},c.nome)
-        ))
-      )
+      h("div",{style:{fontSize:8,color:"#5A5550",marginTop:8,fontStyle:"italic",lineHeight:1.5}},"Ranking dos melhores investimentos do mes por rentabilidade. Seu portfolio destacado com borda dourada. Historico cresce a cada mes fechado.")
     ),
     // Tabela de retornos mensais
     h("div",{style:{overflowX:"auto",WebkitOverflowScrolling:"touch",marginBottom:14}},
