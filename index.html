@@ -15323,7 +15323,7 @@ function App(){
         "   - Campo 'explicacao' deve ser uma string simples (sem quebras de linha literais, sem aspas internas nao escapadas).\\n\\n"+
         "ESTRUTURA EXATA (use estas mesmas chaves, apenas atualize os valores numericos e o texto):\\n"+
         "{\"ajustes\":{\"fii\":{\"r\":3.5,\"e\":7.5},\"acoes_br\":{\"r\":6.5,\"e\":8.5},\"acoes_eua\":{\"r\":5.5,\"e\":8.0},\"acoes_mundo\":{\"r\":5.5,\"e\":7.8},\"reits\":{\"r\":4.5,\"e\":7.2},\"selic\":{\"r\":1.0,\"e\":4.5},\"ouro\":{\"r\":4.0,\"e\":5.5},\"bitcoin\":{\"r\":9.5,\"e\":9.0},\"infra\":{\"r\":2.5,\"e\":7.0},\"imoveis\":{\"r\":2.0,\"e\":6.0},\"agro\":{\"r\":3.0,\"e\":8.0}},\"explicacao\":\"Texto curto (max 60 palavras) explicando por que os scores foram ajustados conforme o cenario macro.\"}";
-      const txt=await callAPI([{role:"user",content:prompt}],apiKey);
+      const txt=await callAPI([{role:"user",content:prompt}],apiKey,2500);
       // Tenta extrair JSON da resposta com varias estrategias de limpeza
       let parsed;
       // Funcao de limpeza: remove markdown, aspas tipograficas, comentarios, trailing commas
