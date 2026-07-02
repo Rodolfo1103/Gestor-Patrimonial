@@ -1387,13 +1387,31 @@ function calcTIRImplicita(ticker,classeId,precoAtual,dadosFundamentais,calibraco
     }
   }
   
-  // Filtro de sanidade: TIR > 40% indica dado fundamental absurdo da IA (lpa/divAnual confundidos com outros valores)
-  // ou TIR negativa: ativo nao remunera. Marca como "inconsistente" para nao poluir a regua.
+  // Filtro de sanidade: TIR muito alta indica dado fundamental inflado (LPA "normalizado" incorreto)
+  // Limites por classe considerando premios historicos razoaveis
+  // Ex: BBAS3 EY real ~10-12%, se aparecer TIR 25%+ o LPA foi inflado
   let tirInconsistente=false;
   if(tirAtual!==null){
+    // Teto duro absoluto (dados absurdos)
     if(tirAtual>0.40||tirAtual<-0.10){
       tirInconsistente=true;
-      tirAtual=null;// invalida o calculo
+      tirAtual=null;
+    }
+    // Tetos por classe para pegar inflacao mais sutil de LPA/DY
+    else if(classeId==="acoes_br"&&tirAtual>0.25){
+      // Acoes BR: EY 10-15% + cresc 4-5% = TIR razoavel ate ~20%. TIR 25%+ implica LPA inflado
+      tirInconsistente=true;
+      tirAtual=null;
+    }
+    else if((classeId==="acoes_eua"||classeId==="acoes_mundo")&&tirAtual>0.22){
+      // Acoes exterior: EY 5-8% + cresc 3-5% = TIR razoavel ate ~13%. TIR 22%+ implica LPA inflado
+      tirInconsistente=true;
+      tirAtual=null;
+    }
+    else if((classeId==="fii"||classeId==="infra"||classeId==="agro")&&tirAtual>0.22){
+      // Real assets BR: DY 8-12% + cresc 2-3% = TIR razoavel ate ~15%. TIR 22%+ implica DY inflado
+      tirInconsistente=true;
+      tirAtual=null;
     }
   }
   
@@ -14151,7 +14169,7 @@ function App(){
         "REGRAS CRITICAS:\n"+
         "1) Para CADA ticker fornecido neste batch, retornar uma entrada COMPLETA. NAO PULAR NENHUM ticker.\n"+
         "2) DADOS FUNDAMENTAIS DEVEM SER ANCORADOS NO BALANCO MAIS RECENTE encontrado via web_search. Indicar 'dataReferencia' (ano-mes-Q ou ano-mes).\n"+
-        "3) Para ACOES (acoes_br, acoes_eua, acoes_mundo): lpa_normalizado = LUCRO POR ACAO em moeda nativa, MID-CYCLE. EXEMPLO: BBAS3 lpa_normalizado ~5.5 BRL (NAO confundir com lucro total da empresa em bilhoes). MSFT lpa_normalizado ~13 USD. WEGE3 lpa_normalizado ~1.85 BRL. Se voce nao tem certeza do LPA real, faca estimativa conservadora.\n"+
+        "3) Para ACOES (acoes_br, acoes_eua, acoes_mundo): lpa_normalizado = LUCRO POR ACAO EM MOEDA NATIVA - use o LPA TRAILING 12M (lucro dos ultimos 4 trimestres divididos pelo numero de acoes) confirmado via web_search em fontes oficiais (Status Invest, Investidor10, Dados de Mercado, Yahoo Finance, SeekingAlpha). NAO INVENTE 'normalizado mid-cycle' - se o lucro esta caindo/subindo no ciclo atual, use o TTM real (nao a media dos ultimos 5 anos). EXEMPLOS ATUAIS 2026: BBAS3 lpa TTM ~2.80 BRL (lucro em queda -54% em 2025, guidance 2026 revisado para baixo - NAO usar ~5.5 obsoleto). PSSA3 lpa TTM ~5.69 BRL (ROE 24%, ainda saudavel). MSFT lpa TTM ~13 USD. WEGE3 lpa TTM ~1.85 BRL. ITUB3 lpa TTM ~4.40 BRL. Se voce nao tem certeza do LPA atual, marque 'estimativa baixa confianca' na observacao mas NUNCA use LPA de 2 anos atras. VALIDACAO CRITICA: apos definir lpa_normalizado, CALCULE mentalmente EY = lpa/precoAtual. Se EY > 15% para banco/seguradora BR ou > 20% para qualquer acao brasileira, revise - provavelmente o LPA esta inflado. EYs plausiveis para financeiras BR: 8-14%. Para compounders com moat: 4-8%. Se seu numero excede esses limites, o mercado NAO esta precificando mal - VOCE esta com o LPA errado.\n"+
         "4) Para FIIs: div_anual = DIVIDENDO TRAILING 12M POR COTA em BRL. CRITICO: usar SOMA DOS ULTIMOS 12 RENDIMENTOS PAGOS (trailing - olhando para tras), NUNCA estimativa forward ou anualizacao linear de 1 mes. Buscar via web_search no historico de proventos do fundo (Funds Explorer, Status Invest). EXEMPLO: HGLG11 div_anual ~10 BRL = soma jan/2025 ate dez/2025 (ou mes mais recente pra 12 meses atras). ALZR11 div_anual ~7 BRL. RECR11 div_anual ~12 BRL. NUNCA confunda div_anual com VPA ou cotacao. NUNCA multiplique o dividendo do ultimo mes por 12 (isso e anualizacao linear, nao trailing 12m).\n"+
         "5) Para REITs: affo_por_acao = AFFO POR ACAO em USD TTM (trailing twelve months, NAO forward). EXEMPLO: O affo_por_acao ~4.20 USD. NAO confundir com FFO ou EPS.\n"+
         "6) Para INFRA/AGRO (Brasil): div_anual = DIVIDENDO TRAILING 12M POR COTA em BRL (soma dos ultimos 12 rendimentos pagos, NAO forward, NAO anualizacao linear).\n"+
