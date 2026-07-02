@@ -15351,7 +15351,8 @@ function App(){
         "   - NAO use trailing commas (virgula antes de } ou ]).\\n"+
         "   - NAO inclua comentarios // ou /* */.\\n"+
         "   - O JSON DEVE ser parseavel direto via JSON.parse().\\n"+
-        "   - Campo 'explicacao' deve ser uma string simples (sem quebras de linha literais, sem aspas internas nao escapadas).\\n\\n"+
+        "   - Campo 'explicacao' deve ser uma string simples (sem quebras de linha literais, sem aspas internas nao escapadas).\\n"+
+        "   - CRITICO: Se voce cometer erro de sintaxe, NAO escreva 'Wait, I made a syntax error' e depois o JSON corrigido - isso quebra o parser. Simplesmente REVISE MENTALMENTE seu output antes de escrever, e escreva UM UNICO JSON valido de uma so vez. Se detectar erro apos escrever, comece uma nova resposta (chave abrindo com {) - jamais concatene explicacao no meio.\\n\\n"+
         "ESTRUTURA EXATA (use estas mesmas chaves, apenas atualize os valores numericos e o texto):\\n"+
         "{\"ajustes\":{\"fii\":{\"r\":3.5,\"e\":7.5},\"acoes_br\":{\"r\":6.5,\"e\":8.5},\"acoes_eua\":{\"r\":5.5,\"e\":8.0},\"acoes_mundo\":{\"r\":5.5,\"e\":7.8},\"reits\":{\"r\":4.5,\"e\":7.2},\"selic\":{\"r\":1.0,\"e\":4.5},\"ouro\":{\"r\":4.0,\"e\":5.5},\"bitcoin\":{\"r\":9.5,\"e\":9.0},\"infra\":{\"r\":2.5,\"e\":7.0},\"imoveis\":{\"r\":2.0,\"e\":6.0},\"agro\":{\"r\":3.0,\"e\":8.0}},\"explicacao\":\"Texto curto (max 60 palavras) explicando por que os scores foram ajustados conforme o cenario macro.\"}";
       const txt=await callAPI([{role:"user",content:prompt}],apiKey,4000);
@@ -15403,12 +15404,45 @@ function App(){
         try{return JSON.parse(s);}catch(_){}
         const limpo=limpaJSON(s);
         try{return JSON.parse(limpo);}catch(_){}
-        const m=limpo.match(/\{[\s\S]*\}/);
-        if(m){
-          try{return JSON.parse(m[0]);}catch(_){}
-          try{return JSON.parse(limpaJSON(m[0]));}catch(_){}
+        // Extrai TODOS os candidatos JSON balanceados (a IA pode retornar 2+ JSONs
+        // quando corrige um erro anterior; nao usar regex ganancioso que junta tudo)
+        const candidatos=[];
+        for(let i=0;i<limpo.length;i++){
+          if(limpo[i]!=="{")continue;
+          let profundidade=0,dentroString=false,escape=false;
+          for(let j=i;j<limpo.length;j++){
+            const ch=limpo[j];
+            if(escape){escape=false;continue;}
+            if(ch==="\\"){escape=true;continue;}
+            if(ch==='"'){dentroString=!dentroString;continue;}
+            if(dentroString)continue;
+            if(ch==="{")profundidade++;
+            else if(ch==="}"){
+              profundidade--;
+              if(profundidade===0){
+                candidatos.push(limpo.substring(i,j+1));
+                i=j;// pula para depois do bloco
+                break;
+              }
+            }
+          }
         }
-        // Ultima defesa: tenta reparo de JSON truncado
+        // Tenta parsear cada candidato; prefere o que tem "ajustes"
+        // Estrategia: tenta do MAIOR ao MENOR (JSON completo geralmente e maior),
+        // mas exige que tenha campo ajustes valido para nao aceitar objeto parcial
+        candidatos.sort((a,b)=>b.length-a.length);
+        for(const c of candidatos){
+          try{
+            const p=JSON.parse(c);
+            if(p&&p.ajustes&&typeof p.ajustes==="object")return p;
+          }catch(_){}
+          // tenta versao limpa
+          try{
+            const p=JSON.parse(limpaJSON(c));
+            if(p&&p.ajustes&&typeof p.ajustes==="object")return p;
+          }catch(_){}
+        }
+        // Se nenhum candidato balanceado funcionou, tenta reparo de JSON truncado
         try{
           const reparado=reparaJSONTruncado(limpo);
           return JSON.parse(reparado);
