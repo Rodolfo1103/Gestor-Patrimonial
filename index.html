@@ -1387,29 +1387,14 @@ function calcTIRImplicita(ticker,classeId,precoAtual,dadosFundamentais,calibraco
     }
   }
   
-  // Filtro de sanidade: TIR muito alta indica dado fundamental inflado (LPA "normalizado" incorreto)
-  // Limites por classe considerando premios historicos razoaveis
-  // Ex: BBAS3 EY real ~10-12%, se aparecer TIR 25%+ o LPA foi inflado
+  // Filtro de sanidade: apenas invalida valores REALMENTE absurdos
+  // Valores altos-mas-plausiveis (ex: 22-28% para acoes) permanecem - a IA e responsavel
+  // pela precisao do LPA/DY via prompt anti-alucinacao. Um filtro rigido aqui gera
+  // falsos negativos ("sem dados") em analises legitimas de tickers ciclicos ou em recuperacao.
   let tirInconsistente=false;
   if(tirAtual!==null){
-    // Teto duro absoluto (dados absurdos)
+    // Teto duro absoluto: apenas dados claramente errados (LPA confundido com lucro total em bi, etc)
     if(tirAtual>0.40||tirAtual<-0.10){
-      tirInconsistente=true;
-      tirAtual=null;
-    }
-    // Tetos por classe para pegar inflacao mais sutil de LPA/DY
-    else if(classeId==="acoes_br"&&tirAtual>0.25){
-      // Acoes BR: EY 10-15% + cresc 4-5% = TIR razoavel ate ~20%. TIR 25%+ implica LPA inflado
-      tirInconsistente=true;
-      tirAtual=null;
-    }
-    else if((classeId==="acoes_eua"||classeId==="acoes_mundo")&&tirAtual>0.22){
-      // Acoes exterior: EY 5-8% + cresc 3-5% = TIR razoavel ate ~13%. TIR 22%+ implica LPA inflado
-      tirInconsistente=true;
-      tirAtual=null;
-    }
-    else if((classeId==="fii"||classeId==="infra"||classeId==="agro")&&tirAtual>0.22){
-      // Real assets BR: DY 8-12% + cresc 2-3% = TIR razoavel ate ~15%. TIR 22%+ implica DY inflado
       tirInconsistente=true;
       tirAtual=null;
     }
