@@ -5681,7 +5681,7 @@ function CurrencyChart({port,cls,hideVal}){
   );
 }
 
-function RiskChart({cw,selicAtual,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,recalibrarRR_viaIA,calibracaoLoad,calibracaoErr,hasAjustesIA,apiKey}){
+function RiskChart({cw,selicAtual,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,recalibrarRR_viaIA,calibracaoLoad,calibracaoErr,debugRR_texto,hasAjustesIA,apiKey}){
   const W=300,H=170,pL=22,pB=18,pT=18,pR=12,cW=W-pL-pR,cH=H-pB-pT;
   // Calcula posicao do portfolio agregado (media ponderada de risco e retorno)
   let totW=0,wR=0,wE=0;
@@ -6016,7 +6016,21 @@ function RiskChart({cw,selicAtual,calibracaoRR_TS,calibracaoRR_texto,calibracaoR
           );
         })(),
         // Erro ou explicacao da ultima calibracao IA
-        calibracaoErr&&h("div",{style:{fontSize:9,color:"#E05252",fontStyle:"italic",marginBottom:8,padding:"5px 8px",background:"rgba(224,82,82,0.05)",border:"1px solid rgba(224,82,82,0.2)",borderRadius:4}},"Erro: "+calibracaoErr),
+        calibracaoErr&&h("div",{style:{marginBottom:8}},
+          h("div",{style:{fontSize:9,color:"#E05252",fontStyle:"italic",padding:"5px 8px",background:"rgba(224,82,82,0.05)",border:"1px solid rgba(224,82,82,0.2)",borderRadius:4}},"Erro: "+calibracaoErr),
+          debugRR_texto?h("button",{onClick:()=>{
+            try{
+              if(navigator&&navigator.clipboard&&navigator.clipboard.writeText){
+                navigator.clipboard.writeText(debugRR_texto).then(()=>{alert("Debug copiado! Cole aqui para eu analisar.");}).catch(()=>{
+                  // fallback: mostra em prompt para copia manual
+                  window.prompt("Copie o texto abaixo (Ctrl+C ou selecionar tudo):",debugRR_texto);
+                });
+              }else{
+                window.prompt("Copie o texto abaixo:",debugRR_texto);
+              }
+            }catch(_){window.prompt("Copie o texto abaixo:",debugRR_texto);}
+          },style:{marginTop:4,padding:"4px 10px",background:"rgba(232,144,96,0.10)",border:"1px solid rgba(232,144,96,0.35)",borderRadius:3,color:"#E89060",fontSize:9,cursor:"pointer",fontFamily:"monospace",letterSpacing:1,fontWeight:700}},"\u{1F41B} COPIAR DEBUG"):null
+        ),
         hasAjustesIA&&calibracaoRR_texto&&h("div",{style:{fontSize:9,color:"#A0B8D4",fontStyle:"italic",marginBottom:8,padding:"5px 8px",background:"rgba(91,143,212,0.05)",border:"1px solid rgba(91,143,212,0.15)",borderRadius:4,lineHeight:1.5}},
           h("span",{style:{color:"#5B8FD4",fontWeight:700,letterSpacing:1,fontFamily:"monospace",fontSize:8}},"IA: "),
           calibracaoRR_texto
@@ -15301,10 +15315,11 @@ function App(){
   // Recalibracao IA das premissas de risco/retorno (sob demanda do usuario)
   const [calibracaoLoad,setCalibracaoLoad]=useState(false);
   const [calibracaoErr,setCalibracaoErr]=useState("");
+  const [debugRR_texto,setDebugRR_texto]=useState("");
   const recalibrarRR_viaIA=useCallback(async()=>{
     if(!apiKey){setCalibracaoErr("Cadastre sua chave API Anthropic (botao API).");return;}
     if(calibracaoLoad)return;
-    setCalibracaoLoad(true);setCalibracaoErr("");
+    setCalibracaoLoad(true);setCalibracaoErr("");setDebugRR_texto("");
     try{
       const dadosContexto={
         selic_atual_pct:selicAtual,
@@ -15340,6 +15355,9 @@ function App(){
         "ESTRUTURA EXATA (use estas mesmas chaves, apenas atualize os valores numericos e o texto):\\n"+
         "{\"ajustes\":{\"fii\":{\"r\":3.5,\"e\":7.5},\"acoes_br\":{\"r\":6.5,\"e\":8.5},\"acoes_eua\":{\"r\":5.5,\"e\":8.0},\"acoes_mundo\":{\"r\":5.5,\"e\":7.8},\"reits\":{\"r\":4.5,\"e\":7.2},\"selic\":{\"r\":1.0,\"e\":4.5},\"ouro\":{\"r\":4.0,\"e\":5.5},\"bitcoin\":{\"r\":9.5,\"e\":9.0},\"infra\":{\"r\":2.5,\"e\":7.0},\"imoveis\":{\"r\":2.0,\"e\":6.0},\"agro\":{\"r\":3.0,\"e\":8.0}},\"explicacao\":\"Texto curto (max 60 palavras) explicando por que os scores foram ajustados conforme o cenario macro.\"}";
       const txt=await callAPI([{role:"user",content:prompt}],apiKey,4000);
+      // Grava resposta bruta para diagnostico (limitado a 5000 chars)
+      const debugFull="["+new Date().toISOString()+"] Resposta bruta da IA (tamanho: "+String(txt||"").length+" chars):\n\n"+String(txt||"").slice(0,5000);
+      setDebugRR_texto(debugFull);
       // Tenta extrair JSON da resposta com varias estrategias de limpeza
       let parsed;
       // Funcao de limpeza: remove markdown, aspas tipograficas, comentarios, trailing commas
@@ -15408,7 +15426,14 @@ function App(){
       setCalibracaoRR_TS(Date.now());
       setCalibracaoRR_texto(parsed.explicacao||"");
       setCalibracaoRR_selic(typeof selicAtual==="number"?selicAtual:null);
-    }catch(e){setCalibracaoErr(e.message||"Erro na calibracao");}
+    }catch(e){
+      setCalibracaoErr(e.message||"Erro na calibracao");
+      // Grava a exception no debug se ainda nao houver texto capturado
+      setDebugRR_texto(prev=>{
+        const stackInfo="["+new Date().toISOString()+"] EXCECAO: "+(e.message||String(e))+"\nStack: "+(e.stack||"n/d");
+        return prev?prev+"\n\n---\n\n"+stackInfo:stackInfo;
+      });
+    }
     setCalibracaoLoad(false);
   },[apiKey,selicAtual,infIPCA,infIGPM,infCPI,btcUsd,xauBrl,calibracaoLoad,rrTick]);
 
@@ -26914,7 +26939,7 @@ h("button",{onClick:async()=>{
       
       content=h("div",{},
         // GRAFICO DE RISCO X RETORNO AGREGADO (movido do dashboard)
-        h(RiskChart,{cw,selicAtual,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,recalibrarRR_viaIA,calibracaoLoad,calibracaoErr,hasAjustesIA:!!ajustesRR_IA,apiKey}),
+        h(RiskChart,{cw,selicAtual,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,recalibrarRR_viaIA,calibracaoLoad,calibracaoErr,debugRR_texto,hasAjustesIA:!!ajustesRR_IA,apiKey}),
         // ===== BANNER MIRA IA: status da selecao para aporte proximo =====
         (function(){
           if(!_naJanelaMira)return null;
