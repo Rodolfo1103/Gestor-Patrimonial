@@ -5091,7 +5091,7 @@ function ResilienciaAtualCard({cw,total}){
 // Fallback: calcRetornosMensais(histMensal, hist) - ex-aportes via apValue
 // Cores: verde positivo, vermelho negativo, intensidade proporcional ao modulo
 // ============================================================
-function HeatmapMensal({histMensal,hist,idxMensal}){
+function HeatmapMensal({histMensal,hist,idxMensal,histCutoff}){
   const meses3=["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
   // ==== Passo 1: coletar retornos por mes ====
   const retornos={};// {"YYYY-MM": retorno em %}
@@ -5104,17 +5104,20 @@ function HeatmapMensal({histMensal,hist,idxMensal}){
       }
     });
   }
-  // Fonte 2: calculo proprio ENCADEADO com deteccao de saltos anomalos
-  // Filosofia: entre snaps consecutivos, calcula retorno instantaneo.
-  // Se retorno instantaneo excede LIMIAR_ANOMALIA sem aporte proporcional,
-  // trata como cadastro de ativo (mudanca de composicao) e IGNORA esse elo.
-  // Compomos so os elos "limpos" para o retorno do mes.
+  // Fonte 2: calculo direto usando histCutoff como marco de inicio pos-reset
+  // Filosofia: primeiro snap do mes COM timestamp >= histCutoff vs ultimo snap do mes
+  // Aportes descontados via apValue. Sem filtros de anomalia (histCutoff resolve isso).
   try{
-    const LIMIAR_ANOMALIA=0.08;// 8% num unico salto snap-to-snap sem aporte = suspeito
     if(Array.isArray(hist)&&hist.length>=2){
-      // Ordena hist cronologicamente
-      const snapsOrd=hist.filter(r=>r&&r.date&&r.totalPatrimBRL>0)
-        .slice().sort((a,b)=>new Date(a.date)-new Date(b.date));
+      // Filtra snaps validos: totalPatrimBRL > 0 e (se histCutoff definido) >= cutoff
+      const snapsOrd=hist.filter(r=>{
+        if(!r||!r.date||!(r.totalPatrimBRL>0))return false;
+        if(typeof histCutoff==="number"){
+          const t=new Date(r.date).getTime();
+          if(t<histCutoff)return false;
+        }
+        return true;
+      }).slice().sort((a,b)=>new Date(a.date)-new Date(b.date));
       // Agrupa por mes
       const snapsPorMes={};
       snapsOrd.forEach(r=>{
@@ -5126,27 +5129,14 @@ function HeatmapMensal({histMensal,hist,idxMensal}){
       Object.keys(snapsPorMes).forEach(mes=>{
         if(mes in retornos)return;// override manual tem prioridade
         const arr=snapsPorMes[mes];
-        if(arr.length<2)return;
-        // Encadeia retornos snap-a-snap, filtrando anomalias
-        let acumulado=1;
-        let elosValidos=0;
-        for(let i=1;i<arr.length;i++){
-          const ant=arr[i-1],cur=arr[i];
-          const vAnt=ant.totalPatrimBRL,vCur=cur.totalPatrimBRL;
-          if(!(vAnt>0)||!(vCur>0))continue;
-          const aporte=cur.apValue||0;
-          // Retorno instantaneo ex-aporte
-          const rInst=(vCur-aporte-vAnt)/vAnt;
-          // Se retorno absoluto excede limiar e aporte nao explica, e cadastro/anomalia
-          // (aporte normal seria contabilizado em apValue; salto sem apValue = cadastro)
-          if(Math.abs(rInst)>LIMIAR_ANOMALIA)continue;
-          acumulado*=(1+rInst);
-          elosValidos++;
-        }
-        if(elosValidos>0){
-          const rMes=(acumulado-1)*100;
-          if(!isNaN(rMes))retornos[mes]=rMes;
-        }
+        if(arr.length<2)return;// precisa de pelo menos 2 snaps
+        const primeiro=arr[0],ultimo=arr[arr.length-1];
+        const vIni=primeiro.totalPatrimBRL,vFim=ultimo.totalPatrimBRL;
+        if(!(vIni>0)||!(vFim>0))return;
+        // Aportes DENTRO do mes: soma apValue de todos os snaps apos o primeiro
+        const aportesNoMes=arr.slice(1).reduce((s,r)=>s+(r.apValue||0),0);
+        const r=((vFim-aportesNoMes-vIni)/vIni)*100;
+        if(!isNaN(r))retornos[mes]=r;
       });
     }
   }catch(e){/* silencio */}
@@ -5243,7 +5233,7 @@ function HeatmapMensal({histMensal,hist,idxMensal}){
       )
     ),
     h("div",{style:{fontSize:8,color:"#5A5550",fontFamily:"monospace",marginTop:9,lineHeight:1.5,fontStyle:"italic"}},
-      "Fonte: overrides manuais > retornos encadeados snap-a-snap (ex-aportes). Saltos maiores que 8% sem aporte correspondente (ex: cadastro de novo ativo) sao filtrados como anomalias. Junho/2026 travado em +2,30%."
+      "Fonte: overrides manuais > primeiro snap do mes (pos-histCutoff) vs ultimo snap do mes, ex-aportes via apValue. Cadastros pre-reset ignorados. Junho/2026 travado em +2,30%."
     )
   );
 }
@@ -16335,7 +16325,7 @@ h("button",{onClick:async()=>{
         )
       );
 
-      content=h("div",{},dateHeader,h(BolsasCard,{port,cls}),h(SolidezCard,{total,cw,port,metaMensalIF,setTab,fB,hideVal,dataNascimento,cambialCash,rendaMotoraHist,rendaAuxiliarHist,FX}),h(ModelosPortfolioMap,{cw,selicAtual,hideVal}),aporteCard,insightCard,h(AllocChart,{cw,ct,fB,MV,hideVal}),h(RankingMensalCard,{histMensal,hist,idxMensal,setIdxMensal,histCutoff,setHistCutoff}),h(HeatmapMensal,{histMensal,hist,idxMensal}),h(EstabilidadeHistoricoCard,{histMensal,idxMensal,hist,histCutoff}),insightMensalCard,topPos);
+      content=h("div",{},dateHeader,h(BolsasCard,{port,cls}),h(SolidezCard,{total,cw,port,metaMensalIF,setTab,fB,hideVal,dataNascimento,cambialCash,rendaMotoraHist,rendaAuxiliarHist,FX}),h(ModelosPortfolioMap,{cw,selicAtual,hideVal}),aporteCard,insightCard,h(AllocChart,{cw,ct,fB,MV,hideVal}),h(RankingMensalCard,{histMensal,hist,idxMensal,setIdxMensal,histCutoff,setHistCutoff}),h(HeatmapMensal,{histMensal,hist,idxMensal,histCutoff}),h(EstabilidadeHistoricoCard,{histMensal,idxMensal,hist,histCutoff}),insightMensalCard,topPos);
     }
   }  // POSITIONS
   if(tab==="positions"||tab==="correlacao"){
