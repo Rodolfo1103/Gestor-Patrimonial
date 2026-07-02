@@ -15308,7 +15308,7 @@ function App(){
         "   - Campo 'explicacao' deve ser uma string simples (sem quebras de linha literais, sem aspas internas nao escapadas).\\n\\n"+
         "ESTRUTURA EXATA (use estas mesmas chaves, apenas atualize os valores numericos e o texto):\\n"+
         "{\"ajustes\":{\"fii\":{\"r\":3.5,\"e\":7.5},\"acoes_br\":{\"r\":6.5,\"e\":8.5},\"acoes_eua\":{\"r\":5.5,\"e\":8.0},\"acoes_mundo\":{\"r\":5.5,\"e\":7.8},\"reits\":{\"r\":4.5,\"e\":7.2},\"selic\":{\"r\":1.0,\"e\":4.5},\"ouro\":{\"r\":4.0,\"e\":5.5},\"bitcoin\":{\"r\":9.5,\"e\":9.0},\"infra\":{\"r\":2.5,\"e\":7.0},\"imoveis\":{\"r\":2.0,\"e\":6.0},\"agro\":{\"r\":3.0,\"e\":8.0}},\"explicacao\":\"Texto curto (max 60 palavras) explicando por que os scores foram ajustados conforme o cenario macro.\"}";
-      const txt=await callAPI([{role:"user",content:prompt}],apiKey,2500);
+      const txt=await callAPI([{role:"user",content:prompt}],apiKey,4000);
       // Tenta extrair JSON da resposta com varias estrategias de limpeza
       let parsed;
       // Funcao de limpeza: remove markdown, aspas tipograficas, comentarios, trailing commas
@@ -15327,17 +15327,43 @@ function App(){
         out=out.replace(/,(\s*[\}\]])/g,"$1");
         return out;
       };
+      // Reparo de JSON TRUNCADO: se termina no meio de um numero/valor, corta o par incompleto
+      // e fecha as chaves. Salva a maioria dos ajustes quando so o final foi cortado.
+      const reparaJSONTruncado=(s)=>{
+        if(!s)return s;
+        let out=String(s).trim();
+        // Se ja termina com } valido, nao precisa reparo
+        if(out.endsWith("}"))return out;
+        // Estrategia: encontrar a ULTIMA propriedade completa dentro de "ajustes"
+        // Padrao: "classe":{"r":num,"e":num},  <- ultima ocorrencia completa
+        const matchAjustes=out.match(/"ajustes"\s*:\s*\{/);
+        if(!matchAjustes)return out;
+        // Extrai tudo apos "ajustes":{
+        const inicioObj=matchAjustes.index+matchAjustes[0].length;
+        const conteudo=out.substring(inicioObj);
+        // Regex: pega todos os pares "classe":{"r":X,"e":Y}
+        const paresRE=/"[a-z_]+"\s*:\s*\{\s*"r"\s*:\s*[\d.\-]+\s*,\s*"e"\s*:\s*[\d.\-]+\s*\}/g;
+        const pares=[...conteudo.matchAll(paresRE)];
+        if(pares.length===0)return out;
+        // Reconstroi JSON com apenas os pares completos
+        const paresStr=pares.map(m=>m[0]).join(",");
+        return '{"ajustes":{'+paresStr+'},"explicacao":"Resposta truncada - '+pares.length+' classes recuperadas via reparo."}';
+      };
       const tentaParse=(s)=>{
-        // Sequencia de tentativas: bruto -> limpo -> match das chaves
+        // Sequencia de tentativas: bruto -> limpo -> match das chaves -> reparo truncado
         try{return JSON.parse(s);}catch(_){}
         const limpo=limpaJSON(s);
         try{return JSON.parse(limpo);}catch(_){}
         const m=limpo.match(/\{[\s\S]*\}/);
         if(m){
           try{return JSON.parse(m[0]);}catch(_){}
-          // Ultima tentativa: aplica limpa novamente apos extracao
           try{return JSON.parse(limpaJSON(m[0]));}catch(_){}
         }
+        // Ultima defesa: tenta reparo de JSON truncado
+        try{
+          const reparado=reparaJSONTruncado(limpo);
+          return JSON.parse(reparado);
+        }catch(_){}
         return null;
       };
       parsed=tentaParse(txt);
