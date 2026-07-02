@@ -15321,8 +15321,11 @@ function App(){
     if(calibracaoLoad)return;
     setCalibracaoLoad(true);setCalibracaoErr("");setDebugRR_texto("");
     try{
+      const selicBrutaNum=typeof selicAtual==="number"?selicAtual:null;
+      const selicLiquidaNum=selicBrutaNum!==null?selicBrutaNum*(1-IR_LONGO_PRAZO):null;
       const dadosContexto={
-        selic_atual_pct:selicAtual,
+        selic_bruta_pct:selicBrutaNum,
+        selic_liquida_IR_15pct_RF:selicLiquidaNum,
         ipca_12m:infIPCA?infIPCA.valor:null,
         igpm_12m:infIGPM?infIGPM.valor:null,
         cpi_eua_12m:infCPI?infCPI.valor:null,
@@ -15333,8 +15336,10 @@ function App(){
       };
       const prompt="Voce eh um estrategista de portfolio Buy&Hold para aposentadoria, foco em qualidade a preco razoavel. Vou te passar o cenario macro atual brasileiro e as premissas atuais de risco e retorno esperado (escala 0-10) por classe. Reavalie e proponha NOVOS scores que reflitam o cenario macro vigente, considerando:\\n\\n"+
         "CENARIO ATUAL:\\n"+JSON.stringify(dadosContexto,null,2)+"\\n\\n"+
+        "=== CONVENCAO DE TAXA LIVRE DE RISCO (RF) - CRITICO ===\\n"+
+        "A TAXA LIVRE DE RISCO deste portfolio B&H de LONGO PRAZO e SEMPRE a SELIC LIQUIDA DE IR: RF = Selic bruta * 0.85 (IR 15% para holder >720 dias). NUNCA use Selic bruta como referencia comparativa. Motivos: (i) Ativos isentos PF (FII, Infra, Agro, dividendos BR) competem com Selic liq (nao bruta) - so assim a comparacao e apples-to-apples; (ii) O RF que o investidor efetivamente recebe apos IR e o numero relevante para calcular premio de risco de qualquer classe; (iii) Toda outra metrica do app (Sharpe, spread FII vs RF, IR minima exigida) ja usa Selic liq - o card de calibracao deve ser consistente com o resto do sistema. Portanto, ao ajustar o score 'e' (retorno esperado) da classe SELIC, use a Selic LIQUIDA como referencia (nao a bruta) - senao voce inflara artificialmente o retorno esperado de RF e distorcera o premio de risco de todas as outras classes por comparacao.\\n\\n"+
         "CONTEXTO ANALITICO:\\n"+
-        "- selic eh meta atual (% a.a.). Selic alta = renda fixa mais atrativa; renda variavel pressionada (custo de capital alto); FIIs sofrem por marcacao a mercado mas premio de DY pode ser atrativo.\\n"+
+        "- selic_liquida_IR_15pct_RF eh a taxa comparativa CORRETA. Selic alta = renda fixa mais atrativa em termos LIQUIDOS; renda variavel pressionada (custo de capital alto); FIIs sofrem por marcacao a mercado mas premio de DY pode ser atrativo.\\n"+
         "- IPCA e IGP-M = inflacao 12m, refletem pressao de precos no Brasil. Inflacao alta favorece IMA-B, IPCA+ e ativos reais (imoveis, agro).\\n"+
         "- CPI EUA = inflacao americana, influencia juros do FED e BTC.\\n"+
         "- BTC USD = se em alta, momento favoravel; em queda profunda, oportunidade ou risco aumentado.\\n"+
@@ -15345,7 +15350,9 @@ function App(){
         "2. Mudancas devem ser FUNDAMENTADAS pelo cenario, nao opinioes pessoais.\\n"+
         "3. Mantenha logica relativa: BTC continua sendo classe de maior risco; SEL continua a de menor risco; FII tem retorno moderado-alto via DY; etc.\\n"+
         "4. Buy&Hold de longo prazo: nao reaja a movimentos de curto prazo. Atualize premissas estruturais.\\n"+
-        "5. FORMATO DE SAIDA - LEIA COM ATENCAO:\\n"+
+        "5. IMPORTANTE - CALIBRACAO DO 'e' DA SELIC: o retorno esperado da classe selic (score 0-10) deve refletir a SELIC LIQUIDA DE IR, nao a bruta. Se Selic bruta = 14.25% e liq = 12.11%, o score 'e' de selic deve refletir 12.11% (nao 14.25%). Na escala 0-10, 12.11% aproxima-se de 5.5-6.5 (nao 7.0+). Mencione essa conversao na 'explicacao' para dar transparencia ao investidor.\\n"+
+        "6. IMPORTANTE - CONSISTENCIA COM ATIVOS ISENTOS: ao calibrar 'e' de FII/Infra/Agro (isentos PF), lembre que esses ativos ja competem com Selic LIQ. Se DY medio real de FIIs esta em ~11-12%, o score 'e' deve estar proximo do 'e' da selic quando esta esta em ~12% liq (premio de risco imobiliario ~0-1pp apos o desconto de IR).\\n"+
+        "7. FORMATO DE SAIDA - LEIA COM ATENCAO:\\n"+
         "   - Responda APENAS com JSON puro valido. Sem markdown, sem ```json, sem texto antes ou depois.\\n"+
         "   - Use APENAS aspas duplas ASCII (\") - NUNCA aspas tipograficas (curvas).\\n"+
         "   - NAO use trailing commas (virgula antes de } ou ]).\\n"+
