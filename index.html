@@ -5681,7 +5681,7 @@ function CurrencyChart({port,cls,hideVal}){
   );
 }
 
-function RiskChart({cw,selicAtual,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,recalibrarRR_viaIA,calibracaoLoad,calibracaoErr,debugRR_texto,hasAjustesIA,apiKey}){
+function RiskChart({cw,selicAtual,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,recalibrarRR_viaIA,restaurarRR_padrao,calibracaoLoad,calibracaoErr,debugRR_texto,hasAjustesIA,apiKey}){
   const W=300,H=170,pL=22,pB=18,pT=18,pR=12,cW=W-pL-pR,cH=H-pB-pT;
   // Calcula posicao do portfolio agregado (media ponderada de risco e retorno)
   let totW=0,wR=0,wE=0;
@@ -5976,7 +5976,10 @@ function RiskChart({cw,selicAtual,calibracaoRR_TS,calibracaoRR_texto,calibracaoR
                 h("span",{style:{width:7,height:7,borderRadius:"50%",background:statusCor,display:"inline-block",boxShadow:"0 0 6px "+statusCor+"66"}}),
                 h("span",{style:{fontSize:9,color:statusCor,fontWeight:700,letterSpacing:1,textTransform:"uppercase"}},statusTxt)
               ),
-              h("button",{onClick:recalibrarRR_viaIA,disabled:calibracaoLoad||!apiKey,title:apiKey?"Pede a IA Claude para reavaliar as premissas com base no cenario macro atual":"Cadastre sua chave API no botao API acima",style:{background:apiKey?"rgba(255,215,0,0.10)":"rgba(255,255,255,0.03)",border:"1px solid "+(apiKey?"rgba(255,215,0,0.30)":"rgba(255,255,255,0.10)"),borderRadius:4,color:apiKey?"#E8C44A":"#5A5550",fontSize:8,padding:"3px 9px",cursor:calibracaoLoad?"not-allowed":apiKey?"pointer":"not-allowed",fontFamily:"monospace",letterSpacing:1,fontWeight:700}},calibracaoLoad?"calibrando...":"recalibrar IA")
+              h("div",{style:{display:"flex",gap:5,alignItems:"center",flexWrap:"wrap"}},
+                hasAjustesIA&&typeof restaurarRR_padrao==="function"?h("button",{onClick:restaurarRR_padrao,disabled:calibracaoLoad,title:"Apaga os ajustes IA gravados e volta aos scores originais + ajuste dinamico pela Selic. Util quando uma recalibragem distorceu o Sharpe artificialmente.",style:{background:"rgba(224,82,82,0.10)",border:"1px solid rgba(224,82,82,0.35)",borderRadius:4,color:"#E05252",fontSize:8,padding:"3px 8px",cursor:calibracaoLoad?"not-allowed":"pointer",fontFamily:"monospace",letterSpacing:1,fontWeight:700}},"\u21BA restaurar"):null,
+                h("button",{onClick:recalibrarRR_viaIA,disabled:calibracaoLoad||!apiKey,title:apiKey?"Pede a IA Claude para reavaliar as premissas com base no cenario macro atual":"Cadastre sua chave API no botao API acima",style:{background:apiKey?"rgba(255,215,0,0.10)":"rgba(255,255,255,0.03)",border:"1px solid "+(apiKey?"rgba(255,215,0,0.30)":"rgba(255,255,255,0.10)"),borderRadius:4,color:apiKey?"#E8C44A":"#5A5550",fontSize:8,padding:"3px 9px",cursor:calibracaoLoad?"not-allowed":apiKey?"pointer":"not-allowed",fontFamily:"monospace",letterSpacing:1,fontWeight:700}},calibracaoLoad?"calibrando...":"recalibrar IA")
+              )
             ),
             // Linha 2: Métricas em grid (Selic atual / Aferição / Variação Selic)
             h("div",{style:{display:"flex",gap:14,flexWrap:"wrap",fontSize:9,paddingTop:4,borderTop:"1px dashed rgba(255,255,255,0.06)"}},
@@ -10364,28 +10367,45 @@ function App(){
       const fetchProxy=async(url,ms)=>{
         const erros=[];
         const timeout=ms||12000;
+        // Detecta se AbortSignal.timeout eh utilizavel: em algumas versoes do Chromium
+        // (especialmente Android WebView e PWA), o signal retornado causa DataCloneError
+        // quando o fetch e interceptado. Feature-detection agressiva.
+        const podeUsarAbortSignal=(function(){
+          try{
+            if(typeof AbortSignal==="undefined")return false;
+            if(typeof AbortSignal.timeout!=="function")return false;
+            // Testa se o signal e serializavel via structuredClone (proxy do que o fetch fara)
+            const testSig=AbortSignal.timeout(1000);
+            if(typeof structuredClone==="function"){
+              try{structuredClone(testSig);}catch(_){return false;}
+            }
+            return true;
+          }catch(_){return false;}
+        })();
+        // Timeout via Promise.race quando AbortSignal nao pode ser usado
+        const withTimeout=(promise,ms)=>Promise.race([
+          promise,
+          new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout")),ms))
+        ]);
         for(let i=0;i<proxies.length;i++){
           if(cancelado)return null;
           const mk=proxies[i];
           const label=i===0?"direct":["corsproxy","allorigins","codetabs"][i-1];
           try{
-            // Usa AbortSignal.timeout() nativo (Chrome 103+) em vez de AbortController + setTimeout,
-            // que estava causando DataCloneError em alguns dispositivos (Chromium bug de serializacao).
-            // Fallback para browsers antigos: sem timeout (fetch natural).
-            const opts={
-              cache:"no-store",
-              mode:"cors",
-              credentials:"omit"
-            };
-            if(typeof AbortSignal!=="undefined"&&typeof AbortSignal.timeout==="function"){
+            // Options MINIMAIS: quanto menos campos, menos chance de DataCloneError
+            // em service workers/PWA. Removemos mode e credentials (defaults do fetch
+            // ja funcionam para APIs publicas).
+            const opts={cache:"no-store"};
+            if(podeUsarAbortSignal){
               opts.signal=AbortSignal.timeout(timeout);
             }
-            const r=await fetch(mk(url),opts);
+            const fetchPromise=fetch(mk(url),opts);
+            const r=podeUsarAbortSignal?await fetchPromise:await withTimeout(fetchPromise,timeout);
             if(!r.ok){erros.push(label+":HTTP"+r.status);continue;}
             const text=await r.text();
             if(!text||text.toLowerCase().includes("host not in allowlist")){erros.push(label+":vazio");continue;}
             try{const j=JSON.parse(text);return j;}catch(e){erros.push(label+":parse-err");continue;}
-          }catch(e){erros.push(label+":"+(e.name||"err"));continue;}
+          }catch(e){erros.push(label+":"+(e.name||e.message||"err"));continue;}
         }
         // Log erros no console para diagnostico
         try{console.log("[fetchProxy] falhou:",url.slice(0,80),"tentativas:",erros.join("|"));}catch(e){}
@@ -15316,6 +15336,18 @@ function App(){
   const [calibracaoLoad,setCalibracaoLoad]=useState(false);
   const [calibracaoErr,setCalibracaoErr]=useState("");
   const [debugRR_texto,setDebugRR_texto]=useState("");
+  // Restaura calibracao padrao (zera ajustes IA gravados no state) - util quando uma
+  // recalibragem anterior distorceu artificialmente os scores. Volta a operar apenas
+  // com base + ajuste dinamico pela Selic atual (via recalibrarRR interno).
+  const restaurarRR_padrao=useCallback(()=>{
+    if(!window.confirm("Restaurar calibracao PADRAO?\n\nIsto vai APAGAR os ajustes IA gravados e voltar aos scores originais + ajuste dinamico pela Selic atual.\n\nSeu Sharpe/Eficiencia R/R vai voltar ao valor calculado com premissas nao-modificadas. Uma nova recalibragem via IA pode ser feita depois.\n\nContinuar?"))return;
+    setAjustesRR_IA(null);
+    setCalibracaoRR_TS(null);
+    setCalibracaoRR_texto("");
+    setCalibracaoRR_selic(null);
+    setCalibracaoErr("");
+    setDebugRR_texto("");
+  },[]);
   const recalibrarRR_viaIA=useCallback(async()=>{
     if(!apiKey){setCalibracaoErr("Cadastre sua chave API Anthropic (botao API).");return;}
     if(calibracaoLoad)return;
@@ -26993,7 +27025,7 @@ h("button",{onClick:async()=>{
       
       content=h("div",{},
         // GRAFICO DE RISCO X RETORNO AGREGADO (movido do dashboard)
-        h(RiskChart,{cw,selicAtual,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,recalibrarRR_viaIA,calibracaoLoad,calibracaoErr,debugRR_texto,hasAjustesIA:!!ajustesRR_IA,apiKey}),
+        h(RiskChart,{cw,selicAtual,calibracaoRR_TS,calibracaoRR_texto,calibracaoRR_selic,recalibrarRR_viaIA,restaurarRR_padrao,calibracaoLoad,calibracaoErr,debugRR_texto,hasAjustesIA:!!ajustesRR_IA,apiKey}),
         // ===== BANNER MIRA IA: status da selecao para aporte proximo =====
         (function(){
           if(!_naJanelaMira)return null;
