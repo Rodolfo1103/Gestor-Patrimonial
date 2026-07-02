@@ -15336,10 +15336,16 @@ function App(){
       };
       const prompt="Voce eh um estrategista de portfolio Buy&Hold para aposentadoria, foco em qualidade a preco razoavel. Vou te passar o cenario macro atual brasileiro e as premissas atuais de risco e retorno esperado (escala 0-10) por classe. Reavalie e proponha NOVOS scores que reflitam o cenario macro vigente, considerando:\\n\\n"+
         "CENARIO ATUAL:\\n"+JSON.stringify(dadosContexto,null,2)+"\\n\\n"+
-        "=== CONVENCAO DE TAXA LIVRE DE RISCO (RF) - CRITICO ===\\n"+
-        "A TAXA LIVRE DE RISCO deste portfolio B&H de LONGO PRAZO e SEMPRE a SELIC LIQUIDA DE IR: RF = Selic bruta * 0.85 (IR 15% para holder >720 dias). NUNCA use Selic bruta como referencia comparativa. Motivos: (i) Ativos isentos PF (FII, Infra, Agro, dividendos BR) competem com Selic liq (nao bruta) - so assim a comparacao e apples-to-apples; (ii) O RF que o investidor efetivamente recebe apos IR e o numero relevante para calcular premio de risco de qualquer classe; (iii) Toda outra metrica do app (Sharpe, spread FII vs RF, IR minima exigida) ja usa Selic liq - o card de calibracao deve ser consistente com o resto do sistema. Portanto, ao ajustar o score 'e' (retorno esperado) da classe SELIC, use a Selic LIQUIDA como referencia (nao a bruta) - senao voce inflara artificialmente o retorno esperado de RF e distorcera o premio de risco de todas as outras classes por comparacao.\\n\\n"+
+        "=== CONVENCAO ANALITICA DE TAXA LIVRE DE RISCO (RF) ===\\n"+
+        "Para SUA ANALISE INTERNA de spread e premio de risco, use como RF a SELIC LIQUIDA DE IR (nominal, nao real): RF = Selic bruta * 0.85 (IR 15% holder >720d). Ex: Selic bruta 14.25% -> RF = 12.11% nominal liq. Ativos isentos PF (FII/Infra/Agro/dividendos BR) competem com essa RF liq nominal. VOCABULARIO: 12.11% e SELIC LIQUIDA NOMINAL - NAO chamar de 'real' (real seria descontar IPCA: 12.11% - 4.72% ~= 7.39% real). Isso e importante para a 'explicacao' ser tecnicamente correta.\\n\\n"+
+        "=== CALIBRACAO DA ESCALA 0-10 (CRITICO PARA NAO DISTORCER SHARPE) ===\\n"+
+        "A escala 0-10 dos scores 'r' e 'e' e uma REGUA CONVENCIONAL RELATIVA usada pelo app em multiplos calculos (Sharpe esperado, eficiencia RxR, projecoes). Ela NAO deve ser recalibrada arbitrariamente entre chamadas - se voce mudar a regua sem que os fundamentos mudem, todo o Sharpe do investidor se altera artificialmente (bug conhecido). REGRAS DE ESTABILIDADE:\\n"+
+        "  a) A escala 'e' representa retorno esperado NOMINAL bruto tipico da classe, na regua 0-10 do sistema. Historicamente calibrada como: e~=1 significa ~2% ao ano, e~=5 significa ~10%, e~=10 significa ~20%+. Selic bruta atual de 14.25% mapeia para e~=7.0. Selic liq de 12.11% mapeia para e~=6.0-6.5.\\n"+
+        "  b) MUDE APENAS scores das classes cujos FUNDAMENTOS ECONOMICOS realmente mudaram desde a ultima calibragem (variacao de Selic, IPCA, cambio, ciclo BTC, ciclo commodities). NAO ajuste scores 'para manter consistencia relativa' com uma unica classe alterada - isso propaga distorcao artificial no Sharpe do portfolio.\\n"+
+        "  c) A conversao Selic liq (RF analitica) e apenas UM insumo para VOCE avaliar spread/premio de risco. Nao e mandato para rebaixar 'e' de Selic no card se os fundamentos macro nao mudaram substancialmente. Ex: se Selic bruta esta estavel em 14.25% desde a ultima calibragem, o score 'e' da Selic deve permanecer proximo do valor atual (nao rebaixar por causa da mudanca de vocabulario RF liq).\\n"+
+        "  d) MINIMIZE MUDANCAS: se um score esta razoavel para o fundamento atual, MANTENHA. So altere quando ha justificativa macro concreta (ex: 'Selic subiu 1.5pp -> selic.e sobe de 6.5 para 7.0', 'BTC/USD caiu 30% em 60 dias -> bitcoin.e cai de 9.0 para 8.0').\\n\\n"+
         "CONTEXTO ANALITICO:\\n"+
-        "- selic_liquida_IR_15pct_RF eh a taxa comparativa CORRETA. Selic alta = renda fixa mais atrativa em termos LIQUIDOS; renda variavel pressionada (custo de capital alto); FIIs sofrem por marcacao a mercado mas premio de DY pode ser atrativo.\\n"+
+        "- selic_liquida_IR_15pct_RF eh a taxa comparativa nominal apos IR. Selic alta = renda fixa atrativa; renda variavel pressionada (custo de capital alto); FIIs sofrem por marcacao a mercado mas premio de DY pode compensar.\\n"+
         "- IPCA e IGP-M = inflacao 12m, refletem pressao de precos no Brasil. Inflacao alta favorece IMA-B, IPCA+ e ativos reais (imoveis, agro).\\n"+
         "- CPI EUA = inflacao americana, influencia juros do FED e BTC.\\n"+
         "- BTC USD = se em alta, momento favoravel; em queda profunda, oportunidade ou risco aumentado.\\n"+
@@ -15347,12 +15353,11 @@ function App(){
         "- REITs (Realty Income, FPI etc.) = imoveis americanos cotados em USD. Sensiveis a juros do FED (yield alto compete com Treasury), mas oferecem dividend yield + protecao real. Risco intermediario entre FII brasileiro e acoes ext puras.\\n\\n"+
         "REGRAS RIGIDAS:\\n"+
         "1. Score r (risco) e e (retorno esperado) em escala 0-10, decimal permitido.\\n"+
-        "2. Mudancas devem ser FUNDAMENTADAS pelo cenario, nao opinioes pessoais.\\n"+
+        "2. Mudancas devem ser FUNDAMENTADAS pelo cenario ECONOMICO REAL, nao por reinterpretacao da propria escala.\\n"+
         "3. Mantenha logica relativa: BTC continua sendo classe de maior risco; SEL continua a de menor risco; FII tem retorno moderado-alto via DY; etc.\\n"+
         "4. Buy&Hold de longo prazo: nao reaja a movimentos de curto prazo. Atualize premissas estruturais.\\n"+
-        "5. IMPORTANTE - CALIBRACAO DO 'e' DA SELIC: o retorno esperado da classe selic (score 0-10) deve refletir a SELIC LIQUIDA DE IR, nao a bruta. Se Selic bruta = 14.25% e liq = 12.11%, o score 'e' de selic deve refletir 12.11% (nao 14.25%). Na escala 0-10, 12.11% aproxima-se de 5.5-6.5 (nao 7.0+). Mencione essa conversao na 'explicacao' para dar transparencia ao investidor.\\n"+
-        "6. IMPORTANTE - CONSISTENCIA COM ATIVOS ISENTOS: ao calibrar 'e' de FII/Infra/Agro (isentos PF), lembre que esses ativos ja competem com Selic LIQ. Se DY medio real de FIIs esta em ~11-12%, o score 'e' deve estar proximo do 'e' da selic quando esta esta em ~12% liq (premio de risco imobiliario ~0-1pp apos o desconto de IR).\\n"+
-        "7. FORMATO DE SAIDA - LEIA COM ATENCAO:\\n"+
+        "5. VOCABULARIO CORRETO na 'explicacao': quando citar Selic liq, chamar de 'Selic liquida NOMINAL' (nao 'real'). Se quiser mencionar taxa REAL, seja explicito: 'Selic real liq ~7.4%' (nominal liq menos IPCA). Precisao terminologica importa para o investidor.\\n"+
+        "6. FORMATO DE SAIDA - LEIA COM ATENCAO:\\n"+
         "   - Responda APENAS com JSON puro valido. Sem markdown, sem ```json, sem texto antes ou depois.\\n"+
         "   - Use APENAS aspas duplas ASCII (\") - NUNCA aspas tipograficas (curvas).\\n"+
         "   - NAO use trailing commas (virgula antes de } ou ]).\\n"+
