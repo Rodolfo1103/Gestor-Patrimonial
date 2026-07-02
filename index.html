@@ -15382,6 +15382,14 @@ function App(){
         out=out.replace(/^\s*\/\/.*$/gm,"");
         // Remove trailing commas antes de } ou ]
         out=out.replace(/,(\s*[\}\]])/g,"$1");
+        // ERRO COMUM DA IA: substituir ":" por ">" apos chave (ex: "e">7.2 em vez de "e":7.2)
+        // Padrao: "letras">numero ou "letras">-numero (fora de strings de texto).
+        // Regex conservador: nome_de_chave curto (a-z, _), seguido de ">" e digito/menos.
+        out=out.replace(/("[a-z_]{1,20}")\s*>\s*(-?[\d.])/g,'$1:$2');
+        // Idem para ">" antes de aspas (strings): "chave">"valor"
+        out=out.replace(/("[a-z_]{1,20}")\s*>\s*"/g,'$1:"');
+        // Idem para "<" (mesma logica, mais raro mas defensivo)
+        out=out.replace(/("[a-z_]{1,20}")\s*<\s*(-?[\d.])/g,'$1:$2');
         return out;
       };
       // Reparo de JSON TRUNCADO: se termina no meio de um numero/valor, corta o par incompleto
