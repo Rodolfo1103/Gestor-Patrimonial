@@ -1301,7 +1301,36 @@ function calcTIRImplicita(ticker,classeId,precoAtual,dadosFundamentais,calibraco
   
   if(classeId==="acoes_br"||classeId==="acoes_eua"||classeId==="acoes_mundo"){
     // Acoes: TIR = EY + crescReal = (lpa/preco) + crescReal
-    const lpa=dadosFundamentais.lpa;
+    let lpa=dadosFundamentais.lpa;
+    // CROSS-CHECK CRITICO: se metricasPreco tem P/L, o LPA implicito e preco/PL.
+    // Quando ha divergencia entre lpa gravado e lpa implicito pelo P/L (>50% de diferenca),
+    // o LPA gravado esta corrompido (IA usou "mid-cycle" fantasia em vez de TTM real).
+    // Nesses casos usamos o LPA IMPLICITO pelo P/L exibido (mais confiavel - a IA
+    // busca esse numero em fontes oficiais, enquanto o lpa_normalizado sofre distorcao conceitual).
+    if(Array.isArray(dadosFundamentais.metricasPreco)&&typeof lpa==="number"&&lpa>0&&precoAtual>0){
+      for(const m of dadosFundamentais.metricasPreco){
+        if(!m||typeof m.label!=="string")continue;
+        // Detecta metrica P/L (P/L, PL, price/earnings)
+        const lab=m.label.toUpperCase().replace(/\s|\//g,"");
+        if(lab==="PL"||lab==="PRECOLUCRO"||lab==="PRICEEARNINGS"){
+          // Extrai numero do campo valor (ex: "8.9x", "8,9", "9x")
+          const v=String(m.valor||"").replace(",",".").match(/[\d.]+/);
+          if(v){
+            const pl=parseFloat(v[0]);
+            if(pl>0&&pl<200){
+              const lpaImplicito=precoAtual/pl;
+              // Se lpa gravado difere >50% do implicito, usar o implicito (mais confiavel)
+              const razao=lpa/lpaImplicito;
+              if(razao>1.5||razao<0.67){
+                lpa=lpaImplicito;
+                // Marca que houve correcao para debug (opcional, nao invalida)
+              }
+            }
+          }
+          break;
+        }
+      }
+    }
     if(typeof lpa==="number"&&lpa>0){
       tirAtual=(lpa/precoAtual)+(p.crescReal||0);
     }
@@ -12226,6 +12255,8 @@ function App(){
                 if(typeof d.subtipo==="string")dfTk.subtipo=d.subtipo;
                 if(typeof d.vpa==="number")dfTk.vpa=d.vpa;
                 if(typeof d.duration==="number")dfTk.duration=d.duration;
+                // Passa metricas para cross-check de consistencia (ex: P/L exibido vs lpa gravado)
+                if(Array.isArray(d.metricasPreco))dfTk.metricasPreco=d.metricasPreco;
                 // Inclui composicao da carteira para fundos de divida (papel/debentures/CRA)
                 if(typeof d.composicaoCarteira==="string"&&d.composicaoCarteira.trim())obj.composicaoCarteira=d.composicaoCarteira;
                 if(typeof d.subtipo==="string"&&d.subtipo.trim())obj.subtipo=d.subtipo;
@@ -14264,7 +14295,7 @@ function App(){
                 properties:{
                   ticker:{type:"string"},
                   classe:{type:"string"},
-                  lpa_normalizado:{type:"number",description:"Lucro por acao MID-CYCLE (acoes)"},
+                  lpa_normalizado:{type:"number",description:"Lucro por acao TTM real (acoes) - trailing 12 meses. NAO usar 'mid-cycle' otimista. Cross-check obrigatorio: lpa/precoAtual deve bater com P/L exibido nas metricas. Se P/L=9 e preco=20, lpa=~2.22 (nao invente lpa=7). EY = lpa/preco deve ficar entre 4-14% para acoes normais, ate 15% no maximo para bancos/seguradoras em fundo de ciclo."},
                   div_anual:{type:"number",description:"Dividendo anualizado em moeda nativa (FII/Infra/Agro)"},
                   affo_por_acao:{type:"number",description:"AFFO por acao TTM (REITs)"},
                   vpa:{type:"number",description:"Valor patrimonial por cota (FIIs)"},
@@ -26643,6 +26674,7 @@ h("button",{onClick:async()=>{
             if(typeof dadosIA.subtipo==="string")df.subtipo=dadosIA.subtipo;
             if(typeof dadosIA.vpa==="number")df.vpa=dadosIA.vpa;
             if(typeof dadosIA.duration==="number")df.duration=dadosIA.duration;
+            if(Array.isArray(dadosIA.metricasPreco))df.metricasPreco=dadosIA.metricasPreco;
           }
           // Calcula TIR usando preco ATUAL (responde a mudancas de preco)
           const tirInfo=calcTIRImplicita(tk,info.classId,precoAtual,df,calibracoesCustom);
@@ -26723,6 +26755,7 @@ h("button",{onClick:async()=>{
             if(typeof dadosIA.subtipo==="string")df.subtipo=dadosIA.subtipo;
             if(typeof dadosIA.vpa==="number")df.vpa=dadosIA.vpa;
             if(typeof dadosIA.duration==="number")df.duration=dadosIA.duration;
+            if(Array.isArray(dadosIA.metricasPreco))df.metricasPreco=dadosIA.metricasPreco;
           }
           const tirInfo=calcTIRImplicita(tk,cid,null,df,calibracoesCustom);
           tickersAnalise.push({
@@ -27665,6 +27698,7 @@ h("button",{onClick:async()=>{
                 if(typeof tk.dadosIA.lpa_normalizado==="number")df.lpa=tk.dadosIA.lpa_normalizado;
                 if(typeof tk.dadosIA.div_anual==="number")df.divAnual=tk.dadosIA.div_anual;
                 if(typeof tk.dadosIA.affo_por_acao==="number")df.affoPorAcao=tk.dadosIA.affo_por_acao;
+                if(Array.isArray(tk.dadosIA.metricasPreco))df.metricasPreco=tk.dadosIA.metricasPreco;
                 const pa=calcPrecoAlvoTIR(tk.ticker,tk.classe,tk.precoAtual,df,calibracoesCustom);
                 if(!pa||!pa.precoAlvo)return null;
                 const moedaTk=tk.moeda!=="BRL"?tk.moeda+" ":"R$ ";
