@@ -8981,6 +8981,7 @@ function App(){
   const [propUsrAberto,setPropUsrAberto]=useState(false);
   // Drill-down do card "Sua Sensibilidade aos Vetores Macro" (aba Correlacao): expansao do desmembramento por classe
   const [drillVetoresAberto,setDrillVetoresAberto]=useState(false);
+  const [vetorExpandido,setVetorExpandido]=useState(null);// nome do vetor cujo card explicativo esta aberto (null = nenhum)
   // Glossario de metricas de diversificacao (colapsavel, abaixo do insight interpretativo no card de correlacao)
   const [glossarioDivAberto,setGlossarioDivAberto]=useState(false);
   const [propUsrValores,setPropUsrValores]=useState({}); // {classId: "valor em string"}
@@ -17474,7 +17475,7 @@ h("button",{onClick:async()=>{
                       const expoPos=subindo.reduce((s,i)=>s+(cw[i.classe]||0)*pesoIntens(i.intensidade),0);
                       const expoNeg=caindo.reduce((s,i)=>s+(cw[i.classe]||0)*pesoIntens(i.intensidade),0);
                       const sens=expoPos-expoNeg;// pode ser +, -, ou 0
-                      return {nome:v.nome,cor:v.cor,sens,absSens:Math.abs(sens),icone:v.icone,expoPos,expoNeg};
+                      return {nome:v.nome,cor:v.cor,sens,absSens:Math.abs(sens),icone:v.icone,expoPos,expoNeg,impactos:v.impactos,explicacao:v.explicacao};
                     }).sort((a,b)=>b.absSens-a.absSens);// ordena pela magnitude absoluta
                     const top1=exposicoes[0],top2=exposicoes[1];
                     const direcao=(s)=>s>0?"se beneficia quando":"sofre quando";
@@ -17521,7 +17522,8 @@ h("button",{onClick:async()=>{
                                 const positivo=e.sens>=0;
                                 const corBarra=e.sens>5?"#4CAF82":e.sens<-5?"#E05252":"#C8A96E";
                                 // Estrutura: container com height total (alturaG*2), e seta saindo do centro
-                                return h("div",{key:"v"+k,style:{position:"relative",display:"flex",flexDirection:"column",alignItems:"center",height:"100%",flex:"1 1 0",minWidth:0,maxWidth:55,zIndex:2}},
+                                const estaAberto=vetorExpandido===e.nome;
+                                return h("div",{key:"v"+k,onClick:()=>setVetorExpandido(o=>o===e.nome?null:e.nome),title:"Clique para entender por que o portfolio tem esta sensibilidade",style:{position:"relative",display:"flex",flexDirection:"column",alignItems:"center",height:"100%",flex:"1 1 0",minWidth:0,maxWidth:55,zIndex:2,cursor:"pointer",borderRadius:5,background:estaAberto?"rgba(200,169,110,0.10)":"transparent",boxShadow:estaAberto?"inset 0 0 0 1px rgba(200,169,110,0.40)":"none",transition:"background 0.2s ease"}},
                                   // Label superior: nome do vetor e icone (sempre acima)
                                   h("div",{style:{position:"absolute",top:0,left:0,right:0,textAlign:"center",fontSize:7,fontFamily:"monospace",color:e.cor,fontWeight:700,letterSpacing:0.3,lineHeight:1.2,padding:"0 1px",whiteSpace:"normal",wordBreak:"break-word"}},
                                     h("div",{style:{fontSize:10,marginBottom:1}},e.icone),
@@ -17548,11 +17550,80 @@ h("button",{onClick:async()=>{
                             ),
                             // Legenda do eixo
                             h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",textAlign:"center",marginTop:6,fontStyle:"italic",lineHeight:1.5}},
-                              "Eixo horizontal = portfolio em equilibrio. Setas para cima (verde) = vetores beneficiam. Setas para baixo (vermelho) = vetores prejudicam."
+                              "Eixo horizontal = portfolio em equilibrio. Setas para cima (verde) = vetores beneficiam. Setas para baixo (vermelho) = vetores prejudicam. Toque em um vetor para entender o porque."
                             )
                           );
                         })()
                       ),
+                      // ===== CARD EXPANSIVEL POR VETOR (abre ao clicar numa seta) =====
+                      // Explica POR QUE o portfolio tem aquela sensibilidade: quais classes puxam pra cima/baixo, ponderadas por peso x intensidade
+                      (()=>{
+                        if(!vetorExpandido)return null;
+                        const ev=exposicoes.find(e=>e.nome===vetorExpandido);
+                        if(!ev)return null;
+                        const pesoIntens2=(it)=>it==="FORTE"?1.0:it==="MEDIA"?0.6:it==="BAIXA"?0.3:0.3;
+                        const rotIntens=(it)=>it==="FORTE"?"forte":it==="MEDIA"?"media":it==="BAIXA"?"baixa":it==="VARIAVEL"?"variavel":"";
+                        // Monta contribuicoes das classes que o investidor POSSUI (peso>0), separadas por direcao
+                        const contrib=ev.impactos.map(imp=>{
+                          const peso=cw[imp.classe]||0;
+                          if(peso<=0)return null;
+                          const cl=CL.find(c=>c.id===imp.classe);
+                          const contribVal=peso*pesoIntens2(imp.intensidade)*(imp.direcao||0);
+                          return {id:imp.classe,nome:cl?cl.name:imp.classe,cor:cl?cl.color:"#9A9080",peso,direcao:imp.direcao,intensidade:imp.intensidade,detalhe:imp.detalhe,contribVal};
+                        }).filter(Boolean);
+                        const puxamCima=contrib.filter(c=>c.direcao>0).sort((a,b)=>b.contribVal-a.contribVal);
+                        const puxamBaixo=contrib.filter(c=>c.direcao<0).sort((a,b)=>a.contribVal-b.contribVal);
+                        const neutras=contrib.filter(c=>c.direcao===0);
+                        const corDir2=(s)=>s>5?"#4CAF82":s<-5?"#E05252":"#C8A96E";
+                        const linhaClasse=(c,positivo)=>h("div",{key:"lc_"+ev.nome+"_"+c.id,style:{display:"flex",alignItems:"flex-start",gap:7,padding:"5px 0",borderBottom:"1px solid rgba(255,255,255,0.04)"}},
+                          h("span",{style:{width:7,height:7,borderRadius:"50%",background:c.cor,display:"inline-block",flexShrink:0,marginTop:3}}),
+                          h("div",{style:{flex:1,minWidth:0}},
+                            h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:6}},
+                              h("span",{style:{fontSize:9.5,color:c.cor,fontFamily:"monospace",fontWeight:700}},c.nome),
+                              h("span",{style:{fontSize:8,color:"#9A9080",fontFamily:"monospace",flexShrink:0}},c.peso.toFixed(1)+"% x intens. "+rotIntens(c.intensidade))
+                            ),
+                            h("div",{style:{fontSize:8.5,color:"#9A9080",fontStyle:"italic",lineHeight:1.4,marginTop:1}},c.detalhe)
+                          )
+                        );
+                        return h("div",{style:{marginTop:11,padding:"12px 13px",background:"linear-gradient(135deg,"+ev.cor+"14,"+ev.cor+"06)",border:"1px solid "+ev.cor+"55",borderRadius:7}},
+                          // Cabecalho: icone + nome + botao fechar
+                          h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6}},
+                            h("div",{style:{display:"flex",alignItems:"center",gap:7}},
+                              h("span",{style:{fontSize:15}},ev.icone),
+                              h("span",{style:{fontSize:11,color:ev.cor,fontFamily:"monospace",fontWeight:700,letterSpacing:0.5}},ev.nome)
+                            ),
+                            h("button",{onClick:()=>setVetorExpandido(null),style:{background:"transparent",border:"1px solid "+ev.cor+"55",color:ev.cor,borderRadius:4,fontSize:11,cursor:"pointer",width:20,height:20,padding:0,lineHeight:1,fontFamily:"monospace"}},"\u00D7")
+                          ),
+                          // Sensibilidade liquida resultante
+                          h("div",{style:{fontSize:9.5,color:"#E8E2D5",lineHeight:1.6,margin:"0 0 9px"}},
+                            "Sua sensibilidade liquida a este vetor e ",
+                            h("strong",{style:{color:corDir2(ev.sens)}},(ev.sens>0?"+":"")+ev.sens.toFixed(0)+"%"),
+                            ev.sens>5?" (o portfolio se beneficia quando este fator sobe).":ev.sens<-5?" (o portfolio sofre quando este fator sobe).":" (praticamente neutro - boa diversificacao neste vetor)."
+                          ),
+                          // Explicacao geral do vetor
+                          h("p",{style:{fontSize:9,color:"#9A9080",fontStyle:"italic",lineHeight:1.55,margin:"0 0 11px",paddingBottom:9,borderBottom:"1px solid rgba(255,255,255,0.06)"}},ev.explicacao),
+                          // Por que esse numero: decomposicao das SUAS classes
+                          h("div",{style:{fontSize:8.5,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,letterSpacing:1,marginBottom:6}},"POR QUE O SEU PORTFOLIO TEM ESSA SENSIBILIDADE"),
+                          h("p",{style:{fontSize:8.5,color:"#7A7060",fontStyle:"italic",lineHeight:1.45,margin:"0 0 9px"}},
+                            "Cada classe que voce possui contribui na proporcao do seu peso x a intensidade do impacto. As que empurram na mesma direcao se somam; as opostas se cancelam - por isso o liquido pode ficar perto de zero."
+                          ),
+                          // Bloco: puxam a favor (verde)
+                          puxamCima.length>0?h("div",{style:{marginBottom:9}},
+                            h("div",{style:{fontSize:8.5,color:"#4CAF82",fontFamily:"monospace",fontWeight:700,marginBottom:2}},"\u2191 Puxam sua sensibilidade PARA CIMA (ganham quando o fator sobe)"),
+                            ...puxamCima.map(c=>linhaClasse(c,true))
+                          ):null,
+                          // Bloco: puxam contra (vermelho)
+                          puxamBaixo.length>0?h("div",{style:{marginBottom:neutras.length>0?9:0}},
+                            h("div",{style:{fontSize:8.5,color:"#E05252",fontFamily:"monospace",fontWeight:700,marginBottom:2}},"\u2193 Puxam sua sensibilidade PARA BAIXO (perdem quando o fator sobe)"),
+                            ...puxamBaixo.map(c=>linhaClasse(c,false))
+                          ):null,
+                          // Bloco: neutras (opcional, discreto)
+                          neutras.length>0?h("div",{style:{fontSize:8,color:"#7A7060",fontStyle:"italic",lineHeight:1.4,marginTop:4}},
+                            "Neutras (impacto ambiguo/desprezivel): "+neutras.map(c=>c.nome+" ("+c.peso.toFixed(1)+"%)").join(", ")+"."
+                          ):null,
+                          (puxamCima.length===0&&puxamBaixo.length===0)?h("div",{style:{fontSize:9,color:"#7A7060",fontStyle:"italic",padding:"4px 0"}},"Voce nao possui classes com exposicao relevante a este vetor no momento."):null
+                        );
+                      })(),
                       // ===== DRILL-DOWN POR CLASSE (colapsavel ao clicar no ponto central) =====
                       drillVetoresAberto?h("div",{style:{marginTop:11,padding:"11px 12px",background:"linear-gradient(135deg,rgba(91,143,212,0.05),rgba(91,143,212,0.02))",border:"1px solid rgba(91,143,212,0.25)",borderRadius:7}},
                         h("div",{style:{fontSize:9,letterSpacing:1.5,color:"#7AB0E0",fontFamily:"monospace",fontWeight:700,marginBottom:8}},"\u{1F50D} DESMEMBRAMENTO POR CLASSE"),
