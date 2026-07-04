@@ -354,7 +354,7 @@ const GB=["OURO_FISICO"];
 const IMB=true; // flag indicando que IMV usa ativos custom (cadastrados pelo usuario)
 // Valores iniciais de cambio. Sao apenas FALLBACK; o state real vive no componente App.
 // Usados na hidratacao (boot) antes do primeiro render e por chamadas fora do escopo do App.
-const FX_INIT={BRL:1,USD:5.01,EUR:5.7,GBP:6.8,CHF:6.1,JPY:0.034,AUD:3.25,HKD:0.64,SGD:3.85,DKK:0.76,NOK:0.49,MXN:0.26};
+const FX_INIT={BRL:1,USD:5.01,EUR:5.7,GBP:6.8,CHF:6.1,JPY:0.034,AUD:3.25,CAD:3.77,HKD:0.64,SGD:3.85,DKK:0.76,NOK:0.49,MXN:0.26};
 // FX global legacy - mantido para compatibilidade com codigo fora do escopo do App (ex: pv())
 // Sera mantido sincronizado pelo App via efeito colateral.
 const FX={...FX_INIT};
@@ -5635,9 +5635,9 @@ function CurrencyChart({port,cls,hideVal}){
   const entries=Object.entries(byCcy).sort((a,b)=>b[1]-a[1]);
   // Cores por moeda
   const COL={BRL:"#4CAF82",USD:"#5B8FD4",EUR:"#C8A96E",GBP:"#9B7EBD",CHF:"#E05252",
-    JPY:"#E8C44A",AUD:"#FF9F40",HKD:"#FF6B9D",SGD:"#4DD0E1",NOK:"#8DA9C4",DKK:"#A8C4A2",MXN:"#D17A22"};
+    JPY:"#E8C44A",AUD:"#FF9F40",CAD:"#D96459",HKD:"#FF6B9D",SGD:"#4DD0E1",NOK:"#8DA9C4",DKK:"#A8C4A2",MXN:"#D17A22"};
   const NAME={BRL:"Real",USD:"Dolar EUA",EUR:"Euro",GBP:"Libra",CHF:"Franco Suico",
-    JPY:"Iene",AUD:"Dolar Australiano",HKD:"Dolar HK",SGD:"Dolar Singapura",
+    JPY:"Iene",AUD:"Dolar Australiano",CAD:"Dolar Canadense",HKD:"Dolar HK",SGD:"Dolar Singapura",
     NOK:"Coroa Norueguesa",DKK:"Coroa Dinamarquesa",MXN:"Peso Mexicano"};
   // Donut SVG
   const W=300,H=180,cx=W/2,cy=H/2,rOut=62,rIn=38;
@@ -9748,7 +9748,7 @@ function App(){
         if(r.ok){
           const d=await r.json();
           if(!cancelado&&d){
-            const map={USDBRL:"USD",EURBRL:"EUR",GBPBRL:"GBP",CHFBRL:"CHF",JPYBRL:"JPY",AUDBRL:"AUD"};
+            const map={USDBRL:"USD",EURBRL:"EUR",GBPBRL:"GBP",CHFBRL:"CHF",JPYBRL:"JPY",AUDBRL:"AUD",CADBRL:"CAD"};
             Object.entries(map).forEach(([k,fx])=>{
               const v=parseFloat(d[k]&&d[k].bid);
               if(v>0){if(Math.abs((FX[fx]||0)-v)>0.0001){FX[fx]=v;upd[fx]=v;mudou=true;}}
@@ -9763,7 +9763,7 @@ function App(){
           const d=await r.json();
           if(!cancelado&&d&&d.rates){
             // Para moedas NAO cobertas pela AwesomeAPI
-            ["HKD","SGD","NOK","DKK","MXN"].forEach(k=>{
+            ["HKD","SGD","NOK","DKK","MXN","CAD"].forEach(k=>{
               if(d.rates[k]>0){const novo=1/d.rates[k];if(Math.abs((FX[k]||0)-novo)>0.0001){FX[k]=novo;upd[k]=novo;mudou=true;}}
             });
           }
@@ -10873,7 +10873,7 @@ function App(){
       try{
         const d=await fetchJSON("https://economia.awesomeapi.com.br/json/last/USD-BRL,EUR-BRL,GBP-BRL,CHF-BRL,JPY-BRL,AUD-BRL",6000);
         if(d){
-          const map={USDBRL:"USD",EURBRL:"EUR",GBPBRL:"GBP",CHFBRL:"CHF",JPYBRL:"JPY",AUDBRL:"AUD"};
+          const map={USDBRL:"USD",EURBRL:"EUR",GBPBRL:"GBP",CHFBRL:"CHF",JPYBRL:"JPY",AUDBRL:"AUD",CADBRL:"CAD"};
           let n=0;
           Object.entries(map).forEach(([k,fx])=>{const v=parseFloat(d[k]&&d[k].bid);if(v>0){FX[fx]=v;fxUpd[fx]=v;n++;}});
           dbg.push("FX-Awesome:"+n);
@@ -10884,7 +10884,7 @@ function App(){
         const d=await fetchJSON("https://open.er-api.com/v6/latest/BRL",6000);
         if(d&&d.rates){
           let n=0;
-          ["HKD","SGD","NOK","DKK","MXN"].forEach(k=>{if(d.rates[k]>0){const v=1/d.rates[k];FX[k]=v;fxUpd[k]=v;n++;}});
+          ["HKD","SGD","NOK","DKK","MXN","CAD"].forEach(k=>{if(d.rates[k]>0){const v=1/d.rates[k];FX[k]=v;fxUpd[k]=v;n++;}});
           dbg.push("FX-ER:"+n);
         }
       }catch(e){dbg.push("FX-ER-erro:"+e.message);}
@@ -11348,7 +11348,7 @@ function App(){
       sufixos=[".SA"];
     }else if(cid==="acoes_eua"||cid==="acoes_mundo"||cid==="reits"){
       // Comeca pelo sufixo da moeda hint (se houver), depois testa os demais
-      const porMoeda={USD:"",EUR:".DE",GBP:".L",CHF:".SW",DKK:".CO",NOK:".OL",MXN:".MX",JPY:".T",AUD:".AX",HKD:".HK",SGD:".SI"};
+      const porMoeda={USD:"",EUR:".DE",GBP:".L",CHF:".SW",DKK:".CO",NOK:".OL",MXN:".MX",JPY:".T",AUD:".AX",HKD:".HK",SGD:".SI",CAD:".TO"};
       sufixos=[porMoeda[ccyHint]||"","",".L",".DE",".SW",".T",".AX",".HK",".AS",".PA",".MI",".MX",".SI",".CO",".OL",".TO",".F",".AT",".VI",".OL"];
       sufixos=[...new Set(sufixos)]; // remove duplicatas
     }else{
@@ -11373,7 +11373,7 @@ function App(){
       AMS:"EUR",PAR:"EUR",MIL:"EUR",BRU:"EUR",LIS:"EUR",MCE:"EUR",
       TLO:"CAD",TOR:"CAD",VIE:"EUR",
     };
-    const allowedCcy=["USD","EUR","GBP","CHF","JPY","AUD","HKD","SGD","DKK","NOK","MXN","BRL"];
+    const allowedCcy=["USD","EUR","GBP","CHF","JPY","AUD","HKD","SGD","DKK","NOK","MXN","CAD","BRL"];
     // ESTRATEGIA 1: Yahoo Search API descobre o ticker certo (e o sufixo) automaticamente
     // Util quando o usuario digita um ticker sem saber em qual bolsa esta listado
     if(cid==="acoes_eua"||cid==="acoes_mundo"||cid==="reits"){
@@ -16641,7 +16641,7 @@ h("button",{onClick:async()=>{
           addTo===c.id?h("div",{style:{padding:"10px",background:"rgba(255,255,255,0.03)",border:"1px solid "+c.color+"33",borderRadius:7,marginTop:5}},
             h("div",{style:{fontSize:8,letterSpacing:2,color:c.color,fontFamily:"monospace",textTransform:"uppercase",marginBottom:8}},"Novo ativo"),
             ...[ ["TICKER",nTick,v2=>setNTick(v2.toUpperCase()),"ex: PETR4"], ["Nome (opcional - auto)",nLbl,setNLbl,"deixe vazio para buscar"] ].map(([l,v2,s2,p2])=>h("div",{key:l,style:{marginBottom:7}},h("div",{style:{fontSize:8,color:"#8A8070",fontFamily:"monospace",marginBottom:2}},l),h("input",{type:"text",value:v2,onChange:e=>s2(e.target.value),placeholder:p2,maxLength:40,style:{width:"100%",background:"rgba(0,0,0,0.3)",border:"1px solid "+c.color+"44",borderRadius:4,padding:"7px 9px",color:"#F0EAD8",fontSize:13,fontFamily:"monospace",outline:"none",boxSizing:"border-box"}}))),
-            h("div",{style:{marginBottom:10}},h("div",{style:{fontSize:8,color:"#8A8070",fontFamily:"monospace",marginBottom:5}},"MOEDA"),h("div",{style:{display:"flex",flexWrap:"wrap",gap:4}},...["BRL","USD","EUR","GBP","CHF","JPY","AUD","HKD","SGD","NOK","DKK","MXN"].map(cc2=>h("button",{key:cc2,onClick:()=>setNCcy(cc2),style:{padding:"2px 8px",borderRadius:3,fontFamily:"monospace",fontSize:10,background:nCcy===cc2?c.color:"transparent",border:"1px solid "+c.color+"44",color:nCcy===cc2?"#0D0F14":"#8A8070",cursor:"pointer"}},cc2)))),
+            h("div",{style:{marginBottom:10}},h("div",{style:{fontSize:8,color:"#8A8070",fontFamily:"monospace",marginBottom:5}},"MOEDA"),h("div",{style:{display:"flex",flexWrap:"wrap",gap:4}},...["BRL","USD","EUR","GBP","CHF","JPY","AUD","CAD","HKD","SGD","NOK","DKK","MXN"].map(cc2=>h("button",{key:cc2,onClick:()=>setNCcy(cc2),style:{padding:"2px 8px",borderRadius:3,fontFamily:"monospace",fontSize:10,background:nCcy===cc2?c.color:"transparent",border:"1px solid "+c.color+"44",color:nCcy===cc2?"#0D0F14":"#8A8070",cursor:"pointer"}},cc2)))),
             h("div",{style:{display:"flex",gap:7}},h("button",{onClick:()=>addCustom(c.id),style:{flex:1,padding:"9px",background:"linear-gradient(135deg,"+c.color+","+c.color+"BB)",border:"none",borderRadius:5,color:"#0D0F14",fontSize:11,fontWeight:700,cursor:"pointer"}},"Adicionar"),h("button",{onClick:()=>{setAddTo(null);setNTick("");setNLbl("");setNCcy("BRL");},style:{padding:"9px 12px",background:"transparent",border:"1px solid rgba(255,255,255,0.1)",borderRadius:5,color:"#8A8070",fontSize:11,cursor:"pointer"}},"Cancelar"))
           ):h("button",{onClick:()=>{setAddTo(c.id);setNTick("");setNLbl("");setNCcy((c.id==="acoes_eua"||c.id==="acoes_mundo"||c.id==="reits")?"USD":"BRL");},style:{width:"100%",padding:"6px",background:"transparent",border:"1px dashed "+c.color+"44",borderRadius:5,color:c.color+"88",fontSize:10,cursor:"pointer",marginTop:3}},"+  Adicionar ativo")
         );
