@@ -18092,6 +18092,13 @@ h("button",{onClick:async()=>{
                             const y=radarCy+(p*radarR)*Math.sin(aa);
                             return x.toFixed(1)+","+y.toFixed(1);
                           }).join(" "),fill:"none",stroke:"rgba(200,169,110,0.12)","stroke-width":1,"stroke-dasharray":p===1.0?"":"3,3"})),
+                          // Poligono ALVO (100% em todos os eixos = aderencia total) - contorno verde tracejado
+                          h("polygon",{points:angulos.map((a,k)=>{
+                            const aa=a-Math.PI/2;
+                            const x=radarCx+radarR*Math.cos(aa);
+                            const y=radarCy+radarR*Math.sin(aa);
+                            return x.toFixed(1)+","+y.toFixed(1);
+                          }).join(" "),fill:"rgba(76,175,130,0.06)",stroke:"#4CAF82","stroke-width":1.5,"stroke-dasharray":"4,3","stroke-linejoin":"round"}),
                           // Poligono do portfolio
                           h("polygon",{points:polyStr,fill:"rgba(91,143,212,0.20)",stroke:"#5B8FD4","stroke-width":2,"stroke-linejoin":"round"}),
                           // Pontos nos vertices
@@ -18120,9 +18127,63 @@ h("button",{onClick:async()=>{
                             );
                           })
                         )
-                      )
+                      ),
+                      // Mini-legenda dos dois poligonos (atual vs alvo)
+                      h("div",{style:{display:"flex",gap:14,justifyContent:"center",marginTop:8,fontSize:7.5,fontFamily:"monospace",flexWrap:"wrap"}},
+                        h("span",{style:{display:"flex",alignItems:"center",gap:4,color:"#9A9080"}},
+                          h("span",{style:{width:14,height:0,borderTop:"2px solid #5B8FD4",display:"inline-block"}}),"seu portfolio"),
+                        h("span",{style:{display:"flex",alignItems:"center",gap:4,color:"#9A9080"}},
+                          h("span",{style:{width:14,height:0,borderTop:"2px dashed #4CAF82",display:"inline-block"}}),"alvo (100/100 em cada eixo)")
+                      ),
+                      // ===== GAP DE CORRELACAO: ABSOLUTO + RELATIVO COM ALVO E ROTA DE APORTES =====
+                      (()=>{
+                        const enbH=metricasDiversificacao.enbHerfindahl;
+                        const enbE=metricasDiversificacao.enbEfetivo;
+                        const gEnb=enbH-enbE;// gap absoluto
+                        // Gap RELATIVO = gap/ENB_Herfindahl = corr^2 (neutraliza efeito de escala do n de classes)
+                        const gapRel=enbH>0?gEnb/enbH:0;// fracao (0-1)
+                        const gapRelPct=gapRel*100;
+                        // ALVO RELATIVO: derivado do alvo de correlacao <=0.20 que o app ja usa -> 0.20^2 = 0.04 (4%)
+                        const CORR_ALVO=0.20;
+                        const gapRelAlvo=CORR_ALVO*CORR_ALVO;// 0.04
+                        const gapRelAlvoPct=gapRelAlvo*100;// 4%
+                        const gapAbsAlvo=enbH*gapRelAlvo;// gap absoluto equivalente ao alvo, dado o ENB Herf atual
+                        const dentroAlvo=gapRel<=gapRelAlvo*1.25;// tolerancia de 25%
+                        const corGap=gapRel<=gapRelAlvo*1.25?"#4CAF82":gapRel<=gapRelAlvo*2.5?"#E8C44A":gapRel<=0.15?"#E89060":"#E05252";
+                        const rotulo=dentroAlvo?"classes genuinamente independentes":gapRel<=gapRelAlvo*2.5?"correlacao baixa - proximo do alvo":gapRel<=0.15?"correlacao moderada":"correlacao alta - diversificacao aparente";
+                        return h("div",{style:{marginTop:10,padding:"9px 11px",background:corGap+"12",border:"1px solid "+corGap+"40",borderRadius:6}},
+                          // Linha 1: titulo + gap relativo em destaque + alvo
+                          h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,flexWrap:"wrap"}},
+                            h("div",{style:{fontSize:8,color:"#9A9080",fontFamily:"monospace",letterSpacing:0.5}},
+                              "GAP DE CORRELACAO (relativo)"
+                            ),
+                            h("div",{style:{display:"flex",alignItems:"baseline",gap:6}},
+                              h("span",{style:{fontSize:14,color:corGap,fontFamily:"monospace",fontWeight:700}},gapRelPct.toFixed(1)+"%"),
+                              h("span",{style:{fontSize:7.5,color:"#7A7060",fontFamily:"monospace"}},"alvo: \u2264 "+gapRelAlvoPct.toFixed(0)+"%")
+                            )
+                          ),
+                          // Linha 2: decomposicao absoluta + relativa
+                          h("div",{style:{fontSize:8,color:"#7A7060",fontFamily:"monospace",marginTop:4,lineHeight:1.4}},
+                            "Absoluto: ",enbH.toFixed(2)," (por pesos) \u2212 ",enbE.toFixed(2)," (efetivo) = ",
+                            h("span",{style:{color:corGap,fontWeight:700}},gEnb.toFixed(2)),
+                            ". Relativo = ",gEnb.toFixed(2),"/",enbH.toFixed(2)," = ",
+                            h("span",{style:{color:corGap,fontWeight:700}},gapRelPct.toFixed(1)+"%"),
+                            " (equivale a corr\u00b2). ",
+                            dentroAlvo?"Dentro do alvo \u2705 - suas classes ja se movem de forma independente.":"Meta: reduzir para \u2264 "+gapRelAlvoPct.toFixed(0)+"% (gap absoluto ~"+gapAbsAlvo.toFixed(2)+" no ENB Herfindahl atual)."
+                          ),
+                          // Linha 3: ROTA DE APORTES (so quando fora do alvo)
+                          !dentroAlvo?h("div",{style:{fontSize:8,color:"#9A9080",fontFamily:"monospace",marginTop:6,paddingTop:6,borderTop:"1px solid "+corGap+"25",lineHeight:1.5}},
+                            h("span",{style:{color:corGap,fontWeight:700}},"\u2192 COMO FECHAR O GAP VIA APORTES: "),
+                            "o gap relativo E exatamente a correlacao media ao quadrado - reduzi-lo significa reduzir a correlacao entre suas classes. Direcione aportes para as classes MAIS descorrelacionadas das ja sobrealocadas: ",
+                            h("span",{style:{color:"#F7931A",fontWeight:700}},"Bitcoin")," (corr ~0 com tudo), ",
+                            h("span",{style:{color:"#5BB5D4",fontWeight:700}},"Treasuries")," (corr negativa com equities), ",
+                            h("span",{style:{color:"#A88B5E",fontWeight:700}},"NTN-B longa")," (hedge anti-equity) e ",
+                            h("span",{style:{color:"#E8C44A",fontWeight:700}},"Ouro")," (hedge sistemico). ",
+                            "EVITE reforcar pares que ja andam juntos (FII+Infra+Agro, ou BR+EUA+MUNDO) - eles aumentam o gap. Cada aporte em classe descorrelacionada aproxima o ENB Efetivo do ENB Herfindahl."
+                          ):null
+                        );
+                      })()
                     ),
-                    // ===== INSIGHT INTERPRETATIVO COMBINADO =====
                     // Parte 1: diagnostico do snapshot atual (sempre presente)
                     // Parte 2: analise de tendencia (so quando ha >=2 snapshots reais)
                     (()=>{
