@@ -4336,6 +4336,16 @@ function ModelosPortfolioMap({cw,selicAtual,hideVal}){
     return {x,y,vol:volPort,scoreY};
   };
   const pAtual=calcCoords(wAtual);
+  // PORTFOLIO-ALVO: centro das bandas de cada classe ((min+max)/2), normalizado.
+  // Representa o alvo estrategico configurado nas bandas da aba Posicoes.
+  const wAlvo=(()=>{
+    const w={};let soma=0;
+    CL.forEach(c=>{const centro=(c.min+c.max)/2/100;w[c.id]=centro;soma+=centro;});
+    // Normaliza para somar 1 (a soma dos centros pode nao ser exatamente 100%)
+    if(soma>0)CL.forEach(c=>{w[c.id]=w[c.id]/soma;});
+    return w;
+  })();
+  const pAlvo=calcCoords(wAlvo);
   const pAW=calcCoords(wAW);
   const pYPB=calcCoords(wYPB);
   const pRP=calcCoords(wRP);
@@ -4351,14 +4361,15 @@ function ModelosPortfolioMap({cw,selicAtual,hideVal}){
     {id:"yale",nome:"Yale Endowment",cor:"#5B8FD4",p:pYPB,desc:"Swensen: alta diversificacao em real assets",pesos:wYPB,raio:18},
     {id:"rp",nome:"Risk Parity",cor:"#7DD17D",p:pRP,desc:"Cada classe contribui igualmente ao risco",pesos:wRP,raio:18},
     {id:"mpt",nome:"MPT Otimo",cor:"#C8A96E",p:pMPT,desc:"Max Sharpe via Markowitz (heuristica tangent)",pesos:wMPT,raio:18},
-    {id:"atual",nome:"VOCE",cor:"#E8E2D5",p:pAtual,desc:"Sua alocacao atual",pesos:wAtual,raio:9,isAtual:true}
+    {id:"atual",nome:"VOCE",cor:"#E8E2D5",p:pAtual,desc:"Sua alocacao atual",pesos:wAtual,raio:9,isAtual:true},
+    {id:"alvo",nome:"ALVO",cor:"#E05252",p:pAlvo,desc:"Portfolio-alvo: centro das bandas configuradas na aba Posicoes",pesos:wAlvo,raio:9,isAlvo:true}
   ].filter(p=>p.p);
   // Detecta interseccoes (portfolios proximos no mapa 2D)
   const dist=(p1,p2)=>Math.sqrt((p1.x-p2.x)**2+(p1.y-p2.y)**2);
   // Veredito posicao atual
   const vereditoAtual=(()=>{
     if(!pAtual)return null;
-    const proximos=portfolios.filter(pf=>!pf.isAtual&&pf.p).map(pf=>({...pf,d:dist(pAtual,pf.p)})).sort((a,b)=>a.d-b.d);
+    const proximos=portfolios.filter(pf=>!pf.isAtual&&!pf.isAlvo&&pf.p).map(pf=>({...pf,d:dist(pAtual,pf.p)})).sort((a,b)=>a.d-b.d);
     if(proximos.length===0)return null;
     const maisProximo=proximos[0];
     const segundo=proximos[1];
@@ -4405,13 +4416,22 @@ function ModelosPortfolioMap({cw,selicAtual,hideVal}){
             h("path",{d:"M0,1 L3,3 L0,5",fill:"none",stroke:"#9A9080",strokeWidth:"0.8"})
           )
         ),
-        // Circulos translucidos de cada modelo (zona de influencia) - exceto VOCE
-        portfolios.filter(pf=>!pf.isAtual).map(pf=>h("circle",{key:"c"+pf.id,cx:xPos(pf.p.x),cy:yPos(pf.p.y),r:pf.raio,fill:pf.cor+"15",stroke:pf.cor+"55",strokeWidth:0.6,strokeDasharray:"2 2"})),
+        // Circulos translucidos de cada modelo (zona de influencia) - exceto VOCE e ALVO
+        portfolios.filter(pf=>!pf.isAtual&&!pf.isAlvo).map(pf=>h("circle",{key:"c"+pf.id,cx:xPos(pf.p.x),cy:yPos(pf.p.y),r:pf.raio,fill:pf.cor+"15",stroke:pf.cor+"55",strokeWidth:0.6,strokeDasharray:"2 2"})),
         // Pontos centrais dos modelos
-        portfolios.filter(pf=>!pf.isAtual).map(pf=>h("g",{key:"p"+pf.id,onClick:()=>setSelecionado(selecionado===pf.id?null:pf.id),style:{cursor:"pointer"}},
+        portfolios.filter(pf=>!pf.isAtual&&!pf.isAlvo).map(pf=>h("g",{key:"p"+pf.id,onClick:()=>setSelecionado(selecionado===pf.id?null:pf.id),style:{cursor:"pointer"}},
           h("circle",{cx:xPos(pf.p.x),cy:yPos(pf.p.y),r:4,fill:pf.cor,stroke:"#1A1612",strokeWidth:1}),
           h("text",{x:xPos(pf.p.x),y:yPos(pf.p.y)-7,fontFamily:"Georgia,serif",fontSize:8,fontStyle:"italic",fill:pf.cor,textAnchor:"middle",letterSpacing:0.2,opacity:selecionado&&selecionado!==pf.id?0.35:1},pf.nome)
         )),
+        // Linha de convergencia VOCE -> ALVO (rota que os aportes devem seguir)
+        (pAtual&&pAlvo)?h("line",{x1:xPos(pAtual.x),y1:yPos(pAtual.y),x2:xPos(pAlvo.x),y2:yPos(pAlvo.y),stroke:"#E05252",strokeWidth:0.9,strokeDasharray:"3 3",opacity:0.55}):null,
+        // Ponto ALVO - portfolio-alvo das bandas (vermelho, mesmo estilo do VOCE)
+        pAlvo?h("g",{onClick:()=>setSelecionado(selecionado==="alvo"?null:"alvo"),style:{cursor:"pointer"}},
+          h("circle",{cx:xPos(pAlvo.x),cy:yPos(pAlvo.y),r:11,fill:"none",stroke:"#E05252",strokeWidth:0.5,strokeDasharray:"1 2",opacity:0.5}),
+          h("circle",{cx:xPos(pAlvo.x),cy:yPos(pAlvo.y),r:6,fill:"#1A1612",stroke:"#E05252",strokeWidth:1.4}),
+          h("circle",{cx:xPos(pAlvo.x),cy:yPos(pAlvo.y),r:2.5,fill:"#E05252"}),
+          h("text",{x:xPos(pAlvo.x),y:yPos(pAlvo.y)-11,fontFamily:"Georgia,serif",fontSize:9,fontStyle:"italic",fill:"#E05252",textAnchor:"middle",fontWeight:600,letterSpacing:0.5},"alvo")
+        ):null,
         // Ponto VOCE - em destaque
         pAtual?h("g",{onClick:()=>setSelecionado(selecionado==="atual"?null:"atual"),style:{cursor:"pointer"}},
           h("circle",{cx:xPos(pAtual.x),cy:yPos(pAtual.y),r:11,fill:"none",stroke:"#E8E2D5",strokeWidth:0.5,strokeDasharray:"1 2",opacity:0.5}),
@@ -4649,13 +4669,13 @@ function ModelosPortfolioMap({cw,selicAtual,hideVal}){
     // Legenda das cores compacta
     h("div",{style:{display:"flex",flexWrap:"wrap",justifyContent:"center",gap:10,marginTop:6,paddingTop:8,borderTop:"1px solid rgba(255,255,255,0.04)"}},
       portfolios.map(pf=>h("div",{key:"lg"+pf.id,onClick:()=>setSelecionado(selecionado===pf.id?null:pf.id),style:{display:"flex",alignItems:"center",gap:4,cursor:"pointer",opacity:selecionado&&selecionado!==pf.id?0.4:1}},
-        h("span",{style:{width:7,height:7,borderRadius:"50%",background:pf.cor,display:"inline-block",border:pf.isAtual?"1px solid #E8E2D5":"none"}}),
+        h("span",{style:{width:7,height:7,borderRadius:"50%",background:pf.cor,display:"inline-block",border:pf.isAtual?"1px solid #E8E2D5":pf.isAlvo?"1px solid #E05252":"none"}}),
         h("span",{style:{fontFamily:"Georgia,serif",fontSize:8.5,fontStyle:"italic",color:pf.cor,letterSpacing:0.2}},pf.nome)
       ))
     ),
     // Nota explicativa em caligrafia pequena
     h("div",{style:{fontFamily:"Georgia,serif",fontSize:7.5,color:"#5A5550",fontStyle:"italic",lineHeight:1.5,marginTop:7,textAlign:"center"}},
-      "Toque em um modelo para detalhes. Eixos: volatilidade esperada (X) e perfil renda vs crescimento (Y). Reducao 13D \u2192 2D, indicativo."
+      "Toque em um modelo para detalhes. Eixos: volatilidade esperada (X) e perfil renda vs crescimento (Y). Reducao 13D \u2192 2D, indicativo. O ponto ",h("span",{style:{color:"#E05252",fontWeight:600}},"ALVO")," (vermelho) e o portfolio-alvo definido pelos centros das bandas de cada classe na aba Posicoes; a linha tracejada e a rota que seus aportes devem seguir para convergir do ",h("span",{style:{color:"#E8E2D5",fontWeight:600}},"VOCE")," ate o alvo."
     )
   );
 }
