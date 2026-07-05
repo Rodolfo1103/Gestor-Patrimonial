@@ -25579,7 +25579,79 @@ h("button",{onClick:async()=>{
           );
         })(),
 
-        // ===== SEPARADOR DE SECAO: RENDA PROJETADA =====
+        // ===== RESUMO ANUAL DA RENDA REALIZADA POR MOEDA NATIVA =====
+        // BRL = motora (FII+Infra+Agro) + aux BR. Estrangeiras = exterior nativo somado no ano.
+        (()=>{
+          // Bandeiras e simbolos por moeda
+          const flagMoeda={BRL:"\u{1F1E7}\u{1F1F7}",USD:"\u{1F1FA}\u{1F1F8}",EUR:"\u{1F1EA}\u{1F1FA}",GBP:"\u{1F1EC}\u{1F1E7}",CHF:"\u{1F1E8}\u{1F1ED}",JPY:"\u{1F1EF}\u{1F1F5}",AUD:"\u{1F1E6}\u{1F1FA}",CAD:"\u{1F1E8}\u{1F1E6}",HKD:"\u{1F1ED}\u{1F1F0}",SGD:"\u{1F1F8}\u{1F1EC}",NOK:"\u{1F1F3}\u{1F1F4}",DKK:"\u{1F1E9}\u{1F1F0}",MXN:"\u{1F1F2}\u{1F1FD}"};
+          const simMoeda={BRL:"R$",USD:"US$",EUR:"\u20AC",GBP:"\u00A3",CHF:"CHF",JPY:"\u00A5",AUD:"A$",CAD:"C$",HKD:"HK$",SGD:"S$",NOK:"kr",DKK:"kr",MXN:"MX$"};
+          // Ordem de exibicao das moedas (BRL sempre primeiro)
+          const ordemMoeda=["BRL","USD","EUR","GBP","CHF","JPY","CAD","AUD","HKD","SGD","NOK","DKK","MXN"];
+          // Agrega por ano: {2025:{BRL:x,USD:y,...}, 2026:{...}}
+          const porAno={};
+          const garanteAno=(ano)=>{if(!porAno[ano])porAno[ano]={BRL:0};return porAno[ano];};
+          // Motora (BRL)
+          (rendaMotoraHist||[]).forEach(r=>{
+            if(!r||!r.mes||typeof r.renda!=="number")return;
+            const ano=r.mes.slice(0,4);
+            garanteAno(ano).BRL+=r.renda;
+          });
+          // Auxiliar: BR (BRL) + exterior (nativo)
+          (rendaAuxiliarHist||[]).forEach(r=>{
+            if(!r||!r.mes)return;
+            const ano=r.mes.slice(0,4);
+            const acc=garanteAno(ano);
+            if(typeof r.br==="number"&&r.br>0)acc.BRL+=r.br;
+            if(r.exterior&&typeof r.exterior==="object"){
+              Object.entries(r.exterior).forEach(([mo,val])=>{
+                if(typeof val==="number"&&val>0)acc[mo]=(acc[mo]||0)+val;
+              });
+            }
+          });
+          const anos=Object.keys(porAno).sort();// crescente: ano corrente por ultimo (embaixo)
+          if(anos.length===0)return null;
+          const anoAtual=String(new Date().getFullYear());
+          const fmtNum=(v,mo)=>{
+            // JPY sem casas decimais; demais com 2
+            const dec=(mo==="JPY")?0:2;
+            return v.toLocaleString("pt-BR",{minimumFractionDigits:dec,maximumFractionDigits:dec});
+          };
+          return h("div",{style:{marginTop:16,padding:"13px 14px",background:"linear-gradient(135deg,rgba(200,169,110,0.06),rgba(76,175,130,0.03))",border:"1px solid rgba(200,169,110,0.28)",borderRadius:8}},
+            h("div",{style:{fontSize:9.5,letterSpacing:1.5,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,marginBottom:3}},"\u{1F5D3} RENDA REALIZADA POR ANO (moeda nativa)"),
+            h("div",{style:{fontSize:8,color:"#7A7060",fontFamily:"monospace",fontStyle:"italic",lineHeight:1.5,marginBottom:11}},
+              "Somatorio dos proventos LIQUIDOS recebidos em cada ano-calendario, por moeda de origem. BRL = motora (FII+Infra+Agro) + dividendos de acoes BR. Estrangeiras = dividendos do exterior na moeda nativa (sem conversao). Ao fechar 12 meses, o ano consolida e o corrente segue acumulando abaixo."
+            ),
+            ...anos.map(ano=>{
+              const dados=porAno[ano];
+              const moedasComValor=ordemMoeda.filter(mo=>dados[mo]&&dados[mo]>0);
+              const ehCorrente=ano===anoAtual;
+              // Conta meses com registro no ano (para rotular "em curso")
+              const mesesComReg=new Set();
+              (rendaMotoraHist||[]).forEach(r=>{if(r&&r.mes&&r.mes.slice(0,4)===ano)mesesComReg.add(r.mes);});
+              (rendaAuxiliarHist||[]).forEach(r=>{if(r&&r.mes&&r.mes.slice(0,4)===ano)mesesComReg.add(r.mes);});
+              const nMeses=mesesComReg.size;
+              return h("div",{key:"ano"+ano,style:{marginBottom:10,padding:"9px 11px",background:ehCorrente?"rgba(76,175,130,0.07)":"rgba(0,0,0,0.20)",border:ehCorrente?"1px solid rgba(76,175,130,0.30)":"1px solid rgba(255,255,255,0.06)",borderRadius:6}},
+                // Cabecalho do ano
+                h("div",{style:{display:"flex",alignItems:"center",gap:8,marginBottom:7,flexWrap:"wrap"}},
+                  h("span",{style:{fontSize:11,color:ehCorrente?"#4CAF82":"#E8E2D5",fontFamily:"monospace",fontWeight:700,letterSpacing:1}},"Renda "+ano),
+                  ehCorrente?h("span",{style:{fontSize:7.5,color:"#4CAF82",fontFamily:"monospace",padding:"2px 7px",background:"rgba(76,175,130,0.15)",borderRadius:3}},"EM CURSO \u00b7 "+nMeses+"/12 meses"):h("span",{style:{fontSize:7.5,color:"#9A9080",fontFamily:"monospace",padding:"2px 7px",background:"rgba(255,255,255,0.05)",borderRadius:3}},"CONSOLIDADO \u00b7 "+nMeses+" meses")
+                ),
+                // Grade de moedas
+                moedasComValor.length>0?h("div",{style:{display:"flex",flexWrap:"wrap",gap:"7px 16px"}},
+                  ...moedasComValor.map(mo=>h("div",{key:"m"+ano+mo,style:{display:"flex",alignItems:"center",gap:6}},
+                    h("span",{style:{fontSize:14,lineHeight:1}},flagMoeda[mo]||"\u{1F3F3}"),
+                    h("div",{style:{display:"flex",flexDirection:"column"}},
+                      h("span",{style:{fontSize:7.5,color:"#7A7060",fontFamily:"monospace",letterSpacing:0.5}},mo),
+                      h("span",{style:{fontSize:11,color:mo==="BRL"?"#4CAF82":"#8FB4E0",fontFamily:"monospace",fontWeight:700}},(simMoeda[mo]||"")+" "+fmtNum(dados[mo],mo))
+                    )
+                  ))
+                ):h("div",{style:{fontSize:8.5,color:"#7A7060",fontFamily:"monospace",fontStyle:"italic"}},"sem registros neste ano")
+              );
+            })
+          );
+        })(),
+
+
         h("div",{style:{display:"flex",alignItems:"center",gap:10,marginTop:18,marginBottom:14,padding:"0 2px"}},
           h("div",{style:{flex:1,height:1,background:"linear-gradient(90deg,transparent,rgba(156,125,194,0.45),rgba(156,125,194,0.45))"}}),
           h("div",{style:{fontSize:11,letterSpacing:3,color:"#9C7DC2",fontFamily:"monospace",fontWeight:700,textTransform:"uppercase",padding:"4px 10px",background:"rgba(156,125,194,0.10)",border:"1px solid rgba(156,125,194,0.30)",borderRadius:4}},"\u{1F52E} 2. Renda Projetada"),
