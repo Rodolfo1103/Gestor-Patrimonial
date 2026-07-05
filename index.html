@@ -24795,7 +24795,9 @@ h("button",{onClick:async()=>{
       // Handler: registra renda BR (acoes BR) - apenas BRL, sem fetch PTAX (BRL=1)
       const registrarRendaBR=()=>{
         const labelMes=mesAnteriorLabel.replace(".","");
-        const v=window.prompt("Renda LIQUIDA de proventos de ACOES BR em "+labelMes+" (R$):","");
+        const existentePre=rendaAuxiliarHist.find(r=>r.mes===mesAnterior);
+        const valorAtual=existentePre&&existentePre.br?String(existentePre.br).replace(".",","):"";
+        const v=window.prompt("Renda LIQUIDA de proventos de ACOES BR em "+labelMes+" (R$):",valorAtual);
         if(v===null)return;
         const s=v.trim();
         if(!s)return;
@@ -24850,9 +24852,10 @@ h("button",{onClick:async()=>{
           setModalExteriorAberto(false);return;
         }
         setExteriorProcessando(true);
-        // Snapshot PTAX BCB
-        let fxSnapshot={BRL:1};
-        let fxSource="ptax_bcb";
+        // Snapshot PTAX BCB - parte do snapshot existente (preserva cambios ja capturados ao editar/acrescentar)
+        const existentePre=rendaAuxiliarHist.find(r=>r.mes===mesAnterior);
+        let fxSnapshot=existentePre&&existentePre.fxSnapshot?{...existentePre.fxSnapshot,BRL:1}:{BRL:1};
+        let fxSource=existentePre&&existentePre.fxSource?existentePre.fxSource:"ptax_bcb";
         const moedasNoSnap=Object.keys(exteriorNovo);
         if(moedasNoSnap.length>0){
           try{
@@ -25355,13 +25358,13 @@ h("button",{onClick:async()=>{
           ),
           // Botoes (BR + Exterior separados + Historico + Backfill)
           h("div",{style:{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center",marginTop:10}},
-            // Botao BR
-            h("button",{onClick:registrarRendaBR,disabled:jaRegistrouBR,style:{padding:"7px 11px",background:jaRegistrouBR?"rgba(122,112,96,0.20)":"linear-gradient(135deg,#4CAF82,#3a8b66)",color:jaRegistrouBR?"#7A7060":"#FFFFFF",border:"none",borderRadius:5,fontSize:9.5,fontFamily:"monospace",fontWeight:700,letterSpacing:1,cursor:jaRegistrouBR?"not-allowed":"pointer"}},
-              jaRegistrouBR?"\u2713 BR "+mesAnteriorLabel:"+ Acoes BR "+mesAnteriorLabel
+            // Botao BR - sempre clicavel para editar valor lancado
+            h("button",{onClick:registrarRendaBR,style:{padding:"7px 11px",background:jaRegistrouBR?"rgba(76,175,130,0.18)":"linear-gradient(135deg,#4CAF82,#3a8b66)",color:jaRegistrouBR?"#7ED0A8":"#FFFFFF",border:jaRegistrouBR?"1px solid rgba(76,175,130,0.45)":"none",borderRadius:5,fontSize:9.5,fontFamily:"monospace",fontWeight:700,letterSpacing:1,cursor:"pointer"}},
+              jaRegistrouBR?"\u270E BR "+mesAnteriorLabel+" (editar)":"+ Acoes BR "+mesAnteriorLabel
             ),
-            // Botao Exterior (so aparece se ha ativos exterior no portfolio)
-            temAtivosExterior?h("button",{onClick:registrarRendaExterior,disabled:jaRegistrouExt,style:{padding:"7px 11px",background:jaRegistrouExt?"rgba(122,112,96,0.20)":"linear-gradient(135deg,#5B8FD4,#3f70b8)",color:jaRegistrouExt?"#7A7060":"#FFFFFF",border:"none",borderRadius:5,fontSize:9.5,fontFamily:"monospace",fontWeight:700,letterSpacing:1,cursor:jaRegistrouExt?"not-allowed":"pointer"}},
-              jaRegistrouExt?"\u2713 EXT "+mesAnteriorLabel:"+ Exterior "+mesAnteriorLabel+" ("+moedasExteriorAtivas.join("/")+")"
+            // Botao Exterior (so aparece se ha ativos exterior no portfolio) - sempre clicavel para editar/acrescentar moedas
+            temAtivosExterior?h("button",{onClick:registrarRendaExterior,style:{padding:"7px 11px",background:jaRegistrouExt?"rgba(91,143,212,0.18)":"linear-gradient(135deg,#5B8FD4,#3f70b8)",color:jaRegistrouExt?"#8FB4E0":"#FFFFFF",border:jaRegistrouExt?"1px solid rgba(91,143,212,0.45)":"none",borderRadius:5,fontSize:9.5,fontFamily:"monospace",fontWeight:700,letterSpacing:1,cursor:"pointer"}},
+              jaRegistrouExt?"\u270E EXT "+mesAnteriorLabel+" (+moedas)":"+ Exterior "+mesAnteriorLabel+" ("+moedasExteriorAtivas.join("/")+")"
             ):null,
             // Botao Historico
             rendaAuxiliarHist.length>0?h("button",{onClick:()=>{
