@@ -9059,6 +9059,9 @@ function App(){
   // Camada informacional SEPARADA - nao entra no ICR-RTE/Solidez (evita double-count com SWR)
   // Cada entrada: {mes:"YYYY-MM", moedas:{BRL:n, USD:n, EUR:n, ...}, ts:ms}
   const [rendaAuxiliarHist,setRendaAuxiliarHist]=useState([]);
+  const [modalExteriorAberto,setModalExteriorAberto]=useState(false);// modal multimoeda de renda exterior
+  const [exteriorInputs,setExteriorInputs]=useState({});// valores digitados por moeda no modal
+  const [exteriorProcessando,setExteriorProcessando]=useState(false);// flag durante fetch PTAX
   // UI: modal de backfill aberto/fechado
   const [backfillOpen,setBackfillOpen]=useState(false);
   // UI: modal de backfill da renda auxiliar
@@ -24814,8 +24817,80 @@ h("button",{onClick:async()=>{
         filtrado.sort((a,b)=>a.mes.localeCompare(b.mes));
         setRendaAuxiliarHist(filtrado);
       };
-      // Handler: registra renda EXTERIOR (modal multimoeda + fetch PTAX BCB)
-      const registrarRendaExterior=async ()=>{
+      // Handler: ABRE o modal multimoeda de renda exterior (substitui a cadeia de window.prompt)
+      const registrarRendaExterior=()=>{
+        const moedasExt=moedasAuxiliares.filter(m=>m!=="BRL");
+        if(moedasExt.length===0){alert("Nao ha ativos do exterior no portfolio.");return;}
+        // Pre-preenche com valores ja registrados neste mes (se houver), para edicao
+        const existente=rendaAuxiliarHist.find(r=>r.mes===mesAnterior);
+        const preencheInicial={};
+        moedasExt.forEach(mo=>{
+          const val=existente&&existente.exterior&&existente.exterior[mo]?existente.exterior[mo]:"";
+          preencheInicial[mo]=val?String(val).replace(".",","):"";
+        });
+        setExteriorInputs(preencheInicial);
+        setModalExteriorAberto(true);
+      };
+      // Handler: CONFIRMA o modal - processa os valores digitados e busca PTAX BCB
+      const confirmarRendaExterior=async ()=>{
+        const labelMes=mesAnteriorLabel.replace(".","");
+        const moedasExt=moedasAuxiliares.filter(m=>m!=="BRL");
+        const exteriorNovo={};
+        // Le e valida cada campo
+        for(const mo of moedasExt){
+          const raw=(exteriorInputs[mo]||"").trim();
+          if(!raw)continue;
+          const lim=raw.replace(/\./g,"").replace(",",".");
+          const num=parseFloat(lim);
+          if(isNaN(num)||num<0){alert("Valor invalido em "+mo+". Corrija antes de salvar.");return;}
+          if(num>0)exteriorNovo[mo]=num;
+        }
+        if(Object.keys(exteriorNovo).length===0){
+          if(!confirm("Nenhum valor preenchido. Deseja fechar sem registrar renda do exterior?"))return;
+          setModalExteriorAberto(false);return;
+        }
+        setExteriorProcessando(true);
+        // Snapshot PTAX BCB
+        let fxSnapshot={BRL:1};
+        let fxSource="ptax_bcb";
+        const moedasNoSnap=Object.keys(exteriorNovo);
+        if(moedasNoSnap.length>0){
+          try{
+            const fxPtax=await fetchPtaxMultiMoeda(moedasNoSnap,mesAnterior);
+            const faltando=[];
+            moedasNoSnap.forEach(mo=>{
+              if(typeof fxPtax[mo]==="number"&&fxPtax[mo]>0)fxSnapshot[mo]=fxPtax[mo];
+              else if(typeof FX[mo]==="number"&&FX[mo]>0){fxSnapshot[mo]=FX[mo];faltando.push(mo);}
+            });
+            if(faltando.length>0){
+              fxSource="hibrido";
+              if(!confirm("PTAX nao disponivel para: "+faltando.join(", ")+"\nUsando cambio ATUAL como fallback.\nContinuar?")){setExteriorProcessando(false);return;}
+            }
+          }catch(e){
+            if(!confirm("Erro buscando PTAX BCB. Usar cambio atual?")){setExteriorProcessando(false);return;}
+            fxSource="atual";
+            moedasNoSnap.forEach(mo=>{if(typeof FX[mo]==="number"&&FX[mo]>0)fxSnapshot[mo]=FX[mo];});
+          }
+        }
+        // Preserva BR se ja registrado (merge)
+        const existente=rendaAuxiliarHist.find(r=>r.mes===mesAnterior);
+        const novaEntrada={
+          mes:mesAnterior,
+          br:existente?(existente.br||0):0,
+          exterior:exteriorNovo,
+          fxSnapshot,
+          fxSource,
+          ts:Date.now()
+        };
+        const filtrado=rendaAuxiliarHist.filter(r=>r.mes!==mesAnterior);
+        filtrado.push(novaEntrada);
+        filtrado.sort((a,b)=>a.mes.localeCompare(b.mes));
+        setRendaAuxiliarHist(filtrado);
+        setExteriorProcessando(false);
+        setModalExteriorAberto(false);
+      };
+      // (handler legado por prompt - mantido desativado)
+      const _registrarRendaExterior_legado=async ()=>{
         const labelMes=mesAnteriorLabel.replace(".","");
         const moedasExt=moedasAuxiliares.filter(m=>m!=="BRL");
         if(moedasExt.length===0){alert("Nao ha ativos do exterior no portfolio.");return;}
@@ -25304,6 +25379,56 @@ h("button",{onClick:async()=>{
             // Botao Backfill em massa
             mesesDispAux.length>0?h("button",{onClick:backfillRendaAux,style:{padding:"7px 11px",background:"rgba(200,169,110,0.15)",color:"#C8A96E",border:"1px solid rgba(200,169,110,0.40)",borderRadius:5,fontSize:9.5,fontFamily:"monospace",fontWeight:700,letterSpacing:1,cursor:"pointer"}},"\u{1F4DA} Backfill ("+mesesDispAux.length+")"):null
           ),
+          // ===== MODAL MULTIMOEDA: renda do exterior (um campo por moeda, tudo numa tela) =====
+          modalExteriorAberto?(()=>{
+            const moedasExt=moedasAuxiliares.filter(m=>m!=="BRL");
+            const nomeMoeda={USD:"Dolar EUA",EUR:"Euro",GBP:"Libra",CHF:"Franco Suico",JPY:"Iene",AUD:"Dolar Australiano",CAD:"Dolar Canadense",HKD:"Dolar HK",SGD:"Dolar Singapura",NOK:"Coroa Norueguesa",DKK:"Coroa Dinamarquesa",MXN:"Peso Mexicano"};
+            const simboloMoeda={USD:"US$",EUR:"\u20AC",GBP:"\u00A3",CHF:"CHF",JPY:"\u00A5",AUD:"A$",CAD:"C$",HKD:"HK$",SGD:"S$",NOK:"kr",DKK:"kr",MXN:"MX$"};
+            // Previa da soma convertida em BRL usando cambio atual (indicativo)
+            let previaBrl=0;let algumPreenchido=false;
+            moedasExt.forEach(mo=>{
+              const raw=(exteriorInputs[mo]||"").trim();
+              if(!raw)return;
+              const num=parseFloat(raw.replace(/\./g,"").replace(",","."));
+              if(!isNaN(num)&&num>0){previaBrl+=num*(FX[mo]||0);algumPreenchido=true;}
+            });
+            return h("div",{style:{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.75)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16},onClick:(e)=>{if(e.target===e.currentTarget&&!exteriorProcessando)setModalExteriorAberto(false);}},
+              h("div",{style:{background:"#14100C",border:"1px solid rgba(91,143,212,0.40)",borderRadius:10,maxWidth:420,width:"100%",maxHeight:"85vh",overflowY:"auto",padding:"18px 18px 16px",boxShadow:"0 8px 40px rgba(0,0,0,0.6)"}},
+                // Cabecalho
+                h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:4}},
+                  h("div",{style:{fontSize:12,color:"#5B8FD4",fontFamily:"monospace",fontWeight:700,letterSpacing:1}},"\u{1F30E} RENDA DO EXTERIOR"),
+                  h("button",{onClick:()=>{if(!exteriorProcessando)setModalExteriorAberto(false);},style:{background:"transparent",border:"1px solid rgba(91,143,212,0.4)",color:"#5B8FD4",borderRadius:5,fontSize:14,cursor:"pointer",width:26,height:26,padding:0,lineHeight:1,fontFamily:"monospace"}},"\u00D7")
+                ),
+                h("div",{style:{fontSize:9.5,color:"#9A9080",fontFamily:"Georgia,serif",fontStyle:"italic",lineHeight:1.5,marginBottom:14}},
+                  "Proventos LIQUIDOS recebidos em ",h("strong",{style:{color:"#C8A96E"}},mesAnteriorLabel),", cada um na sua moeda nativa. Deixe em branco as moedas em que nao recebeu. O cambio de conversao usa o PTAX BCB do mes ao salvar."
+                ),
+                // Campos por moeda
+                ...moedasExt.map(mo=>h("div",{key:"fx"+mo,style:{marginBottom:11}},
+                  h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:3}},
+                    h("label",{style:{fontSize:9.5,color:"#E8E2D5",fontFamily:"monospace",fontWeight:700}},
+                      h("span",{style:{color:"#5B8FD4"}},mo)," ",h("span",{style:{color:"#7A7060",fontWeight:400}},nomeMoeda[mo]||"")
+                    )
+                  ),
+                  h("div",{style:{display:"flex",alignItems:"center",gap:6,background:"rgba(0,0,0,0.30)",border:"1px solid rgba(91,143,212,0.25)",borderRadius:6,padding:"2px 10px"}},
+                    h("span",{style:{fontSize:10,color:"#7A7060",fontFamily:"monospace",minWidth:32}},simboloMoeda[mo]||mo),
+                    h("input",{type:"text",inputmode:"decimal",value:exteriorInputs[mo]||"",placeholder:"0,00",
+                      onInput:(e)=>{const val=e.target.value;setExteriorInputs(prev=>({...prev,[mo]:val}));},
+                      style:{flex:1,background:"transparent",border:"none",outline:"none",color:"#E8E2D5",fontSize:13,fontFamily:"monospace",padding:"8px 0",width:"100%"}})
+                  )
+                )),
+                // Previa da soma em BRL (indicativo, cambio atual)
+                algumPreenchido?h("div",{style:{marginTop:6,marginBottom:12,padding:"7px 10px",background:"rgba(76,175,130,0.08)",border:"1px solid rgba(76,175,130,0.25)",borderRadius:5,fontSize:9,color:"#9A9080",fontFamily:"monospace"}},
+                  "Soma convertida (cambio atual, indicativo): ",h("strong",{style:{color:"#4CAF82"}},"R$ "+previaBrl.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})),
+                  h("div",{style:{fontSize:7.5,color:"#7A7060",marginTop:2}},"O valor final gravado usara o PTAX oficial do mes.")
+                ):null,
+                // Botoes de acao
+                h("div",{style:{display:"flex",gap:8,marginTop:8}},
+                  h("button",{onClick:()=>{if(!exteriorProcessando)setModalExteriorAberto(false);},disabled:exteriorProcessando,style:{flex:1,padding:"10px",background:"rgba(122,112,96,0.15)",color:"#9A9080",border:"1px solid rgba(122,112,96,0.35)",borderRadius:6,fontSize:10,fontFamily:"monospace",fontWeight:700,letterSpacing:1,cursor:exteriorProcessando?"not-allowed":"pointer"}},"Cancelar"),
+                  h("button",{onClick:confirmarRendaExterior,disabled:exteriorProcessando,style:{flex:2,padding:"10px",background:exteriorProcessando?"rgba(91,143,212,0.3)":"linear-gradient(135deg,#5B8FD4,#3f70b8)",color:"#FFFFFF",border:"none",borderRadius:6,fontSize:10,fontFamily:"monospace",fontWeight:700,letterSpacing:1,cursor:exteriorProcessando?"wait":"pointer"}},exteriorProcessando?"Buscando PTAX...":"Salvar renda do exterior")
+                )
+              )
+            );
+          })():null,
           // Capacidade total observada (motora + auxiliar) - linha agregada informativa
           (yObsMotor||auxObs)?(()=>{
             // Renda motora mensal media: yieldAnualLiq media * valor motores atual / 12
