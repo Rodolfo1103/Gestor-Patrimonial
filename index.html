@@ -2576,9 +2576,9 @@ function BackfillModal({meses,valorMotoresAtual,onSave,onClose,fB}){
 // =====================================================================
 // MODAL: Backfill de Renda Auxiliar (multimoeda - varios meses, varias moedas)
 // =====================================================================
-function BackfillModalAuxiliar({meses,moedasAtivas,fx,onSave,onClose,fB}){
-  // Estado: valores[mesKey][moeda] = string crua
-  const [valores,setValores]=useState({});
+function BackfillModalAuxiliar({meses,moedasAtivas,fx,onSave,onClose,fB,valoresIniciais,titulo,subtitulo}){
+  // Estado: valores[mesKey][moeda] = string crua. Aceita pre-preenchimento (edicao de historico).
+  const [valores,setValores]=useState(valoresIniciais||{});
   const setVal=(mes,moeda,v)=>setValores(prev=>({
     ...prev,
     [mes]:{...(prev[mes]||{}),[moeda]:v}
@@ -2621,8 +2621,8 @@ function BackfillModalAuxiliar({meses,moedasAtivas,fx,onSave,onClose,fB}){
     h("div",{style:{background:"#1A1612",border:"1px solid rgba(91,143,212,0.40)",borderRadius:10,padding:16,maxWidth:560,width:"100%",maxHeight:"90vh",overflowY:"auto",boxShadow:"0 8px 32px rgba(0,0,0,0.6)"}},
       h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10,paddingBottom:10,borderBottom:"1px solid rgba(255,255,255,0.08)"}},
         h("div",{},
-          h("div",{style:{fontSize:11,letterSpacing:2,color:"#5B8FD4",fontFamily:"monospace",fontWeight:700,textTransform:"uppercase"}},"\u{1F4DA} Backfill Renda Auxiliar"),
-          h("div",{style:{fontSize:9,color:"#7A7060",fontFamily:"monospace",marginTop:3}},"Acoes BR + dividendos exterior \u2022 moedas: "+moedasAtivas.join(", "))
+          h("div",{style:{fontSize:11,letterSpacing:2,color:"#5B8FD4",fontFamily:"monospace",fontWeight:700,textTransform:"uppercase"}},titulo||"\u{1F4DA} Backfill Renda Auxiliar"),
+          h("div",{style:{fontSize:9,color:"#7A7060",fontFamily:"monospace",marginTop:3}},subtitulo||("Acoes BR + dividendos exterior \u2022 moedas: "+moedasAtivas.join(", ")))
         ),
         h("button",{onClick:onClose,style:{background:"none",border:"none",color:"#9A9080",fontSize:20,cursor:"pointer",padding:"0 6px",lineHeight:1}},"\u00D7")
       ),
@@ -9066,6 +9066,7 @@ function App(){
   const [backfillOpen,setBackfillOpen]=useState(false);
   // UI: modal de backfill da renda auxiliar
   const [backfillAuxOpen,setBackfillAuxOpen]=useState(false);
+  const [editarHistOpen,setEditarHistOpen]=useState(false);// editor visual do historico de renda auxiliar (2026+)
   const [editCambialMoeda,setEditCambialMoeda]=useState(null);// moeda em edicao
   const [editCambialVal,setEditCambialVal]=useState("");// valor sendo editado na UI
   // ====== NTN-B / Tesouro IPCA+ ======
@@ -25024,6 +25025,104 @@ h("button",{onClick:async()=>{
         if(!confirm("Remover o registro de "+mes+" (renda auxiliar)?"))return;
         setRendaAuxiliarHist(rendaAuxiliarHist.filter(r=>r.mes!==mes));
       };
+      // ===== EDITOR VISUAL DO HISTORICO (2026+): todos os meses de jan/2026 ao ultimo fechado =====
+      const PISO_HIST_EDIT="2026-01";
+      // Lista de meses editaveis: de jan/2026 ate o mes anterior (ultimo fechado), todos, com ou sem registro
+      const mesesEditaveis=(()=>{
+        const lst=[];
+        const anoAtual=_hojeRM.getFullYear();
+        const mesAtual=_hojeRM.getMonth();// 0-indexed
+        // Do mes anterior (ultimo fechado) retrocedendo ate jan/2026
+        for(let i=1;i<=24;i++){
+          const dt=new Date(anoAtual,mesAtual-i,1);
+          const mesKey=dt.getFullYear()+"-"+String(dt.getMonth()+1).padStart(2,"0");
+          if(mesKey<PISO_HIST_EDIT)break;// nao passa do piso
+          const labelMes=dt.toLocaleDateString("pt-BR",{month:"short",year:"numeric"}).replace(".","");
+          lst.push({key:mesKey,label:labelMes});
+        }
+        return lst;// ja vem do mais recente ao mais antigo
+      })();
+      // Valores iniciais do editor: pre-preenche com o que ja esta registrado
+      const valoresIniciaisHist=(()=>{
+        const obj={};
+        mesesEditaveis.forEach(m=>{
+          const reg=rendaAuxiliarHist.find(r=>r.mes===m.key);
+          if(!reg)return;
+          const linha={};
+          if(typeof reg.br==="number"&&reg.br>0)linha.BRL=String(reg.br).replace(".",",");
+          if(reg.exterior&&typeof reg.exterior==="object"){
+            Object.entries(reg.exterior).forEach(([mo,vl])=>{
+              if(typeof vl==="number"&&vl>0)linha[mo]=String(vl).replace(".",",");
+            });
+          }
+          if(Object.keys(linha).length>0)obj[m.key]=linha;
+        });
+        return obj;
+      })();
+      // Handler: abrir editor de historico
+      const abrirEditarHist=()=>{
+        if(mesesEditaveis.length===0){alert("Nenhum mes de 2026 disponivel para editar ainda.");return;}
+        setEditarHistOpen(true);
+      };
+      // Handler: salvar edicao do historico (aceita QUALQUER mes de 2026, ja registrado ou nao)
+      const salvarEdicaoHist=async (valoresPorMes)=>{
+        const chavesValidas=new Set(mesesEditaveis.map(x=>x.key));
+        const novosBase=[];const erros=[];const mesesTocados=new Set();
+        Object.entries(valoresPorMes).forEach(([mes,moedasObj])=>{
+          if(!chavesValidas.has(mes))return;
+          mesesTocados.add(mes);
+          let br=0;const exterior={};let temAlgo=false;
+          Object.entries(moedasObj||{}).forEach(([mo,valStr])=>{
+            const s=String(valStr||"").trim();
+            if(!s)return;
+            const lim=s.replace(/\s/g,"").replace(/\./g,"").replace(",",".");
+            const num=parseFloat(lim);
+            if(isNaN(num)||num<0){erros.push(mes+"/"+mo+": valor invalido");return;}
+            if(num>0){if(mo==="BRL")br=num;else exterior[mo]=num;temAlgo=true;}
+          });
+          // Mesmo sem valor, um mes tocado (que estava preenchido e foi zerado) deve poder ser limpo.
+          if(temAlgo)novosBase.push({mes,br,exterior,ts:Date.now()});
+          else novosBase.push({mes,br:0,exterior:{},ts:Date.now(),_vazio:true});
+        });
+        if(novosBase.length===0){alert("Nenhuma alteracao."+(erros.length?"\n\nErros:\n"+erros.join("\n"):""));return false;}
+        const comValor=novosBase.filter(n=>!n._vazio);
+        const resumo=comValor.map(n=>{
+          const parts=[];
+          if(n.br>0)parts.push("BR R$"+n.br.toFixed(2));
+          Object.entries(n.exterior).forEach(([mo,vl])=>parts.push(mo+" "+vl.toFixed(2)));
+          return n.mes+": "+(parts.length?parts.join(", "):"(vazio)");
+        }).join("\n");
+        if(!confirm("Salvar historico de "+comValor.length+" mes(es)?\nBuscando PTAX BCB dos meses editados...\n\n"+resumo+(erros.length?"\n\nErros ignorados:\n"+erros.join("\n"):"")))return false;
+        // Busca PTAX historico de cada mes com moeda estrangeira
+        const comValorFx=await Promise.all(comValor.map(async (n)=>{
+          const moedasExt=Object.keys(n.exterior);
+          let fxSnapshot={BRL:1};let fxSource="ptax_bcb";
+          if(moedasExt.length>0){
+            try{
+              const fxPtax=await fetchPtaxMultiMoeda(moedasExt,n.mes);
+              const faltando=[];
+              moedasExt.forEach(mo=>{
+                if(typeof fxPtax[mo]==="number"&&fxPtax[mo]>0)fxSnapshot[mo]=fxPtax[mo];
+                else if(typeof FX[mo]==="number"&&FX[mo]>0){fxSnapshot[mo]=FX[mo];faltando.push(mo);}
+              });
+              if(faltando.length===moedasExt.length)fxSource="atual";
+              else if(faltando.length>0)fxSource="hibrido";
+            }catch(e){
+              fxSource="atual";
+              moedasExt.forEach(mo=>{if(typeof FX[mo]==="number"&&FX[mo]>0)fxSnapshot[mo]=FX[mo];});
+            }
+          }
+          return {...n,fxSnapshot,fxSource};
+        }));
+        const fallbackMeses=comValorFx.filter(n=>n.fxSource!=="ptax_bcb"&&Object.keys(n.exterior).length>0).map(n=>n.mes+" ("+n.fxSource+")");
+        if(fallbackMeses.length>0)alert("PTAX nao disponivel para: "+fallbackMeses.join(", ")+"\nUsando cambio atual como fallback.");
+        // Aplica: remove todos os meses tocados e re-insere os que tem valor (os vazios ficam removidos)
+        const filtrado=rendaAuxiliarHist.filter(r=>!mesesTocados.has(r.mes));
+        const combinado=filtrado.concat(comValorFx.map(({_vazio,...n})=>n));
+        combinado.sort((a,b)=>a.mes.localeCompare(b.mes));
+        setRendaAuxiliarHist(combinado);
+        return true;
+      };
 
       // Handler: editar entrada existente
       const editarRendaMotora=(mes)=>{
@@ -25246,6 +25345,18 @@ h("button",{onClick:async()=>{
           onClose:()=>setBackfillAuxOpen(false),
           fB
         }):null,
+        // Editor visual do historico (2026+): reutiliza o mesmo modal, mas com meses editaveis e valores pre-preenchidos
+        editarHistOpen?h(BackfillModalAuxiliar,{
+          meses:mesesEditaveis,
+          moedasAtivas:moedasAuxiliares,
+          fx:FX,
+          onSave:salvarEdicaoHist,
+          onClose:()=>setEditarHistOpen(false),
+          fB,
+          valoresIniciais:valoresIniciaisHist,
+          titulo:"\u270E Editar Historico de Renda",
+          subtitulo:"Meses de 2026 \u2022 valores ja registrados aparecem preenchidos \u2022 edite ou acrescente moedas"
+        }):null,
 
         // ===== CARD: RENDA AUXILIAR OBSERVADA (acoes BR + exterior multimoeda) =====
         h("div",{style:{background:"linear-gradient(135deg,rgba(91,143,212,0.10),rgba(91,143,212,0.04))",border:"1px solid rgba(91,143,212,0.35)",borderRadius:8,padding:"12px 14px",marginBottom:14}},
@@ -25368,19 +25479,8 @@ h("button",{onClick:async()=>{
             temAtivosExterior?h("button",{onClick:registrarRendaExterior,style:{padding:"7px 11px",background:jaRegistrouExt?"rgba(91,143,212,0.18)":"linear-gradient(135deg,#5B8FD4,#3f70b8)",color:jaRegistrouExt?"#8FB4E0":"#FFFFFF",border:jaRegistrouExt?"1px solid rgba(91,143,212,0.45)":"none",borderRadius:5,fontSize:9.5,fontFamily:"monospace",fontWeight:700,letterSpacing:1,cursor:"pointer"}},
               jaRegistrouExt?"\u270E EXT "+mesAnteriorLabel+" (+moedas)":"+ Exterior "+mesAnteriorLabel+" ("+moedasExteriorAtivas.join("/")+")"
             ):null,
-            // Botao Historico
-            rendaAuxiliarHist.length>0?h("button",{onClick:()=>{
-              const lines=rendaAuxiliarHist.slice().reverse().map(r=>{
-                const parts=[];
-                if(r.br&&r.br>0)parts.push("BR R$"+r.br.toFixed(2));
-                Object.entries(r.exterior||{}).filter(([_,v])=>v>0).forEach(([m,v])=>parts.push(m+" "+v.toFixed(2)));
-                return r.mes+": "+(parts.length?parts.join(", "):"(zero)");
-              }).join("\n");
-              const escolha=window.prompt("Historico de renda auxiliar:\n\n"+lines+"\n\nDigite 'rm YYYY-MM' para REMOVER mes. Cancele para sair.","");
-              if(!escolha)return;
-              if(escolha.startsWith("rm "))removerRendaAux(escolha.slice(3).trim());
-              else alert("Para editar, remova e adicione novamente.");
-            },style:{padding:"7px 11px",background:"rgba(91,143,212,0.15)",color:"#5B8FD4",border:"1px solid rgba(91,143,212,0.35)",borderRadius:5,fontSize:9.5,fontFamily:"monospace",fontWeight:700,letterSpacing:1,cursor:"pointer"}},"\u270E Historico"):null,
+            // Botao Historico - abre editor visual (todos os meses de 2026, editaveis)
+            h("button",{onClick:abrirEditarHist,style:{padding:"7px 11px",background:"rgba(91,143,212,0.15)",color:"#5B8FD4",border:"1px solid rgba(91,143,212,0.35)",borderRadius:5,fontSize:9.5,fontFamily:"monospace",fontWeight:700,letterSpacing:1,cursor:"pointer"}},"\u270E Editar historico"),
             // Botao Backfill em massa
             mesesDispAux.length>0?h("button",{onClick:backfillRendaAux,style:{padding:"7px 11px",background:"rgba(200,169,110,0.15)",color:"#C8A96E",border:"1px solid rgba(200,169,110,0.40)",borderRadius:5,fontSize:9.5,fontFamily:"monospace",fontWeight:700,letterSpacing:1,cursor:"pointer"}},"\u{1F4DA} Backfill ("+mesesDispAux.length+")"):null
           ),
