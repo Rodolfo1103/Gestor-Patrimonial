@@ -24771,10 +24771,12 @@ h("button",{onClick:async()=>{
       })();
       // Lista de meses disponiveis para backfill auxiliar
       const mesesDispAux=(()=>{
+        const PISO_HISTORICO="2026-01";// nao permite backfill de renda auxiliar antes de jan/2026
         const lst=[];
         for(let i=1;i<=12;i++){
           const dt=new Date(_hojeRM.getFullYear(),_hojeRM.getMonth()-i,1);
           const mesKey=dt.getFullYear()+"-"+String(dt.getMonth()+1).padStart(2,"0");
+          if(mesKey<PISO_HISTORICO)continue;// exclui meses anteriores ao piso (2025 e antes)
           if(rendaAuxiliarHist.some(r=>r.mes===mesKey))continue;
           const labelMes=dt.toLocaleDateString("pt-BR",{month:"short",year:"numeric"}).replace(".","");
           lst.push({key:mesKey,label:labelMes});
