@@ -12030,12 +12030,12 @@ function App(){
           {classe:"reits",direcao:1,intensidade:"FORTE"},{classe:"bitcoin",direcao:1,intensidade:"MEDIA"},
           {classe:"ouro",direcao:1,intensidade:"MEDIA"}
         ]},
-        {nome:"Juros EUA",impactos:[
+        {nome:"Liquidez Global",impactos:[
           {classe:"bitcoin",direcao:1,intensidade:"FORTE"},{classe:"acoes_eua",direcao:1,intensidade:"FORTE"},{classe:"acoes_mundo",direcao:1,intensidade:"FORTE"},
           {classe:"reits",direcao:1,intensidade:"FORTE"},{classe:"acoes_br",direcao:1,intensidade:"MEDIA"},
           {classe:"fii",direcao:1,intensidade:"MEDIA"},{classe:"infra",direcao:1,intensidade:"BAIXA"},
           {classe:"agro",direcao:1,intensidade:"BAIXA"},{classe:"rfipca",direcao:1,intensidade:"BAIXA"},
-          {classe:"ouro",direcao:1,intensidade:"BAIXA"},{classe:"treasuries",direcao:-1,intensidade:"MEDIA"}
+          {classe:"ouro",direcao:1,intensidade:"BAIXA"},{classe:"treasuries",direcao:1,intensidade:"MEDIA"}
         ]},
         {nome:"Ciclo de Commodities",impactos:[
           {classe:"agro",direcao:1,intensidade:"FORTE"},{classe:"acoes_br",direcao:1,intensidade:"MEDIA"},
@@ -17289,21 +17289,22 @@ h("button",{onClick:async()=>{
                     ]
                   },
                   {
-                    nome:"Juros EUA",
+                    nome:"Liquidez Global",
                     icone:"\u{1F30A}",
                     cor:"#9C7DC2",
-                    explicacao:"Fluxo internacional de capital. Quando Fed aperta (juros US altos), capital sai de emergentes. Bitcoin e ativos especulativos sofrem mais. REITs sao sensiveis. Quando Fed solta, o oposto.",
+                    sublegenda:"O eixo 'sobe' = MAIS liquidez no mundo (Fed cortando juros / afrouxando). 'Desce' = Fed apertando (juros EUA altos), que drena capital dos emergentes.",
+                    explicacao:"Fluxo internacional de capital dirigido pela politica do Fed. Quando o Fed AFROUXA (corta juros, injeta liquidez), o capital flui para ativos de risco e emergentes - Brasil, FIIs, acoes globais e Bitcoin sobem. Quando o Fed APERTA (juros US altos), o capital busca seguranca em Treasuries e no dolar, drenando os emergentes. Note: este vetor mede o CICLO DE LIQUIDEZ; o efeito direto do dolar forte sobre ativos dolarizados e capturado no vetor Cambio.",
                     impactos:[
-                      {classe:"bitcoin",direcao:1,intensidade:"FORTE",detalhe:"liquidity-driven"},
-                      {classe:"acoes_eua",direcao:1,intensidade:"FORTE",detalhe:"flow-driven"},{classe:"acoes_mundo",direcao:1,intensidade:"FORTE",detalhe:"flow-driven"},
-                      {classe:"reits",direcao:1,intensidade:"FORTE",detalhe:"yield-sensitive"},
-                      {classe:"acoes_br",direcao:1,intensidade:"MEDIA",detalhe:"capital estrangeiro"},
+                      {classe:"bitcoin",direcao:1,intensidade:"FORTE",detalhe:"liquidity-driven: sobe com Fed afrouxando"},
+                      {classe:"acoes_eua",direcao:1,intensidade:"FORTE",detalhe:"flow-driven: liquidez impulsiona equity"},{classe:"acoes_mundo",direcao:1,intensidade:"FORTE",detalhe:"flow-driven: liquidez impulsiona equity"},
+                      {classe:"reits",direcao:1,intensidade:"FORTE",detalhe:"yield-sensitive: Fed cortando comprime cap rate, REIT sobe"},
+                      {classe:"acoes_br",direcao:1,intensidade:"MEDIA",detalhe:"capital estrangeiro retorna ao Brasil"},
                       {classe:"fii",direcao:1,intensidade:"MEDIA",detalhe:"liquidez global ajuda EM"},
+                      {classe:"treasuries",direcao:1,intensidade:"MEDIA",detalhe:"Fed cortando = juros longos caem = TLT/IEF sobem"},
                       {classe:"infra",direcao:1,intensidade:"BAIXA",detalhe:"liquidez global ajuda"},
-                      {classe:"agro",direcao:1,intensidade:"BAIXA",detalhe:"commodities reagem"},
+                      {classe:"agro",direcao:1,intensidade:"BAIXA",detalhe:"commodities reagem a liquidez"},
                       {classe:"rfipca",direcao:1,intensidade:"BAIXA",detalhe:"curva longa BR relaxa quando Fed solta"},
-                      {classe:"ouro",direcao:1,intensidade:"BAIXA",detalhe:"mais defensivo"},
-                      {classe:"treasuries",direcao:-1,intensidade:"MEDIA",detalhe:"Fed apertando = TLT cai"},
+                      {classe:"ouro",direcao:1,intensidade:"BAIXA",detalhe:"juro real menor favorece ouro"},
                       {classe:"selic",direcao:0,intensidade:"BAIXA",detalhe:"depende mais da Selic interna"},
                       {classe:"imoveis",direcao:0,intensidade:"BAIXA",detalhe:"pouca sensibilidade direta"}
                     ]
@@ -17475,7 +17476,7 @@ h("button",{onClick:async()=>{
                       const expoPos=subindo.reduce((s,i)=>s+(cw[i.classe]||0)*pesoIntens(i.intensidade),0);
                       const expoNeg=caindo.reduce((s,i)=>s+(cw[i.classe]||0)*pesoIntens(i.intensidade),0);
                       const sens=expoPos-expoNeg;// pode ser +, -, ou 0
-                      return {nome:v.nome,cor:v.cor,sens,absSens:Math.abs(sens),icone:v.icone,expoPos,expoNeg,impactos:v.impactos,explicacao:v.explicacao};
+                      return {nome:v.nome,cor:v.cor,sens,absSens:Math.abs(sens),icone:v.icone,expoPos,expoNeg,impactos:v.impactos,explicacao:v.explicacao,sublegenda:v.sublegenda};
                     }).sort((a,b)=>b.absSens-a.absSens);// ordena pela magnitude absoluta
                     const top1=exposicoes[0],top2=exposicoes[1];
                     const direcao=(s)=>s>0?"se beneficia quando":"sofre quando";
@@ -17503,9 +17504,17 @@ h("button",{onClick:async()=>{
                             const mag=Math.abs(sens);
                             return Math.max(8,(mag/maxMag)*alturaG);// minimo 8px
                           };
+                          // Banda-alvo all weather: sensibilidade liquida ideal entre -10% e +10%
+                          const BANDA_ALVO=10;// +/- 10% (filosofia all weather)
+                          const bandaPx=Math.min(alturaG,(BANDA_ALVO/maxMag)*alturaG);// altura da meia-banda em px
                           return h("div",{style:{background:"rgba(0,0,0,0.20)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:7,padding:"14px 10px",position:"relative"}},
                             // Container principal do grafico
                             h("div",{style:{position:"relative",height:(alturaG*2+50)+"px",display:"flex",alignItems:"center",justifyContent:"space-around",gap:4}},
+                              // BANDA-ALVO (faixa verde translucida entre -10% e +10%, no fundo)
+                              h("div",{style:{position:"absolute",left:8,right:8,top:"calc(50% - "+bandaPx+"px)",height:(bandaPx*2)+"px",background:"linear-gradient(180deg,rgba(76,175,130,0.10),rgba(76,175,130,0.05),rgba(76,175,130,0.10))",border:"1px dashed rgba(76,175,130,0.35)",borderLeft:"none",borderRight:"none",borderRadius:2,zIndex:0,pointerEvents:"none"}},
+                                // Rotulo da banda (canto superior direito da faixa)
+                                h("div",{style:{position:"absolute",top:2,right:6,fontSize:6.5,fontFamily:"monospace",color:"rgba(76,175,130,0.75)",fontWeight:700,letterSpacing:0.3}},"ZONA ALVO \u00B110%")
+                              ),
                               // Linha do eixo central (horizontal, no meio)
                               h("div",{style:{position:"absolute",top:"50%",left:8,right:8,height:1,background:"rgba(200,169,110,0.30)",zIndex:0}}),
                               // PONTO CENTRAL = PORTFOLIO (clicavel)
@@ -17521,9 +17530,10 @@ h("button",{onClick:async()=>{
                                 const altura=alturaSeta(e.sens);
                                 const positivo=e.sens>=0;
                                 const corBarra=e.sens>5?"#4CAF82":e.sens<-5?"#E05252":"#C8A96E";
+                                const foraDaBanda=Math.abs(e.sens)>BANDA_ALVO;// ultrapassa a zona alvo +/-10%
                                 // Estrutura: container com height total (alturaG*2), e seta saindo do centro
                                 const estaAberto=vetorExpandido===e.nome;
-                                return h("div",{key:"v"+k,onClick:()=>setVetorExpandido(o=>o===e.nome?null:e.nome),title:"Clique para entender por que o portfolio tem esta sensibilidade",style:{position:"relative",display:"flex",flexDirection:"column",alignItems:"center",height:"100%",flex:"1 1 0",minWidth:0,maxWidth:55,zIndex:2,cursor:"pointer",borderRadius:5,background:estaAberto?"rgba(200,169,110,0.10)":"transparent",boxShadow:estaAberto?"inset 0 0 0 1px rgba(200,169,110,0.40)":"none",transition:"background 0.2s ease"}},
+                                return h("div",{key:"v"+k,onClick:()=>setVetorExpandido(o=>o===e.nome?null:e.nome),title:foraDaBanda?"Fora da zona alvo (+/-10%) - candidato a correcao via aporte. Toque para detalhes.":"Dentro da zona alvo. Toque para detalhes.",style:{position:"relative",display:"flex",flexDirection:"column",alignItems:"center",height:"100%",flex:"1 1 0",minWidth:0,maxWidth:55,zIndex:2,cursor:"pointer",borderRadius:5,background:estaAberto?"rgba(200,169,110,0.10)":"transparent",boxShadow:estaAberto?"inset 0 0 0 1px rgba(200,169,110,0.40)":"none",transition:"background 0.2s ease"}},
                                   // Label superior: nome do vetor e icone (sempre acima)
                                   h("div",{style:{position:"absolute",top:0,left:0,right:0,textAlign:"center",fontSize:7,fontFamily:"monospace",color:e.cor,fontWeight:700,letterSpacing:0.3,lineHeight:1.2,padding:"0 1px",whiteSpace:"normal",wordBreak:"break-word"}},
                                     h("div",{style:{fontSize:10,marginBottom:1}},e.icone),
@@ -17532,11 +17542,11 @@ h("button",{onClick:async()=>{
                                   // Container central com a seta
                                   h("div",{style:{position:"absolute",top:"50%",left:"50%",transform:"translate(-50%,-50%)",height:"100%",width:18,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}},
                                     // Espaco superior (para vetor positivo: ocupar; negativo: vazio)
-                                    h("div",{style:{height:positivo?altura:0,width:6,background:positivo?"linear-gradient(180deg,"+corBarra+","+corBarra+"AA)":"transparent",borderRadius:"3px 3px 0 0",position:"absolute",bottom:"50%",transition:"height 0.3s ease"}}),
+                                    h("div",{style:{height:positivo?altura:0,width:6,background:positivo?"linear-gradient(180deg,"+corBarra+","+corBarra+"AA)":"transparent",borderRadius:"3px 3px 0 0",position:"absolute",bottom:"50%",transition:"height 0.3s ease",boxShadow:foraDaBanda&&positivo?"0 0 6px "+corBarra+"CC":"none"}}),
                                     // Ponta de seta superior (positivo)
                                     positivo&&altura>15?h("div",{style:{position:"absolute",bottom:"calc(50% + "+(altura-1)+"px)",width:0,height:0,borderLeft:"6px solid transparent",borderRight:"6px solid transparent",borderBottom:"7px solid "+corBarra}}):null,
                                     // Espaco inferior (para vetor negativo: ocupar)
-                                    h("div",{style:{height:positivo?0:altura,width:6,background:positivo?"transparent":"linear-gradient(0deg,"+corBarra+","+corBarra+"AA)",borderRadius:"0 0 3px 3px",position:"absolute",top:"50%",transition:"height 0.3s ease"}}),
+                                    h("div",{style:{height:positivo?0:altura,width:6,background:positivo?"transparent":"linear-gradient(0deg,"+corBarra+","+corBarra+"AA)",borderRadius:"0 0 3px 3px",position:"absolute",top:"50%",transition:"height 0.3s ease",boxShadow:foraDaBanda&&!positivo?"0 0 6px "+corBarra+"CC":"none"}}),
                                     // Ponta de seta inferior (negativo)
                                     !positivo&&altura>15?h("div",{style:{position:"absolute",top:"calc(50% + "+(altura-1)+"px)",width:0,height:0,borderLeft:"6px solid transparent",borderRight:"6px solid transparent",borderTop:"7px solid "+corBarra}}):null
                                   ),
@@ -17544,13 +17554,13 @@ h("button",{onClick:async()=>{
                                   h("div",{style:{position:"absolute",left:0,right:0,textAlign:"center",fontSize:8.5,fontFamily:"monospace",color:corBarra,fontWeight:700,
                                     top:positivo?"calc(50% - "+(altura+18)+"px)":"auto",
                                     bottom:positivo?"auto":"calc(50% - "+(altura+18)+"px)"
-                                  }},(positivo?"+":"")+e.sens.toFixed(0)+"%")
+                                  }},(positivo?"+":"")+e.sens.toFixed(0)+"%",foraDaBanda?h("span",{style:{color:"#E0A852",fontSize:9,marginLeft:1},title:"fora da zona alvo"},"\u26A0"):null)
                                 );
                               })
                             ),
                             // Legenda do eixo
                             h("div",{style:{fontSize:7,color:"#7A7060",fontFamily:"monospace",textAlign:"center",marginTop:6,fontStyle:"italic",lineHeight:1.5}},
-                              "Eixo horizontal = portfolio em equilibrio. Setas para cima (verde) = vetores beneficiam. Setas para baixo (vermelho) = vetores prejudicam. Toque em um vetor para entender o porque."
+                              "Eixo horizontal = portfolio em equilibrio. Setas para cima (verde) = vetores beneficiam; para baixo (vermelho) = prejudicam. A ",h("span",{style:{color:"rgba(76,175,130,0.85)",fontStyle:"normal",fontWeight:700}},"faixa verde (\u00B110%)")," e a zona-alvo all weather: setas dentro dela indicam boa neutralidade macro. Setas que ultrapassam (\u26A0) sao exposicoes concentradas, candidatas a correcao via direcao do aporte. Toque em um vetor para entender o porque."
                             )
                           );
                         })()
@@ -17594,11 +17604,16 @@ h("button",{onClick:async()=>{
                             ),
                             h("button",{onClick:()=>setVetorExpandido(null),style:{background:"transparent",border:"1px solid "+ev.cor+"55",color:ev.cor,borderRadius:4,fontSize:11,cursor:"pointer",width:20,height:20,padding:0,lineHeight:1,fontFamily:"monospace"}},"\u00D7")
                           ),
+                          // Sublegenda: define o que "sobe/desce" significa neste eixo (quando presente)
+                          ev.sublegenda?h("div",{style:{fontSize:8.5,color:ev.cor,background:ev.cor+"12",border:"1px solid "+ev.cor+"33",borderRadius:5,padding:"5px 8px",lineHeight:1.45,margin:"0 0 9px",fontFamily:"monospace"}},
+                            h("strong",{},"\u{1F4CF} Direcao do eixo: "),ev.sublegenda
+                          ):null,
                           // Sensibilidade liquida resultante
                           h("div",{style:{fontSize:9.5,color:"#E8E2D5",lineHeight:1.6,margin:"0 0 9px"}},
                             "Sua sensibilidade liquida a este vetor e ",
                             h("strong",{style:{color:corDir2(ev.sens)}},(ev.sens>0?"+":"")+ev.sens.toFixed(0)+"%"),
-                            ev.sens>5?" (o portfolio se beneficia quando este fator sobe).":ev.sens<-5?" (o portfolio sofre quando este fator sobe).":" (praticamente neutro - boa diversificacao neste vetor)."
+                            ev.sens>5?" (o portfolio se beneficia quando este fator sobe).":ev.sens<-5?" (o portfolio sofre quando este fator sobe).":" (praticamente neutro - boa diversificacao neste vetor).",
+                            Math.abs(ev.sens)>10?h("span",{style:{color:"#E0A852"}}," \u26A0 Fora da zona-alvo all weather (\u00B110%): esta e uma exposicao concentrada. Direcione aportes para classes de sinal oposto neste vetor para traze-la de volta a faixa."):h("span",{style:{color:"#4CAF82"}}," \u2713 Dentro da zona-alvo all weather (\u00B110%): exposicao macro saudavel.")
                           ),
                           // Explicacao geral do vetor
                           h("p",{style:{fontSize:9,color:"#9A9080",fontStyle:"italic",lineHeight:1.55,margin:"0 0 11px",paddingBottom:9,borderBottom:"1px solid rgba(255,255,255,0.06)"}},ev.explicacao),
@@ -17726,12 +17741,12 @@ h("button",{onClick:async()=>{
                       {classe:"reits",direcao:1,intensidade:"FORTE"},{classe:"bitcoin",direcao:1,intensidade:"MEDIA"},
                       {classe:"ouro",direcao:1,intensidade:"MEDIA"}
                     ]},
-                    {nome:"Juros EUA",cor:"#9C7DC2",icone:"\u{1F30A}",impactos:[
+                    {nome:"Liquidez Global",cor:"#9C7DC2",icone:"\u{1F30A}",impactos:[
                       {classe:"bitcoin",direcao:1,intensidade:"FORTE"},{classe:"acoes_eua",direcao:1,intensidade:"FORTE"},{classe:"acoes_mundo",direcao:1,intensidade:"FORTE"},
                       {classe:"reits",direcao:1,intensidade:"FORTE"},{classe:"acoes_br",direcao:1,intensidade:"MEDIA"},
                       {classe:"fii",direcao:1,intensidade:"MEDIA"},{classe:"infra",direcao:1,intensidade:"BAIXA"},
                       {classe:"agro",direcao:1,intensidade:"BAIXA"},{classe:"rfipca",direcao:1,intensidade:"BAIXA"},
-                      {classe:"ouro",direcao:1,intensidade:"BAIXA"},{classe:"treasuries",direcao:-1,intensidade:"MEDIA"}
+                      {classe:"ouro",direcao:1,intensidade:"BAIXA"},{classe:"treasuries",direcao:1,intensidade:"MEDIA"}
                     ]},
                     {nome:"Ciclo de Commodities",cor:"#C8A96E",icone:"\u{1F33E}",impactos:[
                       {classe:"agro",direcao:1,intensidade:"FORTE"},{classe:"acoes_br",direcao:1,intensidade:"MEDIA"},
@@ -19785,10 +19800,10 @@ h("button",{onClick:async()=>{
                   {classe:"acoes_mundo",direcao:1,intensidade:"FORTE"},{classe:"reits",direcao:1,intensidade:"FORTE"},
                   {classe:"bitcoin",direcao:1,intensidade:"MEDIA"},{classe:"ouro",direcao:1,intensidade:"MEDIA"}
                 ]},
-                {nome:"Juros EUA",impactos:[
+                {nome:"Liquidez Global",impactos:[
                   {classe:"bitcoin",direcao:1,intensidade:"FORTE"},{classe:"acoes_eua",direcao:1,intensidade:"FORTE"},
                   {classe:"acoes_mundo",direcao:1,intensidade:"FORTE"},{classe:"reits",direcao:1,intensidade:"FORTE"},
-                  {classe:"treasuries",direcao:-1,intensidade:"MEDIA"}
+                  {classe:"treasuries",direcao:1,intensidade:"MEDIA"}
                 ]},
                 {nome:"Ciclo Commodities",impactos:[
                   {classe:"agro",direcao:1,intensidade:"FORTE"},{classe:"acoes_br",direcao:1,intensidade:"MEDIA"},
