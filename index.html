@@ -25608,7 +25608,7 @@ h("button",{onClick:async()=>{
               });
             }
           });
-          const anos=Object.keys(porAno).sort();// crescente: ano corrente por ultimo (embaixo)
+          const anos=Object.keys(porAno).filter(a=>parseInt(a,10)>=2026).sort();// crescente, apenas 2026+
           if(anos.length===0)return null;
           const anoAtual=String(new Date().getFullYear());
           const fmtNum=(v,mo)=>{
