@@ -8927,6 +8927,435 @@ function DocsNotasCard({ticker,port,setPort,hideVal,apiKey,selicAtual,registrarU
 }
 
 
+// ============================================================================
+// RELATORIO PATRIMONIAL COMPLETO (PDF via print nativo do navegador)
+// Gera documento HTML formatado com @media print + SVGs dos graficos.
+// Sem dependencias externas - o proprio navegador converte para PDF.
+// ============================================================================
+function gerarRelatorioPatrimonial(dados){
+  const {
+    total,cw,port,CL,FX,
+    metricas,          // {enbEfetivo,enbHerfindahl,corrMediaPond,hhi}
+    vetores,           // [{nome,icone,cor,sens,expoPos,expoNeg}]
+    rendaMotoraHist,rendaAuxiliarHist,
+    metaMensalIF,
+    modelos,           // [{id,nome,cor,p:{x,y,vol},isAtual,isAlvo}]
+    solidez,           // {indice,label}
+    fB
+  }=dados;
+
+  const hoje=new Date();
+  const dataFmt=hoje.toLocaleDateString("pt-BR",{day:"2-digit",month:"long",year:"numeric"});
+  const esc=(s)=>String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  const n2=(v)=>Number(v||0).toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2});
+  const brl=(v)=>"R$ "+n2(v);
+  const pct=(v,d)=>Number(v||0).toFixed(d==null?1:d)+"%";
+
+  // ---- 1. Alocacao atual vs banda-alvo ----
+  const linhasAloc=CL.map(c=>{
+    const atual=cw[c.id]||0;
+    const centro=(c.min+c.max)/2;
+    const desvio=atual-centro;
+    const dentro=atual>=c.min&&atual<=c.max;
+    return {id:c.id,nome:c.name,cor:c.color,atual,min:c.min,max:c.max,centro,desvio,dentro};
+  }).sort((a,b)=>b.atual-a.atual);
+  const foraDaBanda=linhasAloc.filter(l=>!l.dentro);
+  const abaixoDaBanda=linhasAloc.filter(l=>l.atual<l.min);
+
+  // ---- 2. Gap de correlacao (relativo = corr^2) ----
+  const gapAbs=metricas.enbHerfindahl-metricas.enbEfetivo;
+  const gapRel=metricas.enbHerfindahl>0?gapAbs/metricas.enbHerfindahl:0;
+  const GAP_ALVO=0.04; // 0.20^2 (alvo de correlacao <=0.20)
+  const gapDentro=gapRel<=GAP_ALVO*1.25;
+
+  // ---- 3. Vetores fora da banda +/-10% ----
+  const BANDA=10;
+  const vetoresFora=(vetores||[]).filter(v=>Math.abs(v.sens)>BANDA).sort((a,b)=>Math.abs(b.sens)-Math.abs(a.sens));
+
+  // ---- 4. Renda: realizada por ano em moeda nativa ----
+  const porAno={};
+  const gAno=(a)=>{if(!porAno[a])porAno[a]={BRL:0};return porAno[a];};
+  (rendaMotoraHist||[]).forEach(r=>{if(r&&r.mes&&typeof r.renda==="number")gAno(r.mes.slice(0,4)).BRL+=r.renda;});
+  (rendaAuxiliarHist||[]).forEach(r=>{
+    if(!r||!r.mes)return;
+    const acc=gAno(r.mes.slice(0,4));
+    if(typeof r.br==="number"&&r.br>0)acc.BRL+=r.br;
+    if(r.exterior)Object.entries(r.exterior).forEach(([mo,v])=>{if(typeof v==="number"&&v>0)acc[mo]=(acc[mo]||0)+v;});
+  });
+  const anosRenda=Object.keys(porAno).filter(a=>parseInt(a,10)>=2026).sort();
+
+  // Renda mensal media (UDM) - motora + auxiliar convertida
+  const ultimos12=(rendaMotoraHist||[]).slice(-12);
+  const motoraMedia=ultimos12.length?ultimos12.reduce((s,r)=>s+(r.renda||0),0)/ultimos12.length:0;
+  let auxMediaBrl=0;
+  const auxUlt=(rendaAuxiliarHist||[]).slice(-12);
+  if(auxUlt.length){
+    const somaAux=auxUlt.reduce((s,r)=>{
+      let m=(r.br||0);
+      if(r.exterior)Object.entries(r.exterior).forEach(([mo,v])=>{
+        const fx=(r.fxSnapshot&&r.fxSnapshot[mo])||FX[mo]||0;
+        m+=v*fx;
+      });
+      return s+m;
+    },0);
+    auxMediaBrl=somaAux/auxUlt.length;
+  }
+  const rendaTotalMes=motoraMedia+auxMediaBrl;
+  const cobertura=metaMensalIF>0?rendaTotalMes/metaMensalIF:0;
+
+  // ---- 5. SINTESE CRUZADA DE APORTES ----
+  // Classes descorrelacionadas (reduzem gap de correlacao)
+  const DESCORRELACIONADAS=["bitcoin","treasuries","rfipca","ouro"];
+  // Para cada classe, conta quantos criterios ela atende
+  const criteriosPorClasse=CL.map(c=>{
+    const l=linhasAloc.find(x=>x.id===c.id);
+    const motivos=[];
+    let score=0;
+    // Criterio 1: abaixo da banda-alvo
+    if(l&&l.atual<l.min){motivos.push("abaixo da banda-alvo ("+pct(l.atual)+" vs min "+pct(l.min,0)+")");score+=2;}
+    // Criterio 2: reduz gap de correlacao
+    if(!gapDentro&&DESCORRELACIONADAS.includes(c.id)){motivos.push("descorrelacionada - fecha o gap de correlacao");score+=2;}
+    // Criterio 3: corrige vetor fora da banda
+    vetoresFora.forEach(v=>{
+      // classe ajuda se seu impacto no vetor tem sinal OPOSTO a sensibilidade liquida
+      const imp=(v.impactos||[]).find(i=>i.classe===c.id);
+      if(imp&&imp.direcao&&Math.sign(imp.direcao)!==Math.sign(v.sens)){
+        motivos.push("neutraliza "+v.nome+" ("+(v.sens>0?"+":"")+v.sens.toFixed(0)+"%)");
+        score+=1;
+      }
+    });
+    return {id:c.id,nome:c.name,cor:c.color,score,motivos,peso:l?l.atual:0};
+  }).filter(x=>x.score>0).sort((a,b)=>b.score-a.score);
+
+  // ---- SVG: grafico de barras da alocacao vs banda ----
+  const svgAlocacao=(()=>{
+    const W=680,rowH=22,H=linhasAloc.length*rowH+30;
+    const maxV=Math.max(...linhasAloc.map(l=>Math.max(l.atual,l.max)),1);
+    const escala=(v)=>(v/maxV)*430;
+    let s='<svg width="'+W+'" height="'+H+'" viewBox="0 0 '+W+' '+H+'" xmlns="http://www.w3.org/2000/svg">';
+    linhasAloc.forEach((l,i)=>{
+      const y=i*rowH+14;
+      s+='<text x="0" y="'+(y+8)+'" font-family="Helvetica" font-size="9" fill="#333">'+esc(l.nome)+'</text>';
+      // banda alvo (faixa cinza)
+      s+='<rect x="'+(150+escala(l.min))+'" y="'+(y+1)+'" width="'+Math.max(1,escala(l.max-l.min))+'" height="12" fill="#d8d2c4" opacity="0.85"/>';
+      // barra atual
+      s+='<rect x="150" y="'+(y+3)+'" width="'+Math.max(0,escala(l.atual))+'" height="8" fill="'+l.cor+'" opacity="0.9" rx="1"/>';
+      // rotulo valor
+      s+='<text x="'+(150+escala(Math.max(l.atual,l.max))+6)+'" y="'+(y+10)+'" font-family="Courier" font-size="8" fill="'+(l.dentro?"#3a7d5a":"#b04a3a")+'">'+pct(l.atual)+(l.dentro?"":" \u26A0")+'</text>';
+    });
+    s+='</svg>';
+    return s;
+  })();
+
+  // ---- SVG: radar das 4 metricas ----
+  const svgRadar=(()=>{
+    const size=230,cx=size/2,cy=size/2,R=78;
+    const norm=(v,alvo,inv)=>{
+      if(inv)return Math.max(0,Math.min(100,(alvo/Math.max(v,0.0001))*100));
+      return Math.max(0,Math.min(100,(v/alvo)*100));
+    };
+    const eixos=[
+      {lab:"ENB Efetivo",v:norm(metricas.enbEfetivo,5)},
+      {lab:"ENB Herf.",v:norm(metricas.enbHerfindahl,13)},
+      {lab:"Corr. Media",v:norm(metricas.corrMediaPond,0.20,true)},
+      {lab:"HHI",v:norm(metricas.hhi,0.077,true)}
+    ];
+    const ang=(i)=>(i/eixos.length)*Math.PI*2-Math.PI/2;
+    let s='<svg width="'+size+'" height="'+size+'" viewBox="0 0 '+size+' '+size+'" xmlns="http://www.w3.org/2000/svg">';
+    // aneis
+    [0.25,0.5,0.75,1].forEach(p=>{
+      const pts=eixos.map((_,i)=>{const a=ang(i);return (cx+R*p*Math.cos(a)).toFixed(1)+","+(cy+R*p*Math.sin(a)).toFixed(1);}).join(" ");
+      s+='<polygon points="'+pts+'" fill="none" stroke="#ddd" stroke-width="0.6"/>';
+    });
+    // poligono alvo (100%)
+    const ptsAlvo=eixos.map((_,i)=>{const a=ang(i);return (cx+R*Math.cos(a)).toFixed(1)+","+(cy+R*Math.sin(a)).toFixed(1);}).join(" ");
+    s+='<polygon points="'+ptsAlvo+'" fill="#4CAF82" fill-opacity="0.07" stroke="#4CAF82" stroke-width="1.2" stroke-dasharray="4,3"/>';
+    // poligono atual
+    const ptsAtual=eixos.map((e,i)=>{const a=ang(i);const r=R*(e.v/100);return (cx+r*Math.cos(a)).toFixed(1)+","+(cy+r*Math.sin(a)).toFixed(1);}).join(" ");
+    s+='<polygon points="'+ptsAtual+'" fill="#5B8FD4" fill-opacity="0.25" stroke="#5B8FD4" stroke-width="1.8"/>';
+    // labels
+    eixos.forEach((e,i)=>{
+      const a=ang(i);const lx=cx+(R+20)*Math.cos(a);const ly=cy+(R+20)*Math.sin(a);
+      s+='<text x="'+lx.toFixed(1)+'" y="'+ly.toFixed(1)+'" font-family="Helvetica" font-size="7.5" fill="#555" text-anchor="middle">'+esc(e.lab)+'</text>';
+      s+='<text x="'+lx.toFixed(1)+'" y="'+(ly+9).toFixed(1)+'" font-family="Courier" font-size="7" fill="#5B8FD4" text-anchor="middle" font-weight="bold">'+e.v.toFixed(0)+'</text>';
+    });
+    s+='</svg>';
+    return s;
+  })();
+
+  // ---- SVG: vetores macro com banda +/-10% ----
+  const svgVetores=(()=>{
+    const W=680,H=190,meio=H/2,padL=20;
+    const vs=(vetores||[]);
+    if(!vs.length)return "";
+    const maxAbs=Math.max(...vs.map(v=>Math.abs(v.sens)),20);
+    const escY=(v)=>(v/maxAbs)*(meio-28);
+    const bandaPx=escY(BANDA);
+    const slot=(W-padL*2)/vs.length;
+    let s='<svg width="'+W+'" height="'+H+'" viewBox="0 0 '+W+' '+H+'" xmlns="http://www.w3.org/2000/svg">';
+    // banda alvo
+    s+='<rect x="'+padL+'" y="'+(meio-bandaPx)+'" width="'+(W-padL*2)+'" height="'+(bandaPx*2)+'" fill="#4CAF82" fill-opacity="0.09" stroke="#4CAF82" stroke-opacity="0.4" stroke-width="0.8" stroke-dasharray="4,3"/>';
+    s+='<text x="'+(W-padL-4)+'" y="'+(meio-bandaPx+9)+'" font-family="Courier" font-size="7" fill="#4CAF82" text-anchor="end">ZONA ALVO \u00B110%</text>';
+    // eixo
+    s+='<line x1="'+padL+'" y1="'+meio+'" x2="'+(W-padL)+'" y2="'+meio+'" stroke="#bbb" stroke-width="1"/>';
+    vs.forEach((v,i)=>{
+      const x=padL+slot*i+slot/2;
+      const alt=escY(Math.abs(v.sens));
+      const pos=v.sens>=0;
+      const cor=v.sens>5?"#3a7d5a":v.sens<-5?"#b04a3a":"#a08a4a";
+      const fora=Math.abs(v.sens)>BANDA;
+      const y1=meio,y2=pos?meio-alt:meio+alt;
+      s+='<line x1="'+x+'" y1="'+y1+'" x2="'+x+'" y2="'+y2+'" stroke="'+cor+'" stroke-width="'+(fora?5:3.5)+'" stroke-linecap="round"/>';
+      // ponta
+      const dir=pos?-1:1;
+      s+='<polygon points="'+(x-4)+','+(y2+dir*1)+' '+(x+4)+','+(y2+dir*1)+' '+x+','+(y2+dir*7)+'" fill="'+cor+'"/>';
+      // valor
+      s+='<text x="'+x+'" y="'+(pos?y2-11:y2+17)+'" font-family="Courier" font-size="8" font-weight="bold" fill="'+cor+'" text-anchor="middle">'+(pos?"+":"")+v.sens.toFixed(0)+'%'+(fora?" \u26A0":"")+'</text>';
+      // nome
+      const nome=String(v.nome||"").replace(/\s*\(.*\)/,"");
+      s+='<text x="'+x+'" y="'+(H-4)+'" font-family="Helvetica" font-size="6.5" fill="#555" text-anchor="middle">'+esc(nome)+'</text>';
+    });
+    s+='</svg>';
+    return s;
+  })();
+
+  // ---- SVG: evolucao de renda (barras) ----
+  const svgRenda=(()=>{
+    const serie=(rendaMotoraHist||[]).slice(-12);
+    if(!serie.length)return "";
+    const W=680,H=150,padL=45,padB=22;
+    const maxV=Math.max(...serie.map(r=>r.renda||0),metaMensalIF||0)*1.1;
+    const bw=(W-padL-10)/serie.length;
+    let s='<svg width="'+W+'" height="'+H+'" viewBox="0 0 '+W+' '+H+'" xmlns="http://www.w3.org/2000/svg">';
+    const escH=(v)=>((v/maxV)*(H-padB-12));
+    // meta
+    if(metaMensalIF>0){
+      const ym=H-padB-escH(metaMensalIF);
+      s+='<line x1="'+padL+'" y1="'+ym+'" x2="'+(W-8)+'" y2="'+ym+'" stroke="#c0392b" stroke-width="1" stroke-dasharray="4,3"/>';
+      s+='<text x="'+(W-10)+'" y="'+(ym-3)+'" font-family="Courier" font-size="7" fill="#c0392b" text-anchor="end">meta '+brl(metaMensalIF)+'</text>';
+    }
+    serie.forEach((r,i)=>{
+      const x=padL+bw*i+2;
+      const hh=escH(r.renda||0);
+      s+='<rect x="'+x+'" y="'+(H-padB-hh)+'" width="'+(bw-5)+'" height="'+hh+'" fill="#4CAF82" opacity="0.75" rx="1"/>';
+      const lab=(r.mes||"").slice(5)+"/"+(r.mes||"").slice(2,4);
+      s+='<text x="'+(x+(bw-5)/2)+'" y="'+(H-8)+'" font-family="Helvetica" font-size="6" fill="#666" text-anchor="middle">'+esc(lab)+'</text>';
+    });
+    s+='<line x1="'+padL+'" y1="'+(H-padB)+'" x2="'+(W-8)+'" y2="'+(H-padB)+'" stroke="#ccc" stroke-width="0.8"/>';
+    s+='</svg>';
+    return s;
+  })();
+
+  // ---- SVG: mapa de modelos ----
+  const svgMapa=(()=>{
+    if(!modelos||!modelos.length)return "";
+    const W=330,H=250,pad=34;
+    const cW=W-pad*2,cH=H-pad*2;
+    const px=(x)=>pad+x*cW, py=(y)=>H-pad-y*cH;
+    let s='<svg width="'+W+'" height="'+H+'" viewBox="0 0 '+W+' '+H+'" xmlns="http://www.w3.org/2000/svg">';
+    s+='<rect x="'+pad+'" y="'+pad+'" width="'+cW+'" height="'+cH+'" fill="#fafafa" stroke="#ddd" stroke-width="0.8"/>';
+    s+='<line x1="'+pad+'" y1="'+(pad+cH/2)+'" x2="'+(pad+cW)+'" y2="'+(pad+cH/2)+'" stroke="#e5e5e5" stroke-dasharray="3,3"/>';
+    s+='<line x1="'+(pad+cW/2)+'" y1="'+pad+'" x2="'+(pad+cW/2)+'" y2="'+(pad+cH)+'" stroke="#e5e5e5" stroke-dasharray="3,3"/>';
+    const atual=modelos.find(m=>m.isAtual), alvo=modelos.find(m=>m.isAlvo);
+    if(atual&&alvo){
+      s+='<line x1="'+px(atual.p.x)+'" y1="'+py(atual.p.y)+'" x2="'+px(alvo.p.x)+'" y2="'+py(alvo.p.y)+'" stroke="#c0392b" stroke-width="1" stroke-dasharray="3,3" opacity="0.6"/>';
+    }
+    modelos.forEach(m=>{
+      if(!m.p)return;
+      const x=px(m.p.x),y=py(m.p.y);
+      if(m.isAtual){
+        s+='<circle cx="'+x+'" cy="'+y+'" r="7" fill="#fff" stroke="#333" stroke-width="1.6"/>';
+        s+='<circle cx="'+x+'" cy="'+y+'" r="2.8" fill="#333"/>';
+        s+='<text x="'+x+'" y="'+(y-11)+'" font-family="Helvetica" font-size="7.5" font-weight="bold" fill="#333" text-anchor="middle">VOCE</text>';
+      }else if(m.isAlvo){
+        s+='<circle cx="'+x+'" cy="'+y+'" r="7" fill="#fff" stroke="#c0392b" stroke-width="1.6"/>';
+        s+='<circle cx="'+x+'" cy="'+y+'" r="2.8" fill="#c0392b"/>';
+        s+='<text x="'+x+'" y="'+(y-11)+'" font-family="Helvetica" font-size="7.5" font-weight="bold" fill="#c0392b" text-anchor="middle">ALVO</text>';
+      }else{
+        s+='<circle cx="'+x+'" cy="'+y+'" r="3.4" fill="'+(m.cor||"#888")+'"/>';
+        s+='<text x="'+x+'" y="'+(y-7)+'" font-family="Helvetica" font-size="6.5" fill="#666" text-anchor="middle">'+esc(m.nome)+'</text>';
+      }
+    });
+    s+='<text x="'+(pad+cW/2)+'" y="'+(H-8)+'" font-family="Helvetica" font-size="7" fill="#888" text-anchor="middle">volatilidade esperada \u2192</text>';
+    s+='<text x="10" y="'+(pad+cH/2)+'" font-family="Helvetica" font-size="7" fill="#888" transform="rotate(-90 10 '+(pad+cH/2)+')" text-anchor="middle">renda \u2194 crescimento</text>';
+    s+='</svg>';
+    return s;
+  })();
+
+  // ================= MONTAGEM DO HTML =================
+  const linhasAlocHtml=linhasAloc.map(l=>
+    '<tr>'+
+    '<td><span class="dot" style="background:'+l.cor+'"></span>'+esc(l.nome)+'</td>'+
+    '<td class="num">'+pct(l.atual)+'</td>'+
+    '<td class="num muted">'+pct(l.min,0)+'\u2013'+pct(l.max,0)+'</td>'+
+    '<td class="num '+(l.dentro?"ok":"warn")+'">'+(l.desvio>0?"+":"")+pct(l.desvio)+'</td>'+
+    '<td class="'+(l.dentro?"ok":"warn")+'">'+(l.dentro?"dentro":(l.atual<l.min?"abaixo":"acima"))+'</td>'+
+    '</tr>').join("");
+
+  const linhasVetHtml=(vetores||[]).map(v=>{
+    const fora=Math.abs(v.sens)>BANDA;
+    return '<tr>'+
+      '<td>'+esc(String(v.nome||"").replace(/\s*\(.*\)/,""))+'</td>'+
+      '<td class="num '+(fora?"warn":"ok")+'">'+(v.sens>0?"+":"")+v.sens.toFixed(0)+'%</td>'+
+      '<td class="'+(fora?"warn":"ok")+'">'+(fora?"fora da banda":"dentro")+'</td>'+
+      '</tr>';
+  }).join("");
+
+  const linhasAnoHtml=anosRenda.map(ano=>{
+    const d=porAno[ano];
+    const moedas=Object.keys(d).filter(k=>d[k]>0);
+    const cels=moedas.map(mo=>'<span class="chip">'+esc(mo)+' '+(mo==="JPY"?Number(d[mo]).toLocaleString("pt-BR",{maximumFractionDigits:0}):n2(d[mo]))+'</span>').join(" ");
+    return '<div class="anoRow"><strong>Renda '+esc(ano)+'</strong> '+cels+'</div>';
+  }).join("");
+
+  const aportesHtml=criteriosPorClasse.slice(0,6).map((c,i)=>
+    '<div class="aporte">'+
+    '<div class="aporteHead"><span class="rank">'+(i+1)+'</span><span class="dot" style="background:'+c.cor+'"></span><strong>'+esc(c.nome)+'</strong>'+
+    '<span class="score">'+c.score+' criterio'+(c.score>1?"s":"")+'</span></div>'+
+    '<ul>'+c.motivos.map(m=>'<li>'+esc(m)+'</li>').join("")+'</ul>'+
+    '</div>').join("");
+
+  const html='<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"/>'+
+  '<title>Relatorio Patrimonial - Aletsch Wealth - '+esc(dataFmt)+'</title>'+
+  '<style>'+
+  '@page{size:A4;margin:14mm 12mm}'+
+  '*{box-sizing:border-box}'+
+  'body{font-family:Georgia,"Times New Roman",serif;color:#2b2b2b;margin:0;font-size:10pt;line-height:1.45}'+
+  'h1{font-size:22pt;margin:0 0 2mm;letter-spacing:1px;font-weight:normal}'+
+  'h2{font-size:12pt;margin:7mm 0 2.5mm;padding-bottom:1.5mm;border-bottom:1.5px solid #c8a96e;color:#8a6d3b;letter-spacing:.5px;page-break-after:avoid}'+
+  'h3{font-size:10pt;margin:4mm 0 1.5mm;color:#555;page-break-after:avoid}'+
+  'p{margin:0 0 2.5mm;text-align:justify}'+
+  '.capa{text-align:center;padding:22mm 0 12mm;border-bottom:2px solid #c8a96e;margin-bottom:6mm}'+
+  '.capa .sub{font-family:Helvetica,Arial,sans-serif;font-size:8pt;letter-spacing:3px;color:#8a6d3b;text-transform:uppercase}'+
+  '.capa .patr{font-size:26pt;color:#3a7d5a;margin:4mm 0 1mm;font-family:Helvetica,Arial,sans-serif}'+
+  '.capa .data{font-size:9pt;color:#777;font-style:italic}'+
+  '.kpis{display:flex;gap:4mm;margin:4mm 0 2mm;flex-wrap:wrap}'+
+  '.kpi{flex:1;min-width:38mm;border:1px solid #e0dccf;border-radius:2mm;padding:2.5mm 3mm;background:#fbfaf7}'+
+  '.kpi .lab{font-family:Helvetica,Arial,sans-serif;font-size:6.5pt;letter-spacing:1px;color:#8a8578;text-transform:uppercase}'+
+  '.kpi .val{font-family:Helvetica,Arial,sans-serif;font-size:14pt;font-weight:bold;color:#2b2b2b;margin-top:1mm}'+
+  '.kpi .hint{font-size:7pt;color:#999;font-style:italic}'+
+  'table{width:100%;border-collapse:collapse;font-size:8.5pt;margin:2mm 0 3mm;font-family:Helvetica,Arial,sans-serif}'+
+  'th{text-align:left;font-size:7pt;letter-spacing:.8px;text-transform:uppercase;color:#8a8578;border-bottom:1px solid #d8d2c4;padding:1.5mm 1mm}'+
+  'td{padding:1.4mm 1mm;border-bottom:1px solid #f0ede5}'+
+  'td.num{text-align:right;font-family:"Courier New",monospace}'+
+  '.muted{color:#999}.ok{color:#3a7d5a}.warn{color:#b04a3a;font-weight:bold}'+
+  '.dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:2mm;vertical-align:middle}'+
+  '.chip{display:inline-block;font-family:"Courier New",monospace;font-size:8pt;background:#f4f1e8;border:1px solid #e0dccf;border-radius:2mm;padding:.6mm 2mm;margin:0 1mm 1mm 0}'+
+  '.anoRow{margin:1.5mm 0;font-size:9pt}'+
+  '.box{border:1px solid #e0dccf;border-left:3px solid #c8a96e;background:#fbfaf7;padding:3mm 3.5mm;margin:3mm 0;border-radius:0 2mm 2mm 0}'+
+  '.box.alerta{border-left-color:#b04a3a;background:#fdf6f5}'+
+  '.box.bom{border-left-color:#3a7d5a;background:#f5faf7}'+
+  '.aporte{border:1px solid #e0dccf;border-radius:2mm;padding:2.5mm 3mm;margin-bottom:2.5mm;background:#fbfaf7;page-break-inside:avoid}'+
+  '.aporteHead{display:flex;align-items:center;gap:2mm;font-size:9.5pt;margin-bottom:1mm}'+
+  '.rank{display:inline-flex;align-items:center;justify-content:center;width:5mm;height:5mm;border-radius:50%;background:#c8a96e;color:#fff;font-size:7pt;font-family:Helvetica;font-weight:bold}'+
+  '.score{margin-left:auto;font-family:Helvetica;font-size:7pt;color:#8a6d3b;background:#f4f1e8;padding:.5mm 2mm;border-radius:2mm}'+
+  '.aporte ul{margin:0;padding-left:6mm;font-size:8.5pt;color:#555}'+
+  '.aporte li{margin:.6mm 0}'+
+  '.grafico{margin:3mm 0;text-align:center;page-break-inside:avoid}'+
+  '.legenda{font-size:7.5pt;color:#888;font-style:italic;text-align:center;margin-top:1mm}'+
+  '.secao{page-break-inside:avoid}'+
+  '.duasCol{display:flex;gap:5mm;align-items:flex-start}'+
+  '.rodape{margin-top:8mm;padding-top:3mm;border-top:1px solid #e0dccf;font-size:7.5pt;color:#999;text-align:center;font-style:italic}'+
+  '@media print{.noprint{display:none!important}body{font-size:9.5pt}}'+
+  '.noprint{position:fixed;top:10px;right:10px;z-index:99}'+
+  '.btnPrint{background:#c8a96e;color:#fff;border:none;padding:10px 18px;border-radius:6px;font-family:Helvetica;font-size:13px;font-weight:bold;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.2)}'+
+  '</style></head><body>'+
+
+  '<div class="noprint"><button class="btnPrint" onclick="window.print()">\u2193 Salvar como PDF</button></div>'+
+
+  // CAPA
+  '<div class="capa">'+
+  '<div class="sub">Planejamento Patrimonial \u2022 Buy &amp; Hold</div>'+
+  '<h1>Aletsch Wealth</h1>'+
+  '<div class="patr">'+brl(total)+'</div>'+
+  '<div class="data">Relatorio gerado em '+esc(dataFmt)+'</div>'+
+  '</div>'+
+
+  // KPIs sintese
+  '<div class="kpis">'+
+  '<div class="kpi"><div class="lab">Solidez</div><div class="val">'+(solidez&&solidez.indice!=null?solidez.indice+"/100":"\u2014")+'</div><div class="hint">'+esc((solidez&&solidez.label)||"")+'</div></div>'+
+  '<div class="kpi"><div class="lab">Cobertura da meta</div><div class="val">'+(cobertura>0?cobertura.toFixed(2)+"x":"\u2014")+'</div><div class="hint">renda / meta mensal</div></div>'+
+  '<div class="kpi"><div class="lab">ENB Efetivo</div><div class="val">'+metricas.enbEfetivo.toFixed(2)+'</div><div class="hint">alvo \u2265 5,00</div></div>'+
+  '<div class="kpi"><div class="lab">Gap correlacao</div><div class="val">'+(gapRel*100).toFixed(1)+'%</div><div class="hint">alvo \u2264 4%</div></div>'+
+  '</div>'+
+
+  // 1. COMPOSICAO
+  '<h2>1. Composicao e Aderencia as Bandas-Alvo</h2>'+
+  '<p>Distribuicao atual do patrimonio por classe, comparada as bandas-alvo definidas na politica de investimento. A faixa clara indica a banda; a barra colorida, a posicao atual.</p>'+
+  '<div class="grafico">'+svgAlocacao+'<div class="legenda">Barra colorida = alocacao atual \u2022 faixa cinza = banda-alvo (min\u2013max)</div></div>'+
+  '<table><thead><tr><th>Classe</th><th class="num">Atual</th><th class="num">Banda</th><th class="num">Desvio</th><th>Status</th></tr></thead><tbody>'+linhasAlocHtml+'</tbody></table>'+
+  (foraDaBanda.length>0?
+    '<div class="box alerta"><strong>'+foraDaBanda.length+' classe(s) fora da banda-alvo.</strong> '+
+    esc(foraDaBanda.map(l=>l.nome+" ("+pct(l.atual)+")").join(", "))+
+    '. Classes abaixo do minimo sao candidatas naturais aos proximos aportes; acima do maximo devem ser diluidas por aporte em outras classes (sem venda, preservando o buy &amp; hold).</div>'
+    :'<div class="box bom"><strong>Todas as classes dentro das bandas-alvo.</strong> A alocacao esta aderente a politica definida.</div>')+
+
+  // 2. RENDA
+  '<h2>2. Renda Passiva Realizada</h2>'+
+  '<p>Renda liquida efetivamente recebida (proventos de FIIs, Infra, Agro, dividendos de acoes e ativos do exterior), sem venda de patrimonio. A linha tracejada marca a meta mensal.</p>'+
+  (svgRenda?'<div class="grafico">'+svgRenda+'<div class="legenda">Renda motora mensal (FII + Infra + Agro) \u2014 ultimos 12 meses</div></div>':"")+
+  '<div class="kpis">'+
+  '<div class="kpi"><div class="lab">Motora (media)</div><div class="val">'+brl(motoraMedia)+'</div><div class="hint">FII + Infra + Agro</div></div>'+
+  '<div class="kpi"><div class="lab">Auxiliar (media)</div><div class="val">'+brl(auxMediaBrl)+'</div><div class="hint">acoes BR + exterior</div></div>'+
+  '<div class="kpi"><div class="lab">Total mensal</div><div class="val">'+brl(rendaTotalMes)+'</div><div class="hint">cobertura '+(cobertura>0?cobertura.toFixed(2)+"x":"\u2014")+'</div></div>'+
+  '</div>'+
+  (linhasAnoHtml?'<h3>Renda realizada por ano, em moeda nativa</h3>'+linhasAnoHtml:"")+
+
+  // 3. DIVERSIFICACAO
+  '<h2>3. Correlacao e Diversificacao Real</h2>'+
+  '<p>As metricas abaixo distinguem diversificacao <em>aparente</em> (numero de classes) de diversificacao <em>efetiva</em> (classes que realmente se movem de forma independente). O radar compara sua posicao atual com o alvo em cada dimensao.</p>'+
+  '<div class="duasCol">'+
+  '<div class="grafico" style="flex:0 0 auto">'+svgRadar+'<div class="legenda">azul = atual \u2022 verde tracejado = alvo</div></div>'+
+  '<div style="flex:1">'+
+  '<table><thead><tr><th>Metrica</th><th class="num">Atual</th><th class="num">Alvo</th></tr></thead><tbody>'+
+  '<tr><td>ENB Efetivo</td><td class="num">'+metricas.enbEfetivo.toFixed(2)+'</td><td class="num muted">\u2265 5,00</td></tr>'+
+  '<tr><td>ENB Herfindahl</td><td class="num">'+metricas.enbHerfindahl.toFixed(2)+'</td><td class="num muted">\u2265 13,00</td></tr>'+
+  '<tr><td>Correlacao media</td><td class="num">'+metricas.corrMediaPond.toFixed(3)+'</td><td class="num muted">\u2264 0,200</td></tr>'+
+  '<tr><td>HHI</td><td class="num">'+metricas.hhi.toFixed(3)+'</td><td class="num muted">\u2264 0,077</td></tr>'+
+  '</tbody></table>'+
+  '</div></div>'+
+  '<div class="box '+(gapDentro?"bom":"alerta")+'">'+
+  '<strong>Gap de correlacao: '+(gapRel*100).toFixed(1)+'%</strong> (alvo \u2264 4%).<br/>'+
+  'Calculo: '+metricas.enbHerfindahl.toFixed(2)+' (ENB por pesos) \u2212 '+metricas.enbEfetivo.toFixed(2)+' (ENB efetivo) = '+gapAbs.toFixed(2)+' absoluto; dividido pelo ENB Herfindahl resulta em '+(gapRel*100).toFixed(1)+'%, que equivale matematicamente ao quadrado da correlacao media. '+
+  (gapDentro?'O gap esta dentro do alvo: suas classes se comportam de forma genuinamente independente.':'Reduzir esse gap significa reduzir a correlacao media entre as classes \u2014 ver direcionamento de aportes na secao 6.')+
+  '</div>'+
+
+  // 4. VETORES MACRO
+  '<h2>4. Sensibilidade a Vetores Macroeconomicos</h2>'+
+  '<p>Cada vetor mede como o conjunto do portfolio reage a um fator macro. A faixa verde (\u00B110%) e a zona-alvo <em>all weather</em>: dentro dela, nenhum fator isolado domina o destino da carteira.</p>'+
+  (svgVetores?'<div class="grafico">'+svgVetores+'<div class="legenda">Setas para cima = o portfolio se beneficia quando o fator sobe \u2022 para baixo = sofre</div></div>':"")+
+  '<table><thead><tr><th>Vetor</th><th class="num">Sensibilidade</th><th>Status</th></tr></thead><tbody>'+linhasVetHtml+'</tbody></table>'+
+  (vetoresFora.length>0?
+    '<div class="box alerta"><strong>'+vetoresFora.length+' vetor(es) fora da zona-alvo:</strong> '+
+    esc(vetoresFora.map(v=>String(v.nome).replace(/\s*\(.*\)/,"")+" ("+(v.sens>0?"+":"")+v.sens.toFixed(0)+"%)").join(", "))+
+    '. Exposicoes concentradas ampliam a volatilidade do patrimonio diante de choques especificos. A correcao se faz direcionando aportes para classes de sinal oposto nesses vetores.</div>'
+    :'<div class="box bom"><strong>Todos os vetores dentro da zona-alvo \u00B110%.</strong> Boa neutralidade macro.</div>')+
+
+  // 5. MAPA DE MODELOS
+  (svgMapa?'<h2>5. Alinhamento com Modelos Consagrados</h2>'+
+  '<p>Posicao do portfolio frente a quatro modelos de referencia (All Weather, Yale Endowment, Risk Parity e MPT Otimo). O ponto ALVO representa o portfolio que resultaria dos centros das bandas configuradas; a linha tracejada e a rota de convergencia via aportes.</p>'+
+  '<div class="grafico">'+svgMapa+'<div class="legenda">Eixo X: volatilidade esperada \u2022 Eixo Y: perfil renda vs crescimento \u2022 reducao 13D \u2192 2D, indicativo</div></div>':"")+
+
+  // 6. DIRECIONAMENTO
+  '<h2>6. Direcionamento dos Proximos Aportes</h2>'+
+  '<p>Sintese cruzada: as classes abaixo foram ordenadas por quantos criterios simultaneos elas resolvem \u2014 preencher banda-alvo, fechar o gap de correlacao e neutralizar vetores macro fora da zona. Priorizar as primeiras produz o maior ganho por real aportado.</p>'+
+  (aportesHtml||'<div class="box bom">Nenhuma correcao prioritaria identificada: o portfolio esta aderente as bandas, ao alvo de correlacao e a zona macro.</div>')+
+  (abaixoDaBanda.length>0?'<div class="box"><strong>Classes abaixo do minimo da banda:</strong> '+esc(abaixoDaBanda.map(l=>l.nome+" ("+pct(l.atual)+" vs "+pct(l.min,0)+" min)").join(", "))+'. Qualquer aporte nelas melhora simultaneamente o ENB Herfindahl (distribuicao de pesos) e a aderencia a politica.</div>':"")+
+
+  '<div class="rodape">Aletsch Wealth \u2014 documento gerado automaticamente a partir dos dados do portfolio em '+esc(dataFmt)+'.<br/>'+
+  'Este relatorio e uma ferramenta de acompanhamento pessoal e nao constitui recomendacao de investimento.</div>'+
+
+  '</body></html>';
+
+  // Abre em nova janela para impressao/PDF
+  const w=window.open("","_blank");
+  if(!w){alert("Permita pop-ups para gerar o relatorio.");return;}
+  w.document.open();
+  w.document.write(html);
+  w.document.close();
+}
+
+
 function App(){
   const [apiKey,setApiKeyS]=useState("");
   const [brapiKey,setBrapiKeyS]=useState("");
@@ -10679,6 +11108,102 @@ function App(){
       return {enbEfetivo:0,enbHerfindahl:0,corrMediaPond:0,hhi:0};
     }
   },[cw]);
+
+  // ===== HANDLER: gerar relatorio patrimonial completo (PDF via print) =====
+  const handleGerarRelatorio=React.useCallback(()=>{
+    try{
+      const pesoIntens=(it)=>it==="FORTE"?1.0:it==="MEDIA"?0.6:0.3;
+      // Definicao canonica dos vetores macro (mesma usada na aba Correlacao)
+      const defVetores=[
+        {nome:"Taxa de Juros (Selic)",impactos:[
+          {classe:"acoes_br",direcao:-1,intensidade:"FORTE"},{classe:"fii",direcao:-1,intensidade:"FORTE"},
+          {classe:"infra",direcao:-1,intensidade:"MEDIA"},{classe:"agro",direcao:-1,intensidade:"MEDIA"},
+          {classe:"imoveis",direcao:-1,intensidade:"MEDIA"},{classe:"rfipca",direcao:-1,intensidade:"FORTE"},
+          {classe:"selic",direcao:1,intensidade:"FORTE"},{classe:"bitcoin",direcao:-1,intensidade:"MEDIA"}
+        ]},
+        {nome:"Risco Fiscal Brasileiro",impactos:[
+          {classe:"acoes_br",direcao:-1,intensidade:"FORTE"},{classe:"fii",direcao:-1,intensidade:"FORTE"},
+          {classe:"infra",direcao:-1,intensidade:"FORTE"},{classe:"rfipca",direcao:-1,intensidade:"FORTE"},
+          {classe:"imoveis",direcao:-1,intensidade:"MEDIA"},{classe:"agro",direcao:-1,intensidade:"MEDIA"},
+          {classe:"treasuries",direcao:1,intensidade:"FORTE"},{classe:"acoes_eua",direcao:1,intensidade:"FORTE"},
+          {classe:"acoes_mundo",direcao:1,intensidade:"FORTE"},{classe:"reits",direcao:1,intensidade:"FORTE"},
+          {classe:"bitcoin",direcao:1,intensidade:"MEDIA"},{classe:"ouro",direcao:1,intensidade:"MEDIA"}
+        ]},
+        {nome:"Liquidez Global",impactos:[
+          {classe:"bitcoin",direcao:1,intensidade:"FORTE"},{classe:"acoes_eua",direcao:1,intensidade:"FORTE"},
+          {classe:"acoes_mundo",direcao:1,intensidade:"FORTE"},{classe:"reits",direcao:1,intensidade:"FORTE"},
+          {classe:"acoes_br",direcao:1,intensidade:"MEDIA"},{classe:"fii",direcao:1,intensidade:"MEDIA"},
+          {classe:"infra",direcao:1,intensidade:"BAIXA"},{classe:"agro",direcao:1,intensidade:"BAIXA"},
+          {classe:"rfipca",direcao:1,intensidade:"BAIXA"},{classe:"ouro",direcao:1,intensidade:"BAIXA"},
+          {classe:"treasuries",direcao:1,intensidade:"MEDIA"}
+        ]},
+        {nome:"Ciclo de Commodities",impactos:[
+          {classe:"agro",direcao:1,intensidade:"FORTE"},{classe:"acoes_br",direcao:1,intensidade:"MEDIA"},
+          {classe:"ouro",direcao:1,intensidade:"MEDIA"},{classe:"acoes_mundo",direcao:1,intensidade:"BAIXA"}
+        ]},
+        {nome:"Inflacao (IPCA)",impactos:[
+          {classe:"rfipca",direcao:1,intensidade:"FORTE"},{classe:"imoveis",direcao:1,intensidade:"MEDIA"},
+          {classe:"agro",direcao:1,intensidade:"MEDIA"},{classe:"ouro",direcao:1,intensidade:"MEDIA"},
+          {classe:"fii",direcao:1,intensidade:"BAIXA"},{classe:"treasuries",direcao:-1,intensidade:"MEDIA"},
+          {classe:"selic",direcao:-1,intensidade:"BAIXA"}
+        ]},
+        {nome:"Cambio (USD/BRL)",impactos:[
+          {classe:"acoes_eua",direcao:1,intensidade:"FORTE"},{classe:"acoes_mundo",direcao:1,intensidade:"FORTE"},
+          {classe:"reits",direcao:1,intensidade:"FORTE"},{classe:"treasuries",direcao:1,intensidade:"FORTE"},
+          {classe:"bitcoin",direcao:1,intensidade:"FORTE"},{classe:"ouro",direcao:1,intensidade:"FORTE"},
+          {classe:"acoes_br",direcao:-1,intensidade:"BAIXA"},{classe:"fii",direcao:-1,intensidade:"BAIXA"}
+        ]}
+      ];
+      const vetoresCalc=defVetores.map(v=>{
+        const expoPos=v.impactos.filter(i=>i.direcao>0).reduce((s,i)=>s+(cw[i.classe]||0)*pesoIntens(i.intensidade),0);
+        const expoNeg=v.impactos.filter(i=>i.direcao<0).reduce((s,i)=>s+(cw[i.classe]||0)*pesoIntens(i.intensidade),0);
+        return {nome:v.nome,sens:expoPos-expoNeg,expoPos,expoNeg,impactos:v.impactos};
+      });
+      // Modelos de portfolio (posicoes aproximadas no mapa 2D)
+      let modelosRel=[];
+      try{
+        const somaW=(ids)=>ids.reduce((s,id)=>s+(cw[id]||0),0)/100;
+        const volAprox=(w)=>{
+          const risco={acoes_br:0.28,acoes_eua:0.18,acoes_mundo:0.19,fii:0.16,reits:0.20,bitcoin:0.65,ouro:0.15,agro:0.18,infra:0.14,imoveis:0.10,treasuries:0.09,rfipca:0.11,selic:0.01};
+          return CL.reduce((s,c)=>s+((w[c.id]||0)/100)*(risco[c.id]||0.15),0);
+        };
+        const perfilY=(w)=>{
+          const renda=["fii","infra","agro","imoveis","reits","selic","rfipca","treasuries"].reduce((s,id)=>s+(w[id]||0),0);
+          const cresc=["acoes_br","acoes_eua","acoes_mundo","bitcoin","ouro"].reduce((s,id)=>s+(w[id]||0),0);
+          const tot=renda+cresc;
+          return tot>0?renda/tot:0.5;
+        };
+        const wAlvoRel={};CL.forEach(c=>{wAlvoRel[c.id]=(c.min+c.max)/2;});
+        const normX=(v)=>Math.max(0,Math.min(1,v/0.30));
+        modelosRel=[
+          {id:"aw",nome:"All Weather",cor:"#4CAF82",p:{x:normX(0.11),y:0.62}},
+          {id:"yale",nome:"Yale",cor:"#5B8FD4",p:{x:normX(0.16),y:0.42}},
+          {id:"rp",nome:"Risk Parity",cor:"#8FBE3F",p:{x:normX(0.09),y:0.70}},
+          {id:"mpt",nome:"MPT Otimo",cor:"#C8A96E",p:{x:normX(0.14),y:0.52}},
+          {id:"atual",nome:"VOCE",cor:"#E8E2D5",p:{x:normX(volAprox(cw)),y:perfilY(cw)},isAtual:true},
+          {id:"alvo",nome:"ALVO",cor:"#E05252",p:{x:normX(volAprox(wAlvoRel)),y:perfilY(wAlvoRel)},isAlvo:true}
+        ];
+      }catch(e){modelosRel=[];}
+      // Indice de solidez (se disponivel no escopo)
+      let solidezRel=null;
+      try{
+        if(typeof indiceSolidezGlobal!=="undefined"&&indiceSolidezGlobal!=null)solidezRel={indice:indiceSolidezGlobal,label:""};
+      }catch(e){}
+      gerarRelatorioPatrimonial({
+        total,cw,port,CL,FX,
+        metricas:metricasDiversificacao,
+        vetores:vetoresCalc,
+        rendaMotoraHist,rendaAuxiliarHist,
+        metaMensalIF:metaMensalIF||35000,
+        modelos:modelosRel,
+        solidez:solidezRel,
+        fB
+      });
+    }catch(err){
+      console.error("Erro ao gerar relatorio:",err);
+      alert("Nao foi possivel gerar o relatorio: "+err.message);
+    }
+  },[total,cw,port,FX,metricasDiversificacao,rendaMotoraHist,rendaAuxiliarHist,metaMensalIF]);
 
   // ===== MPT Monte Carlo cache (recalcula apenas quando cw ou Selic mudam) =====
   // Quantize pra evitar recalcular a cada centesimo de %
@@ -15955,7 +16480,10 @@ Responda APENAS com o texto do insight, sem prefacio ou comentarios meta.`;
           "BRL nativo: ",h("span",{style:{color:"#4CAF82"}},fB(valorBRLnativo))," + Convertido: ",h("span",{style:{color:"#5B8FD4"}},fB(valorEstrangeiroBRL))
         )
       ),
-      hasPos&&h("button",{onClick:refresh,disabled:loadP,style:{background:"rgba(200,169,110,0.1)",border:"1px solid rgba(200,169,110,0.3)",borderRadius:6,padding:"6px 12px",color:"#C8A96E",fontSize:10,fontFamily:"monospace",letterSpacing:2,cursor:"pointer",textTransform:"uppercase"}},loadP?"Buscando...":"Atualizar pre\u00e7os")
+      h("div",{style:{display:"flex",gap:6,alignItems:"center"}},
+        hasPos&&h("button",{onClick:handleGerarRelatorio,title:"Gerar relatorio patrimonial completo (PDF)",style:{background:"rgba(91,143,212,0.12)",border:"1px solid rgba(91,143,212,0.35)",borderRadius:6,padding:"6px 10px",color:"#5B8FD4",fontSize:13,fontFamily:"monospace",cursor:"pointer",lineHeight:1}},"\u{1F4C4}"),
+        hasPos&&h("button",{onClick:refresh,disabled:loadP,style:{background:"rgba(200,169,110,0.1)",border:"1px solid rgba(200,169,110,0.3)",borderRadius:6,padding:"6px 12px",color:"#C8A96E",fontSize:10,fontFamily:"monospace",letterSpacing:2,cursor:"pointer",textTransform:"uppercase"}},loadP?"Buscando...":"Atualizar pre\u00e7os")
+      )
     ),
     (lastPU||pErr||btcUsd||xauBrl)&&h("div",{style:{fontSize:9,color:fxAntigo?"#E8C44A":"#5A5550",marginTop:3,fontFamily:"monospace"}},
       lastPU&&("Atualizado: "+new Date(lastPU).toLocaleString("pt-BR")+" - "),
