@@ -2667,7 +2667,7 @@ function BackfillModalAuxiliar({meses,moedasAtivas,fx,onSave,onClose,fB,valoresI
   );
 }
 
-function SolidezCard({total,cw,port,metaMensalIF,setTab,fB,hideVal,dataNascimento,cambialCash,rendaMotoraHist,rendaAuxiliarHist,FX}){
+function SolidezCard({total,cw,port,metaMensalIF,setTab,fB,hideVal,dataNascimento,cambialCash,rendaMotoraHist,rendaAuxiliarHist,FX,onIndice}){
   // Estado: qual dimensao esta expandida (null=nenhuma)
   const [dimExpand,setDimExpand]=React.useState(null);
   // Estado: card todo colapsado (default: collapsed para enxugar dashboard)
@@ -2872,6 +2872,8 @@ function SolidezCard({total,cw,port,metaMensalIF,setTab,fB,hideVal,dataNasciment
     const indice=(scoreTamanho*0.22+scoreRenda*0.22+scoreResi*0.22+scoreDiv*0.17+scoreBlindagem*0.17);
     const corInd=indice>=80?"#4CAF82":indice>=65?"#7DD17D":indice>=50?"#C8A96E":indice>=35?"#E8C44A":indice>=20?"#E89060":"#E05252";
     const lblInd=indice>=80?"BLINDADO":indice>=65?"ROBUSTO":indice>=50?"SOLIDO":indice>=35?"EM CONSTRUCAO":indice>=20?"FRAGIL":"INSUFICIENTE";
+    // Reporta o indice real ao componente pai (para uso no relatorio PDF), evitando divergencia com aproximacoes
+    React.useEffect(()=>{if(typeof onIndice==="function")onIndice({indice:Math.round(indice),label:lblInd});},[indice,lblInd,onIndice]);
     // Faixas para a banda visual (eixo 0-100)
     const bandas=[
       {min:0,max:20,nome:"insuficiente",cor:"#E05252"},
@@ -8944,6 +8946,7 @@ function gerarRelatorioPatrimonial(dados){
     capMaxAnual,       // capacidade maxima de renda sustentavel anual (do SolidezCard)
     swrRate,           // taxa de retirada segura ajustada (ex: 0.0334)
     stressCenarios,    // STRESS_CEN: cenarios historicos com drawdown por classe
+    titular,           // {nome, idade, desde} - dados do portador do patrimonio
     logoUrl,           // URL da logo (GitHub Pages)
     fB
   }=dados;
@@ -9046,6 +9049,17 @@ function gerarRelatorioPatrimonial(dados){
   // ---- INSIGHT DINAMICO: configuracao patrimonial e tranquilidade financeira ----
   const insightTexto=(()=>{
     const partes=[];
+    // Abertura sobre solidez patrimonial (indice real)
+    if(solidez&&solidez.indice!=null){
+      const idx=solidez.indice;
+      const lbl=(solidez.label||"").toLowerCase();
+      let leituraSol;
+      if(idx>=65)leituraSol="denota uma estrutura robusta, com boa margem contra choques";
+      else if(idx>=50)leituraSol="indica uma base solida, ja resiliente mas com espaco para fortalecimento";
+      else if(idx>=35)leituraSol="reflete um patrimonio em construcao: os alicerces estao postos, e o proximo estagio depende de diversificar as fontes de resiliencia";
+      else leituraSol="aponta uma fase inicial de estruturacao, em que cada aporte direcionado tem alto impacto marginal";
+      partes.push("O indice de solidez patrimonial esta em "+idx+"/100"+(lbl?" ("+lbl+")":"")+", o que "+leituraSol+". Esse indice pondera cinco dimensoes: tamanho do patrimonio, capacidade de renda perpetua, resiliencia a crises, diversificacao e blindagem cambial.");
+    }
     // Abertura sobre cobertura/tranquilidade
     if(cobertura>=1.2)partes.push("O patrimonio ja atingiu um estagio de tranquilidade financeira relevante: a renda passiva liquida cobre "+cobertura.toFixed(2)+"x a meta mensal, uma folga de "+((cobertura-1)*100).toFixed(0)+"% que nao depende de venda de ativos.");
     else if(cobertura>=1.0)partes.push("O patrimonio cruzou o marco da independencia de renda: a renda passiva liquida cobre "+cobertura.toFixed(2)+"x a meta, sustentando o padrao de vida sem consumir principal.");
@@ -9293,6 +9307,8 @@ function gerarRelatorioPatrimonial(dados){
   '.capa .sub{font-family:Helvetica,Arial,sans-serif;font-size:8pt;letter-spacing:3px;color:#8a6d3b;text-transform:uppercase}'+
   '.capa .patr{font-size:26pt;color:#3a7d5a;margin:4mm 0 1mm;font-family:Helvetica,Arial,sans-serif}'+
   '.capa .data{font-size:9pt;color:#777;font-style:italic}'+
+  '.titular{margin-top:5mm;font-family:Helvetica,Arial,sans-serif;font-size:10pt;color:#3a3a3a;line-height:1.5}'+
+  '.titular-sub{font-size:8pt;color:#8a8578;font-style:italic}'+
   '.kpis{display:flex;gap:4mm;margin:4mm 0 2mm;flex-wrap:wrap}'+
   '.kpi{flex:1;min-width:38mm;border:1px solid #e0dccf;border-radius:2mm;padding:2.5mm 3mm;background:#fbfaf7}'+
   '.kpi .lab{font-family:Helvetica,Arial,sans-serif;font-size:6.5pt;letter-spacing:1px;color:#8a8578;text-transform:uppercase}'+
@@ -9334,6 +9350,7 @@ function gerarRelatorioPatrimonial(dados){
   '<h1>Aletsch Wealth</h1>'+
   '<div class="patr">'+brl(total)+'</div>'+
   '<div class="data">Relatorio gerado em '+esc(dataFmt)+'</div>'+
+  (titular&&titular.nome?'<div class="titular">'+esc(titular.nome)+(titular.idade?' \u2022 '+titular.idade+' anos':"")+'<br/><span class="titular-sub">Patrimonio em construcao desde '+(titular.desde||2016)+'</span></div>':"")+
   '</div>'+
 
   // KPIs sintese
@@ -9622,6 +9639,7 @@ function App(){
   // UI: modal de backfill da renda auxiliar
   const [backfillAuxOpen,setBackfillAuxOpen]=useState(false);
   const [editarHistOpen,setEditarHistOpen]=useState(false);// editor visual do historico de renda auxiliar (2026+)
+  const [solidezIndiceReal,setSolidezIndiceReal]=useState(null);// indice de solidez real reportado pelo SolidezCard (para o PDF)
   const [editCambialMoeda,setEditCambialMoeda]=useState(null);// moeda em edicao
   const [editCambialVal,setEditCambialVal]=useState("");// valor sendo editado na UI
   // ====== NTN-B / Tesouro IPCA+ ======
@@ -11316,10 +11334,17 @@ function App(){
       try{
         const esc=calcEscaladaScore({total,cw,port,metaMensalIF:metaMensalIF||35000,dataNascimento,cambialCash,rendaMotoraHist,rendaAuxiliarHist,FX});
         if(esc){
-          solidezRel={indice:Math.round(esc.scoreSolidez),label:esc.marco>=5?"independencia financeira":esc.marco>=4?"sustentavel":"em construcao"};
+          // Prioriza o indice REAL reportado pelo SolidezCard (identico a tela); helper so como fallback
+          const indiceUsar=(solidezIndiceReal&&solidezIndiceReal.indice!=null)?solidezIndiceReal.indice:Math.round(esc.scoreSolidez);
+          const labelUsar=(solidezIndiceReal&&solidezIndiceReal.label)?solidezIndiceReal.label.toLowerCase():(esc.marco>=5?"independencia financeira":esc.marco>=4?"sustentavel":"em construcao");
+          solidezRel={indice:indiceUsar,label:labelUsar};
           capMaxAnualRel=esc.capMaxAnual;
+        }else if(solidezIndiceReal&&solidezIndiceReal.indice!=null){
+          solidezRel={indice:solidezIndiceReal.indice,label:(solidezIndiceReal.label||"").toLowerCase()};
         }
-      }catch(e){}
+      }catch(e){
+        if(solidezIndiceReal&&solidezIndiceReal.indice!=null)solidezRel={indice:solidezIndiceReal.indice,label:(solidezIndiceReal.label||"").toLowerCase()};
+      }
       // SWR ajustado ao horizonte (para a secao de renda perpetua)
       let swrRel=0.0334;
       try{
@@ -11338,6 +11363,11 @@ function App(){
         capMaxAnual:capMaxAnualRel,
         swrRate:swrRel,
         stressCenarios:(typeof STRESS_CEN!=="undefined"?STRESS_CEN:null),
+        titular:(()=>{
+          let idade=null;
+          if(dataNascimento){const dt=new Date(dataNascimento);if(!isNaN(dt.getTime())){const hj=new Date();let id=hj.getFullYear()-dt.getFullYear();const md=hj.getMonth()-dt.getMonth();if(md<0||(md===0&&hj.getDate()<dt.getDate()))id--;if(id>0&&id<150)idade=id;}}
+          return {nome:"Rodolfo Henrique de Almeida Silveira",idade,desde:2016};
+        })(),
         logoUrl:"https://rodolfo1103.github.io/Gestor-Patrimonial/Logo.png",
         fB
       });
@@ -11345,7 +11375,7 @@ function App(){
       console.error("Erro ao gerar relatorio:",err);
       alert("Nao foi possivel gerar o relatorio: "+err.message);
     }
-  },[total,cw,port,FX,metricasDiversificacao,rendaMotoraHist,rendaAuxiliarHist,metaMensalIF,dataNascimento,cambialCash]);
+  },[total,cw,port,FX,metricasDiversificacao,rendaMotoraHist,rendaAuxiliarHist,metaMensalIF,dataNascimento,cambialCash,solidezIndiceReal]);
 
   // ===== MPT Monte Carlo cache (recalcula apenas quando cw ou Selic mudam) =====
   // Quantize pra evitar recalcular a cada centesimo de %
@@ -17223,7 +17253,7 @@ h("button",{onClick:async()=>{
         )
       );
 
-      content=h("div",{},dateHeader,h(BolsasCard,{port,cls}),h(SolidezCard,{total,cw,port,metaMensalIF,setTab,fB,hideVal,dataNascimento,cambialCash,rendaMotoraHist,rendaAuxiliarHist,FX}),h(ModelosPortfolioMap,{cw,selicAtual,hideVal}),aporteCard,insightCard,h(AllocChart,{cw,ct,fB,MV,hideVal}),h(RankingMensalCard,{histMensal,hist,idxMensal,setIdxMensal,histCutoff,setHistCutoff}),h(HeatmapMensal,{histMensal,hist,idxMensal,histCutoff}),h(EstabilidadeHistoricoCard,{histMensal,idxMensal,hist,histCutoff}),insightMensalCard,topPos);
+      content=h("div",{},dateHeader,h(BolsasCard,{port,cls}),h(SolidezCard,{total,cw,port,metaMensalIF,setTab,fB,hideVal,dataNascimento,cambialCash,rendaMotoraHist,rendaAuxiliarHist,FX,onIndice:setSolidezIndiceReal}),h(ModelosPortfolioMap,{cw,selicAtual,hideVal}),aporteCard,insightCard,h(AllocChart,{cw,ct,fB,MV,hideVal}),h(RankingMensalCard,{histMensal,hist,idxMensal,setIdxMensal,histCutoff,setHistCutoff}),h(HeatmapMensal,{histMensal,hist,idxMensal,histCutoff}),h(EstabilidadeHistoricoCard,{histMensal,idxMensal,hist,histCutoff}),insightMensalCard,topPos);
     }
   }  // POSITIONS
   if(tab==="positions"||tab==="correlacao"){
