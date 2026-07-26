@@ -8941,6 +8941,9 @@ function gerarRelatorioPatrimonial(dados){
     metaMensalIF,
     modelos,           // [{id,nome,cor,p:{x,y,vol},isAtual,isAlvo}]
     solidez,           // {indice,label}
+    capMaxAnual,       // capacidade maxima de renda sustentavel anual (do SolidezCard)
+    swrRate,           // taxa de retirada segura ajustada (ex: 0.0334)
+    logoUrl,           // URL da logo (GitHub Pages)
     fB
   }=dados;
 
@@ -9002,6 +9005,39 @@ function gerarRelatorioPatrimonial(dados){
   }
   const rendaTotalMes=motoraMedia+auxMediaBrl;
   const cobertura=metaMensalIF>0?rendaTotalMes/metaMensalIF:0;
+
+  // ---- 4b. RENDA PERPETUA / CAPACIDADE MAXIMA SUSTENTAVEL ----
+  // Visao 1: Yield organico - renda que ja cai sem vender nada (dividendos), verdadeiramente perpetua
+  const rendaYieldAnual=rendaTotalMes*12;
+  const yieldPerpMes=rendaTotalMes;
+  const yieldSobrePatrimonio=total>0?(rendaYieldAnual/total):0;
+  const yieldCobertura=metaMensalIF>0?yieldPerpMes/metaMensalIF:0;
+  // Visao 2: Capacidade Maxima Sustentavel (metrica do app) - dividendos motores + consumiveis + SWR sobre consumiveis
+  const swr=(typeof swrRate==="number"&&swrRate>0)?swrRate:0.0334;
+  const capMaxAno=(typeof capMaxAnual==="number"&&capMaxAnual>0)?capMaxAnual:(rendaYieldAnual+total*swr*0.4);
+  const capMaxMes=capMaxAno/12;
+  const capMaxCobertura=metaMensalIF>0?capMaxMes/metaMensalIF:0;
+  // Quanto a renda organica ja realiza da capacidade maxima
+  const realizacaoDaCap=capMaxMes>0?yieldPerpMes/capMaxMes:0;
+
+  // ---- INSIGHT DINAMICO: configuracao patrimonial e tranquilidade financeira ----
+  const insightTexto=(()=>{
+    const partes=[];
+    // Abertura sobre cobertura/tranquilidade
+    if(cobertura>=1.2)partes.push("O patrimonio ja atingiu um estagio de tranquilidade financeira relevante: a renda passiva liquida cobre "+cobertura.toFixed(2)+"x a meta mensal, uma folga de "+((cobertura-1)*100).toFixed(0)+"% que nao depende de venda de ativos.");
+    else if(cobertura>=1.0)partes.push("O patrimonio cruzou o marco da independencia de renda: a renda passiva liquida cobre "+cobertura.toFixed(2)+"x a meta, sustentando o padrao de vida sem consumir principal.");
+    else partes.push("A renda passiva liquida cobre "+cobertura.toFixed(2)+"x a meta mensal; faltam "+((1-cobertura)*100).toFixed(0)+"% para a cobertura plena, distancia que a continuidade dos aportes tende a fechar.");
+    // Sobre a diversificacao
+    if(gapDentro)partes.push("A diversificacao e genuina - o gap de correlacao de "+(gapRel*100).toFixed(1)+"% indica que as classes se movem de forma independente, protegendo o conjunto em cenarios de estresse.");
+    else partes.push("A diversificacao aparente supera a efetiva: com gap de correlacao de "+(gapRel*100).toFixed(1)+"% (alvo 4%), parte das classes ainda se move em conjunto, e ha espaco para robustez adicional direcionando aportes a ativos descorrelacionados.");
+    // Sobre vetores macro
+    if(vetoresFora.length===0)partes.push("Nenhum fator macroeconomico isolado domina o destino da carteira, caracteristica central de um portfolio all weather.");
+    else{
+      const principais=vetoresFora.slice(0,2).map(v=>String(v.nome).replace(/\s*\(.*\)/,"")).join(" e ");
+      partes.push("A carteira mantem sensibilidade concentrada a "+principais+", refletindo a ancoragem no mercado domestico; reduzir essa exposicao aumentaria a resiliencia a choques especificos.");
+    }
+    return partes.join(" ");
+  })();
 
   // ---- 5. SINTESE CRUZADA DE APORTES ----
   // Classes descorrelacionadas (reduzem gap de correlacao)
@@ -9226,6 +9262,11 @@ function gerarRelatorioPatrimonial(dados){
   'h3{font-size:10pt;margin:4mm 0 1.5mm;color:#555;page-break-after:avoid}'+
   'p{margin:0 0 2.5mm;text-align:justify}'+
   '.capa{text-align:center;padding:22mm 0 12mm;border-bottom:2px solid #c8a96e;margin-bottom:6mm}'+
+  '.logo-wrap{margin-bottom:5mm}'+
+  '.logo-img{max-height:28mm;max-width:60mm;object-fit:contain}'+
+  '.insight{background:#f7f4ec;border:1px solid #e0dccf;border-radius:2mm;padding:4mm 5mm;margin:0 0 4mm}'+
+  '.insight-tit{font-family:Helvetica,Arial,sans-serif;font-size:7.5pt;letter-spacing:2px;text-transform:uppercase;color:#8a6d3b;margin-bottom:2mm}'+
+  '.insight p{margin:0;font-size:10pt;line-height:1.6;color:#3a3a3a;text-align:justify}'+
   '.capa .sub{font-family:Helvetica,Arial,sans-serif;font-size:8pt;letter-spacing:3px;color:#8a6d3b;text-transform:uppercase}'+
   '.capa .patr{font-size:26pt;color:#3a7d5a;margin:4mm 0 1mm;font-family:Helvetica,Arial,sans-serif}'+
   '.capa .data{font-size:9pt;color:#777;font-style:italic}'+
@@ -9265,6 +9306,7 @@ function gerarRelatorioPatrimonial(dados){
 
   // CAPA
   '<div class="capa">'+
+  (logoUrl?'<div class="logo-wrap"><img src="'+esc(logoUrl)+'" alt="Aletsch Wealth" class="logo-img" onerror="this.style.display=\'none\'"/></div>':"")+
   '<div class="sub">Planejamento Patrimonial \u2022 Buy &amp; Hold</div>'+
   '<h1>Aletsch Wealth</h1>'+
   '<div class="patr">'+brl(total)+'</div>'+
@@ -9278,6 +9320,9 @@ function gerarRelatorioPatrimonial(dados){
   '<div class="kpi"><div class="lab">ENB Efetivo</div><div class="val">'+metricas.enbEfetivo.toFixed(2)+'</div><div class="hint">alvo \u2265 5,00</div></div>'+
   '<div class="kpi"><div class="lab">Gap correlacao</div><div class="val">'+(gapRel*100).toFixed(1)+'%</div><div class="hint">alvo \u2264 4%</div></div>'+
   '</div>'+
+
+  // INSIGHT DE ABERTURA (dinamico)
+  '<div class="insight"><div class="insight-tit">Leitura do momento patrimonial</div><p>'+esc(insightTexto)+'</p></div>'+
 
   // 1. COMPOSICAO
   '<h2>1. Composicao e Aderencia as Bandas-Alvo</h2>'+
@@ -9301,8 +9346,21 @@ function gerarRelatorioPatrimonial(dados){
   '</div>'+
   (linhasAnoHtml?'<h3>Renda realizada por ano, em moeda nativa</h3>'+linhasAnoHtml:"")+
 
-  // 3. DIVERSIFICACAO
-  '<h2>3. Correlacao e Diversificacao Real</h2>'+
+  // 2b. CAPACIDADE DE RENDA PERPETUA / MAXIMA SUSTENTAVEL
+  '<h2>3. Capacidade de Renda Perpetua</h2>'+
+  '<p>Quanto o patrimonio pode gerar de forma sustentavel e indefinida, sem se esgotar. Duas leituras complementares: a renda <em>organica</em> (dividendos que ja caem sem vender nada) e a <em>capacidade maxima sustentavel</em>, metrica do app que soma os dividendos perpetuos dos motores aos proventos das demais classes e a uma taxa de retirada segura (SWR '+(swr*100).toFixed(2)+'% a.a., ajustada ao horizonte) sobre o capital consumivel.</p>'+
+  '<div class="kpis">'+
+  '<div class="kpi"><div class="lab">Renda organica perpetua</div><div class="val">'+brl(yieldPerpMes)+'</div><div class="hint">dividendos/mes \u2022 yield '+(yieldSobrePatrimonio*100).toFixed(2)+'% a.a. \u2022 cobre '+(yieldCobertura>0?yieldCobertura.toFixed(2)+"x":"\u2014")+' a meta</div></div>'+
+  '<div class="kpi"><div class="lab">Capacidade maxima sustentavel</div><div class="val">'+brl(capMaxMes)+'</div><div class="hint">/mes \u2022 cobre '+(capMaxCobertura>0?capMaxCobertura.toFixed(2)+"x":"\u2014")+' a meta \u2022 '+brl(capMaxAno)+'/ano</div></div>'+
+  '</div>'+
+  '<div class="box '+(capMaxCobertura>=1.5?"bom":capMaxCobertura>=1?"":"alerta")+'">'+
+  '<strong>Perpetuidade da renda.</strong> A renda organica de '+brl(yieldPerpMes)+'/mes '+(yieldCobertura>=1?"ja cobre integralmente a meta sem tocar no principal - o patrimonio se auto-sustenta apenas com os proventos que gera":"cobre "+(yieldCobertura*100).toFixed(0)+"% da meta apenas com proventos, sem consumir principal")+'. '+
+  'Considerando a capacidade maxima sustentavel (que admite consumo gradual e seguro do capital nao-motor via SWR), o teto sobe para '+brl(capMaxMes)+'/mes, ou '+(capMaxCobertura>0?capMaxCobertura.toFixed(2)+"x":"\u2014")+' a meta. '+
+  'A renda organica ja realiza '+(realizacaoDaCap*100).toFixed(0)+'% dessa capacidade maxima'+(realizacaoDaCap>=0.8?" - a carteira ja opera proxima do seu potencial perpetuo, com baixa dependencia de saque de principal.":", havendo margem para elevar a renda perpetua conforme os motores de dividendos ganham peso.")+
+  '</div>'+
+
+  // 4. DIVERSIFICACAO
+  '<h2>4. Correlacao e Diversificacao Real</h2>'+
   '<p>As metricas abaixo distinguem diversificacao <em>aparente</em> (numero de classes) de diversificacao <em>efetiva</em> (classes que realmente se movem de forma independente). O radar compara sua posicao atual com o alvo em cada dimensao.</p>'+
   '<div class="duasCol">'+
   '<div class="grafico" style="flex:0 0 auto">'+svgRadar+'<div class="legenda">azul = atual \u2022 verde tracejado = alvo</div></div>'+
@@ -9321,7 +9379,7 @@ function gerarRelatorioPatrimonial(dados){
   '</div>'+
 
   // 4. VETORES MACRO
-  '<h2>4. Sensibilidade a Vetores Macroeconomicos</h2>'+
+  '<h2>5. Sensibilidade a Vetores Macroeconomicos</h2>'+
   '<p>Cada vetor mede como o conjunto do portfolio reage a um fator macro. A faixa verde (\u00B110%) e a zona-alvo <em>all weather</em>: dentro dela, nenhum fator isolado domina o destino da carteira.</p>'+
   (svgVetores?'<div class="grafico">'+svgVetores+'<div class="legenda">Setas para cima = o portfolio se beneficia quando o fator sobe \u2022 para baixo = sofre</div></div>':"")+
   '<table><thead><tr><th>Vetor</th><th class="num">Sensibilidade</th><th>Status</th></tr></thead><tbody>'+linhasVetHtml+'</tbody></table>'+
@@ -9332,12 +9390,12 @@ function gerarRelatorioPatrimonial(dados){
     :'<div class="box bom"><strong>Todos os vetores dentro da zona-alvo \u00B110%.</strong> Boa neutralidade macro.</div>')+
 
   // 5. MAPA DE MODELOS
-  (svgMapa?'<h2>5. Alinhamento com Modelos Consagrados</h2>'+
+  (svgMapa?'<h2>6. Alinhamento com Modelos Consagrados</h2>'+
   '<p>Posicao do portfolio frente a quatro modelos de referencia (All Weather, Yale Endowment, Risk Parity e MPT Otimo). O ponto ALVO representa o portfolio que resultaria dos centros das bandas configuradas; a linha tracejada e a rota de convergencia via aportes.</p>'+
   '<div class="grafico">'+svgMapa+'<div class="legenda">Eixo X: volatilidade esperada \u2022 Eixo Y: perfil renda vs crescimento \u2022 reducao 13D \u2192 2D, indicativo</div></div>':"")+
 
   // 6. DIRECIONAMENTO
-  '<h2>6. Direcionamento dos Proximos Aportes</h2>'+
+  '<h2>7. Direcionamento dos Proximos Aportes</h2>'+
   '<p>Sintese cruzada: as classes abaixo foram ordenadas por quantos criterios simultaneos elas resolvem \u2014 preencher banda-alvo, fechar o gap de correlacao e neutralizar vetores macro fora da zona. Priorizar as primeiras produz o maior ganho por real aportado.</p>'+
   (aportesHtml||'<div class="box bom">Nenhuma correcao prioritaria identificada: o portfolio esta aderente as bandas, ao alvo de correlacao e a zona macro.</div>')+
   (abaixoDaBanda.length>0?'<div class="box"><strong>Classes abaixo do minimo da banda:</strong> '+esc(abaixoDaBanda.map(l=>l.nome+" ("+pct(l.atual)+" vs "+pct(l.min,0)+" min)").join(", "))+'. Qualquer aporte nelas melhora simultaneamente o ENB Herfindahl (distribuicao de pesos) e a aderencia a politica.</div>':"")+
@@ -11184,10 +11242,22 @@ function App(){
           {id:"alvo",nome:"ALVO",cor:"#E05252",p:{x:normX(volAprox(wAlvoRel)),y:perfilY(wAlvoRel)},isAlvo:true}
         ];
       }catch(e){modelosRel=[];}
-      // Indice de solidez (se disponivel no escopo)
+      // Indice de solidez + capacidade maxima sustentavel (via helper que replica o SolidezCard)
       let solidezRel=null;
+      let capMaxAnualRel=null;
       try{
-        if(typeof indiceSolidezGlobal!=="undefined"&&indiceSolidezGlobal!=null)solidezRel={indice:indiceSolidezGlobal,label:""};
+        const esc=calcEscaladaScore({total,cw,port,metaMensalIF:metaMensalIF||35000,dataNascimento,cambialCash,rendaMotoraHist,rendaAuxiliarHist,FX});
+        if(esc){
+          solidezRel={indice:Math.round(esc.scoreSolidez),label:esc.marco>=5?"independencia financeira":esc.marco>=4?"sustentavel":"em construcao"};
+          capMaxAnualRel=esc.capMaxAnual;
+        }
+      }catch(e){}
+      // SWR ajustado ao horizonte (para a secao de renda perpetua)
+      let swrRel=0.0334;
+      try{
+        let idadeR=40;
+        if(dataNascimento){const dt=new Date(dataNascimento);if(!isNaN(dt.getTime())){const hj=new Date();let id=hj.getFullYear()-dt.getFullYear();const md=hj.getMonth()-dt.getMonth();if(md<0||(md===0&&hj.getDate()<dt.getDate()))id--;if(id>0&&id<150)idadeR=id;}}
+        if(typeof swrAjustado==="function")swrRel=swrAjustado(idadeR);
       }catch(e){}
       gerarRelatorioPatrimonial({
         total,cw,port,CL,FX,
@@ -11197,13 +11267,16 @@ function App(){
         metaMensalIF:metaMensalIF||35000,
         modelos:modelosRel,
         solidez:solidezRel,
+        capMaxAnual:capMaxAnualRel,
+        swrRate:swrRel,
+        logoUrl:"https://rodolfo1103.github.io/Gestor-Patrimonial/Logo.png",
         fB
       });
     }catch(err){
       console.error("Erro ao gerar relatorio:",err);
       alert("Nao foi possivel gerar o relatorio: "+err.message);
     }
-  },[total,cw,port,FX,metricasDiversificacao,rendaMotoraHist,rendaAuxiliarHist,metaMensalIF]);
+  },[total,cw,port,FX,metricasDiversificacao,rendaMotoraHist,rendaAuxiliarHist,metaMensalIF,dataNascimento,cambialCash]);
 
   // ===== MPT Monte Carlo cache (recalcula apenas quando cw ou Selic mudam) =====
   // Quantize pra evitar recalcular a cada centesimo de %
