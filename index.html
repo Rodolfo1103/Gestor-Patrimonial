@@ -8943,6 +8943,7 @@ function gerarRelatorioPatrimonial(dados){
     solidez,           // {indice,label}
     capMaxAnual,       // capacidade maxima de renda sustentavel anual (do SolidezCard)
     swrRate,           // taxa de retirada segura ajustada (ex: 0.0334)
+    stressCenarios,    // STRESS_CEN: cenarios historicos com drawdown por classe
     logoUrl,           // URL da logo (GitHub Pages)
     fB
   }=dados;
@@ -9019,6 +9020,28 @@ function gerarRelatorioPatrimonial(dados){
   const capMaxCobertura=metaMensalIF>0?capMaxMes/metaMensalIF:0;
   // Quanto a renda organica ja realiza da capacidade maxima
   const realizacaoDaCap=capMaxMes>0?yieldPerpMes/capMaxMes:0;
+
+  // ---- 4c. STRESS TEST: aplica drawdowns historicos por classe aos pesos atuais ----
+  const cenariosStress=(()=>{
+    if(!stressCenarios||!Array.isArray(stressCenarios))return [];
+    return stressCenarios.map(cen=>{
+      let impactoPct=0;// variacao ponderada do patrimonio (decimal)
+      CL.forEach(c=>{
+        const peso=(cw[c.id]||0)/100;
+        const dd=(cen.dd&&typeof cen.dd[c.id]==="number")?cen.dd[c.id]:0;
+        impactoPct+=peso*dd;
+      });
+      const valorPerdido=total*impactoPct;// negativo = perda
+      const patrimonioApos=total+valorPerdido;
+      // Renda organica resiste (dividendos nao somem no crash, embora possam cair) - estimativa conservadora: renda cai proporcional a metade do drawdown de equities
+      return {
+        id:cen.id,icone:cen.icone,titulo:cen.titulo,desc:cen.desc,rec:cen.rec,
+        impactoPct,valorPerdido,patrimonioApos
+      };
+    }).sort((a,b)=>a.impactoPct-b.impactoPct);// pior (mais negativo) primeiro
+  })();
+  const piorCaso=cenariosStress.length?cenariosStress[0]:null;
+  const impactoMedio=cenariosStress.length?cenariosStress.reduce((s,c)=>s+c.impactoPct,0)/cenariosStress.length:0;
 
   // ---- INSIGHT DINAMICO: configuracao patrimonial e tranquilidade financeira ----
   const insightTexto=(()=>{
@@ -9328,7 +9351,6 @@ function gerarRelatorioPatrimonial(dados){
   '<h2>1. Composicao e Aderencia as Bandas-Alvo</h2>'+
   '<p>Distribuicao atual do patrimonio por classe, comparada as bandas-alvo definidas na politica de investimento. A faixa clara indica a banda; a barra colorida, a posicao atual.</p>'+
   '<div class="grafico">'+svgAlocacao+'<div class="legenda">Barra colorida = alocacao atual \u2022 faixa cinza = banda-alvo (min\u2013max)</div></div>'+
-  '<table><thead><tr><th>Classe</th><th class="num">Atual</th><th class="num">Banda</th><th class="num">Desvio</th><th>Status</th></tr></thead><tbody>'+linhasAlocHtml+'</tbody></table>'+
   (foraDaBanda.length>0?
     '<div class="box alerta"><strong>'+foraDaBanda.length+' classe(s) fora da banda-alvo.</strong> '+
     esc(foraDaBanda.map(l=>l.nome+" ("+pct(l.atual)+")").join(", "))+
@@ -9389,13 +9411,59 @@ function gerarRelatorioPatrimonial(dados){
     '. Exposicoes concentradas ampliam a volatilidade do patrimonio diante de choques especificos. A correcao se faz direcionando aportes para classes de sinal oposto nesses vetores.</div>'
     :'<div class="box bom"><strong>Todos os vetores dentro da zona-alvo \u00B110%.</strong> Boa neutralidade macro.</div>')+
 
-  // 5. MAPA DE MODELOS
-  (svgMapa?'<h2>6. Alinhamento com Modelos Consagrados</h2>'+
+  // 6. STRESS TEST
+  (cenariosStress.length>0?(()=>{
+    // SVG de barras horizontais: impacto de cada cenario no patrimonio
+    const svgStress=(()=>{
+      const W=680,rowH=30,H=cenariosStress.length*rowH+20;
+      const maxAbs=Math.max(...cenariosStress.map(c=>Math.abs(c.impactoPct)),0.1);
+      const cx=200;// centro (zero) deslocado a esquerda pois maioria e negativa
+      const escala=(v)=>(v/maxAbs)*440;
+      let s='<svg width="'+W+'" height="'+H+'" viewBox="0 0 '+W+' '+H+'" xmlns="http://www.w3.org/2000/svg">';
+      s+='<line x1="'+cx+'" y1="6" x2="'+cx+'" y2="'+(H-8)+'" stroke="#bbb" stroke-width="1"/>';
+      cenariosStress.forEach((c,i)=>{
+        const y=i*rowH+10;
+        const neg=c.impactoPct<0;
+        const larg=escala(Math.abs(c.impactoPct));
+        const cor=c.impactoPct<-0.15?"#b04a3a":c.impactoPct<0?"#d08a3a":"#3a7d5a";
+        const bx=neg?cx-larg:cx;
+        s+='<text x="0" y="'+(y+13)+'" font-family="Helvetica" font-size="8" fill="#444">'+esc(c.titulo.split(" - ")[0].replace("HIPOTETICO: ",""))+'</text>';
+        s+='<rect x="'+bx+'" y="'+(y+4)+'" width="'+Math.max(1,larg)+'" height="15" fill="'+cor+'" opacity="0.85" rx="1"/>';
+        const tx=neg?(bx-4):(bx+larg+4);
+        s+='<text x="'+tx+'" y="'+(y+15)+'" font-family="Courier" font-size="8.5" font-weight="bold" fill="'+cor+'" text-anchor="'+(neg?"end":"start")+'">'+(c.impactoPct>0?"+":"")+(c.impactoPct*100).toFixed(1)+'%</text>';
+      });
+      s+='</svg>';
+      return s;
+    })();
+    const linhasStress=cenariosStress.map(c=>
+      '<tr>'+
+      '<td>'+esc(c.icone)+' '+esc(c.titulo.replace("HIPOTETICO: ","").split(" - ")[0])+'</td>'+
+      '<td class="num '+(c.impactoPct<0?"warn":"ok")+'">'+(c.impactoPct>0?"+":"")+(c.impactoPct*100).toFixed(1)+'%</td>'+
+      '<td class="num">'+brl(c.patrimonioApos)+'</td>'+
+      '<td class="num muted">'+c.rec+' m</td>'+
+      '</tr>').join("");
+    return '<h2>6. Stress Test \u2014 Comportamento nos Piores Cenarios</h2>'+
+    '<p>Simulacao de como o patrimonio reagiria a crises historicas reais (e um cenario fiscal brasileiro hipotetico), aplicando os drawdowns observados de cada classe aos seus pesos atuais. Valores negativos indicam perda temporaria de valor de mercado; a coluna de recuperacao traz o tempo historico ate o retorno ao pico anterior.</p>'+
+    '<div class="grafico">'+svgStress+'<div class="legenda">Impacto estimado no patrimonio por cenario \u2022 barras a esquerda do eixo = perda</div></div>'+
+    '<table><thead><tr><th>Cenario</th><th class="num">Impacto</th><th class="num">Patrimonio apos</th><th class="num">Recup.</th></tr></thead><tbody>'+linhasStress+'</tbody></table>'+
+    (piorCaso?
+      '<div class="box '+(piorCaso.impactoPct<-0.25?"alerta":"")+'">'+
+      '<strong>Pior caso: '+esc(piorCaso.titulo.replace("HIPOTETICO: ",""))+'</strong> \u2014 o portfolio recuaria '+(piorCaso.impactoPct*100).toFixed(1)+'% ('+brl(Math.abs(piorCaso.valorPerdido))+'), de '+brl(total)+' para '+brl(piorCaso.patrimonioApos)+', com recuperacao historica estimada em '+piorCaso.rec+' meses. '+
+      'Impacto medio entre os '+cenariosStress.length+' cenarios: '+(impactoMedio*100).toFixed(1)+'%. '+
+      'Dois amortecedores importam aqui: (1) drawdown so vira perda real se houver necessidade de venda \u2014 mantendo as posicoes, o valor se recupera; (2) a renda passiva de '+brl(yieldPerpMes)+'/mes continua caindo durante a crise, reduzindo qualquer necessidade de liquidar ativos no fundo do poco. '+
+      (abaixoDaBanda.some(l=>["treasuries","ouro","rfipca","selic"].includes(l.id))?'Reforcar os hedges que hoje estao abaixo da banda (Treasuries, Ouro, NTN-B, Selic) amorteceria os cenarios mais severos.':'Os ativos de protecao ja contribuem para conter o pior caso.')+
+      '</div>':"")+
+
+  '';
+  })():"")+
+
+  // 7. MAPA DE MODELOS
+  (svgMapa?'<h2>7. Alinhamento com Modelos Consagrados</h2>'+
   '<p>Posicao do portfolio frente a quatro modelos de referencia (All Weather, Yale Endowment, Risk Parity e MPT Otimo). O ponto ALVO representa o portfolio que resultaria dos centros das bandas configuradas; a linha tracejada e a rota de convergencia via aportes.</p>'+
   '<div class="grafico">'+svgMapa+'<div class="legenda">Eixo X: volatilidade esperada \u2022 Eixo Y: perfil renda vs crescimento \u2022 reducao 13D \u2192 2D, indicativo</div></div>':"")+
 
   // 6. DIRECIONAMENTO
-  '<h2>7. Direcionamento dos Proximos Aportes</h2>'+
+  '<h2>8. Direcionamento dos Proximos Aportes</h2>'+
   '<p>Sintese cruzada: as classes abaixo foram ordenadas por quantos criterios simultaneos elas resolvem \u2014 preencher banda-alvo, fechar o gap de correlacao e neutralizar vetores macro fora da zona. Priorizar as primeiras produz o maior ganho por real aportado.</p>'+
   (aportesHtml||'<div class="box bom">Nenhuma correcao prioritaria identificada: o portfolio esta aderente as bandas, ao alvo de correlacao e a zona macro.</div>')+
   (abaixoDaBanda.length>0?'<div class="box"><strong>Classes abaixo do minimo da banda:</strong> '+esc(abaixoDaBanda.map(l=>l.nome+" ("+pct(l.atual)+" vs "+pct(l.min,0)+" min)").join(", "))+'. Qualquer aporte nelas melhora simultaneamente o ENB Herfindahl (distribuicao de pesos) e a aderencia a politica.</div>':"")+
@@ -11269,6 +11337,7 @@ function App(){
         solidez:solidezRel,
         capMaxAnual:capMaxAnualRel,
         swrRate:swrRel,
+        stressCenarios:(typeof STRESS_CEN!=="undefined"?STRESS_CEN:null),
         logoUrl:"https://rodolfo1103.github.io/Gestor-Patrimonial/Logo.png",
         fB
       });
