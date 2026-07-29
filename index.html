@@ -4818,11 +4818,10 @@ function RankingMensalCard({histMensal,hist,idxMensal,setIdxMensal,histCutoff,se
     const primeiro=arr[0],ultimo=arr[arr.length-1];
     const vIni=primeiro.totalPatrimBRL,vFim=ultimo.totalPatrimBRL;
     if(!vIni||!vFim)return {valor:null,fonte:"sem_dados"};
-    // Aportes = todos os apValue dos snaps APOS o primeiro
-    const aportes=arr.slice(1).reduce((s,r)=>s+(r.apValue||0),0);
-    const ret=((vFim-aportes-vIni)/vIni)*100;
+    // Variacao patrimonial total (preco dos ativos + aportes): primeiro vs ultimo snap do mes
+    const ret=((vFim-vIni)/vIni)*100;
     if(isNaN(ret))return {valor:null,fonte:"sem_dados"};
-    // Sanity check: rentabilidades absurdas indicam dados corrompidos (ex: recadastro no meio do mes)
+    // Sanity check: valores absurdos indicam dados corrompidos (ex: recadastro no meio do mes)
     // Descarta valores fora de [-90%, +500%] para meses fechados normais
     if(ret>500||ret<-90)return {valor:null,fonte:"dados_invalidos"};
     return {valor:ret,fonte:"calculado"};
@@ -5192,7 +5191,7 @@ function HeatmapMensal({histMensal,hist,idxMensal,histCutoff}){
   }
   // Fonte 2: calculo direto usando histCutoff como marco de inicio pos-reset
   // Filosofia: primeiro snap do mes COM timestamp >= histCutoff vs ultimo snap do mes
-  // Aportes descontados via apValue. Sem filtros de anomalia (histCutoff resolve isso).
+  // Variacao patrimonial total (inclui aportes). Sem filtros de anomalia (histCutoff resolve isso).
   try{
     if(Array.isArray(hist)&&hist.length>=2){
       // Filtra snaps validos: totalPatrimBRL > 0 e (se histCutoff definido) >= cutoff
@@ -5219,9 +5218,8 @@ function HeatmapMensal({histMensal,hist,idxMensal,histCutoff}){
         const primeiro=arr[0],ultimo=arr[arr.length-1];
         const vIni=primeiro.totalPatrimBRL,vFim=ultimo.totalPatrimBRL;
         if(!(vIni>0)||!(vFim>0))return;
-        // Aportes DENTRO do mes: soma apValue de todos os snaps apos o primeiro
-        const aportesNoMes=arr.slice(1).reduce((s,r)=>s+(r.apValue||0),0);
-        const r=((vFim-aportesNoMes-vIni)/vIni)*100;
+        // Variacao patrimonial total (preco dos ativos + aportes): primeiro vs ultimo snap do mes
+        const r=((vFim-vIni)/vIni)*100;
         if(!isNaN(r))retornos[mes]=r;
       });
     }
@@ -5272,7 +5270,7 @@ function HeatmapMensal({histMensal,hist,idxMensal,histCutoff}){
     h("div",{style:{display:"flex",alignItems:"baseline",justifyContent:"space-between",marginBottom:11,flexWrap:"wrap",gap:6}},
       h("div",{},
         h("div",{style:{fontSize:9,letterSpacing:3,color:"#8AAECD",fontFamily:"monospace",textTransform:"uppercase"}},"Heatmap Mensal"),
-        h("div",{style:{fontSize:9,color:"#7A7060",marginTop:2,fontStyle:"italic"}},"Rentabilidade do portfolio, ex-aportes")
+        h("div",{style:{fontSize:9,color:"#7A7060",marginTop:2,fontStyle:"italic"}},"Variacao patrimonial")
       ),
       h("div",{style:{display:"flex",gap:9,fontSize:8,color:"#7A7060",fontFamily:"monospace",alignItems:"center"}},
         h("span",{},"legenda:"),
@@ -5319,7 +5317,7 @@ function HeatmapMensal({histMensal,hist,idxMensal,histCutoff}){
       )
     ),
     h("div",{style:{fontSize:8,color:"#5A5550",fontFamily:"monospace",marginTop:9,lineHeight:1.5,fontStyle:"italic"}},
-      "Fonte: overrides manuais > primeiro snap do mes (pos-histCutoff) vs ultimo snap do mes, ex-aportes via apValue. Cadastros pre-reset ignorados. Junho/2026 travado em +2,30%."
+      "Fonte: overrides manuais > primeiro snap do mes (pos-histCutoff) vs ultimo snap do mes. Variacao patrimonial total: inclui variacao de preco dos ativos + aportes. Cadastros pre-reset ignorados."
     )
   );
 }
@@ -6363,14 +6361,14 @@ function EvolChart({histMensal,hist,showUSD,setShowUSD,hideVal}){
 }
 
 // ============================================================
-// calcRetornosMensais: fonte unica da verdade para rentabilidade mensal
+// calcRetornosMensais: fonte unica da verdade para variacao patrimonial mensal
 // Convencao (Opcao A - intra-mes puro com fallback B - entre-meses):
 //   PARA CADA MES:
 //     Se ha 2+ snapshots no hist dentro do mes -> usa primeiro_snap vs ultimo_snap (INTRA-MES)
 //     Senao, se ha snap do mes anterior no histMensal -> usa ultimo_snap(N-1) vs snap(N) (ENTRE-MESES)
 //     Senao, mes nao aparece
-//   Aportes: sempre descontados via campo apValue dos snaps posteriores ao "inicio" do mes
-// Retorna: objeto {"YYYY-MM": retorno%}
+//   VARIACAO PATRIMONIAL TOTAL: inclui variacao de preco dos ativos + aportes (nao desconta aportes)
+// Retorna: objeto {"YYYY-MM": variacao%}
 // ============================================================
 function calcRetornosMensais(histMensal,hist){
   const ret={};
@@ -6391,8 +6389,8 @@ function calcRetornosMensais(histMensal,hist){
         const primeiro=arr[0],ultimo=arr[arr.length-1];
         const vIni=primeiro.totalPatrimBRL,vFim=ultimo.totalPatrimBRL;
         if(!vIni||!vFim)return;
-        const aportesNoMes=arr.slice(1).reduce((s,r)=>s+(r.apValue||0),0);
-        const r=((vFim-aportesNoMes-vIni)/vIni)*100;
+        // Variacao patrimonial total (preco dos ativos + aportes) - primeiro vs ultimo snap do mes
+        const r=((vFim-vIni)/vIni)*100;
         if(!isNaN(r))ret[k]=r;
       });
     }
@@ -6426,9 +6424,8 @@ function calcRetornosMensais(histMensal,hist){
       const primeiro=arr[0],ultimo=arr[arr.length-1];
       const vIni=primeiro.totalPatrimBRL,vFim=ultimo.totalPatrimBRL;
       if(vIni>0&&vFim>0){
-        // Aportes DENTRO do mes (todos os snaps apos o primeiro)
-        const aportesNoMes=arr.slice(1).reduce((s,r)=>s+(r.apValue||0),0);
-        const r=((vFim-aportesNoMes-vIni)/vIni)*100;
+        // Variacao patrimonial total (preco dos ativos + aportes) - primeiro vs ultimo snap do mes
+        const r=((vFim-vIni)/vIni)*100;
         if(!isNaN(r)){ret[k]=r;continue;}
       }
     }
@@ -6447,8 +6444,8 @@ function calcRetornosMensais(histMensal,hist){
         return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")===k;
       });
       if(snapAnt&&snapAtu&&snapAnt.totalPatrimBRL>0&&snapAtu.totalPatrimBRL>0){
-        const aporte=snapAtu.apValue||0;
-        const r=((snapAtu.totalPatrimBRL-aporte)/snapAnt.totalPatrimBRL-1)*100;
+        // Variacao patrimonial total (preco dos ativos + aportes) - fim do mes anterior vs este mes
+        const r=((snapAtu.totalPatrimBRL)/snapAnt.totalPatrimBRL-1)*100;
         if(!isNaN(r))ret[k]=r;
       }
     }
