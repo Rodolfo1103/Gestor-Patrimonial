@@ -16711,7 +16711,7 @@ Responda APENAS com o texto do insight, sem prefacio ou comentarios meta.`;
 
   // TABS
   const tabs=h("div",{style:{display:"flex",borderBottom:"1px solid rgba(255,255,255,0.06)",marginBottom:18,marginTop:10,overflowX:"auto"}},
-    ...[{id:"dashboard",label:"Dashboard"},{id:"correlacao",label:"Correlação"},{id:"positions",label:"Posições"},{id:"aporte",label:"Aporte"},{id:"riscoretorno",label:"Risco x Retorno"},{id:"caixacambial",label:"Caixa Cambial"},{id:"mpt",label:"MPT"},{id:"aw",label:"All Weather"},{id:"yale",label:"Yale"},{id:"stress",label:"Stress Test"},{id:"projecao",label:"Projecoes"},{id:"renda",label:"Renda"},{id:"btcouro",label:"BTC/Ouro"},{id:"treasuries",label:"Treasuries"},{id:"tesouro",label:"Tesouro Direto"},{id:"history",label:"Historico"}].map(t=>
+    ...[{id:"dashboard",label:"Dashboard"},{id:"correlacao",label:"Correlação"},{id:"positions",label:"Posições"},{id:"aporte",label:"Aporte"},{id:"riscoretorno",label:"Risco x Retorno"},{id:"caixacambial",label:"Caixa Cambial"},{id:"mpt",label:"MPT"},{id:"aw",label:"All Weather"},{id:"yale",label:"Yale"},{id:"stress",label:"Stress Test"},{id:"projecao",label:"Projecoes"},{id:"renda",label:"Renda"},{id:"btcouro",label:"BTC/Ouro"},{id:"treasuries",label:"Treasuries"},{id:"tesouro",label:"Tesouro Direto"}].map(t=>
       h("button",{key:t.id,onClick:()=>{setTab(t.id);if(t.id!=="aporte"){setApR(null);setStep("r");}},style:{background:"none",border:"none",borderBottom:tab===t.id?"2px solid #C8A96E":"2px solid transparent",color:tab===t.id?"#C8A96E":"#8A8070",padding:"6px 10px",cursor:"pointer",fontSize:12,marginBottom:-1,flexShrink:0,whiteSpace:"nowrap"}},t.label)
     ),
     h("button",{onClick:()=>{
@@ -17156,9 +17156,10 @@ h("button",{onClick:async()=>{
         h("div",{style:{fontSize:11,color:"#8A8070",marginBottom:8,lineHeight:1.6}},"Configure sua chave API para insights automaticos da IA sobre seu portfolio."),
         h("button",{onClick:trocarChave,style:{background:"none",border:"1px solid rgba(200,169,110,0.4)",borderRadius:5,color:"#C8A96E",fontSize:10,padding:"5px 12px",cursor:"pointer",fontFamily:"monospace"}},"Configurar chave API")
       )):null;
-      // Card de proxima janela de aporte
+      // Card de proxima janela de aporte (DESATIVADO - aportes podem ser feitos a qualquer momento)
       const proxAp=calcProxAporte();
-      const aporteCard=proxAp&&hasPos?h("div",{style:{marginBottom:14,padding:"12px 14px",background:proxAp.naJanela?"linear-gradient(135deg,rgba(76,175,130,0.1),rgba(76,175,130,0.03))":proxAp.diasAteInicio<=3?"linear-gradient(135deg,rgba(232,196,74,0.08),rgba(232,196,74,0.02))":"rgba(255,255,255,0.02)",border:"1px solid "+(proxAp.naJanela?"rgba(76,175,130,0.35)":proxAp.diasAteInicio<=3?"rgba(232,196,74,0.3)":"rgba(255,255,255,0.07)"),borderRadius:10}},
+      const aporteCard=null;
+      const _aporteCardLegado=proxAp&&hasPos?h("div",{style:{marginBottom:14,padding:"12px 14px",background:proxAp.naJanela?"linear-gradient(135deg,rgba(76,175,130,0.1),rgba(76,175,130,0.03))":proxAp.diasAteInicio<=3?"linear-gradient(135deg,rgba(232,196,74,0.08),rgba(232,196,74,0.02))":"rgba(255,255,255,0.02)",border:"1px solid "+(proxAp.naJanela?"rgba(76,175,130,0.35)":proxAp.diasAteInicio<=3?"rgba(232,196,74,0.3)":"rgba(255,255,255,0.07)"),borderRadius:10}},
         h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:6}},
           h("div",{style:{fontSize:9,letterSpacing:3,color:proxAp.naJanela?"#4CAF82":proxAp.diasAteInicio<=3?"#E8C44A":"#8A8070",fontFamily:"monospace",textTransform:"uppercase"}},"Proximo Aporte"),
           proxAp.naJanela?h("span",{style:{fontSize:8,color:"#4CAF82",fontFamily:"monospace",padding:"2px 7px",border:"1px solid #4CAF8255",borderRadius:3,fontWeight:"bold",letterSpacing:1}},"NA JANELA"):
@@ -17509,8 +17510,9 @@ h("button",{onClick:async()=>{
           )
         )
       );
-      // Bloco de programacao de aporte
-      const aporteConfBlock=h("div",{style:{marginBottom:14,padding:"11px 13px",background:"rgba(200,169,110,0.04)",border:"1px solid rgba(200,169,110,0.2)",borderRadius:8}},
+      // Bloco de programacao de aporte (DESATIVADO - aportes a qualquer momento, sem datas programadas)
+      const aporteConfBlock=null;
+      const _aporteConfBlockLegado=h("div",{style:{marginBottom:14,padding:"11px 13px",background:"rgba(200,169,110,0.04)",border:"1px solid rgba(200,169,110,0.2)",borderRadius:8}},
         h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:editAporte?10:0,gap:6}},
           h("div",{},
             h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase"}},"Aporte Programado"),
