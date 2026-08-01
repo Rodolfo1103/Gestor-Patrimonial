@@ -17231,53 +17231,8 @@ h("button",{onClick:async()=>{
         ),
         notifStatus==="granted"&&h("div",{style:{marginTop:6,fontSize:9,color:"#4CAF82",fontFamily:"monospace",letterSpacing:1}},"notificacoes ativas")
       ):null;
-      // Card do insight mensal IA (aparece se ha 1+ mes fechado - histMensal>=1 OU hist com 2+ snaps num mes diferente do corrente)
-      const temMesFechado=(()=>{
-        if(!hasPos)return false;
-        const hoje=new Date();
-        const mesCorrenteKey=hoje.getFullYear()+"-"+String(hoje.getMonth()+1).padStart(2,"0");
-        if(Array.isArray(histMensal)&&histMensal.some(s=>{const d=new Date(s.date);return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")!==mesCorrenteKey;}))return true;
-        if(Array.isArray(hist)&&hist.length>=2){
-          const cnt={};
-          hist.forEach(r=>{if(!r||!r.date||!r.totalPatrimBRL)return;const d=new Date(r.date);const k=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");if(k===mesCorrenteKey)return;cnt[k]=(cnt[k]||0)+1;});
-          if(Object.values(cnt).some(n=>n>=2))return true;
-        }
-        return false;
-      })();
-      const insightMensalCard=temMesFechado?h("div",{style:{marginBottom:18,padding:"14px",background:"linear-gradient(135deg,rgba(91,143,212,0.08),rgba(165,111,212,0.04))",border:"1px solid "+(insightMensalErr?"rgba(224,82,82,0.35)":"rgba(91,143,212,0.25)"),borderRadius:10}},
-        h("div",{style:{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:8,marginBottom:8,flexWrap:"wrap"}},
-          h("div",{},
-            h("div",{style:{fontSize:9,letterSpacing:3,color:"#5B8FD4",fontFamily:"monospace",textTransform:"uppercase"}},"Insight Mensal Claude IA"),
-            insightMensal&&insightMensal.mes&&h("div",{style:{fontSize:8,color:"#7A7570",fontFamily:"monospace",marginTop:2}},"fechamento de "+((m=>{const meses=["jan","fev","mar","abr","mai","jun","jul","ago","set","out","nov","dez"];const [a,mm]=m.split("-");return meses[parseInt(mm)-1]+"/"+a.slice(2);})(insightMensal.mes)))
-          ),
-          h("div",{style:{display:"flex",alignItems:"center",gap:7}},
-            insightMensal&&insightMensal.ts&&h("div",{style:{fontSize:8,color:"#5A5550",fontFamily:"monospace"}},"gerado: "+new Date(insightMensal.ts).toLocaleDateString("pt-BR")),
-            apiKey&&h("button",{onClick:()=>{
-              // Pega o ULTIMO MES FECHADO (nao o mes corrente em curso)
-              const hoje=new Date();
-              const mesCorrenteKey=hoje.getFullYear()+"-"+String(hoje.getMonth()+1).padStart(2,"0");
-              const mesesDisponiveis=new Set();
-              // De histMensal
-              histMensal.forEach(s=>{const d=new Date(s.date);const k=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");if(k!==mesCorrenteKey)mesesDisponiveis.add(k);});
-              // De hist (meses com 2+ snaps, fase intra-mes)
-              if(Array.isArray(hist)&&hist.length>=2){
-                const cnt={};
-                hist.forEach(r=>{if(!r||!r.date||!r.totalPatrimBRL)return;const d=new Date(r.date);const k=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");if(k===mesCorrenteKey)return;cnt[k]=(cnt[k]||0)+1;});
-                Object.entries(cnt).forEach(([k,n])=>{if(n>=2)mesesDisponiveis.add(k);});
-              }
-              const arr=Array.from(mesesDisponiveis).sort();
-              const k=arr.pop();
-              if(!k)return;
-              genInsightMensal(k,true);
-            },disabled:insightMensalLoad,style:{background:"rgba(91,143,212,0.15)",border:"1px solid rgba(91,143,212,0.4)",borderRadius:4,color:"#5B8FD4",fontSize:9,padding:"3px 9px",cursor:insightMensalLoad?"not-allowed":"pointer",fontFamily:"monospace",letterSpacing:1}},insightMensalLoad?"gerando...":"atualizar")
-          )
-        ),
-        insightMensalErr?h("div",{style:{fontSize:11,color:"#E05252",fontStyle:"italic"}},"Erro: "+insightMensalErr):
-        !apiKey?h("div",{style:{fontSize:11,color:"#7A7570",fontStyle:"italic"}},"Cadastre sua chave API Anthropic (botao API no topo) para gerar insights mensais automaticos no fechamento de cada mes."):
-        insightMensalLoad?h("div",{style:{fontSize:11,color:"#7A7570",fontStyle:"italic"}},"Analisando desempenho do mes..."):
-        insightMensal&&insightMensal.texto?h("div",{style:{fontSize:11,color:"#C8C0B0",lineHeight:1.7,whiteSpace:"pre-wrap"}},MTV(insightMensal.texto)):
-        h("div",{style:{fontSize:11,color:"#7A7570",fontStyle:"italic"}},"Sera gerado automaticamente no fechamento do proximo mes. Ou clique em atualizar para forcar agora.")
-      ):null;
+      // Card do insight mensal IA (DESATIVADO a pedido do investidor)
+      const insightMensalCard=null;
       // Data do dia formatada em portugues - discreta e elegante
       const hojeData=new Date();
       const diasSem=["domingo","segunda-feira","terca-feira","quarta-feira","quinta-feira","sexta-feira","sabado"];
