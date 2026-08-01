@@ -4764,6 +4764,7 @@ function RankingMensalCard({histMensal,hist,idxMensal,setIdxMensal,histCutoff,se
   const [editando,setEditando]=React.useState(false);
   const [rascunho,setRascunho]=React.useState({});
   const [mostrarConfig,setMostrarConfig]=React.useState(false);
+  const [mesesAbertos,setMesesAbertos]=React.useState({});// {"YYYY-MM":true} controla expand/colapso; ano fechado colapsado por padrao
   // ========== CAMPOS DO RANKING (ordem solicitada) ==========
   const campos=[
     {k:"port",nome:"Portfolio",cor:"#C8A96E",manual:false},
@@ -4910,7 +4911,68 @@ function RankingMensalCard({histMensal,hist,idxMensal,setIdxMensal,histCutoff,se
     linhas.sort((a,b)=>b.valor-a.valor);
     rankingPorMes[mes]=linhas;
   });
-  // ========== RENDER ==========
+  // ========== AGRUPAMENTO POR ANO (cards colapsaveis + agregacao quando ano fecha) ==========
+  // Um ano esta "completo" quando os 12 meses (jan-dez) aparecem em meses[] (ou seja, o ano seguinte ja comecou)
+  const mesesPorAno={};
+  meses.forEach(mes=>{const ano=mes.slice(0,4);(mesesPorAno[ano]=mesesPorAno[ano]||[]).push(mes);});
+  const anoAtualStr=String(new Date().getFullYear());
+  const anosCompletos=Object.keys(mesesPorAno).filter(ano=>ano!==anoAtualStr&&mesesPorAno[ano].length===12).sort();
+  const anosAbertos=Object.keys(mesesPorAno).filter(ano=>!anosCompletos.includes(ano)).sort();
+  // Composicao (juros compostos) do retorno anual de cada campo, para anos completos
+  const compoePercentuais=(mesesDoAno,campo)=>{
+    let fator=1,algum=false;
+    mesesDoAno.forEach(mes=>{
+      const v=rankingPorMes[mes]&&rankingPorMes[mes].find(l=>l.k===campo);
+      if(v&&typeof v.valor==="number"){fator*=(1+v.valor/100);algum=true;}
+    });
+    return algum?(fator-1)*100:null;
+  };
+  const rankingPorAno={};
+  anosCompletos.forEach(ano=>{
+    const linhas=campos.map(c=>{
+      const valor=compoePercentuais(mesesPorAno[ano],c.k);
+      return {k:c.k,nome:c.nome,cor:c.cor,valor,manual:c.manual};
+    }).filter(l=>typeof l.valor==="number"&&!isNaN(l.valor));
+    linhas.sort((a,b)=>b.valor-a.valor);
+    rankingPorAno[ano]=linhas;
+  });
+  const toggleMes=(mes)=>setMesesAbertos(prev=>({...prev,[mes]:!prev[mes]}));
+  // Card de um mes/ano (colapsavel). ehAno=true usa lista de rankingPorAno, senao rankingPorMes
+  const renderCardPeriodo=(chave,label,ranking,subtitulo)=>{
+    const aberto=!!mesesAbertos[chave];
+    const preenchidos=new Set(ranking.map(l=>l.k));
+    const aguardando=campos.filter(c=>!preenchidos.has(c.k));
+    return h("div",{key:chave,style:{marginBottom:12,background:"rgba(0,0,0,0.20)",border:"1px solid rgba(255,255,255,0.05)",borderRadius:8,overflow:"hidden"}},
+      // Header clicavel (colapsa/expande)
+      h("div",{onClick:()=>toggleMes(chave),style:{padding:"7px 11px",background:"linear-gradient(to right,rgba(200,169,110,0.10),rgba(200,169,110,0.02))",borderBottom:aberto?"1px solid rgba(200,169,110,0.15)":"none",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer"}},
+        h("div",{style:{display:"flex",alignItems:"center",gap:6}},
+          h("span",{style:{fontSize:9,color:"#7A7060",fontFamily:"monospace",transition:"transform 0.15s",display:"inline-block",transform:aberto?"rotate(90deg)":"rotate(0deg)"}},"\u25B6"),
+          h("span",{style:{fontSize:10,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,letterSpacing:2,textTransform:"uppercase"}},label),
+          subtitulo&&h("span",{style:{fontSize:8,color:"#7A7570",fontFamily:"monospace",fontStyle:"italic"}},subtitulo)
+        ),
+        h("span",{style:{fontSize:8,color:"#7A7570",fontFamily:"monospace",fontStyle:"italic"}},ranking.length+"/"+campos.length+" preenchidos")
+      ),
+      aberto&&h("div",{style:{padding:"6px 8px"}},
+        ...ranking.map((l,i)=>{
+          const isPort=l.k==="port";
+          const posColor=i===0?"#4CAF82":i===1?"#7AC494":i===2?"#B0A890":i===ranking.length-1?"#E05252":i>=ranking.length-2?"#D99A55":"#8A8070";
+          return h("div",{key:l.k,style:{display:"flex",alignItems:"center",gap:8,padding:"5px 8px",marginBottom:2,background:isPort?"rgba(200,169,110,0.10)":"transparent",border:isPort?"1px solid rgba(200,169,110,0.55)":"1px solid transparent",borderRadius:4,fontSize:11,fontFamily:"monospace"}},
+            h("span",{style:{color:posColor,fontWeight:700,minWidth:22,textAlign:"center",fontSize:10}},(i+1)+"\u00B0"),
+            h("span",{style:{color:l.cor,flex:1,fontWeight:isPort?700:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},l.nome),
+            isPort&&l.fontePortfolio==="calculado"&&h("span",{style:{fontSize:7,color:"#7A7570",fontStyle:"italic",marginRight:4}},"auto"),
+            isPort&&l.fontePortfolio==="manual"&&h("span",{style:{fontSize:7,color:"#7A7570",fontStyle:"italic",marginRight:4}},"manual"),
+            h("span",{style:{color:l.valor>=0?"#5DBF82":"#E05252",fontWeight:700,fontSize:11,minWidth:52,textAlign:"right"}},(l.valor>=0?"+":"")+l.valor.toFixed(2)+"%")
+          );
+        }),
+        ranking.length>0&&aguardando.length>0&&h("div",{style:{height:1,background:"rgba(255,255,255,0.04)",margin:"6px 0 4px 0"}}),
+        ...aguardando.map(c=>h("div",{key:"ag"+c.k,style:{display:"flex",alignItems:"center",gap:8,padding:"5px 8px",marginBottom:2,fontSize:11,fontFamily:"monospace",opacity:0.55}},
+          h("span",{style:{color:"#5A5550",fontWeight:400,minWidth:22,textAlign:"center",fontSize:9,fontStyle:"italic"}},"\u2014"),
+          h("span",{style:{color:c.cor,flex:1,fontWeight:400,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",opacity:0.7}},c.nome),
+          h("span",{style:{color:"#6A6055",fontSize:9,fontStyle:"italic",fontFamily:"monospace"}},"aguardando")
+        ))
+      )
+    );
+  };
   return h("div",{style:{marginBottom:20,paddingTop:14,borderTop:"1px solid rgba(255,255,255,0.05)"}},
     // Header com titulo + botao editar
     h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6,gap:8,flexWrap:"wrap"}},
@@ -4920,7 +4982,7 @@ function RankingMensalCard({histMensal,hist,idxMensal,setIdxMensal,histCutoff,se
         setIdxMensal&&h("button",{onClick:editando?()=>setEditando(false):abrirEditor,style:{background:editando?"rgba(224,82,82,0.15)":"rgba(91,143,212,0.15)",border:"1px solid "+(editando?"rgba(224,82,82,0.40)":"rgba(91,143,212,0.40)"),borderRadius:4,color:editando?"#E05252":"#5B8FD4",fontSize:9,padding:"3px 9px",cursor:"pointer",fontFamily:"monospace",letterSpacing:1}},editando?"cancelar":"editar benchmarks")
       )
     ),
-    h("div",{style:{fontSize:9,color:"#5A5550",marginBottom:10,fontStyle:"italic"}},"Portfolio calculado automatico (primeiro\u2194ultimo snap descontando aportes). Benchmarks preenchidos manualmente."),
+    h("div",{style:{fontSize:9,color:"#5A5550",marginBottom:10,fontStyle:"italic"}},"Portfolio calculado automatico (primeiro\u2194ultimo snap). Benchmarks preenchidos manualmente. Clique no mes para expandir; anos fechados (12/12 meses) aparecem agregados por juros compostos."),
     // ===== PAINEL CONFIG (cutoff de snapshots) =====
     mostrarConfig&&setHistCutoff&&h("div",{style:{marginBottom:14,padding:"12px",background:"rgba(232,196,74,0.06)",border:"1px solid rgba(232,196,74,0.25)",borderRadius:8}},
       h("div",{style:{fontSize:9,color:"#E8C44A",fontFamily:"monospace",letterSpacing:1,marginBottom:8,fontWeight:700}},"MARCO DE RESET DE SNAPSHOTS"),
@@ -4989,63 +5051,22 @@ function RankingMensalCard({histMensal,hist,idxMensal,setIdxMensal,histCutoff,se
         h("button",{onClick:salvar,style:{background:"rgba(76,175,130,0.20)",border:"1px solid rgba(76,175,130,0.50)",borderRadius:4,color:"#4CAF82",fontSize:10,padding:"6px 14px",cursor:"pointer",fontFamily:"monospace",letterSpacing:1,fontWeight:700}},"salvar")
       )
     ),
-    // ===== TABELAS DE RANKING (uma por mes, empilhadas verticalmente) =====
-    meses.map(mes=>{
-      const ranking=rankingPorMes[mes]||[];
-      // Campos aguardando: os que estao em campos[] mas nao em ranking
-      const preenchidos=new Set(ranking.map(l=>l.k));
-      const aguardando=campos.filter(c=>!preenchidos.has(c.k));
-      return h("div",{key:mes,style:{marginBottom:12,background:"rgba(0,0,0,0.20)",border:"1px solid rgba(255,255,255,0.05)",borderRadius:8,overflow:"hidden"}},
-        // Header do mes
-        h("div",{style:{padding:"7px 11px",background:"linear-gradient(to right,rgba(200,169,110,0.10),rgba(200,169,110,0.02))",borderBottom:"1px solid rgba(200,169,110,0.15)",display:"flex",justifyContent:"space-between",alignItems:"center"}},
-          h("span",{style:{fontSize:10,color:"#C8A96E",fontFamily:"monospace",fontWeight:700,letterSpacing:2,textTransform:"uppercase"}},fmtMes(mes)),
-          h("span",{style:{fontSize:8,color:"#7A7570",fontFamily:"monospace",fontStyle:"italic"}},ranking.length+"/"+campos.length+" preenchidos")
-        ),
-        // Linhas do ranking (valores preenchidos)
-        h("div",{style:{padding:"6px 8px"}},
-          // Preenchidos - ranqueados
-          ...ranking.map((l,i)=>{
-            const isPort=l.k==="port";
-            const posColor=i===0?"#4CAF82":i===1?"#7AC494":i===2?"#B0A890":i===ranking.length-1?"#E05252":i>=ranking.length-2?"#D99A55":"#8A8070";
-            return h("div",{key:l.k,style:{
-              display:"flex",
-              alignItems:"center",
-              gap:8,
-              padding:"5px 8px",
-              marginBottom:2,
-              background:isPort?"rgba(200,169,110,0.10)":"transparent",
-              border:isPort?"1px solid rgba(200,169,110,0.55)":"1px solid transparent",
-              borderRadius:4,
-              fontSize:11,
-              fontFamily:"monospace"
-            }},
-              h("span",{style:{color:posColor,fontWeight:700,minWidth:22,textAlign:"center",fontSize:10}},(i+1)+"\u00B0"),
-              h("span",{style:{color:l.cor,flex:1,fontWeight:isPort?700:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},l.nome),
-              isPort&&l.fontePortfolio==="calculado"&&h("span",{style:{fontSize:7,color:"#7A7570",fontStyle:"italic",marginRight:4}},"auto"),
-              isPort&&l.fontePortfolio==="manual"&&h("span",{style:{fontSize:7,color:"#7A7570",fontStyle:"italic",marginRight:4}},"manual"),
-              h("span",{style:{color:l.valor>=0?"#5DBF82":"#E05252",fontWeight:700,fontSize:11,minWidth:52,textAlign:"right"}},(l.valor>=0?"+":"")+l.valor.toFixed(2)+"%")
-            );
-          }),
-          // Separador se houver preenchidos + aguardando
-          ranking.length>0&&aguardando.length>0&&h("div",{style:{height:1,background:"rgba(255,255,255,0.04)",margin:"6px 0 4px 0"}}),
-          // Aguardando - listados sem ranking
-          ...aguardando.map(c=>h("div",{key:"ag"+c.k,style:{
-            display:"flex",
-            alignItems:"center",
-            gap:8,
-            padding:"5px 8px",
-            marginBottom:2,
-            fontSize:11,
-            fontFamily:"monospace",
-            opacity:0.55
-          }},
-            h("span",{style:{color:"#5A5550",fontWeight:400,minWidth:22,textAlign:"center",fontSize:9,fontStyle:"italic"}},"\u2014"),
-            h("span",{style:{color:c.cor,flex:1,fontWeight:400,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",opacity:0.7}},c.nome),
-            h("span",{style:{color:"#6A6055",fontSize:9,fontStyle:"italic",fontFamily:"monospace"}},"aguardando")
-          ))
-        )
-      );
-    })
+    // ===== CARDS DE PERIODO: anos completos (agregados) + meses de anos ainda abertos =====
+    ...[...anosCompletos.map(ano=>({tipo:"ano",chave:ano})),...anosAbertos.flatMap(ano=>mesesPorAno[ano].map(mes=>({tipo:"mes",chave:mes})))]
+      .sort((a,b)=>{
+        const ka=a.tipo==="ano"?a.chave+"-13":a.chave;// ano completo ordena apos seus proprios meses (nao existem) e antes do ano seguinte
+        const kb=b.tipo==="ano"?b.chave+"-13":b.chave;
+        return ka<kb?-1:ka>kb?1:0;
+      })
+      .map(item=>{
+        if(item.tipo==="ano"){
+          const ranking=rankingPorAno[item.chave]||[];
+          return renderCardPeriodo("ano-"+item.chave,item.chave,ranking,"(ano fechado \u00B7 12/12 meses)");
+        }
+        const mes=item.chave;
+        const ranking=rankingPorMes[mes]||[];
+        return renderCardPeriodo(mes,fmtMes(mes),ranking,null);
+      })
   );
 }
 
@@ -5501,7 +5522,30 @@ function EstabilidadeHistoricoCard({histMensal,idxMensal,hist,histCutoff}){
         h("div",{style:{fontSize:8,color:"#8A8070",fontFamily:"monospace"}},"\u03B2 antigo: "+betaAntigo.toFixed(2)+" \u2192 recente: "+betaRecente.toFixed(2)+" (\u0394 "+(deltaBeta>=0?"+":"")+deltaBeta.toFixed(2)+")")
       ):(N<8?h("div",{style:{padding:"6px 10px",fontSize:8,color:"#6A6055",fontStyle:"italic",fontFamily:"monospace"}},"Comparativo antigo x recente a partir de 8 meses ("+N+"/8)"):null)
     ),
-    h("div",{style:{fontSize:8,color:"#5A5550",marginTop:8,fontStyle:"italic",lineHeight:1.5}},"Cesta = 30% IBOV + 20% IFIX + 20% S&P + 15% CDI + 15% NASDAQ. \u03B2<1 = portfolio se move menos que o mercado.")
+    h("div",{style:{fontSize:8,color:"#5A5550",marginTop:8,fontStyle:"italic",lineHeight:1.5}},"Cesta = 30% IBOV + 20% IFIX + 20% S&P + 15% CDI + 15% NASDAQ. \u03B2<1 = portfolio se move menos que o mercado."),
+    // Insight dedicado: conceito de beta + leitura da volatilidade atual
+    (()=>{
+      const volPortAtual=(()=>{const s=seriesVol.port;return s&&s.length?s[s.length-1].vol:null;})();
+      const volOutras=cols.filter(c=>c.key!=="port").map(c=>{
+        const s=seriesVol[c.key];const v=s&&s.length?s[s.length-1].vol:null;
+        return v!==null?{nome:c.nome,vol:v}:null;
+      }).filter(Boolean).sort((a,b)=>b.vol-a.vol);
+      const conceito="Beta mede o quanto o portfolio se move em relacao ao mercado: \u03B2=1 significa mesma intensidade da cesta de indices; \u03B2<1 significa que o portfolio oscila MENOS (amortece); \u03B2>1 significa que oscila MAIS (amplifica). Um \u03B2 negativo, como o atual, indica que o portfolio chegou a se mover na direcao OPOSTA a cesta no periodo analisado.";
+      let leitura=null;
+      if(volPortAtual!==null&&volOutras.length>0){
+        const maisVolatil=volOutras[0],menosVolatil=volOutras[volOutras.length-1];
+        const abaixoDeTodos=volOutras.every(o=>volPortAtual<o.vol);
+        const acimaDeTodos=volOutras.every(o=>volPortAtual>o.vol);
+        if(abaixoDeTodos)leitura="Hoje sua volatilidade anualizada ("+volPortAtual.toFixed(1)+"%) esta ABAIXO de todos os ativos comparados - a menor da cesta, contra "+maisVolatil.vol.toFixed(1)+"% do mais volatil ("+maisVolatil.nome+").";
+        else if(acimaDeTodos)leitura="Hoje sua volatilidade anualizada ("+volPortAtual.toFixed(1)+"%) esta ACIMA de todos os ativos comparados, superando ate "+menosVolatil.nome+" ("+menosVolatil.vol.toFixed(1)+"%). Vale investigar concentracao.";
+        else leitura="Hoje sua volatilidade anualizada ("+volPortAtual.toFixed(1)+"%) fica entre "+menosVolatil.nome+" ("+menosVolatil.vol.toFixed(1)+"%) e "+maisVolatil.nome+" ("+maisVolatil.vol.toFixed(1)+"%, a mais volatil da cesta).";
+      }
+      return h("div",{style:{marginTop:8,padding:"9px 11px",background:"rgba(91,143,212,0.05)",border:"1px solid rgba(91,143,212,0.15)",borderRadius:6}},
+        h("div",{style:{fontSize:8,color:"#5B8FD4",fontFamily:"monospace",letterSpacing:1,marginBottom:5,fontWeight:700}},"O QUE E BETA"),
+        h("div",{style:{fontSize:9,color:"#8A8070",lineHeight:1.6,marginBottom:leitura?6:0}},conceito),
+        leitura&&h("div",{style:{fontSize:9,color:"#B0A890",lineHeight:1.6,fontStyle:"italic"}},leitura)
+      );
+    })()
   );
   // ============ Viz 3: % Meses Positivos ============
   const pctPos={};const magMedia={};
@@ -16368,14 +16412,21 @@ Responda APENAS com o texto do insight, sem prefacio ou comentarios meta.`;
     }
     // Retornos comparativos
     const idxData=idxMensal[mesUsar]||{};
+    // Retorno do portfolio: prioriza override manual (mesma fonte do RankingMensalCard) para nao divergir do card exibido
+    const overrideMes=(idxMensal&&idxMensal[mesUsar]&&typeof idxMensal[mesUsar]._portOverride==="number")?idxMensal[mesUsar]._portOverride:null;
+    const portRetorno=(typeof overrideMes==="number")?overrideMes:retP[mesUsar];
     const dadosComp={
-      portfolio:retP[mesUsar],
+      portfolio:portRetorno,
       ibov:idxData.ibov,ifix:idxData.ifix,imab:idxData.imab,cdi:idxData.cdi,
       sp500:idxData.sp500,nasdaq:idxData.nasdaq,poupanca:idxData.poupanca
     };
     // Serie historica curta (ate 12 meses)
     const meses=Object.keys(retP).sort().slice(-12);
-    const histRetornos=meses.map(k=>({mes:k,port:retP[k],ibov:(idxMensal[k]||{}).ibov,cdi:(idxMensal[k]||{}).cdi}));
+    const portComOverride=(k)=>{
+      const ov=(idxMensal&&idxMensal[k]&&typeof idxMensal[k]._portOverride==="number")?idxMensal[k]._portOverride:null;
+      return (typeof ov==="number")?ov:retP[k];
+    };
+    const histRetornos=meses.map(k=>({mes:k,port:portComOverride(k),ibov:(idxMensal[k]||{}).ibov,cdi:(idxMensal[k]||{}).cdi}));
     // Volatilidade do portfolio (se >=6 meses)
     let volStr="dados insuficientes";
     const valores=meses.map(k=>retP[k]).filter(v=>typeof v==="number"&&!isNaN(v));
