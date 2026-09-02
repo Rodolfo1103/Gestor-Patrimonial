@@ -2277,6 +2277,7 @@ function mkL(cu){
   return {ccy,cls,lbl};
 }
 const isImv=t=>typeof t==="string"&&t.startsWith("IMV_");
+const isFia=t=>typeof t==="string"&&t.startsWith("FIA_");
 // Helper para identificar NTN-B Principal
 function isNTNB(t){return typeof t==="string"&&t.startsWith("NTNB-");}
 // Calcula valor a mercado de uma posicao NTN-B
@@ -2333,7 +2334,7 @@ function pvNTNBCarrego(t,p,vnaAtual){
 function pv(t,p,ccy,ntnbTaxas,vnaAtual,btcUsd){
   if(!p)return 0;
   if(isNTNB(t))return pvNTNB(t,p,ntnbTaxas,vnaAtual);
-  if(VB.includes(t)||isImv(t))return p.totalBRL||0;
+  if(VB.includes(t)||isImv(t)||isFia(t))return p.totalBRL||0;
   if(GB.includes(t))return(p.qty||0)*(p.price||0);
   // BTC: sempre usar cotacao em tempo real (btcUsd em USD), fallback para p.price se nao disponivel.
   // Isto garante que mesmo se o useEffect ainda nao sincronizou p.price, o valor de mercado
@@ -2344,7 +2345,7 @@ function pv(t,p,ccy,ntnbTaxas,vnaAtual,btcUsd){
   }
   return(p.qty||0)*(p.price||0)*(FX[ccy[t]||"BRL"]||1);
 }
-function hq(t,p){if(!p)return false;if(isNTNB(t))return(p.qty||0)>0;if(VB.includes(t)||isImv(t))return(p.totalBRL||0)>0;return(p.qty||0)>0;}
+function hq(t,p){if(!p)return false;if(isNTNB(t))return(p.qty||0)>0;if(VB.includes(t)||isImv(t)||isFia(t))return(p.totalBRL||0)>0;return(p.qty||0)>0;}
 const fB=v=>new Intl.NumberFormat("pt-BR",{style:"currency",currency:"BRL"}).format(v||0);
 const fN=(v,d=2)=>(v||0).toLocaleString("pt-BR",{minimumFractionDigits:d,maximumFractionDigits:d});
 const pc=v=>(v||0).toFixed(1)+"%";
@@ -9769,6 +9770,16 @@ function App(){
   // Estados para cadastro/edicao de imovel
   const [addImov,setAddImov]=useState(false);
   const [imvForm,setImvForm]=useState({id:"",desc:"",valor:"",data:""});
+  // FIA: catalogo de fundos cadastrados (nome, gestora/administrador, corretora) + form de posicao
+  const [catalogoFia,setCatalogoFia]=useState(()=>{
+    try{const s=localStorage.getItem("pat-catalogo-fia");if(s)return JSON.parse(s);}catch{}
+    return [];
+  });
+  useEffect(()=>{try{localStorage.setItem("pat-catalogo-fia",JSON.stringify(catalogoFia));}catch{}},[catalogoFia]);
+  const [addFia,setAddFia]=useState(false);
+  const [fiaForm,setFiaForm]=useState({id:"",fundoId:"",valor:"",data:""});
+  const [novoFundoForm,setNovoFundoForm]=useState({nome:"",gestora:"",corretora:"XP"});
+  const [mostrarNovoFundo,setMostrarNovoFundo]=useState(false);
   // PIN de seguranca - SHA-256 hash + AES-GCM dos dados
   const [pinHash,setPinHash]=useState(()=>{try{return localStorage.getItem(SK_PIN)||"";}catch{return "";}});
   const [aesKey,setAesKey]=useState(null);// CryptoKey em memoria, derivada do PIN
@@ -9877,6 +9888,53 @@ function App(){
   };
   const removerImovel=(tk)=>{
     if(!window.confirm("Remover este imovel do portfolio?"))return;
+    setPort(prev=>{const n={...prev};delete n[tk];return n;});
+  };
+
+  // ===== FIA (Fundos de Investimento em Acoes): catalogo de fundos + posicoes manuais =====
+  // Catalogo: fundos que o investidor acompanha na XP/BB Asset (cadastro proprio, sem cotacao automatica)
+  const salvarNovoFundo=()=>{
+    const nome=novoFundoForm.nome.trim();
+    if(!nome){alert("Preencha o nome do fundo");return;}
+    const id="fnd_"+Date.now();
+    setCatalogoFia(prev=>[...prev,{id,nome,gestora:novoFundoForm.gestora.trim(),corretora:novoFundoForm.corretora}]);
+    setNovoFundoForm({nome:"",gestora:"",corretora:"XP"});
+    setMostrarNovoFundo(false);
+    return id;
+  };
+  const removerFundoCatalogo=(fundoId)=>{
+    const emUso=Object.entries(port).some(([t,p])=>isFia(t)&&p.fundoId===fundoId);
+    if(emUso){alert("Este fundo tem posicao ativa. Remova a posicao antes de excluir do catalogo.");return;}
+    if(!window.confirm("Remover este fundo do catalogo?"))return;
+    setCatalogoFia(prev=>prev.filter(f=>f.id!==fundoId));
+  };
+  // Posicao em FIA: valor de mercado aplicado, informado manualmente. Soma na classe acoes_br.
+  const salvarFia=()=>{
+    const valor=pN(fiaForm.valor);
+    let fundoId=fiaForm.fundoId;
+    if(!fundoId){alert("Selecione um fundo (ou cadastre um novo)");return;}
+    if(valor<=0){alert("Preencha o valor aplicado");return;}
+    const fundo=catalogoFia.find(f=>f.id===fundoId);
+    if(!fundo)return;
+    const dataAv=fiaForm.data||new Date().toISOString().slice(0,10);
+    if(fiaForm.id){
+      // Edicao
+      setPort(prev=>({...prev,[fiaForm.id]:{...prev[fiaForm.id],fundoId,desc:fundo.nome,totalBRL:valor,price:valor,qty:1,classId:"acoes_br",dataAvaliacao:dataAv}}));
+    }else{
+      // Nova posicao - gera ticker unico
+      const ids=Object.keys(port).filter(t=>isFia(t)).map(t=>parseInt(t.slice(4))||0);
+      const novoId="FIA_"+(Math.max(0,...ids)+1);
+      setPort(prev=>({...prev,[novoId]:{fundoId,desc:fundo.nome,totalBRL:valor,price:valor,qty:1,classId:"acoes_br",dataAvaliacao:dataAv}}));
+    }
+    setFiaForm({id:"",fundoId:"",valor:"",data:""});setAddFia(false);
+  };
+  const editarFia=(tk)=>{
+    const p=port[tk];if(!p)return;
+    setFiaForm({id:tk,fundoId:p.fundoId||"",valor:String(p.totalBRL||""),data:p.dataAvaliacao?p.dataAvaliacao.slice(0,10):""});
+    setAddFia(true);
+  };
+  const removerFia=(tk)=>{
+    if(!window.confirm("Remover esta posicao em FIA do portfolio?"))return;
     setPort(prev=>{const n={...prev};delete n[tk];return n;});
   };
 
@@ -11596,14 +11654,14 @@ function App(){
 
   const refresh=useCallback(async()=>{
     // Coleta tickers com posicao
-    const tickersComPos=Object.keys(port).filter(t=>hq(t,port[t])&&!VB.includes(t)&&!isImv(t));
+    const tickersComPos=Object.keys(port).filter(t=>hq(t,port[t])&&!VB.includes(t)&&!isImv(t)&&!isFia(t));
     // Coleta tickers em estudo (BASE + custom) das classes elegiveis para analise
     const classesElegiveisRR=["acoes_br","acoes_eua","acoes_mundo","fii","reits","treasuries","infra","agro"];
     const tickersEmEstudo=[];
     classesElegiveisRR.forEach(cid=>{
       const lista=[...(BASE[cid]||[]),...((custom[cid]||[]).map(a=>a.ticker))];
       lista.forEach(t=>{
-        if(!tickersComPos.includes(t)&&!VB.includes(t)&&!isImv(t)){
+        if(!tickersComPos.includes(t)&&!VB.includes(t)&&!isImv(t)&&!isFia(t)){
           tickersEmEstudo.push(t);
         }
       });
@@ -12014,7 +12072,7 @@ function App(){
       const mktUSA=marketStatus("MSFT");
       if(!mktBR.aberto&&!mktUSA.aberto)return;
       // Só se tem ativos
-      const hasAtivos=Object.keys(port||{}).some(t=>hq(t,port[t])&&!VB.includes(t)&&!isImv(t));
+      const hasAtivos=Object.keys(port||{}).some(t=>hq(t,port[t])&&!VB.includes(t)&&!isImv(t)&&!isFia(t));
       if(!hasAtivos)return;
       // Refresh silencioso
       refresh();
@@ -17133,8 +17191,8 @@ h("button",{onClick:async()=>{
           return h("div",{key:t,style:{display:"flex",alignItems:"center",padding:"7px 8px",borderBottom:"1px solid rgba(255,255,255,0.04)",background:"rgba(232,144,96,0.04)",borderLeft:"2px solid #E89060",marginBottom:2,borderRadius:"0 4px 4px 0"}},
             h("div",{style:{width:5,height:5,borderRadius:"50%",background:cl?cl.color:"#888",marginRight:7,flexShrink:0}}),
             h("div",{style:{flex:1,minWidth:0,marginRight:7}},
-              h("div",{style:{fontFamily:"monospace",fontSize:11,color:"#F0EAD8",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}},isImv(t)?(p.desc||t).slice(0,28):t),
-              h("div",{style:{fontSize:9,color:"#8A8070",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}},isImv(t)?"Imovel":(NAMES[t]||""))
+              h("div",{style:{fontFamily:"monospace",fontSize:11,color:"#F0EAD8",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}},(isImv(t)||isFia(t))?(p.desc||t).slice(0,28):t),
+              h("div",{style:{fontSize:9,color:"#8A8070",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}},isImv(t)?"Imovel":isFia(t)?"FIA":(NAMES[t]||""))
             ),
             h("div",{style:{textAlign:"right",flexShrink:0}},
               h("div",{style:{fontFamily:"monospace",fontSize:11,color:"#F0EAD8"}},MV(fB(val))),
@@ -17615,6 +17673,84 @@ h("button",{onClick:async()=>{
           ),
           h("div",{style:{fontSize:8,color:"#7A7570",fontStyle:"italic",lineHeight:1.5}},"O valor sera auto-atualizado pelo IPCA acumulado desde a data de avaliacao."),
           h("button",{onClick:salvarImovel,style:{padding:"8px",background:"linear-gradient(135deg,#D17A22,#A45A12)",border:"none",borderRadius:5,color:"#0D0F14",fontSize:11,fontWeight:700,letterSpacing:2,textTransform:"uppercase",cursor:"pointer",fontFamily:"monospace"}},imvForm.id?"Atualizar":"Cadastrar imovel")
+        )
+      );
+
+      // Bloco de FIA (Fundos de Investimento em Acoes) - valor manual, soma em Acoes Brasil
+      const fias=Object.entries(port).filter(([t])=>isFia(t));
+      const totalFia=fias.reduce((s,[t,p])=>s+(p.totalBRL||0),0);
+      const nomeFundo=(fundoId)=>{const f=catalogoFia.find(x=>x.id===fundoId);return f?f.nome:"(fundo removido do catalogo)";};
+      const fiaBlock=h("div",{style:{marginBottom:14,padding:"11px 13px",background:"rgba(76,175,130,0.04)",border:"1px solid rgba(76,175,130,0.25)",borderRadius:8}},
+        h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:addFia||fias.length>0?9:0,gap:6}},
+          h("div",{},
+            h("div",{style:{fontSize:9,letterSpacing:3,color:"#4CAF82",fontFamily:"monospace",textTransform:"uppercase"}},"FIA - Fundos de Investimento em Acoes"),
+            h("div",{style:{fontSize:9,color:"#7A7570",marginTop:3,fontStyle:"italic"}},fias.length===0?"Nenhuma posicao cadastrada":fias.length+" posicao(oes) - valor: "+(hideVal?"----":fB(totalFia))+" (soma em Acoes Brasil)")
+          ),
+          h("button",{onClick:()=>{setAddFia(!addFia);if(addFia){setFiaForm({id:"",fundoId:"",valor:"",data:""});setMostrarNovoFundo(false);}},style:{background:addFia?"rgba(76,175,130,0.15)":"none",border:"1px solid "+(addFia?"#4CAF82":"rgba(255,255,255,0.15)"),borderRadius:4,color:addFia?"#4CAF82":"#8A8070",fontSize:9,padding:"3px 9px",cursor:"pointer",fontFamily:"monospace"}},addFia?"cancelar":"+ adicionar")
+        ),
+        // Lista de posicoes FIA cadastradas
+        fias.length>0&&h("div",{style:{display:"flex",flexDirection:"column",gap:5,marginBottom:addFia?12:0}},
+          ...fias.map(([tk,p])=>{
+            const fundo=catalogoFia.find(f=>f.id===p.fundoId);
+            return h("div",{key:tk,style:{display:"flex",alignItems:"center",gap:8,padding:"7px 9px",background:"rgba(0,0,0,0.2)",borderRadius:5,borderLeft:"3px solid #4CAF82"}},
+              h("div",{style:{flex:1,minWidth:0}},
+                h("div",{style:{fontSize:11,color:"#F0EAD8",fontWeight:600}},p.desc||nomeFundo(p.fundoId)),
+                h("div",{style:{fontSize:8,color:"#7A7570",fontFamily:"monospace",marginTop:2}},
+                  fundo?(fundo.gestora?fundo.gestora+" \u00B7 ":"")+fundo.corretora+" \u00B7 ":"",
+                  hideVal?"----":fB(p.totalBRL||0),
+                  p.dataAvaliacao?" - atualizado: "+new Date(p.dataAvaliacao).toLocaleDateString("pt-BR"):""
+                )
+              ),
+              h("button",{onClick:()=>editarFia(tk),style:{background:"none",border:"1px solid rgba(91,143,212,0.3)",borderRadius:3,color:"#5B8FD4",fontSize:8,padding:"3px 7px",cursor:"pointer",fontFamily:"monospace"}},"editar"),
+              h("button",{onClick:()=>removerFia(tk),style:{background:"none",border:"1px solid rgba(224,82,82,0.3)",borderRadius:3,color:"#E05252",fontSize:8,padding:"3px 7px",cursor:"pointer",fontFamily:"monospace"}},"x")
+            );
+          })
+        ),
+        // Form de cadastro/edicao de posicao
+        addFia&&h("div",{style:{display:"flex",flexDirection:"column",gap:7,padding:"8px 9px",background:"rgba(0,0,0,0.2)",borderRadius:5,border:"1px dashed rgba(76,175,130,0.3)"}},
+          h("div",{},
+            h("div",{style:{fontSize:8,color:"#7A7570",marginBottom:3,fontFamily:"monospace",textTransform:"uppercase",letterSpacing:1}},"Fundo"),
+            h("select",{value:fiaForm.fundoId,onChange:e=>{
+              if(e.target.value==="__novo__"){setMostrarNovoFundo(true);return;}
+              setFiaForm(f=>({...f,fundoId:e.target.value}));
+            },style:{width:"100%",boxSizing:"border-box",background:"rgba(0,0,0,0.4)",border:"1px solid rgba(76,175,130,0.3)",borderRadius:4,padding:"7px 9px",color:"#F0EAD8",fontSize:11,fontFamily:"monospace",outline:"none"}},
+              h("option",{value:""},"Selecione um fundo..."),
+              ...catalogoFia.map(f=>h("option",{key:f.id,value:f.id},f.nome+" ("+f.corretora+")")),
+              h("option",{value:"__novo__"},"+ cadastrar novo fundo...")
+            )
+          ),
+          // Mini-form de cadastro de novo fundo (inline)
+          mostrarNovoFundo&&h("div",{style:{display:"flex",flexDirection:"column",gap:6,padding:"8px",background:"rgba(0,0,0,0.25)",borderRadius:4,border:"1px dashed rgba(76,175,130,0.4)"}},
+            h("input",{type:"text",placeholder:"Nome do fundo (ex: XP Long Biased FIA)",value:novoFundoForm.nome,onChange:e=>setNovoFundoForm(f=>({...f,nome:e.target.value})),style:{background:"rgba(0,0,0,0.4)",border:"1px solid rgba(76,175,130,0.3)",borderRadius:4,padding:"6px 9px",color:"#F0EAD8",fontSize:11,fontFamily:"Georgia,serif",outline:"none"}}),
+            h("input",{type:"text",placeholder:"Gestora (opcional, ex: XP Asset)",value:novoFundoForm.gestora,onChange:e=>setNovoFundoForm(f=>({...f,gestora:e.target.value})),style:{background:"rgba(0,0,0,0.4)",border:"1px solid rgba(76,175,130,0.3)",borderRadius:4,padding:"6px 9px",color:"#F0EAD8",fontSize:11,fontFamily:"Georgia,serif",outline:"none"}}),
+            h("select",{value:novoFundoForm.corretora,onChange:e=>setNovoFundoForm(f=>({...f,corretora:e.target.value})),style:{background:"rgba(0,0,0,0.4)",border:"1px solid rgba(76,175,130,0.3)",borderRadius:4,padding:"6px 9px",color:"#F0EAD8",fontSize:11,fontFamily:"monospace",outline:"none"}},
+              h("option",{value:"XP"},"XP"),
+              h("option",{value:"BB Asset"},"BB Asset"),
+              h("option",{value:"Outra"},"Outra")
+            ),
+            h("div",{style:{display:"flex",gap:6}},
+              h("button",{onClick:()=>{const id=salvarNovoFundo();if(id)setFiaForm(f=>({...f,fundoId:id}));},style:{flex:1,padding:"7px",background:"rgba(76,175,130,0.2)",border:"1px solid #4CAF82",borderRadius:4,color:"#4CAF82",fontSize:10,fontWeight:700,letterSpacing:1,cursor:"pointer",fontFamily:"monospace"}},"salvar fundo"),
+              h("button",{onClick:()=>{setMostrarNovoFundo(false);setNovoFundoForm({nome:"",gestora:"",corretora:"XP"});},style:{padding:"7px 12px",background:"none",border:"1px solid rgba(255,255,255,0.15)",borderRadius:4,color:"#8A8070",fontSize:10,cursor:"pointer",fontFamily:"monospace"}},"cancelar")
+            )
+          ),
+          h("div",{},
+            h("div",{style:{fontSize:8,color:"#7A7570",marginBottom:3,fontFamily:"monospace",textTransform:"uppercase",letterSpacing:1}},"Valor aplicado (R$)"),
+            h("input",{type:"text",inputMode:"decimal",placeholder:"50.000,00",value:fiaForm.valor,onChange:e=>setFiaForm(f=>({...f,valor:e.target.value})),style:{width:"100%",boxSizing:"border-box",background:"rgba(0,0,0,0.4)",border:"1px solid rgba(76,175,130,0.3)",borderRadius:4,padding:"7px 9px",color:"#F0EAD8",fontSize:11,fontFamily:"monospace",outline:"none"}})
+          ),
+          h("div",{},
+            h("div",{style:{fontSize:8,color:"#7A7570",marginBottom:3,fontFamily:"monospace",textTransform:"uppercase",letterSpacing:1}},"Data desta atualizacao"),
+            h("input",{type:"date",value:fiaForm.data,onChange:e=>setFiaForm(f=>({...f,data:e.target.value})),style:{width:"100%",boxSizing:"border-box",background:"rgba(0,0,0,0.4)",border:"1px solid rgba(76,175,130,0.3)",borderRadius:4,padding:"6px 9px",color:"#F0EAD8",fontSize:11,fontFamily:"monospace",outline:"none"}})
+          ),
+          h("div",{style:{fontSize:8,color:"#7A7570",fontStyle:"italic",lineHeight:1.5}},"Sem cotacao automatica (FIA nao tem ticker de bolsa). Atualize o valor manualmente sempre que quiser refletir a cota mais recente. O total soma dentro da classe Acoes Brasil."),
+          h("button",{onClick:salvarFia,style:{padding:"8px",background:"linear-gradient(135deg,#4CAF82,#2E8B57)",border:"none",borderRadius:5,color:"#0D0F14",fontSize:11,fontWeight:700,letterSpacing:2,textTransform:"uppercase",cursor:"pointer",fontFamily:"monospace"}},fiaForm.id?"Atualizar posicao":"Cadastrar posicao"),
+          // Catalogo de fundos (gerenciar / remover)
+          catalogoFia.length>0&&h("div",{style:{marginTop:4,paddingTop:8,borderTop:"1px solid rgba(255,255,255,0.06)"}},
+            h("div",{style:{fontSize:8,color:"#7A7570",marginBottom:5,fontFamily:"monospace",textTransform:"uppercase",letterSpacing:1}},"Catalogo de fundos cadastrados"),
+            ...catalogoFia.map(f=>h("div",{key:f.id,style:{display:"flex",alignItems:"center",gap:6,padding:"4px 0",fontSize:9,color:"#8A8070",fontFamily:"monospace"}},
+              h("span",{style:{flex:1}},f.nome+(f.gestora?" \u00B7 "+f.gestora:"")+" \u00B7 "+f.corretora),
+              h("button",{onClick:()=>removerFundoCatalogo(f.id),style:{background:"none",border:"1px solid rgba(224,82,82,0.25)",borderRadius:3,color:"#E05252",fontSize:8,padding:"2px 6px",cursor:"pointer",fontFamily:"monospace"}},"x")
+            ))
+          )
         )
       );
 
@@ -19728,6 +19864,7 @@ h("button",{onClick:async()=>{
           racionalBlock,
           aporteConfBlock,
           imoveisBlock,
+          fiaBlock,
           manutencaoBlock,
           h("div",{style:{fontSize:11,color:"#8A8070",marginBottom:12,lineHeight:1.6}},"Toque em qualquer ativo para editar."),
           hidden.length>0&&h("button",{onClick:()=>setShowHid(s=>!s),style:{background:"none",border:"1px solid rgba(255,255,255,0.08)",borderRadius:6,color:"#8A8070",fontSize:10,padding:"4px 10px",cursor:"pointer",fontFamily:"monospace",marginBottom:12}},showHid?"Ocultar escondidos":"Mostrar "+hidden.length+" oculto(s)"),
