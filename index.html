@@ -16508,14 +16508,26 @@ Responda APENAS com o texto do insight, sem prefacio ou comentarios meta.`;
       "Tom: direto, objetivo, dados concretos, sem rodeios. Use paragrafos separados por linha em branco.";
     setInsightMensalLoad(true);setInsightMensalErr("");
     try{
-      const txt=await callAPI([{role:"user",content:prompt}],apiKey);
+      const resp=await fetch("https://api.anthropic.com/v1/messages",{
+        method:"POST",
+        headers:{"Content-Type":"application/json","x-api-key":apiKey,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
+        body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:1500,messages:[{role:"user",content:prompt}]})
+      });
+      const data=await resp.json();
+      if(data.error)throw new Error(data.error.message||data.error.type);
+      const txt=data.content.filter(i=>i.type==="text").map(i=>i.text).join("").replace(/```json|```/g,"").trim();
+      if(typeof registrarUsoAPI==="function")registrarUsoAPI("claude-sonnet-4-6",data.usage,"Insight Mensal "+mesUsar);
       setInsightMensal({mes:mesUsar,texto:txt,ts:Date.now()});
     }catch(e){setInsightMensalErr(e.message||"Erro");}
     setInsightMensalLoad(false);
-  },[apiKey,histMensal,hist,idxMensal,cw,insightMensal,insightMensalLoad]);
+  },[apiKey,histMensal,hist,idxMensal,cw,insightMensal,insightMensalLoad,registrarUsoAPI]);
 
-  // Trigger automatico: ao abrir o app, se ja temos snapshot do ULTIMO MES FECHADO
-  // (nao o mes corrente em curso) e ainda nao geramos insight pra ele, dispara.
+  // Trigger automatico do Insight Mensal: DESATIVADO (o card correspondente foi removido do dashboard
+  // a pedido do investidor). Antes, este efeito reagia a mudancas em "hist" - que muda a CADA clique em
+  // "Atualizar precos" - e podia disparar chamadas de API (Claude) em segundo plano sem aparecer
+  // no card de gasto (faltava registrarUsoAPI em genInsightMensal). Isso causava cobranca de API
+  // mesmo sem o card visivel. Mantido comentado ao inves de apagado, caso o card seja reativado no futuro.
+  /*
   useEffect(()=>{
     if(!inited||!apiKey||insightMensalLoad)return;
     if(!Array.isArray(histMensal)||histMensal.length<1)return;
@@ -16548,6 +16560,7 @@ Responda APENAS com o texto do insight, sem prefacio ou comentarios meta.`;
       return ()=>clearTimeout(t);
     }
   },[inited,apiKey,histMensal,hist,idxMensal,insightMensal,insightMensalLoad,genInsightMensal]);
+  */
 
   // Grava snapshot da composicao quando atualiza precos (para heatmap)
   useEffect(()=>{
