@@ -5412,10 +5412,10 @@ function EstabilidadeHistoricoCard({histMensal,idxMensal,hist,histCutoff}){
   const amostraStatus=N>=12?"solida":N>=6?"aceitavel":N>=3?"fraca":"preliminar";
   const aviso=N<6?h("div",{style:{marginBottom:12,padding:"8px 11px",background:"rgba(232,196,74,0.06)",border:"1px solid rgba(232,196,74,0.20)",borderRadius:6,fontSize:9,color:"#A89070",fontStyle:"italic"}},"\u26A0 Amostra "+amostraStatus+" ("+N+"/6 meses fechados). O card matura automaticamente conforme mais meses fecharem."):null;
   // ============ Viz 1: Rolling Volatility ============
-  // Janela FIXA e pequena (nao janela=N, que travava a serie em sempre-1-ponto ate N>6).
-  // Comeca em 2 (minimo estatistico p/ desvio-padrao) e cresce ate 3, depois trava - assim a
-  // linha de evolucao aparece o quanto antes, com o maximo de pontos possivel dado o histórico.
-  const janela=Math.min(Math.max(N,2),3);
+  // Janela adaptativa: nunca maior que N-1 (garante 2+ pontos assim que N>=3), maximo 3
+  // (significado estatistico razoavel), minimo 2 (piso absoluto p/ desvio-padrao).
+  // Formula anterior (min(N,6)) travava a serie em SEMPRE 1 ponto ate N>6 - corrigido aqui.
+  const janela=Math.max(2,Math.min(N-1,3));
   const calcVol=(serie,mesesArr)=>{
     const vals=mesesArr.map(k=>serie[k]).filter(v=>typeof v==="number"&&!isNaN(v));
     if(vals.length<2)return null;
@@ -5474,14 +5474,38 @@ function EstabilidadeHistoricoCard({histMensal,idxMensal,hist,histCutoff}){
           })
         );
       }),
-      ...cols.map(c=>{
-        const s=seriesVol[c.key];
-        if(!s.length)return null;
-        const ultimo=s[s.length-1];
-        return h("g",{key:"lab"+c.key,transform:"translate("+(W1-pR1+6)+","+(yVol(ultimo.vol)+3)+")"},
-          h("text",{fill:c.cor,fontSize:8,fontFamily:"monospace",fontWeight:c.key==="port"?700:400},c.nome+" "+ultimo.vol.toFixed(1)+"%")
-        );
-      })
+      ...(()=>{
+        // Anti-colisao de rotulos: calcula Y ideal de cada serie, depois separa os que ficam
+        // muito proximos (< minGap px) empurrando-os verticalmente, preservando a ordem relativa.
+        const minGap=11;// px minimo entre centros de rotulos p/ nao sobrepor texto de 8px
+        const itens=cols.map(c=>{
+          const s=seriesVol[c.key];
+          if(!s.length)return null;
+          const ultimo=s[s.length-1];
+          return {key:c.key,nome:c.nome,cor:c.cor,isPort:c.key==="port",valor:ultimo.vol,yIdeal:yVol(ultimo.vol)};
+        }).filter(Boolean).sort((a,b)=>a.yIdeal-b.yIdeal);
+        // Empurra de cima pra baixo: se o proximo estiver muito perto do anterior, desce ele
+        for(let i=1;i<itens.length;i++){
+          const yAnt=itens[i-1].yFinal!==undefined?itens[i-1].yFinal:itens[i-1].yIdeal;
+          if(itens[i].yIdeal-yAnt<minGap){itens[i].yFinal=yAnt+minGap;}
+          else{itens[i].yFinal=itens[i].yIdeal;}
+        }
+        if(itens.length)itens[0].yFinal=itens[0].yIdeal;
+        // Se o ultimo estourou o limite inferior do grafico, reempurra tudo pra cima mantendo o gap
+        const limiteInf=pT1+cH1+8;
+        if(itens.length){
+          const ultimoY=itens[itens.length-1].yFinal;
+          if(ultimoY>limiteInf){
+            const excesso=ultimoY-limiteInf;
+            itens.forEach(it=>{it.yFinal-=excesso;});
+          }
+        }
+        return itens.map(it=>h("g",{key:"lab"+it.key,transform:"translate("+(W1-pR1+6)+","+(it.yFinal+3)+")"},
+          // Linha-guia sutil quando o rotulo foi deslocado do ponto real (diferenca > 2px)
+          Math.abs(it.yFinal-it.yIdeal)>2?h("line",{x1:-4,y1:it.yIdeal-it.yFinal-3,x2:-1,y2:0,stroke:it.cor,strokeWidth:0.6,opacity:0.4}):null,
+          h("text",{fill:it.cor,fontSize:8,fontFamily:"monospace",fontWeight:it.isPort?700:400},it.nome+" "+it.valor.toFixed(1)+"%")
+        ));
+      })()
     ),
     h("div",{style:{fontSize:8,color:"#5A5550",marginTop:6,fontStyle:"italic",lineHeight:1.5}},"Sua linha (dourada) descendo mais rapido que as demais = portfolio amortecendo melhor que o mercado.")
   );
