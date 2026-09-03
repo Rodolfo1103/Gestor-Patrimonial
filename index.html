@@ -4292,31 +4292,6 @@ function ModelosPortfolioMap({cw,selicAtual,hideVal}){
   const wAtual={};CL.forEach(c=>{wAtual[c.id]=(cw[c.id]||0)/100;});
   const wAW=AW_W;
   const wYPB=YPB_W;
-  // Risk Parity
-  let wRP=null;
-  try{const rp=calcRiskParity();if(rp&&rp.weights){wRP={};MPT_CLS.forEach((cid,i)=>{wRP[cid]=rp.weights[i];});}}catch(e){}
-  // MPT Otimo aproximado: heuristica Tangent Portfolio (max Sharpe)
-  // Pesos proporcionais a (ret - rf) / vol^2 - simplificacao Markowitz para max Sharpe
-  let wMPT=null;
-  try{
-    const rf=(typeof selicAtual==="number"&&selicAtual>0?selicAtual:14.25)*(1-IR_LONGO_PRAZO)/100;
-    const sensClasses={selic:1.00,treasuries:0.90,fii:0.70,infra:0.70,agro:0.70,imoveis:0.65,reits:0.60,acoes_br:0.50,acoes_eua:0.40,acoes_mundo:0.35,ouro:0.10,bitcoin:0.10,rfipca:0.85};
-    const ANCORA=0.10;
-    const deltaSelic=rf-ANCORA;
-    const utilidades={};let somaUtil=0;
-    MPT_CLS.forEach(cid=>{
-      const ret=cid==="selic"?rf:Math.max(0,Math.min(0.50,(MPT_RET[cid]||0)+deltaSelic*(sensClasses[cid]||0)));
-      const vol=MPT_VOL[cid]||0.10;
-      const excesso=Math.max(0,ret-rf);// max Sharpe usa excesso de retorno
-      const utilidade=excesso/(vol*vol);
-      utilidades[cid]=utilidade;
-      somaUtil+=utilidade;
-    });
-    if(somaUtil>0){
-      wMPT={};
-      MPT_CLS.forEach(cid=>{wMPT[cid]=utilidades[cid]/somaUtil;});
-    }
-  }catch(e){}
   // Funcao de scoring 2D
   // EIXO X (Conservador <-> Agressivo): soma ponderada da volatilidade. 0=Selic puro, 1=BTC puro.
   //   Normalizar: vol portfolio in [0.01, 0.55] -> [0, 1]
@@ -4345,33 +4320,21 @@ function ModelosPortfolioMap({cw,selicAtual,hideVal}){
     return {x,y,vol:volPort,scoreY};
   };
   const pAtual=calcCoords(wAtual);
-  // PORTFOLIO-ALVO: centro das bandas de cada classe ((min+max)/2), normalizado.
-  // Representa o alvo estrategico configurado nas bandas da aba Posicoes.
-  const wAlvo=(()=>{
-    const w={};let soma=0;
-    CL.forEach(c=>{const centro=(c.min+c.max)/2/100;w[c.id]=centro;soma+=centro;});
-    // Normaliza para somar 1 (a soma dos centros pode nao ser exatamente 100%)
-    if(soma>0)CL.forEach(c=>{w[c.id]=w[c.id]/soma;});
-    return w;
-  })();
-  const pAlvo=calcCoords(wAlvo);
   const pAW=calcCoords(wAW);
   const pYPB=calcCoords(wYPB);
-  const pRP=calcCoords(wRP);
-  const pMPT=calcCoords(wMPT);
   // Dimensoes do canvas SVG
   const W=320,H=300,pad={l:42,r:18,t:30,b:46};
   const cW=W-pad.l-pad.r,cH=H-pad.t-pad.b;
   const xPos=(x)=>pad.l+x*cW;
   const yPos=(y)=>pad.t+y*cH;
   // Lista de portfolios para plotagem (ordem importa - desenha por baixo primeiro)
+  // Apenas All Weather BR e Yale Endowment como referencia + VOCE (portfolio atual).
+  // Risk Parity, MPT Otimo e o ponto ALVO foram removidos a pedido do investidor - o objetivo
+  // agora e mostrar o portfolio atual posicionado entre as caracteristicas dos 2 modelos restantes.
   const portfolios=[
     {id:"aw",nome:"All Weather BR",cor:"#2EBFA5",p:pAW,desc:"Dalio adaptado: protecao em 4 cenarios macro",pesos:wAW,raio:18},
     {id:"yale",nome:"Yale Endowment",cor:"#5B8FD4",p:pYPB,desc:"Swensen: alta diversificacao em real assets",pesos:wYPB,raio:18},
-    {id:"rp",nome:"Risk Parity",cor:"#7DD17D",p:pRP,desc:"Cada classe contribui igualmente ao risco",pesos:wRP,raio:18},
-    {id:"mpt",nome:"MPT Otimo",cor:"#C8A96E",p:pMPT,desc:"Max Sharpe via Markowitz (heuristica tangent)",pesos:wMPT,raio:18},
-    {id:"atual",nome:"VOCE",cor:"#E8E2D5",p:pAtual,desc:"Sua alocacao atual",pesos:wAtual,raio:9,isAtual:true},
-    {id:"alvo",nome:"ALVO",cor:"#E05252",p:pAlvo,desc:"Portfolio-alvo: centro das bandas configuradas na aba Posicoes",pesos:wAlvo,raio:9,isAlvo:true}
+    {id:"atual",nome:"VOCE",cor:"#E8E2D5",p:pAtual,desc:"Sua alocacao atual",pesos:wAtual,raio:9,isAtual:true}
   ].filter(p=>p.p);
   // Detecta interseccoes (portfolios proximos no mapa 2D)
   const dist=(p1,p2)=>Math.sqrt((p1.x-p2.x)**2+(p1.y-p2.y)**2);
@@ -4392,7 +4355,7 @@ function ModelosPortfolioMap({cw,selicAtual,hideVal}){
     // Titulo elegante
     h("div",{style:{textAlign:"center",marginBottom:8}},
       h("div",{style:{fontFamily:"Georgia,serif",fontSize:13,color:"#C8A96E",fontStyle:"italic",letterSpacing:0.5,marginBottom:2}},"Mapa de Modelos de Portfolio"),
-      h("div",{style:{fontFamily:"Georgia,serif",fontSize:9,color:"#7A7060",fontStyle:"italic",letterSpacing:0.3}},"Seu portfolio entre os 4 modelos consagrados")
+      h("div",{style:{fontFamily:"Georgia,serif",fontSize:9,color:"#7A7060",fontStyle:"italic",letterSpacing:0.3}},"Seu portfolio entre All Weather Brasil e Yale Endowment")
     ),
     // SVG do mapa
     h("div",{style:{display:"flex",justifyContent:"center",marginBottom:10}},
@@ -4432,15 +4395,6 @@ function ModelosPortfolioMap({cw,selicAtual,hideVal}){
           h("circle",{cx:xPos(pf.p.x),cy:yPos(pf.p.y),r:4,fill:pf.cor,stroke:"#1A1612",strokeWidth:1}),
           h("text",{x:xPos(pf.p.x),y:yPos(pf.p.y)-7,fontFamily:"Georgia,serif",fontSize:8,fontStyle:"italic",fill:pf.cor,textAnchor:"middle",letterSpacing:0.2,opacity:selecionado&&selecionado!==pf.id?0.35:1},pf.nome)
         )),
-        // Linha de convergencia VOCE -> ALVO (rota que os aportes devem seguir)
-        (pAtual&&pAlvo)?h("line",{x1:xPos(pAtual.x),y1:yPos(pAtual.y),x2:xPos(pAlvo.x),y2:yPos(pAlvo.y),stroke:"#E05252",strokeWidth:0.9,strokeDasharray:"3 3",opacity:0.55}):null,
-        // Ponto ALVO - portfolio-alvo das bandas (vermelho, mesmo estilo do VOCE)
-        pAlvo?h("g",{onClick:()=>setSelecionado(selecionado==="alvo"?null:"alvo"),style:{cursor:"pointer"}},
-          h("circle",{cx:xPos(pAlvo.x),cy:yPos(pAlvo.y),r:11,fill:"none",stroke:"#E05252",strokeWidth:0.5,strokeDasharray:"1 2",opacity:0.5}),
-          h("circle",{cx:xPos(pAlvo.x),cy:yPos(pAlvo.y),r:6,fill:"#1A1612",stroke:"#E05252",strokeWidth:1.4}),
-          h("circle",{cx:xPos(pAlvo.x),cy:yPos(pAlvo.y),r:2.5,fill:"#E05252"}),
-          h("text",{x:xPos(pAlvo.x),y:yPos(pAlvo.y)-11,fontFamily:"Georgia,serif",fontSize:9,fontStyle:"italic",fill:"#E05252",textAnchor:"middle",fontWeight:600,letterSpacing:0.5},"alvo")
-        ):null,
         // Ponto VOCE - em destaque
         pAtual?h("g",{onClick:()=>setSelecionado(selecionado==="atual"?null:"atual"),style:{cursor:"pointer"}},
           h("circle",{cx:xPos(pAtual.x),cy:yPos(pAtual.y),r:11,fill:"none",stroke:"#E8E2D5",strokeWidth:0.5,strokeDasharray:"1 2",opacity:0.5}),
@@ -4474,7 +4428,7 @@ function ModelosPortfolioMap({cw,selicAtual,hideVal}){
       // Calcula stats dos 4 modelos para comparacao (usa rfRP calculado anteriormente)
       const rfComp=(typeof selicAtual==="number"&&selicAtual>0?selicAtual:14.25)*(1-IR_LONGO_PRAZO)/100;
       const statsModelos={};
-      [{id:"atual",w:Object.values(wAtual)},{id:"aw",w:MPT_CLS.map(c=>AW_W[c]||0)},{id:"yale",w:MPT_CLS.map(c=>YPB_W[c]||0)},{id:"rp",w:wRP?MPT_CLS.map(c=>wRP[c]||0):null},{id:"mpt",w:wMPT?MPT_CLS.map(c=>wMPT[c]||0):null}].forEach(m=>{
+      [{id:"atual",w:Object.values(wAtual)},{id:"aw",w:MPT_CLS.map(c=>AW_W[c]||0)},{id:"yale",w:MPT_CLS.map(c=>YPB_W[c]||0)}].forEach(m=>{
         if(!m.w||m.w.length!==MPT_CLS.length)return;
         try{
           const st=mptStats(m.w,rfComp);
@@ -4483,9 +4437,9 @@ function ModelosPortfolioMap({cw,selicAtual,hideVal}){
         }catch(e){}
       });
       const mAtual=statsModelos.atual;
-      // Compara contra os 4 modelos
+      // Compara contra os 2 modelos de referencia (AW Brasil, Yale)
       const comparacoes=[];
-      const mods=[{id:"aw",nome:"AW Brasil",cor:"#2EBFA5"},{id:"yale",nome:"Yale",cor:"#5B8FD4"},{id:"rp",nome:"Risk Parity",cor:"#7DD17D"},{id:"mpt",nome:"MPT Otimo",cor:"#C8A96E"}];
+      const mods=[{id:"aw",nome:"AW Brasil",cor:"#2EBFA5"},{id:"yale",nome:"Yale",cor:"#5B8FD4"}];
       mods.forEach(m=>{
         const s=statsModelos[m.id];
         if(!s||!mAtual)return;
@@ -4549,7 +4503,7 @@ function ModelosPortfolioMap({cw,selicAtual,hideVal}){
       // Recalcula stats no escopo deste IIFE
       const rfComp=(typeof selicAtual==="number"&&selicAtual>0?selicAtual:14.25)*(1-IR_LONGO_PRAZO)/100;
       const statsModelos={};
-      [{id:"atual",w:Object.values(wAtual)},{id:"aw",w:MPT_CLS.map(c=>AW_W[c]||0)},{id:"yale",w:MPT_CLS.map(c=>YPB_W[c]||0)},{id:"rp",w:wRP?MPT_CLS.map(c=>wRP[c]||0):null},{id:"mpt",w:wMPT?MPT_CLS.map(c=>wMPT[c]||0):null}].forEach(m=>{
+      [{id:"atual",w:Object.values(wAtual)},{id:"aw",w:MPT_CLS.map(c=>AW_W[c]||0)},{id:"yale",w:MPT_CLS.map(c=>YPB_W[c]||0)}].forEach(m=>{
         if(!m.w||m.w.length!==MPT_CLS.length)return;
         try{
           const st=mptStats(m.w,rfComp);
@@ -4558,7 +4512,7 @@ function ModelosPortfolioMap({cw,selicAtual,hideVal}){
         }catch(e){}
       });
       const mAtual=statsModelos.atual;
-      // Define os pros e contras de cada modelo
+      // Define os pros e contras de cada modelo de referencia (AW Brasil, Yale)
       const modelosInfo=[
         {
           id:"aw",nome:"All Weather Brasil",cor:"#2EBFA5",
@@ -4569,16 +4523,6 @@ function ModelosPortfolioMap({cw,selicAtual,hideVal}){
           id:"yale",nome:"Yale Endowment",cor:"#5B8FD4",
           pros:["Alta diversificacao em real assets","Premio historico por iliquidez (Swensen)","Foco em ativos reais antiinflacionarios"],
           contras:["Pesado em ativos pouco liquidos para PF","Vol e drawdowns elevados em crises","Modelo institucional, dificil replicar 100% no Brasil"]
-        },
-        {
-          id:"rp",nome:"Risk Parity ERC",cor:"#7DD17D",
-          pros:["Sem opiniao macro - puramente matematico","Equilibra exposicao ao risco de forma rigorosa","Detecta concentracoes ocultas no portfolio"],
-          contras:["Em pais de juros altos, sugere muito RF","Ignora valuation e oportunidades de longo prazo","Pode subaproveitar premios de risco de equities"]
-        },
-        {
-          id:"mpt",nome:"MPT Otimo",cor:"#C8A96E",
-          pros:["Maximiza Sharpe (retorno por unidade de risco)","Fundamento academico solido (Markowitz)","Otimo em regimes estaveis de longo prazo"],
-          contras:["Premissas de retorno esperado dificeis de calibrar","Sensivel a janela de medicao (instavel)","Pode concentrar em poucos ativos historicamente bons"]
         }
       ];
       // Calcula como o portfolio atual mitiga ou reforca cada caracteristica
@@ -4603,18 +4547,6 @@ function ModelosPortfolioMap({cw,selicAtual,hideVal}){
           if(wReal>30)textos.push(["#4CAF82","Sua exposicao a real assets ("+wReal.toFixed(0)+"%) ressoa com a filosofia Swensen."]);
           else textos.push(["#E89060","Real assets em "+wReal.toFixed(0)+"% - abaixo do peso Yale (~35-40%). Premio de iliquidez subaproveitado."]);
           if(melhorVol)textos.push(["#4CAF82","Voce esta menos volatil que Yale - mitiga drawdowns historicos do modelo."]);
-        }
-        if(modelo.id==="rp"){
-          const wRF=(cw.selic||0)+(cw.rfipca||0)+(cw.treasuries||0);
-          if(wRF>40)textos.push(["#4CAF82","Renda fixa em "+wRF.toFixed(0)+"% - proximo do que RP recomenda para Selic alta."]);
-          else if(wRF<25)textos.push(["#E89060","Renda fixa em "+wRF.toFixed(0)+"% - bem abaixo do que RP sugere; voce aceita mais risco para retorno real LP."]);
-          const wRisco=(cw.acoes_br||0)+(cw.acoes_eua||0)+(cw.acoes_mundo||0)+(cw.bitcoin||0);
-          if(wRisco>35)textos.push(["#E89060","Equities+cripto em "+wRisco.toFixed(0)+"% - RP detecta concentracao de risco. Valida se ha conviccao filosofica."]);
-        }
-        if(modelo.id==="mpt"){
-          if(melhorSharpe)textos.push(["#4CAF82","Seu Sharpe ("+mAtual.sharpe.toFixed(2)+") supera o MPT teorico - alocacao real captura premio nao previsto."]);
-          else if(!melhorSharpe&&mAtual.sharpe>=s.sharpe*0.85)textos.push(["#C8A96E","Sharpe em "+(mAtual.sharpe/s.sharpe*100).toFixed(0)+"% do MPT - aceitavel para B&H rigoroso."]);
-          else textos.push(["#E89060","Sharpe abaixo do MPT em "+(100-mAtual.sharpe/s.sharpe*100).toFixed(0)+"% - existe espaco para reotimizar sem aumentar risco."]);
         }
         return textos;
       };
@@ -4684,7 +4616,7 @@ function ModelosPortfolioMap({cw,selicAtual,hideVal}){
     ),
     // Nota explicativa em caligrafia pequena
     h("div",{style:{fontFamily:"Georgia,serif",fontSize:7.5,color:"#5A5550",fontStyle:"italic",lineHeight:1.5,marginTop:7,textAlign:"center"}},
-      "Toque em um modelo para detalhes. Eixos: volatilidade esperada (X) e perfil renda vs crescimento (Y). Reducao 13D \u2192 2D, indicativo. O ponto ",h("span",{style:{color:"#E05252",fontWeight:600}},"ALVO")," (vermelho) e o portfolio-alvo definido pelos centros das bandas de cada classe na aba Posicoes; a linha tracejada e a rota que seus aportes devem seguir para convergir do ",h("span",{style:{color:"#E8E2D5",fontWeight:600}},"VOCE")," ate o alvo."
+      "Toque em um modelo para detalhes. Eixos: volatilidade esperada (X) e perfil renda vs crescimento (Y). Reducao 13D \u2192 2D, indicativo. As zonas tracejadas em volta de All Weather BR e Yale Endowment mostram sua area de influencia; o ponto ",h("span",{style:{color:"#E8E2D5",fontWeight:600}},"VOCE")," e sua alocacao atual, posicionada entre as caracteristicas dos dois modelos."
     )
   );
 }
