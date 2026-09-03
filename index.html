@@ -5412,7 +5412,10 @@ function EstabilidadeHistoricoCard({histMensal,idxMensal,hist,histCutoff}){
   const amostraStatus=N>=12?"solida":N>=6?"aceitavel":N>=3?"fraca":"preliminar";
   const aviso=N<6?h("div",{style:{marginBottom:12,padding:"8px 11px",background:"rgba(232,196,74,0.06)",border:"1px solid rgba(232,196,74,0.20)",borderRadius:6,fontSize:9,color:"#A89070",fontStyle:"italic"}},"\u26A0 Amostra "+amostraStatus+" ("+N+"/6 meses fechados). O card matura automaticamente conforme mais meses fecharem."):null;
   // ============ Viz 1: Rolling Volatility ============
-  const janela=Math.min(N,6);
+  // Janela FIXA e pequena (nao janela=N, que travava a serie em sempre-1-ponto ate N>6).
+  // Comeca em 2 (minimo estatistico p/ desvio-padrao) e cresce ate 3, depois trava - assim a
+  // linha de evolucao aparece o quanto antes, com o maximo de pontos possivel dado o histórico.
+  const janela=Math.min(Math.max(N,2),3);
   const calcVol=(serie,mesesArr)=>{
     const vals=mesesArr.map(k=>serie[k]).filter(v=>typeof v==="number"&&!isNaN(v));
     if(vals.length<2)return null;
