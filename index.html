@@ -5453,13 +5453,22 @@ function EstabilidadeHistoricoCard({histMensal,idxMensal,hist,histCutoff}){
       ...cols.map(c=>{
         const s=seriesVol[c.key];
         if(!s.length)return null;
+        const isPort=c.key==="port";
         if(s.length===1){
-          return h("circle",{key:"pt"+c.key,cx:xVol(0),cy:yVol(s[0].vol),r:4,fill:c.cor,stroke:"#0D0F14",strokeWidth:1.5});
+          return h("circle",{key:"pt"+c.key,cx:xVol(0),cy:yVol(s[0].vol),r:isPort?4.5:4,fill:c.cor,stroke:"#0D0F14",strokeWidth:1.5});
         }
+        const nS=s.length;
+        // Opacidade progressiva: pontos mais antigos mais transparentes, o mais recente sempre 100%
+        const opPonto=(i)=>0.30+0.70*(nS===1?1:i/(nS-1));
         const path=s.map((p,i)=>(i===0?"M":"L")+xVol(i)+","+yVol(p.vol)).join(" ");
         return h(Fragment,{key:"ln"+c.key},
-          h("path",{d:path,fill:"none",stroke:c.cor,strokeWidth:c.key==="port"?2.5:1.5,opacity:c.key==="port"?1:0.75}),
-          ...s.map((p,i)=>h("circle",{key:"p"+c.key+i,cx:xVol(i),cy:yVol(p.vol),r:c.key==="port"?3:2,fill:c.cor}))
+          // Linha conectando os meses - portfolio mais forte e opaco, benchmarks mais sutis
+          h("path",{d:path,fill:"none",stroke:c.cor,strokeWidth:isPort?2.75:1.5,opacity:isPort?0.95:0.55,strokeLinejoin:"round",strokeLinecap:"round"}),
+          // Pontos - mais antigos mais transparentes, ultimo ponto maior e 100% opaco (destaque do valor atual)
+          ...s.map((p,i)=>{
+            const ultimo=i===nS-1;
+            return h("circle",{key:"p"+c.key+i,cx:xVol(i),cy:yVol(p.vol),r:ultimo?(isPort?4.5:3.5):(isPort?3:2.2),fill:c.cor,fillOpacity:ultimo?1:opPonto(i),stroke:ultimo?"#0D0F14":"none",strokeWidth:ultimo?1.3:0});
+          })
         );
       }),
       ...cols.map(c=>{
