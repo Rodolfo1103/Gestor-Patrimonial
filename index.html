@@ -5459,54 +5459,79 @@ function EstabilidadeHistoricoCard({histMensal,idxMensal,hist,histCutoff}){
   const volUltimo=nVP>0?serieVolPort[nVP-1].vol:null;
   // Posicao relativa do ultimo mes fechado dentro da banda historica: 0=no minimo, 1=no maximo, 0.5=meio exato
   const posicaoNaBanda=(nVP>0&&volMaxHist>volMinHist&&volUltimo!==null)?(volUltimo-volMinHist)/(volMaxHist-volMinHist):(nVP>0?0.5:null);
-  const W1=340,H1=170,pL1=42,pR1=14,pT1=14,pB1=22,cW1=W1-pL1-pR1,cH1=H1-pB1-pT1;
+  // ---- Layout do grafico: EIXO X TEMPORAL com rolagem horizontal (suporta anos de historico) ----
+  // Cada mes ocupa uma largura fixa (larguraMes). O SVG cresce em largura conforme nVP aumenta;
+  // o wrapper com overflowX:"auto" permite rolar. Abre posicionado no fim (meses mais recentes).
+  const larguraMes=30;// px por mes - constante, garante densidade visual estavel com qualquer nVP
+  const H1=170,pL1=44,pR1=44,pT1=14,pB1=26,cH1=H1-pB1-pT1;
+  const larguraGrafico=Math.max(200,nVP*larguraMes);
+  const W1=larguraGrafico+pL1+pR1;
+  const xVolIdx=i=>pL1+i*larguraMes+larguraMes/2;// centro do mes i dentro do eixo temporal
   // Range do eixo: como ha valores negativos (variacao patrimonial pode cair), usa min/max reais com folga.
   const folgaEixo=Math.max(0.3,(volMaxHist-volMinHist)*0.20||0.3);
   const rngMaxEixo=nVP>0?volMaxHist+folgaEixo:5;
   const rngMinEixo=nVP>0?volMinHist-folgaEixo:0;
   const rngV1=(rngMaxEixo-rngMinEixo)||1;
   const yVol=v=>pT1+cH1-((v-rngMinEixo)/rngV1)*cH1;
-  const xBandaC=pL1+cW1*0.42;// centro horizontal da banda (deixa espaco a direita p/ rotulo do ponto atual)
-  const bandaLarg=cW1*0.30;
+  // Ref para o wrapper com scroll - usado para abrir a visualizacao ja no fim (meses recentes)
+  const scrollRefViz1=React.useRef(null);
+  React.useEffect(()=>{
+    if(scrollRefViz1.current)scrollRefViz1.current.scrollLeft=scrollRefViz1.current.scrollWidth;
+  },[nVP]);
   const viz1=h("div",{style:{marginBottom:14,padding:"10px",background:"rgba(0,0,0,0.20)",border:"1px solid rgba(255,255,255,0.05)",borderRadius:8}},
-    h("div",{style:{fontSize:9,color:"#8A8070",marginBottom:6,fontFamily:"monospace",letterSpacing:1}},"VARIACAO PATRIMONIAL MENSAL (banda hist\u00f3rica)"),
-    nVP===0?h("div",{style:{fontSize:9,color:"#7A7570",fontStyle:"italic",padding:"20px",textAlign:"center"}},"Aguardando 1+ mes fechado"):h("svg",{viewBox:"0 0 "+W1+" "+H1,style:{width:"100%",height:"auto",display:"block"}},
-      ...[0,0.25,0.5,0.75,1].map(f=>{
-        const y=pT1+cH1-f*cH1,v=rngMinEixo+f*rngV1;
-        return h(Fragment,{key:"g"+f},
-          h("line",{x1:pL1,y1:y,x2:W1-pR1,y2:y,stroke:"rgba(255,255,255,0.04)",strokeWidth:1}),
-          h("text",{x:pL1-3,y:y+3,textAnchor:"end",fill:"#5A5550",fontSize:7,fontFamily:"monospace"},(v>0?"+":"")+v.toFixed(1)+"%")
-        );
-      }),
-      // Linha do zero (referencia visual, ja que agora ha valores negativos)
-      rngMinEixo<0&&rngMaxEixo>0?h("line",{x1:pL1,y1:yVol(0),x2:W1-pR1,y2:yVol(0),stroke:"rgba(255,255,255,0.12)",strokeWidth:1}):null,
-      // BANDA EXTERNA: retangulo semi-transparente entre min e max historicos (os 2 casos extremos)
-      volMaxHist>volMinHist?h("rect",{x:xBandaC-bandaLarg/2,y:yVol(volMaxHist),width:bandaLarg,height:yVol(volMinHist)-yVol(volMaxHist),fill:"#C8A96E",fillOpacity:0.10,stroke:"#C8A96E",strokeOpacity:0.35,strokeWidth:1,rx:3}):null,
-      // BANDA INTERNA +-1 desvio-padrao: onde a MAIORIA dos meses historicamente cai (mais estreita,
-      // mais opaca - contraste visual com a banda externa de extremos)
-      (volDesvPad!==null&&sigmaSup>sigmaInf)?h("rect",{x:xBandaC-bandaLarg*0.42,y:yVol(Math.min(sigmaSup,volMaxHist)),width:bandaLarg*0.84,height:Math.max(0,yVol(Math.max(sigmaInf,volMinHist))-yVol(Math.min(sigmaSup,volMaxHist))),fill:"#8FBE3F",fillOpacity:0.14,stroke:"#8FBE3F",strokeOpacity:0.4,strokeWidth:1,rx:2}):null,
-      // Linha tracejada da banda superior (maximo) e inferior (minimo), atravessando toda a largura
-      h("line",{x1:pL1,y1:yVol(volMaxHist),x2:W1-pR1,y2:yVol(volMaxHist),stroke:"#4CAF82",strokeWidth:1,strokeDasharray:"3,3",opacity:0.55}),
-      volMaxHist>volMinHist?h("line",{x1:pL1,y1:yVol(volMinHist),x2:W1-pR1,y2:yVol(volMinHist),stroke:"#E05252",strokeWidth:1,strokeDasharray:"3,3",opacity:0.55}):null,
-      // Linha tracejada da MEDIA aritmetica dos meses fechados (variacao patrimonial media mensal)
-      nVP>0?h("line",{x1:pL1,y1:yVol(volMedia),x2:W1-pR1,y2:yVol(volMedia),stroke:"#C8A96E",strokeWidth:1,strokeDasharray:"5,2",opacity:0.6}):null,
-      // Rotulos MAX (melhor mes, verde) e MIN (pior mes, vermelho)
-      nVP>0?h("text",{x:pL1+2,y:yVol(volMaxHist)-4,fill:"#4CAF82",fontSize:7.5,fontFamily:"monospace",fontWeight:700},"MELHOR "+(volMaxHist>=0?"+":"")+volMaxHist.toFixed(2)+"% \u00B7 "+(mesMax?mesMax.slice(5)+"/"+mesMax.slice(2,4):"")):null,
-      (nVP>0&&volMaxHist>volMinHist)?h("text",{x:pL1+2,y:yVol(volMinHist)+11,fill:"#E05252",fontSize:7.5,fontFamily:"monospace",fontWeight:700},"PIOR "+(volMinHist>=0?"+":"")+volMinHist.toFixed(2)+"% \u00B7 "+(mesMin?mesMin.slice(5)+"/"+mesMin.slice(2,4):"")):null,
-      // Rotulo da MEDIA - posicionado a direita p/ nao colidir com MAX/MIN que ficam a esquerda
-      nVP>0?h("text",{x:W1-pR1-2,y:yVol(volMedia)-4,textAnchor:"end",fill:"#C8A96E",fontSize:7.5,fontFamily:"monospace",fontWeight:700},"M\u00C9DIA "+(volMedia>=0?"+":"")+volMedia.toFixed(2)+"%"):null,
-      // Rotulo da banda +-1 sigma (discreto, canto inferior direito da banda interna)
-      (volDesvPad!==null)?h("text",{x:W1-pR1-2,y:yVol(sigmaInf)+11,textAnchor:"end",fill:"#8FBE3F",fontSize:7,fontFamily:"monospace",opacity:0.85},"\u00B11\u03C3 "+volDesvPad.toFixed(2)+"pp"):null,
-      // Linha vertical tenue conectando toda a trajetoria historica dentro da banda, mes a mes
-      nVP>1?h("path",{d:serieVolPort.map((p,i)=>(i===0?"M":"L")+xBandaC+","+yVol(p.vol)).join(" "),fill:"none",stroke:"#C8A96E",strokeWidth:1,opacity:0.30,strokeDasharray:"2,2"}):null,
-      // Pontos de cada MES FECHADO: VERDE se positivo, VERMELHO se negativo. Todos tratados de forma
-      // uniforme (sem destaque de "atual") - opacidade progressiva, mes mais antigo mais transparente,
-      // mes mais recente mais opaco, mostrando a evolucao temporal pela intensidade da cor.
-      ...serieVolPort.map((p,i)=>{
-        const op=nVP===1?0.85:0.30+0.55*(i/(nVP-1));
-        const cor=p.vol>=0?"#4CAF82":"#E05252";
-        return h("circle",{key:"histp"+i,cx:xBandaC,cy:yVol(p.vol),r:3.5,fill:cor,fillOpacity:op});
-      })
+    h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:6}},
+      h("div",{style:{fontSize:9,color:"#8A8070",fontFamily:"monospace",letterSpacing:1}},"VARIACAO PATRIMONIAL MENSAL (banda hist\u00f3rica)"),
+      nVP>0?h("div",{style:{fontSize:7.5,color:"#5A5550",fontFamily:"monospace",fontStyle:"italic"}},nVP+" mes"+(nVP===1?"":"es")+(nVP>8?" \u00B7 deslize \u2190\u2192":"")):null
+    ),
+    nVP===0?h("div",{style:{fontSize:9,color:"#7A7570",fontStyle:"italic",padding:"20px",textAlign:"center"}},"Aguardando 1+ mes fechado"):
+    h("div",{style:{position:"relative"}},
+      // Camada FIXA (nao rola) com os rotulos MELHOR/PIOR/MEDIA/+-1sigma, sempre visiveis
+      // independente de para onde o usuario rolou o grafico. Fica sobreposta na borda esquerda.
+      h("div",{style:{position:"absolute",left:0,top:0,zIndex:2,pointerEvents:"none",width:44}},
+        h("svg",{width:44,height:H1,style:{display:"block",overflow:"visible"}},
+          nVP>0?h("text",{x:2,y:yVol(volMaxHist)-4,fill:"#4CAF82",fontSize:7.5,fontFamily:"monospace",fontWeight:700},"MELHOR "+(volMaxHist>=0?"+":"")+volMaxHist.toFixed(2)+"%"):null,
+          (nVP>0&&volMaxHist>volMinHist)?h("text",{x:2,y:yVol(volMinHist)+11,fill:"#E05252",fontSize:7.5,fontFamily:"monospace",fontWeight:700},"PIOR "+(volMinHist>=0?"+":"")+volMinHist.toFixed(2)+"%"):null,
+          nVP>0?h("text",{x:2,y:(yVol(volMedia)-4>yVol(volMaxHist)+10?yVol(volMedia)-4:yVol(volMedia)+11),fill:"#C8A96E",fontSize:7.5,fontFamily:"monospace",fontWeight:700},"M\u00C9DIA "+(volMedia>=0?"+":"")+volMedia.toFixed(2)+"%"):null,
+          (volDesvPad!==null)?h("text",{x:2,y:yVol(sigmaInf)+11,fill:"#8FBE3F",fontSize:7,fontFamily:"monospace",opacity:0.85},"\u00B11\u03C3 "+volDesvPad.toFixed(2)+"pp"):null
+        )
+      ),
+      // Camada ROLAVEL: o grafico em si (grade, bandas, linhas de referencia atravessando toda a
+      // largura, pontos mes-a-mes). Abre posicionado no fim (meses mais recentes) via scrollRefViz1.
+      h("div",{ref:scrollRefViz1,style:{overflowX:"auto",overflowY:"hidden",WebkitOverflowScrolling:"touch"}},
+      h("svg",{viewBox:"0 0 "+W1+" "+H1,width:W1,height:H1,style:{display:"block"}},
+        // Linhas de grade horizontais (atravessam toda a largura, inclusive fora da tela ate rolar)
+        ...[0,0.25,0.5,0.75,1].map(f=>{
+          const y=pT1+cH1-f*cH1,v=rngMinEixo+f*rngV1;
+          return h(Fragment,{key:"g"+f},
+            h("line",{x1:0,y1:y,x2:W1,y2:y,stroke:"rgba(255,255,255,0.04)",strokeWidth:1}),
+            h("text",{x:W1-2,y:y-2,textAnchor:"end",fill:"#5A5550",fontSize:7,fontFamily:"monospace"},(v>0?"+":"")+v.toFixed(1)+"%")
+          );
+        }),
+        // Linha do zero (referencia visual, ja que agora ha valores negativos)
+        rngMinEixo<0&&rngMaxEixo>0?h("line",{x1:0,y1:yVol(0),x2:W1,y2:yVol(0),stroke:"rgba(255,255,255,0.12)",strokeWidth:1}):null,
+        // BANDA EXTERNA: faixa semi-transparente entre min e max historicos, atravessando toda a largura temporal
+        volMaxHist>volMinHist?h("rect",{x:0,y:yVol(volMaxHist),width:W1,height:yVol(volMinHist)-yVol(volMaxHist),fill:"#C8A96E",fillOpacity:0.07,stroke:"none"}):null,
+        // BANDA INTERNA +-1 desvio-padrao: onde a MAIORIA dos meses historicamente cai
+        (volDesvPad!==null&&sigmaSup>sigmaInf)?h("rect",{x:0,y:yVol(Math.min(sigmaSup,volMaxHist)),width:W1,height:Math.max(0,yVol(Math.max(sigmaInf,volMinHist))-yVol(Math.min(sigmaSup,volMaxHist))),fill:"#8FBE3F",fillOpacity:0.10,stroke:"none"}):null,
+        // Linha tracejada da banda superior (maximo) e inferior (minimo), atravessando toda a largura
+        h("line",{x1:0,y1:yVol(volMaxHist),x2:W1,y2:yVol(volMaxHist),stroke:"#4CAF82",strokeWidth:1,strokeDasharray:"3,3",opacity:0.55}),
+        volMaxHist>volMinHist?h("line",{x1:0,y1:yVol(volMinHist),x2:W1,y2:yVol(volMinHist),stroke:"#E05252",strokeWidth:1,strokeDasharray:"3,3",opacity:0.55}):null,
+        // Linha tracejada da MEDIA aritmetica dos meses fechados (variacao patrimonial media mensal)
+        nVP>0?h("line",{x1:0,y1:yVol(volMedia),x2:W1,y2:yVol(volMedia),stroke:"#C8A96E",strokeWidth:1,strokeDasharray:"5,2",opacity:0.6}):null,
+        // Rotulos de MES no eixo X (a cada mes, discreto, orienta a leitura temporal)
+        ...serieVolPort.map((p,i)=>h("text",{key:"mlbl"+i,x:xVolIdx(i),y:H1-8,textAnchor:"middle",fill:"#5A5550",fontSize:6.5,fontFamily:"monospace"},p.mes.slice(5)+"/"+p.mes.slice(2,4))),
+        // Linha tenue conectando toda a trajetoria historica ao longo do tempo, mes a mes
+        nVP>1?h("path",{d:serieVolPort.map((p,i)=>(i===0?"M":"L")+xVolIdx(i)+","+yVol(p.vol)).join(" "),fill:"none",stroke:"#C8A96E",strokeWidth:1,opacity:0.30}):null,
+        // Pontos de cada MES FECHADO: VERDE se positivo, VERMELHO se negativo. Posicionados ao longo do
+        // eixo temporal (nao mais empilhados numa coluna unica) - opacidade progressiva reforca a leitura
+        // de recencia mesmo com a posicao X ja indicando o tempo.
+        ...serieVolPort.map((p,i)=>{
+          const op=nVP===1?0.9:0.45+0.5*(i/(nVP-1));
+          const cor=p.vol>=0?"#4CAF82":"#E05252";
+          return h("circle",{key:"histp"+i,cx:xVolIdx(i),cy:yVol(p.vol),r:3.5,fill:cor,fillOpacity:op});
+        })
+      )
+      )
     ),
     h("div",{style:{fontSize:8,color:"#5A5550",marginTop:6,fontStyle:"italic",lineHeight:1.5}},"A banda externa mostra a faixa (pior\u2013melhor mes) ja registrada; a interna, a faixa de \u00B11 desvio-padrao onde a maioria dos meses cai. Pontos verdes = mes positivo, vermelhos = mes negativo; mais opacos = mais recentes. Considera apenas meses fechados.")
   );
@@ -5590,13 +5615,25 @@ function EstabilidadeHistoricoCard({histMensal,idxMensal,hist,histCutoff}){
         drawdownInfo={maxDD,mesPico,mesVale};
       }
     }
+    // Proporcao entre a largura da banda verde (2x desvio-padrao) e a banda dourada (amplitude melhor-pior)
+    let textoProporcaoBandas="";
+    if(volDesvPad!==null&&amplitude!==null&&amplitude>0){
+      const proporcao=(2*volDesvPad)/amplitude;
+      const proporcaoPct=proporcao*100;
+      textoProporcaoBandas=" A banda verde ocupa "+proporcaoPct.toFixed(0)+"% da largura da banda dourada"+(proporcao<0.6?" - ainda ha espaco entre o tipico e os extremos.":" - o tipico e os extremos estao proximos, pouca folga.");
+    }
     return h("div",{style:{marginBottom:14,padding:"9px 11px",background:"rgba(200,169,110,0.05)",border:"1px solid rgba(200,169,110,0.15)",borderRadius:6}},
       h("div",{style:{fontSize:8,color:"#C8A96E",fontFamily:"monospace",letterSpacing:1,marginBottom:5,fontWeight:700}},"LEITURA DA VARIACAO PATRIMONIAL"),
+      // Explicacao didatica das duas bandas (fixa, nao depende dos dados do mes - ajuda a interpretar o grafico)
+      volDesvPad!==null?h("div",{style:{marginBottom:9,padding:"8px 10px",background:"rgba(143,190,63,0.05)",border:"1px solid rgba(143,190,63,0.18)",borderRadius:5}},
+        h("div",{style:{fontSize:8,color:"#8FBE3F",fontFamily:"monospace",letterSpacing:1,marginBottom:4,fontWeight:700}},"O QUE E A BANDA VERDE"),
+        h("div",{style:{fontSize:9,color:"#9A9080",lineHeight:1.6}},"A banda dourada (externa) mostra so os 2 casos extremos: o melhor e o pior mes ja registrados - um unico mes fora do padrao ja define essa faixa inteira. A banda verde (interna) e a faixa de \u00B11 desvio-padrao em torno da media: estatisticamente, e onde a MAIORIA dos meses tende a cair, uma leitura mais robusta do comportamento tipico do portfolio do que olhar so os extremos. Quanto mais estreita a banda verde em relacao a dourada, mais consistente e o padrao mensal - grandes diferencas entre as duas indicam que MELHOR/PIOR sao excecoes isoladas, nao a regra.")
+      ):null,
       h("div",{style:{fontSize:9,color:"#B0A890",lineHeight:1.6,marginBottom:tendencia?4:8}},leitura),
       tendencia&&h("div",{style:{fontSize:9,color:"#9A9080",lineHeight:1.6,fontStyle:"italic",marginBottom:8}},tendencia),
       nVP>=2&&amplitude!==null?h("div",{style:{fontSize:9,color:"#9A9080",lineHeight:1.6,fontStyle:"italic",marginBottom:4}},"Amplitude entre o melhor e o pior mes: "+amplitude.toFixed(2)+" pontos percentuais."):null,
       vsMedia&&h("div",{style:{fontSize:9,color:"#9A9080",lineHeight:1.6,fontStyle:"italic",marginBottom:(volDesvPad!==null||drawdownInfo)?4:8}},vsMedia),
-      volDesvPad!==null?h("div",{style:{fontSize:9,color:"#9A9080",lineHeight:1.6,fontStyle:"italic",marginBottom:drawdownInfo?4:8}},"Desvio-padrao dos meses fechados: \u00B1"+volDesvPad.toFixed(2)+"pp em torno da media (faixa "+(sigmaInf>=0?"+":"")+sigmaInf.toFixed(2)+"% a "+(sigmaSup>=0?"+":"")+sigmaSup.toFixed(2)+"% concentra a maioria dos meses)."):null,
+      volDesvPad!==null?h("div",{style:{fontSize:9,color:"#9A9080",lineHeight:1.6,fontStyle:"italic",marginBottom:drawdownInfo?4:8}},"Desvio-padrao dos meses fechados: \u00B1"+volDesvPad.toFixed(2)+"pp em torno da media (faixa "+(sigmaInf>=0?"+":"")+sigmaInf.toFixed(2)+"% a "+(sigmaSup>=0?"+":"")+sigmaSup.toFixed(2)+"% concentra a maioria dos meses)."+textoProporcaoBandas):null,
       drawdownInfo?h("div",{style:{fontSize:9,color:"#E89060",lineHeight:1.6,fontStyle:"italic",marginBottom:tendenciaEstabilidade?4:8}},"M\u00E1ximo drawdown registrado: "+drawdownInfo.maxDD.toFixed(2)+"% (queda acumulada de "+(drawdownInfo.mesPico?drawdownInfo.mesPico.slice(5)+"/"+drawdownInfo.mesPico.slice(2,4):"inicio")+" a "+drawdownInfo.mesVale.slice(5)+"/"+drawdownInfo.mesVale.slice(2,4)+" - maior recuo pico-a-vale ja registrado, diferente da pior variacao de um unico mes."):null,
       tendenciaEstabilidade?h("div",{style:{fontSize:9,lineHeight:1.6,fontWeight:600,marginBottom:8,color:tendenciaEstabilidade.startsWith("Tendencia de ESTABILIZACAO")?"#4CAF82":tendenciaEstabilidade.startsWith("Tendencia de AUMENTO")?"#E89060":"#9A9080"}},tendenciaEstabilidade):null,
       h("div",{style:{fontSize:8,color:"#7A7060",fontFamily:"monospace",letterSpacing:0.5,marginBottom:4,marginTop:4}},"PARA REDUZIR E MANTER BAIXA A OSCILACAO MENSAL:"),
