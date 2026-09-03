@@ -5379,18 +5379,13 @@ function EstabilidadeHistoricoCard({histMensal,idxMensal,hist,histCutoff}){
       if(typeof retP[k]!=="number")retP[k]=ret;
     }
   }
-  // Colecao de meses fechados (exclui corrente)
+  // Colecao de meses fechados (exclui corrente - o mes em andamento nunca aparece no grafico de banda)
   const hoje=new Date();
   const mesCorr=hoje.getFullYear()+"-"+String(hoje.getMonth()+1).padStart(2,"0");
   const todosM=new Set([...Object.keys(retP),...Object.keys(idxMensal||{})]);
   const mesesTodos=Array.from(todosM).sort();
   const meses=mesesTodos.filter(k=>k!==mesCorr&&typeof retP[k]==="number");
   const N=meses.length;
-  // Mes CORRENTE (em andamento, ainda nao fechado) - calculado separadamente via a mesma fonte
-  // unica de verdade (calcRetornosMensais), MAS NAO entra em N/meses: nao deve contaminar MAX/MIN/
-  // MEDIA/desvio-padrao com um valor que ainda pode mudar ate o fechamento do mes.
-  const retPCorrente=calcRetornosMensais(histMensal,hist);
-  const volMesCorrente=(typeof retPCorrente[mesCorr]==="number"&&!isNaN(retPCorrente[mesCorr]))?retPCorrente[mesCorr]:null;
   // Header + placeholder se zero meses
   const header=h("div",{style:{marginBottom:10}},
     h("div",{style:{fontSize:9,letterSpacing:3,color:"#C8A96E",fontFamily:"monospace",textTransform:"uppercase",marginBottom:4}},"Estabilidade ao longo do tempo"),
@@ -5444,16 +5439,11 @@ function EstabilidadeHistoricoCard({histMensal,idxMensal,hist,histCutoff}){
   const seriesVol={};
   cols.forEach(c=>{seriesVol[c.key]=construirSerieVol(c);});
   // ---- Serie da Viz 1: variacao patrimonial mensal DIRETA (sem janela/desvio-padrao) ----
+  // Considera SOMENTE meses fechados (meses/N ja excluem o mes corrente em andamento).
   const serieVarPatrim=meses.map(k=>({mes:k,vol:retP[k]})).filter(p=>typeof p.vol==="number"&&!isNaN(p.vol));
   const serieVolPort=serieVarPatrim;// alias p/ manter o resto do bloco (labels, insight) sem duplicar logica
   const nVP=serieVolPort.length;
-  // "Atual" = mes corrente em andamento quando disponivel (reflete o calendario real), com fallback
-  // para o ultimo mes FECHADO quando o corrente ainda nao tem dados. Um so, nunca os dois ao mesmo tempo.
-  const atualEhParcial=volMesCorrente!==null;
-  const volAtual=atualEhParcial?volMesCorrente:(nVP>0?serieVolPort[nVP-1].vol:null);
-  const mesAtualRotulo=atualEhParcial?mesCorr:(nVP>0?serieVolPort[nVP-1].mes:null);
-  // MAX/MIN/MEDIA/desvio-padrao usam SOMENTE meses FECHADOS (serieVolPort) - nunca o mes corrente parcial,
-  // que ainda pode mudar ate o fechamento e nao deve contaminar estatisticas historicas definitivas.
+  // Estatisticas MATEMATICAS EXATAS sobre a serie de meses fechados, sem arredondamento intermediario
   const volMinHist=nVP>0?Math.min(...serieVolPort.map(p=>p.vol)):null;
   const volMaxHist=nVP>0?Math.max(...serieVolPort.map(p=>p.vol)):null;
   const mesMin=nVP>0?serieVolPort.find(p=>p.vol===volMinHist).mes:null;
@@ -5465,26 +5455,22 @@ function EstabilidadeHistoricoCard({histMensal,idxMensal,hist,histCutoff}){
   const volDesvPad=nVP>=2?Math.sqrt(serieVolPort.reduce((s,p)=>s+Math.pow(p.vol-volMedia,2),0)/nVP):null;
   const sigmaSup=volDesvPad!==null?volMedia+volDesvPad:null;
   const sigmaInf=volDesvPad!==null?volMedia-volDesvPad:null;
-  // Posicao relativa do ponto atual dentro da banda historica: 0=no minimo, 1=no maximo, 0.5=meio exato
-  // (usa volMinHist/volMaxHist dos fechados como referencia, mesmo se volAtual for o mes corrente parcial)
-  const posicaoNaBanda=(nVP>0&&volMaxHist>volMinHist&&volAtual!==null)?(volAtual-volMinHist)/(volMaxHist-volMinHist):(nVP>0?0.5:null);
+  // Ultimo mes fechado (referencia p/ o insight de leitura - nao ha mais destaque visual de "atual" no grafico)
+  const volUltimo=nVP>0?serieVolPort[nVP-1].vol:null;
+  // Posicao relativa do ultimo mes fechado dentro da banda historica: 0=no minimo, 1=no maximo, 0.5=meio exato
+  const posicaoNaBanda=(nVP>0&&volMaxHist>volMinHist&&volUltimo!==null)?(volUltimo-volMinHist)/(volMaxHist-volMinHist):(nVP>0?0.5:null);
   const W1=340,H1=170,pL1=42,pR1=14,pT1=14,pB1=22,cW1=W1-pL1-pR1,cH1=H1-pB1-pT1;
-  // Range do eixo: como agora ha valores negativos (variacao patrimonial pode cair), usa min/max reais com folga,
-  // nao apenas o maximo positivo. rngMin pode ser negativo. Tambem considera volAtual (pode ser o
-  // mes corrente parcial, que pode estar fora do range MAX/MIN historico dos meses fechados).
-  const extremosComAtual=[volMaxHist,volMinHist,volAtual].filter(v=>typeof v==="number"&&!isNaN(v));
-  const maxComAtual=extremosComAtual.length?Math.max(...extremosComAtual):5;
-  const minComAtual=extremosComAtual.length?Math.min(...extremosComAtual):0;
-  const folgaEixo=Math.max(0.3,(maxComAtual-minComAtual)*0.20||0.3);
-  const rngMaxEixo=nVP>0||volAtual!==null?maxComAtual+folgaEixo:5;
-  const rngMinEixo=nVP>0||volAtual!==null?minComAtual-folgaEixo:0;
+  // Range do eixo: como ha valores negativos (variacao patrimonial pode cair), usa min/max reais com folga.
+  const folgaEixo=Math.max(0.3,(volMaxHist-volMinHist)*0.20||0.3);
+  const rngMaxEixo=nVP>0?volMaxHist+folgaEixo:5;
+  const rngMinEixo=nVP>0?volMinHist-folgaEixo:0;
   const rngV1=(rngMaxEixo-rngMinEixo)||1;
   const yVol=v=>pT1+cH1-((v-rngMinEixo)/rngV1)*cH1;
   const xBandaC=pL1+cW1*0.42;// centro horizontal da banda (deixa espaco a direita p/ rotulo do ponto atual)
   const bandaLarg=cW1*0.30;
   const viz1=h("div",{style:{marginBottom:14,padding:"10px",background:"rgba(0,0,0,0.20)",border:"1px solid rgba(255,255,255,0.05)",borderRadius:8}},
     h("div",{style:{fontSize:9,color:"#8A8070",marginBottom:6,fontFamily:"monospace",letterSpacing:1}},"VARIACAO PATRIMONIAL MENSAL (banda hist\u00f3rica)"),
-    (nVP===0&&volAtual===null)?h("div",{style:{fontSize:9,color:"#7A7570",fontStyle:"italic",padding:"20px",textAlign:"center"}},"Aguardando dados do mes"):h("svg",{viewBox:"0 0 "+W1+" "+H1,style:{width:"100%",height:"auto",display:"block"}},
+    nVP===0?h("div",{style:{fontSize:9,color:"#7A7570",fontStyle:"italic",padding:"20px",textAlign:"center"}},"Aguardando 1+ mes fechado"):h("svg",{viewBox:"0 0 "+W1+" "+H1,style:{width:"100%",height:"auto",display:"block"}},
       ...[0,0.25,0.5,0.75,1].map(f=>{
         const y=pT1+cH1-f*cH1,v=rngMinEixo+f*rngV1;
         return h(Fragment,{key:"g"+f},
@@ -5511,71 +5497,81 @@ function EstabilidadeHistoricoCard({histMensal,idxMensal,hist,histCutoff}){
       nVP>0?h("text",{x:W1-pR1-2,y:yVol(volMedia)-4,textAnchor:"end",fill:"#C8A96E",fontSize:7.5,fontFamily:"monospace",fontWeight:700},"M\u00C9DIA "+(volMedia>=0?"+":"")+volMedia.toFixed(2)+"%"):null,
       // Rotulo da banda +-1 sigma (discreto, canto inferior direito da banda interna)
       (volDesvPad!==null)?h("text",{x:W1-pR1-2,y:yVol(sigmaInf)+11,textAnchor:"end",fill:"#8FBE3F",fontSize:7,fontFamily:"monospace",opacity:0.85},"\u00B11\u03C3 "+volDesvPad.toFixed(2)+"pp"):null,
-      // Linha vertical conectando toda a trajetoria historica dentro da banda (sutil, mostra o caminho percorrido)
-      // Inclui o mes corrente parcial no final (tracejado ate ele) quando disponivel.
-      nVP>1?h("path",{d:serieVolPort.map((p,i)=>(i===0?"M":"L")+xBandaC+","+yVol(p.vol)).join(" ")+(atualEhParcial?" L"+xBandaC+","+yVol(volAtual):""),fill:"none",stroke:"#C8A96E",strokeWidth:1,opacity:0.30,strokeDasharray:"2,2"}):null,
-      // Pontos de cada MES FECHADO: VERDE se positivo, VERMELHO se negativo. Opacidade progressiva
-      // (mais antigo = mais apagado). Quando o mes corrente e parcial, o ultimo fechado NAO recebe
-      // mais o destaque de "atual" (fica do mesmo tamanho dos demais historicos).
+      // Linha vertical tenue conectando toda a trajetoria historica dentro da banda, mes a mes
+      nVP>1?h("path",{d:serieVolPort.map((p,i)=>(i===0?"M":"L")+xBandaC+","+yVol(p.vol)).join(" "),fill:"none",stroke:"#C8A96E",strokeWidth:1,opacity:0.30,strokeDasharray:"2,2"}):null,
+      // Pontos de cada MES FECHADO: VERDE se positivo, VERMELHO se negativo. Todos tratados de forma
+      // uniforme (sem destaque de "atual") - opacidade progressiva, mes mais antigo mais transparente,
+      // mes mais recente mais opaco, mostrando a evolucao temporal pela intensidade da cor.
       ...serieVolPort.map((p,i)=>{
-        const ultimo=i===nVP-1;
-        const destacar=ultimo&&!atualEhParcial;// so destaca o ultimo fechado se ele proprio for o "atual"
-        const op=nVP===1?1:0.25+0.45*(i/(nVP-1));
+        const op=nVP===1?0.85:0.30+0.55*(i/(nVP-1));
         const cor=p.vol>=0?"#4CAF82":"#E05252";
-        return h("circle",{key:"histp"+i,cx:xBandaC,cy:yVol(p.vol),r:destacar?5.5:3,fill:cor,fillOpacity:destacar?1:op,stroke:destacar?"#0D0F14":"none",strokeWidth:destacar?1.5:0});
-      }),
-      // Ponto do MES CORRENTE (parcial, em andamento) - visual diferenciado: contorno pontilhado
-      // pulsante-like, cor conforme sinal, sempre o maior/mais destacado da serie.
-      atualEhParcial?h(Fragment,{},
-        h("circle",{cx:xBandaC,cy:yVol(volAtual),r:8,fill:"none",stroke:volAtual>=0?"#4CAF82":"#E05252",strokeWidth:1,strokeDasharray:"2,2",opacity:0.6}),
-        h("circle",{cx:xBandaC,cy:yVol(volAtual),r:5.5,fill:volAtual>=0?"#4CAF82":"#E05252",fillOpacity:1,stroke:"#0D0F14",strokeWidth:1.5})
-      ):null,
-      // Rotulo do PONTO ATUAL, em destaque a direita do ponto - cor conforme o sinal do mes
-      volAtual!==null?h("g",{transform:"translate("+(xBandaC+11)+","+(yVol(volAtual)+3)+")"},
-        h("text",{fill:volAtual>=0?"#4CAF82":"#E05252",fontSize:11,fontFamily:"monospace",fontWeight:700},(volAtual>=0?"+":"")+volAtual.toFixed(2)+"%"),
-        h("text",{y:11,fill:"#7A7570",fontSize:7,fontFamily:"monospace"},atualEhParcial?"em andamento \u00B7 "+(mesAtualRotulo?mesAtualRotulo.slice(5)+"/"+mesAtualRotulo.slice(2,4):""):"atual (ultimo fechado)")
-      ):null
+        return h("circle",{key:"histp"+i,cx:xBandaC,cy:yVol(p.vol),r:3.5,fill:cor,fillOpacity:op});
+      })
     ),
-    h("div",{style:{fontSize:8,color:"#5A5550",marginTop:6,fontStyle:"italic",lineHeight:1.5}},"A banda externa mostra a faixa (pior\u2013melhor mes) ja registrada; a interna, a faixa de \u00B11 desvio-padrao onde a maioria dos meses cai. Pontos verdes = mes positivo, vermelhos = mes negativo. O ponto com contorno pontilhado e o mes corrente, ainda em andamento.")
+    h("div",{style:{fontSize:8,color:"#5A5550",marginTop:6,fontStyle:"italic",lineHeight:1.5}},"A banda externa mostra a faixa (pior\u2013melhor mes) ja registrada; a interna, a faixa de \u00B11 desvio-padrao onde a maioria dos meses cai. Pontos verdes = mes positivo, vermelhos = mes negativo; mais opacos = mais recentes. Considera apenas meses fechados.")
   );
   // ============ Insight interpretativo (100% dinamico) + orientacoes p/ reduzir oscilacao patrimonial ============
   const volInsightBlock=(()=>{
-    if(nVP===0&&volAtual===null)return null;
+    if(nVP===0)return null;
     const pct=posicaoNaBanda!==null?(posicaoNaBanda*100):null;
-    const rotuloMes=atualEhParcial?"do mes em andamento":"do mes mais recente fechado";
     let leitura;
-    if(nVP===0||volMaxHist<=volMinHist){
+    if(volMaxHist<=volMinHist){
       leitura="Ainda ha poucos meses fechados para diferenciar melhor e pior desempenho - a leitura ganha nuance conforme mais meses fecharem.";
     }else if(pct<=20){
-      leitura="A variacao "+rotuloMes+" ("+(volAtual>=0?"+":"")+volAtual.toFixed(2)+"%) esta perto do PIOR desempenho mensal ja registrado - mes fraco frente ao historico do portfolio.";
+      leitura="A variacao do mes mais recente fechado ("+(volUltimo>=0?"+":"")+volUltimo.toFixed(2)+"%) esta perto do PIOR desempenho mensal ja registrado - mes fraco frente ao historico do portfolio.";
     }else if(pct>=80){
-      leitura="A variacao "+rotuloMes+" ("+(volAtual>=0?"+":"")+volAtual.toFixed(2)+"%) esta perto do MELHOR desempenho mensal ja registrado - um dos meses mais fortes do historico.";
+      leitura="A variacao do mes mais recente fechado ("+(volUltimo>=0?"+":"")+volUltimo.toFixed(2)+"%) esta perto do MELHOR desempenho mensal ja registrado - um dos meses mais fortes do historico.";
     }else{
-      leitura="A variacao "+rotuloMes+" ("+(volAtual>=0?"+":"")+volAtual.toFixed(2)+"%) esta numa posicao intermediaria da banda historica ("+pct.toFixed(0)+"% do caminho entre o pior e o melhor mes).";
+      leitura="A variacao do mes mais recente fechado ("+(volUltimo>=0?"+":"")+volUltimo.toFixed(2)+"%) esta numa posicao intermediaria da banda historica ("+pct.toFixed(0)+"% do caminho entre o pior e o melhor mes).";
     }
-    // Tendencia: compara o "atual" com o mes fechado imediatamente anterior a ele.
-    // Se atual e parcial (mes corrente), compara com o ultimo FECHADO (serieVolPort[nVP-1]).
-    // Se atual e o proprio ultimo fechado, compara com o penultimo fechado (serieVolPort[nVP-2]).
+    // Tendencia mes-a-mes: compara o ultimo mes fechado com o penultimo.
     let tendencia=null;
-    const anteriorIdx=atualEhParcial?nVP-1:nVP-2;
-    if(anteriorIdx>=0&&nVP>0){
-      const anterior=serieVolPort[anteriorIdx].vol;
-      const delta=volAtual-anterior;
+    if(nVP>=2){
+      const anterior=serieVolPort[nVP-2].vol;
+      const delta=volUltimo-anterior;
       if(Math.abs(delta)>0.05){
-        tendencia="Frente ao mes anterior: "+(anterior>=0?"+":"")+anterior.toFixed(2)+"% \u2192 "+(volAtual>=0?"+":"")+volAtual.toFixed(2)+"%"+(delta<0?" (desacelerou)":" (acelerou)")+".";
+        tendencia="Frente ao mes anterior: "+(anterior>=0?"+":"")+anterior.toFixed(2)+"% \u2192 "+(volUltimo>=0?"+":"")+volUltimo.toFixed(2)+"%"+(delta<0?" (desacelerou)":" (acelerou)")+".";
       }
     }
     // Amplitude total da banda (melhor-pior), metrica auxiliar dinamica
     const amplitude=nVP>0?(volMaxHist-volMinHist):null;
-    // Comparacao do mes atual com a media historica
+    // Comparacao do ultimo mes fechado com a media historica
     let vsMedia=null;
-    if(nVP>=1&&volMedia!==null&&volAtual!==null){
-      const diffMedia=volAtual-volMedia;
+    if(nVP>=1&&volMedia!==null&&volUltimo!==null){
+      const diffMedia=volUltimo-volMedia;
       if(Math.abs(diffMedia)>0.02){
-        vsMedia="Frente a media dos meses fechados ("+(volMedia>=0?"+":"")+volMedia.toFixed(2)+"%): o mes atual esta "+(diffMedia>0?(diffMedia.toFixed(2)+" p.p. acima"):(Math.abs(diffMedia).toFixed(2)+" p.p. abaixo"))+".";
+        vsMedia="Frente a media dos meses fechados ("+(volMedia>=0?"+":"")+volMedia.toFixed(2)+"%): o ultimo mes esta "+(diffMedia>0?(diffMedia.toFixed(2)+" p.p. acima"):(Math.abs(diffMedia).toFixed(2)+" p.p. abaixo"))+".";
       }else{
-        vsMedia="O mes atual esta praticamente em linha com a media historica ("+(volMedia>=0?"+":"")+volMedia.toFixed(2)+"%).";
+        vsMedia="O ultimo mes esta praticamente em linha com a media historica ("+(volMedia>=0?"+":"")+volMedia.toFixed(2)+"%).";
       }
+    }
+    // ---- Tendencia de estabilidade: compara a dispersao (desvio medio absoluto em torno da media
+    // global) da PRIMEIRA metade dos meses fechados vs a SEGUNDA metade. Diz se as oscilacoes
+    // mensais estao convergindo para maior estabilidade (reduzindo) ou se ainda estao aumentando.
+    let tendenciaEstabilidade=null;
+    if(nVP>=4){
+      const meio=Math.floor(nVP/2);
+      const primeiraMetade=serieVolPort.slice(0,meio);
+      const segundaMetade=serieVolPort.slice(meio);
+      const dispersao=(arr)=>{
+        if(arr.length===0)return null;
+        const m=arr.reduce((s,p)=>s+p.vol,0)/arr.length;
+        return arr.reduce((s,p)=>s+Math.abs(p.vol-m),0)/arr.length;// desvio medio absoluto
+      };
+      const dispAntiga=dispersao(primeiraMetade);
+      const dispRecente=dispersao(segundaMetade);
+      if(dispAntiga!==null&&dispRecente!==null&&dispAntiga>0){
+        const reducaoPct=((dispAntiga-dispRecente)/dispAntiga)*100;
+        if(reducaoPct>15){
+          tendenciaEstabilidade="Tendencia de ESTABILIZACAO: a dispersao dos meses mais recentes ("+dispRecente.toFixed(2)+"pp de desvio medio) e "+reducaoPct.toFixed(0)+"% menor que a dos meses mais antigos ("+dispAntiga.toFixed(2)+"pp) - as oscilacoes mensais do patrimonio estao diminuindo.";
+        }else if(reducaoPct<-15){
+          tendenciaEstabilidade="Tendencia de AUMENTO na oscilacao: a dispersao dos meses mais recentes ("+dispRecente.toFixed(2)+"pp de desvio medio) e "+Math.abs(reducaoPct).toFixed(0)+"% maior que a dos meses mais antigos ("+dispAntiga.toFixed(2)+"pp) - o patrimonio esta variando mais, nao menos.";
+        }else{
+          tendenciaEstabilidade="Dispersao mensal ESTAVEL: sem mudanca relevante entre a primeira ("+dispAntiga.toFixed(2)+"pp) e a segunda metade ("+dispRecente.toFixed(2)+"pp) dos meses fechados.";
+        }
+      }
+    }else if(nVP>0){
+      tendenciaEstabilidade="Ainda faltam meses fechados para avaliar tendencia de estabilizacao (minimo de 4 para comparar periodos).";
     }
     // ---- Maximo Drawdown: maior queda ACUMULADA de um pico ao vale seguinte, sobre os meses fechados.
     // Reconstroi um indice de patrimonio (base 100) a partir dos retornos mensais e mede o pior
@@ -5601,7 +5597,8 @@ function EstabilidadeHistoricoCard({histMensal,idxMensal,hist,histCutoff}){
       nVP>=2&&amplitude!==null?h("div",{style:{fontSize:9,color:"#9A9080",lineHeight:1.6,fontStyle:"italic",marginBottom:4}},"Amplitude entre o melhor e o pior mes: "+amplitude.toFixed(2)+" pontos percentuais."):null,
       vsMedia&&h("div",{style:{fontSize:9,color:"#9A9080",lineHeight:1.6,fontStyle:"italic",marginBottom:(volDesvPad!==null||drawdownInfo)?4:8}},vsMedia),
       volDesvPad!==null?h("div",{style:{fontSize:9,color:"#9A9080",lineHeight:1.6,fontStyle:"italic",marginBottom:drawdownInfo?4:8}},"Desvio-padrao dos meses fechados: \u00B1"+volDesvPad.toFixed(2)+"pp em torno da media (faixa "+(sigmaInf>=0?"+":"")+sigmaInf.toFixed(2)+"% a "+(sigmaSup>=0?"+":"")+sigmaSup.toFixed(2)+"% concentra a maioria dos meses)."):null,
-      drawdownInfo?h("div",{style:{fontSize:9,color:"#E89060",lineHeight:1.6,fontStyle:"italic",marginBottom:8}},"M\u00E1ximo drawdown registrado: "+drawdownInfo.maxDD.toFixed(2)+"% (queda acumulada de "+(drawdownInfo.mesPico?drawdownInfo.mesPico.slice(5)+"/"+drawdownInfo.mesPico.slice(2,4):"inicio")+" a "+drawdownInfo.mesVale.slice(5)+"/"+drawdownInfo.mesVale.slice(2,4)+" - maior recuo pico-a-vale ja registrado, diferente da pior variacao de um unico mes."):null,
+      drawdownInfo?h("div",{style:{fontSize:9,color:"#E89060",lineHeight:1.6,fontStyle:"italic",marginBottom:tendenciaEstabilidade?4:8}},"M\u00E1ximo drawdown registrado: "+drawdownInfo.maxDD.toFixed(2)+"% (queda acumulada de "+(drawdownInfo.mesPico?drawdownInfo.mesPico.slice(5)+"/"+drawdownInfo.mesPico.slice(2,4):"inicio")+" a "+drawdownInfo.mesVale.slice(5)+"/"+drawdownInfo.mesVale.slice(2,4)+" - maior recuo pico-a-vale ja registrado, diferente da pior variacao de um unico mes."):null,
+      tendenciaEstabilidade?h("div",{style:{fontSize:9,lineHeight:1.6,fontWeight:600,marginBottom:8,color:tendenciaEstabilidade.startsWith("Tendencia de ESTABILIZACAO")?"#4CAF82":tendenciaEstabilidade.startsWith("Tendencia de AUMENTO")?"#E89060":"#9A9080"}},tendenciaEstabilidade):null,
       h("div",{style:{fontSize:8,color:"#7A7060",fontFamily:"monospace",letterSpacing:0.5,marginBottom:4,marginTop:4}},"PARA REDUZIR E MANTER BAIXA A OSCILACAO MENSAL:"),
       h("ul",{style:{margin:0,paddingLeft:14,fontSize:9,color:"#9A9080",lineHeight:1.7}},
         h("li",{},"Aportes regulares e escalonados (dollar-cost averaging) amortecem picos de entrada em vez de concentrar timing em um unico momento."),
