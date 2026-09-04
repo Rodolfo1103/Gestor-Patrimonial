@@ -11791,19 +11791,30 @@ function App(){
       return await r.json();
     };
     // Helper que tenta varios proxies CORS em cascata ate algum funcionar
-    const fetchViaProxy=async(targetUrl,ms)=>{
+    // fetchViaProxy: tenta ate 4 proxies CORS publicos em cascata, mas com ORCAMENTO DE TEMPO
+    // COMPARTILHADO (nao timeout completo por proxy). Antes, "ms" era aplicado a CADA proxy
+    // (4 tentativas x ms cada) - no pior caso, uma chamada com ms=15000 podia levar ate 60s.
+    // Multiplicado pelas varias etapas sequenciais do refresh (IPCA, ouro, Yahoo, Stooq), o pior
+    // caso teorico passava de 4 MINUTOS. Agora "ms" e o teto TOTAL da funcao inteira: cada
+    // tentativa individual usa o tempo que resta do orcamento (minimo 2.5s para nao matar
+    // tentativas uteis cedo demais), entao o pior caso real fica proximo de "ms", nao "ms x 4".
+    const fetchViaProxy=async(targetUrl,msTotal)=>{
       const proxies=[
         u=>"https://corsproxy.io/?url="+encodeURIComponent(u),
         u=>"https://api.allorigins.win/raw?url="+encodeURIComponent(u),
         u=>"https://api.codetabs.com/v1/proxy/?quest="+encodeURIComponent(u),
         u=>"https://proxy.cors.sh/"+u,
       ];
+      const inicio=Date.now();
+      const MIN_POR_TENTATIVA=2500;
       let lastErr;
       for(const mk of proxies){
-        try{return await fetchJSON(mk(targetUrl),ms);}
+        const restante=msTotal-(Date.now()-inicio);
+        if(restante<MIN_POR_TENTATIVA)break;// sem orcamento suficiente pra mais uma tentativa util
+        try{return await fetchJSON(mk(targetUrl),Math.min(restante,msTotal));}
         catch(e){lastErr=e;}
       }
-      throw lastErr||new Error("todos proxies falharam");
+      throw lastErr||new Error("todos proxies falharam ou orcamento de tempo esgotado");
     };
     const dbg=[];
     try{
@@ -12208,17 +12219,18 @@ function App(){
     setLoadP(false);
   },[port,brapiKey,custom,ccy,ntnbTaxas,ntnbVNA,btcUsd]);
   // WATCHDOG DE SEGURANCA: garante que o botao "Atualizar precos" NUNCA fica preso em
-  // "Buscando..." indefinidamente. refreshInner() faz varias chamadas de rede em cascata
-  // (cambio, Brapi, Yahoo via proxies CORS publicos); se qualquer uma travar sem resolver
-  // nem rejeitar (proxy que nao responde e nao dispara timeout interno corretamente em
-  // certos navegadores/webviews), o await interno fica pendurado pra sempre e setLoadP(false)
-  // nunca roda. Este wrapper usa Promise.race contra um teto absoluto de 45s: estourou,
-  // forca loadP=false e avisa - mesmo que a chamada interna continue rodando em segundo
-  // plano sem efeito visivel (ela eventualmente termina sozinha e so escreve em estados
+  // "Buscando..." indefinidamente. refreshInner() faz varias chamadas de rede em CASCATA
+  // SEQUENCIAL (cambio, IPCA, ouro, BTC, Brapi, Yahoo BR, Yahoo estrangeiro, Stooq - cada uma
+  // aguardando a anterior terminar). fetchViaProxy usa orcamento de tempo compartilhado entre
+  // ate 4 proxies (nao mais timeout completo por proxy), o que reduziu o pior caso teorico de
+  // ~4min para ~100s. Calibrado com margem sobre esse pior caso: se qualquer travamento residual
+  // acontecer mesmo assim (proxy pendurado sem nunca rejeitar, incompatibilidade de navegador),
+  // o watchdog forca loadP=false apos 90s - mesmo que a chamada interna continue rodando em
+  // segundo plano sem efeito visivel (ela eventualmente termina sozinha e so escreve em estados
   // que ja nao importam mais para essa tentativa).
   const refresh=useCallback(async()=>{
     let watchdogDisparou=false;
-    const TETO_MS=45000;
+    const TETO_MS=90000;
     try{
       await Promise.race([
         refreshInner(),
@@ -12226,7 +12238,7 @@ function App(){
       ]);
     }catch(e){
       if(watchdogDisparou){
-        setPErr("\u26A0 Atualizacao demorou demais e foi interrompida (>45s) - provavel instabilidade nos proxies de cotacao. Tente novamente.");
+        setPErr("\u26A0 Atualizacao demorou demais e foi interrompida (>90s) - provavel instabilidade nos proxies de cotacao. Tente novamente.");
         setLoadP(false);
       }
       // Se nao foi o watchdog, refreshInner ja tratou seu proprio erro e chamou setLoadP(false) internamente.
