@@ -11993,42 +11993,57 @@ function App(){
       // allVars: variacao % do pregao por ticker (capturada junto com o preco)
       const allVars={};
       if(brTickers.length&&brapiKey){
+        const tickersList=brTickers.join(",");
+        const urlBrapi="https://brapi.dev/api/quote/"+encodeURIComponent(tickersList)+"?token="+encodeURIComponent(brapiKey)+"&_t="+Date.now();
+        // Tenta chamada DIRETA primeiro (mais rapida quando funciona), com FALLBACK via proxy CORS
+        // se a direta falhar. Motivo: usuario confirmou em teste real (04/09/2026) que a chamada
+        // direta retorna "Failed to fetch" de forma consistente - sintoma classico de a Brapi nao
+        // enviar header Access-Control-Allow-Origin para chamadas client-side vindas de dominios
+        // como github.io (API pensada pra ser chamada de um backend, nao direto do navegador).
+        // O token configurado (usuario confirmou que existe e esta correto) fica sem uso nenhum
+        // se a chamada direta sempre falhar - por isso o fallback via proxy e essencial aqui,
+        // nao so "bom ter".
+        let dadosBrapi=null,origemBrapi=null;
         try{
-          const tickersList=brTickers.join(",");
-          const url="https://brapi.dev/api/quote/"+encodeURIComponent(tickersList)+"?token="+encodeURIComponent(brapiKey)+"&_t="+Date.now();
-          // Forca no-store pra eliminar cache de browser/service-worker.
-          // Timeout DUPLAMENTE garantido (AbortSignal + Promise.race) - mesma logica de fetchJSON,
-          // pra nao depender so de AbortSignal funcionar no navegador do usuario.
-          const respPromise=fetch(url,{signal:(typeof AbortSignal!=="undefined"&&AbortSignal.timeout)?AbortSignal.timeout(12000):undefined,cache:"no-store",headers:{"cache-control":"no-cache","pragma":"no-cache"}});
-          const resp=await Promise.race([respPromise,new Promise((_,rej)=>setTimeout(()=>rej(new Error("brapi-timeout-duro")),12300))]);
-          const d=resp.ok?await resp.json():null;
-          if(d&&Array.isArray(d.results)){
-            let bN=0;
-            d.results.forEach(r=>{
-              if(!r||!r.symbol)return;
-              const p=r.regularMarketPrice||r.previousClose;
-              if(typeof p==="number"&&p>0){allPrices[r.symbol]=p;bN++;}
-              // Variacao % do pregao - PRIORIDADE: regularMarketChangePercent direto da Brapi
-              // (calculo manual via regularMarketPreviousClose mostrou-se inconsistente em testes)
-              let vd=null;
-              if(typeof r.regularMarketChangePercent==="number"&&!isNaN(r.regularMarketChangePercent)){
-                vd=r.regularMarketChangePercent;
-              }else{
-                // Fallback: calculo manual
-                const cur=r.regularMarketPrice;
-                const prev=r.regularMarketPreviousClose;
-                if(typeof cur==="number"&&cur>0&&typeof prev==="number"&&prev>0&&prev!==cur){
-                  vd=((cur-prev)/prev)*100;
-                }
+          const respPromise=fetch(urlBrapi,{signal:(typeof AbortSignal!=="undefined"&&AbortSignal.timeout)?AbortSignal.timeout(8000):undefined,cache:"no-store",headers:{"cache-control":"no-cache","pragma":"no-cache"}});
+          const resp=await Promise.race([respPromise,new Promise((_,rej)=>setTimeout(()=>rej(new Error("brapi-timeout-duro")),8300))]);
+          if(resp.ok){dadosBrapi=await resp.json();origemBrapi="direta";}
+          else dbg.push("Brapi-direta-erro:HTTP "+resp.status);
+        }catch(e){dbg.push("Brapi-direta-erro:"+e.message);}
+        if(!dadosBrapi){
+          try{
+            dadosBrapi=await fetchViaProxy(urlBrapi,8000);
+            origemBrapi="proxy";
+          }catch(e){dbg.push("Brapi-proxy-erro:"+e.message);}
+        }
+        if(dadosBrapi&&Array.isArray(dadosBrapi.results)){
+          let bN=0;
+          dadosBrapi.results.forEach(r=>{
+            if(!r||!r.symbol)return;
+            const p=r.regularMarketPrice||r.previousClose;
+            if(typeof p==="number"&&p>0){allPrices[r.symbol]=p;bN++;}
+            // Variacao % do pregao - PRIORIDADE: regularMarketChangePercent direto da Brapi
+            // (calculo manual via regularMarketPreviousClose mostrou-se inconsistente em testes)
+            let vd=null;
+            if(typeof r.regularMarketChangePercent==="number"&&!isNaN(r.regularMarketChangePercent)){
+              vd=r.regularMarketChangePercent;
+            }else{
+              // Fallback: calculo manual
+              const cur=r.regularMarketPrice;
+              const prev=r.regularMarketPreviousClose;
+              if(typeof cur==="number"&&cur>0&&typeof prev==="number"&&prev>0&&prev!==cur){
+                vd=((cur-prev)/prev)*100;
               }
-              // Sanity check
-              if(vd!==null&&!isNaN(vd)&&Math.abs(vd)<50){
-                allVars[r.symbol]=vd;
-              }
-            });
-            dbg.push("Brapi:"+bN+"/"+brTickers.length);
-          }else dbg.push("Brapi:sem-results");
-        }catch(e){dbg.push("Brapi-erro:"+e.message);}
+            }
+            // Sanity check
+            if(vd!==null&&!isNaN(vd)&&Math.abs(vd)<50){
+              allVars[r.symbol]=vd;
+            }
+          });
+          dbg.push("Brapi("+origemBrapi+"):"+bN+"/"+brTickers.length);
+        }else if(!dadosBrapi){
+          // Ja registrado em dbg acima (Brapi-direta-erro / Brapi-proxy-erro)
+        }else dbg.push("Brapi:sem-results");
       }
       // Brasil - Yahoo Finance como fallback (apenas tickers que a Brapi nao trouxe)
       // Funcao isolada para 1 ticker - reaproveitada na tentativa inicial E no retry automatico.
@@ -12257,7 +12272,7 @@ function App(){
           }
           const taxaAcerto=n/tickers.length;
           const erros=dbg.join(" ");
-          const apenasSecundarias=erros.includes("IPCA-err")||erros.includes("Brapi-erro");
+          const apenasSecundarias=erros.includes("IPCA-err")||erros.includes("Brapi-direta-erro")||erros.includes("Brapi-proxy-erro")||erros.includes("Brapi:sem-results");
           if(falhasComPos.length>0){
             // SEMPRE avisa quando ha posicao real sem atualizar - independente da taxa geral de acerto.
             // Preco desses ativos ficou com o valor da ultima atualizacao bem-sucedida (nao o de hoje).
@@ -12266,11 +12281,20 @@ function App(){
             setPErr("\u26A0 "+falhasComPos.length+" ativo(s) com posicao NAO atualizaram ("+falhasComPos.join(", ")+") - juntos representam ~"+pesoFalhasPct.toFixed(1)+"% do patrimonio. Preco exibido pode estar desatualizado para eles. Clique em Atualizar Precos novamente em alguns instantes.");
           }else if(taxaAcerto>=0.95&&apenasSecundarias&&uniq.length<=3){
             // Sucesso pratico: tudo essencial (com posicao) buscado, so apis auxiliares falharam (ouro/BTC/IPCA).
-            // Extrai o motivo ESPECIFICO da falha da Brapi (ex: "HTTP 401", "sem-results", timeout) em vez
-            // de so dizer "Brapi falhou" - permite diagnosticar sem precisar abrir o DBG manualmente
-            // (ex: token invalido/expirado = HTTP 401; limite mensal excedido = HTTP 429; etc).
-            const brapiDetalhe=dbg.find(x=>x.startsWith("Brapi-erro:")||x==="Brapi:sem-results");
-            const motivoBrapi=brapiDetalhe?(brapiDetalhe.startsWith("Brapi-erro:")?brapiDetalhe.slice(11):"sem resultados"):null;
+            // So mostra motivo de falha da Brapi se ela REALMENTE falhou no final (nao apareceu
+            // "Brapi(direta):" nem "Brapi(proxy):" no log de sucesso) - senao o fallback via proxy
+            // salvou a situacao e nao ha nada de errado pra reportar, mesmo que a tentativa direta
+            // isolada tenha falhado no meio do caminho.
+            const brapiTeveSucesso=dbg.some(x=>x.startsWith("Brapi("));
+            let motivoBrapi=null;
+            if(!brapiTeveSucesso){
+              const errProxy=dbg.find(x=>x.startsWith("Brapi-proxy-erro:"));
+              const errDireta=dbg.find(x=>x.startsWith("Brapi-direta-erro:"));
+              const semResultados=dbg.includes("Brapi:sem-results");
+              if(errProxy)motivoBrapi=errProxy.slice(17)+" (mesmo via proxy)";
+              else if(errDireta)motivoBrapi=errDireta.slice(18)+" (direta - proxy nao tentado ou tambem falhou)";
+              else if(semResultados)motivoBrapi="sem resultados";
+            }
             setPErr("OK: "+n+"/"+tickers.length+" ativos atualizados (apenas APIs auxiliares falharam: BCB/Brapi"+(motivoBrapi?" - Brapi: "+motivoBrapi:"")+")");
           }else{
             // Falhas restantes sao so tickers "em estudo" (sem posicao) - nao afeta patrimonio, nao poluir UI
