@@ -12265,8 +12265,13 @@ function App(){
             // passageira - se ate apos o retry continua falhando, e mais provavel ser persistente).
             setPErr("\u26A0 "+falhasComPos.length+" ativo(s) com posicao NAO atualizaram ("+falhasComPos.join(", ")+") - juntos representam ~"+pesoFalhasPct.toFixed(1)+"% do patrimonio. Preco exibido pode estar desatualizado para eles. Clique em Atualizar Precos novamente em alguns instantes.");
           }else if(taxaAcerto>=0.95&&apenasSecundarias&&uniq.length<=3){
-            // Sucesso pratico: tudo essencial (com posicao) buscado, so apis auxiliares falharam (ouro/BTC/IPCA)
-            setPErr("OK: "+n+"/"+tickers.length+" ativos atualizados (apenas APIs auxiliares falharam: BCB/Brapi)");
+            // Sucesso pratico: tudo essencial (com posicao) buscado, so apis auxiliares falharam (ouro/BTC/IPCA).
+            // Extrai o motivo ESPECIFICO da falha da Brapi (ex: "HTTP 401", "sem-results", timeout) em vez
+            // de so dizer "Brapi falhou" - permite diagnosticar sem precisar abrir o DBG manualmente
+            // (ex: token invalido/expirado = HTTP 401; limite mensal excedido = HTTP 429; etc).
+            const brapiDetalhe=dbg.find(x=>x.startsWith("Brapi-erro:")||x==="Brapi:sem-results");
+            const motivoBrapi=brapiDetalhe?(brapiDetalhe.startsWith("Brapi-erro:")?brapiDetalhe.slice(11):"sem resultados"):null;
+            setPErr("OK: "+n+"/"+tickers.length+" ativos atualizados (apenas APIs auxiliares falharam: BCB/Brapi"+(motivoBrapi?" - Brapi: "+motivoBrapi:"")+")");
           }else{
             // Falhas restantes sao so tickers "em estudo" (sem posicao) - nao afeta patrimonio, nao poluir UI
             setPErr("");
