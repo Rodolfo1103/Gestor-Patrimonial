@@ -11986,42 +11986,73 @@ function App(){
         }catch(e){dbg.push("Brapi-erro:"+e.message);}
       }
       // Brasil - Yahoo Finance como fallback (apenas tickers que a Brapi nao trouxe)
-      const brFaltam=brTickers.filter(t=>!allPrices[t]);
+      // Funcao isolada para 1 ticker - reaproveitada na tentativa inicial E no retry automatico.
+      const buscarYahooBR=async(t)=>{
+        const sym=t+".SA";
+        // range=2d garante que chartPreviousClose seja o fechamento da sessao anterior, nao 5 dias atras
+        const target="https://query1.finance.yahoo.com/v8/finance/chart/"+encodeURIComponent(sym)+"?interval=1d&range=2d";
+        const d=await fetchViaProxy(target,15000);
+        const res=d&&d.chart&&d.chart.result&&d.chart.result[0];
+        const p=res&&res.meta&&(res.meta.regularMarketPrice||res.meta.previousClose);
+        let ok=false;
+        if(typeof p==="number"&&p>0){allPrices[t]=p;ok=true;}
+        // Variacao via Yahoo - METODO ROBUSTO: usa array de closes do indicators
+        // Esse metodo evita confusao com previousClose vs chartPreviousClose
+        const cur=res&&res.meta&&res.meta.regularMarketPrice;
+        let prevClose=null;
+        try{
+          const closes=res&&res.indicators&&res.indicators.quote&&res.indicators.quote[0]&&res.indicators.quote[0].close;
+          if(Array.isArray(closes)&&closes.length>=2){
+            // Pega o ultimo close VALIDO antes do atual
+            for(let i=closes.length-2;i>=0;i--){
+              if(typeof closes[i]==="number"&&closes[i]>0){prevClose=closes[i];break;}
+            }
+          }
+        }catch{}
+        // Se array nao serviu, usa previousClose (NUNCA chartPreviousClose - esse pode ser de varios dias atras)
+        if(prevClose===null&&res&&res.meta&&typeof res.meta.previousClose==="number"&&res.meta.previousClose>0){
+          prevClose=res.meta.previousClose;
+        }
+        if(typeof cur==="number"&&cur>0&&typeof prevClose==="number"&&prevClose>0&&prevClose!==cur){
+          const vd=((cur-prevClose)/prevClose)*100;
+          if(Math.abs(vd)<50)allVars[t]=vd;
+        }
+        return ok;
+      };
+      const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+      let brFaltam=brTickers.filter(t=>!allPrices[t]);
       if(brFaltam.length){
         let brN=0;
-        await Promise.all(brFaltam.map(async t=>{
-          try{
-            const sym=t+".SA";
-            // range=2d garante que chartPreviousClose seja o fechamento da sessao anterior, nao 5 dias atras
-            const target="https://query1.finance.yahoo.com/v8/finance/chart/"+encodeURIComponent(sym)+"?interval=1d&range=2d";
-            const d=await fetchViaProxy(target,15000);
-            const res=d&&d.chart&&d.chart.result&&d.chart.result[0];
-            const p=res&&res.meta&&(res.meta.regularMarketPrice||res.meta.previousClose);
-            if(typeof p==="number"&&p>0){allPrices[t]=p;brN++;}
-            // Variacao via Yahoo - METODO ROBUSTO: usa array de closes do indicators
-            // Esse metodo evita confusao com previousClose vs chartPreviousClose
-            const cur=res&&res.meta&&res.meta.regularMarketPrice;
-            let prevClose=null;
-            try{
-              const closes=res&&res.indicators&&res.indicators.quote&&res.indicators.quote[0]&&res.indicators.quote[0].close;
-              if(Array.isArray(closes)&&closes.length>=2){
-                // Pega o ultimo close VALIDO antes do atual
-                for(let i=closes.length-2;i>=0;i--){
-                  if(typeof closes[i]==="number"&&closes[i]>0){prevClose=closes[i];break;}
-                }
-              }
-            }catch{}
-            // Se array nao serviu, usa previousClose (NUNCA chartPreviousClose - esse pode ser de varios dias atras)
-            if(prevClose===null&&res&&res.meta&&typeof res.meta.previousClose==="number"&&res.meta.previousClose>0){
-              prevClose=res.meta.previousClose;
-            }
-            if(typeof cur==="number"&&cur>0&&typeof prevClose==="number"&&prevClose>0&&prevClose!==cur){
-              const vd=((cur-prevClose)/prevClose)*100;
-              if(Math.abs(vd)<50)allVars[t]=vd;
-            }
-          }catch{}
-        }));
+        // ESPACADO em vez de Promise.all simultaneo: os proxies CORS publicos gratuitos
+        // (corsproxy.io, allorigins.win, codetabs.com, proxy.cors.sh) tem rate-limit agressivo.
+        // Disparar N requisicoes ao mesmo tempo faz varias baterem no limite e falharem de forma
+        // ROTATIVA (um ticker diferente falha a cada tentativa) - por isso um retry simples nao
+        // resolvia antes. Escalona em lotes pequenos com pausa entre eles pra reduzir colisao.
+        const LOTE=3,PAUSA_MS=350;
+        for(let i=0;i<brFaltam.length;i+=LOTE){
+          const lote=brFaltam.slice(i,i+LOTE);
+          await Promise.all(lote.map(async t=>{
+            try{if(await buscarYahooBR(t))brN++;}catch{}
+          }));
+          if(i+LOTE<brFaltam.length)await sleep(PAUSA_MS);
+        }
         dbg.push("YH-BR:"+brN+"/"+brFaltam.length);
+        // RETRY AUTOMATICO: quem ainda faltou pode ter sido rate-limit passageiro nos proxies,
+        // nao ausencia real de dados. Espera um pouco mais e tenta de novo, so os que faltaram,
+        // ainda mais espacado (lotes de 2) pra dar folga extra aos proxies.
+        const aindaFaltam=brFaltam.filter(t=>!allPrices[t]);
+        if(aindaFaltam.length){
+          await sleep(1200);
+          let retryN=0;
+          for(let i=0;i<aindaFaltam.length;i+=2){
+            const lote=aindaFaltam.slice(i,i+2);
+            await Promise.all(lote.map(async t=>{
+              try{if(await buscarYahooBR(t))retryN++;}catch{}
+            }));
+            if(i+2<aindaFaltam.length)await sleep(500);
+          }
+          if(retryN>0)dbg.push("YH-BR-retry:"+retryN+"/"+aindaFaltam.length);
+        }
         brFaltam.forEach(t=>{if(!allPrices[t])failed.push(t);});
       }
       // Yahoo Finance - estrangeiros (em paralelo, com cascata de proxies CORS)
@@ -12165,7 +12196,10 @@ function App(){
           if(falhasComPos.length>0){
             // SEMPRE avisa quando ha posicao real sem atualizar - independente da taxa geral de acerto.
             // Preco desses ativos ficou com o valor da ultima atualizacao bem-sucedida (nao o de hoje).
-            setPErr("\u26A0 "+falhasComPos.length+" ativo(s) com posicao NAO atualizaram ("+falhasComPos.join(", ")+") - juntos representam ~"+pesoFalhasPct.toFixed(1)+"% do patrimonio. Preco exibido pode estar desatualizado para eles.");
+            // Indica se ja passou por retry automatico (proxies CORS instaveis podem falhar de forma
+            // passageira - se ate apos o retry continua falhando, e mais provavel ser persistente).
+            const jaTeveRetry=erros.includes("YH-BR-retry:");
+            setPErr("\u26A0 "+falhasComPos.length+" ativo(s) com posicao NAO atualizaram"+(jaTeveRetry?" mesmo apos nova tentativa automatica":"")+" ("+falhasComPos.join(", ")+") - juntos representam ~"+pesoFalhasPct.toFixed(1)+"% do patrimonio. Preco exibido pode estar desatualizado para eles."+(jaTeveRetry?"":" Clique em Atualizar Precos novamente em alguns instantes."));
           }else if(taxaAcerto>=0.95&&apenasSecundarias&&uniq.length<=3){
             // Sucesso pratico: tudo essencial (com posicao) buscado, so apis auxiliares falharam (ouro/BTC/IPCA)
             setPErr("OK: "+n+"/"+tickers.length+" ativos atualizados (apenas APIs auxiliares falharam: BCB/Brapi)");
