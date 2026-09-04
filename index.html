@@ -12096,51 +12096,69 @@ function App(){
         dbg.push("YH-BR:"+brN+"/"+brFaltam.length);
         brFaltam.forEach(t=>{if(!allPrices[t])failed.push(t);});
       }
-      // Yahoo Finance - estrangeiros (em paralelo, com cascata de proxies CORS)
+      // Yahoo Finance - estrangeiros. ESCALONADO em lotes pequenos (mesma correcao aplicada ao
+      // fallback BR): antes disparava TODOS os tickers estrangeiros simultaneamente via
+      // Promise.all sem nenhum controle - com varios BDRs/acoes internacionais, isso podia ser
+      // 10-15+ requisicoes ao mesmo tempo contra o UNICO proxy confiavel (cors.sh, confirmado por
+      // teste real do usuario), causando falhas rotativas (sempre alguns tickers aleatorios
+      // falhando a cada tentativa - exatamente o padrao observado: NDIA/O/ASML/TSE8058/TLT/AAAU
+      // numa rodada, outros tickers em rodadas anteriores).
       if(fgnTickers.length){
         let yhN=0;
-        await Promise.all(fgnTickers.map(async t=>{
+        const buscarYahooFgn=async(t)=>{
+          const sym=YH[t];
+          const target="https://query1.finance.yahoo.com/v8/finance/chart/"+encodeURIComponent(sym)+"?interval=1d&range=2d";
+          // Timeout reduzido de 15s para 6s: cors.sh (unico proxy confiavel) responde em ~600-700ms
+          // nos testes reais - 6s ja da folga generosa. Com listas longas de tickers estrangeiros
+          // (BDRs, acoes internacionais), manter 15s por tentativa inflava demais o pior caso total
+          // (podia passar de 2min so nesta etapa se cors.sh falhasse). 6s equilibra melhor.
+          const d=await fetchViaProxy(target,6000);
+          const res=d&&d.chart&&d.chart.result&&d.chart.result[0];
+          // PRE/POST MARKET: para tickers USA, prefere preco extended-hours mais recente quando regular ja fechou
+          // Ordem de prioridade: postMarketPrice > preMarketPrice > regularMarketPrice > previousClose
+          // Yahoo expõe `meta.postMarketPrice` e `meta.preMarketPrice` quando disponíveis
+          const meta=res&&res.meta;
+          let p=null;
+          if(meta){
+            // Considera extended-hours só se diferente de regularMarketPrice (caso contrário é só o regular)
+            const reg=meta.regularMarketPrice;
+            const post=meta.postMarketPrice;
+            const pre=meta.preMarketPrice;
+            if(typeof post==="number"&&post>0&&post!==reg){p=post;}
+            else if(typeof pre==="number"&&pre>0&&pre!==reg){p=pre;}
+            else if(typeof reg==="number"&&reg>0){p=reg;}
+            else if(typeof meta.previousClose==="number"&&meta.previousClose>0){p=meta.previousClose;}
+          }
+          let ok=false;
+          if(typeof p==="number"&&p>0){allPrices[t]=p;ok=true;}
+          // Mesma logica robusta de variacao
+          const cur=p;
+          let prevClose=null;
           try{
-            const sym=YH[t];
-            const target="https://query1.finance.yahoo.com/v8/finance/chart/"+encodeURIComponent(sym)+"?interval=1d&range=2d";
-            const d=await fetchViaProxy(target,15000);
-            const res=d&&d.chart&&d.chart.result&&d.chart.result[0];
-            // PRE/POST MARKET: para tickers USA, prefere preco extended-hours mais recente quando regular ja fechou
-            // Ordem de prioridade: postMarketPrice > preMarketPrice > regularMarketPrice > previousClose
-            // Yahoo expõe `meta.postMarketPrice` e `meta.preMarketPrice` quando disponíveis
-            const meta=res&&res.meta;
-            let p=null;
-            if(meta){
-              // Considera extended-hours só se diferente de regularMarketPrice (caso contrário é só o regular)
-              const reg=meta.regularMarketPrice;
-              const post=meta.postMarketPrice;
-              const pre=meta.preMarketPrice;
-              if(typeof post==="number"&&post>0&&post!==reg){p=post;}
-              else if(typeof pre==="number"&&pre>0&&pre!==reg){p=pre;}
-              else if(typeof reg==="number"&&reg>0){p=reg;}
-              else if(typeof meta.previousClose==="number"&&meta.previousClose>0){p=meta.previousClose;}
-            }
-            if(typeof p==="number"&&p>0){allPrices[t]=p;yhN++;}
-            // Mesma logica robusta de variacao
-            const cur=p;
-            let prevClose=null;
-            try{
-              const closes=res&&res.indicators&&res.indicators.quote&&res.indicators.quote[0]&&res.indicators.quote[0].close;
-              if(Array.isArray(closes)&&closes.length>=2){
-                for(let i=closes.length-2;i>=0;i--){
-                  if(typeof closes[i]==="number"&&closes[i]>0){prevClose=closes[i];break;}
-                }
+            const closes=res&&res.indicators&&res.indicators.quote&&res.indicators.quote[0]&&res.indicators.quote[0].close;
+            if(Array.isArray(closes)&&closes.length>=2){
+              for(let i=closes.length-2;i>=0;i--){
+                if(typeof closes[i]==="number"&&closes[i]>0){prevClose=closes[i];break;}
               }
-            }catch{}
-            if(prevClose===null&&res&&res.meta&&typeof res.meta.previousClose==="number"&&res.meta.previousClose>0){
-              prevClose=res.meta.previousClose;
-            }
-            if(typeof cur==="number"&&cur>0&&typeof prevClose==="number"&&prevClose>0&&prevClose!==cur){
-              const vd=((cur-prevClose)/prevClose)*100;
-              if(Math.abs(vd)<50)allVars[t]=vd;
             }
           }catch{}
-        }));
+          if(prevClose===null&&res&&res.meta&&typeof res.meta.previousClose==="number"&&res.meta.previousClose>0){
+            prevClose=res.meta.previousClose;
+          }
+          if(typeof cur==="number"&&cur>0&&typeof prevClose==="number"&&prevClose>0&&prevClose!==cur){
+            const vd=((cur-prevClose)/prevClose)*100;
+            if(Math.abs(vd)<50)allVars[t]=vd;
+          }
+          return ok;
+        };
+        const LOTE_FGN=3,PAUSA_FGN_MS=400;
+        for(let i=0;i<fgnTickers.length;i+=LOTE_FGN){
+          const lote=fgnTickers.slice(i,i+LOTE_FGN);
+          await Promise.all(lote.map(async t=>{
+            try{if(await comTimeoutDuro(buscarYahooFgn(t),6300))yhN++;}catch{}
+          }));
+          if(i+LOTE_FGN<fgnTickers.length)await sleep(PAUSA_FGN_MS);
+        }
         dbg.push("YH:"+yhN+"/"+fgnTickers.length);
       }
       // Stooq fallback
@@ -12155,15 +12173,21 @@ function App(){
       const stqMissing=fgnTickers.filter(t=>!allPrices[t]&&STQ[t]);
       if(stqMissing.length){
         let sqN=0;
-        await Promise.all(stqMissing.map(async t=>{
-          try{
-            const target="https://stooq.com/q/l/?s="+STQ[t]+"&f=sd2t2ohlcv&h&e=json";
-            const d=await fetchViaProxy(target,12000);
-            const sym=d&&d.symbols&&d.symbols[0];
-            const p=sym&&parseFloat(sym.close);
-            if(p>0){allPrices[t]=p;sqN++;}
-          }catch{}
-        }));
+        // Mesmo padrao de escalonamento das outras etapas - evita rajada simultanea contra o
+        // proxy unico confiavel.
+        for(let i=0;i<stqMissing.length;i+=2){
+          const lote=stqMissing.slice(i,i+2);
+          await Promise.all(lote.map(async t=>{
+            try{
+              const target="https://stooq.com/q/l/?s="+STQ[t]+"&f=sd2t2ohlcv&h&e=json";
+              const d=await comTimeoutDuro(fetchViaProxy(target,12000),12300);
+              const sym=d&&d.symbols&&d.symbols[0];
+              const p=sym&&parseFloat(sym.close);
+              if(p>0){allPrices[t]=p;sqN++;}
+            }catch{}
+          }));
+          if(i+2<stqMissing.length)await sleep(450);
+        }
         dbg.push("STQ:"+sqN+"/"+stqMissing.length);
       }
       fgnTickers.forEach(t=>{if(!allPrices[t])failed.push(t);});
