@@ -12295,7 +12295,17 @@ function App(){
               else if(errDireta)motivoBrapi=errDireta.slice(18)+" (direta - proxy nao tentado ou tambem falhou)";
               else if(semResultados)motivoBrapi="sem resultados";
             }
-            setPErr("OK: "+n+"/"+tickers.length+" ativos atualizados (apenas APIs auxiliares falharam: BCB/Brapi"+(motivoBrapi?" - Brapi: "+motivoBrapi:"")+")");
+            // Lista NOMEADA do que exatamente compoe a diferenca entre "n" e "tickers.length":
+            // separa tickers "em estudo" (sem posicao - so referencia/comparacao em outras telas,
+            // NAO afeta patrimonio) das falhas de API auxiliar (BCB usado p/ IPCA de imoveis e
+            // fallback de ouro; Brapi conta como 1 tentativa em lote, ja coberta por motivoBrapi
+            // acima - nao duplica aqui).
+            const brapiContaComoFalha=!brapiTeveSucesso&&brTickers.length>0;
+            const ticketsEmEstudoFaltando=uniq.filter(t=>tickersEmEstudo.includes(t));
+            const partesDetalhe=[];
+            if(ticketsEmEstudoFaltando.length>0)partesDetalhe.push(ticketsEmEstudoFaltando.length+" ticker(s) em estudo sem posicao ("+ticketsEmEstudoFaltando.join(", ")+") - sao so referencia para comparacao, nao afetam seu patrimonio");
+            if(brapiContaComoFalha)partesDetalhe.push("Brapi"+(motivoBrapi?" ("+motivoBrapi+")":""));
+            setPErr("OK: "+n+"/"+tickers.length+" ativos atualizados. Faltantes: "+(partesDetalhe.length?partesDetalhe.join(" \u00B7 "):"apenas APIs auxiliares (BCB/Brapi)")+".");
           }else{
             // Falhas restantes sao so tickers "em estudo" (sem posicao) - nao afeta patrimonio, nao poluir UI
             setPErr("");
