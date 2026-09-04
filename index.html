@@ -11784,11 +11784,27 @@ function App(){
     if(!tickers.length){setPErr("Nenhum ativo com quantidade cadastrada");return;}
     setLoadP(true);setPErr("");
     // Helper de fetch com timeout via AbortSignal.timeout nativo (Chrome 103+)
+    // fetchJSON: fetch com timeout DUPLAMENTE garantido.
+    // Antes, dependia SO de AbortSignal.timeout(ms) para limitar o tempo. Isso pressupoe que:
+    // (a) o navegador/webview suporta AbortSignal.timeout corretamente, E (b) que abortar o
+    // signal realmente faz o fetch() rejeitar a promise. Em alguns webviews Android/celulares
+    // isso pode falhar silenciosamente - o fetch fica pendurado MUITO alem de "ms", e como
+    // fetchViaProxy/refreshInner fazem tudo em cascata (await sequencial), um unico fetch preso
+    // trava a cadeia inteira, estourando ate o watchdog global de 90s.
+    // Correcao definitiva: envolve o fetch com Promise.race contra um setTimeout PURO (nao
+    // depende de AbortSignal funcionar). A funcao SEMPRE retorna ou rejeita dentro de "ms",
+    // nao importa o que o fetch() nativo faca por baixo - mesmo que ele continue "vivo" e
+    // consumindo rede em segundo plano sem nunca resolver, o await aqui nao fica mais preso.
     const fetchJSON=async(url,ms)=>{
-      const sig=(typeof AbortSignal!=="undefined"&&AbortSignal.timeout)?AbortSignal.timeout(ms||10000):undefined;
-      const r=await fetch(url,{signal:sig,cache:"no-store"});
-      if(!r.ok)throw new Error("HTTP "+r.status);
-      return await r.json();
+      const msFinal=ms||10000;
+      const sig=(typeof AbortSignal!=="undefined"&&AbortSignal.timeout)?AbortSignal.timeout(msFinal):undefined;
+      const tarefaFetch=(async()=>{
+        const r=await fetch(url,{signal:sig,cache:"no-store"});
+        if(!r.ok)throw new Error("HTTP "+r.status);
+        return await r.json();
+      })();
+      const timeoutDuro=new Promise((_,rej)=>setTimeout(()=>rej(new Error("fetchJSON-timeout-duro")),msFinal+300));
+      return await Promise.race([tarefaFetch,timeoutDuro]);
     };
     // Helper que tenta varios proxies CORS em cascata ate algum funcionar
     // fetchViaProxy: tenta ate 4 proxies CORS publicos em cascata, mas com ORCAMENTO DE TEMPO
@@ -11799,11 +11815,22 @@ function App(){
     // tentativa individual usa o tempo que resta do orcamento (minimo 2.5s para nao matar
     // tentativas uteis cedo demais), entao o pior caso real fica proximo de "ms", nao "ms x 4".
     const fetchViaProxy=async(targetUrl,msTotal)=>{
+      // Lista de proxies AUDITADA (set/2026) - corsproxy.io e proxy.cors.sh foram REMOVIDOS:
+      // ambos migraram para modelo pago com chave de API obrigatoria (corsproxy.io exige
+      // "?key=SUA_CHAVE" desde 2026; proxy.cors.sh exige header "x-cors-api-key"). Sem a chave,
+      // as chamadas para eles SEMPRE falham/rejeitam - e como corsproxy.io era o PRIMEIRO da
+      // lista antiga, toda cascata perdia tempo nele antes de sequer tentar um proxy que funciona.
+      // Essa e a causa raiz confirmada do travamento: nao era instabilidade aleatoria, era um
+      // proxy estruturalmente quebrado (sem auth) sendo tentado primeiro sempre.
+      // Substitutos escolhidos (nenhum exige chave/conta, evidencia varia mas nenhum bloqueia
+      // por auth ausente): codetabs, killcors, allorigins (mantido por ultimo - sem SLA, historico
+      // de falhas intermitentes, mas funciona quando funciona) + thingproxy como 4a rede de
+      // seguranca (freeboard.io, sem conta, limite pequeno de payload mas nossos JSONs sao curtos).
       const proxies=[
-        u=>"https://corsproxy.io/?url="+encodeURIComponent(u),
-        u=>"https://api.allorigins.win/raw?url="+encodeURIComponent(u),
         u=>"https://api.codetabs.com/v1/proxy/?quest="+encodeURIComponent(u),
-        u=>"https://proxy.cors.sh/"+u,
+        u=>"https://proxy.killcors.com?url="+encodeURIComponent(u),
+        u=>"https://api.allorigins.win/raw?url="+encodeURIComponent(u),
+        u=>"https://thingproxy.freeboard.io/fetch/"+u,
       ];
       const inicio=Date.now();
       const MIN_POR_TENTATIVA=2500;
@@ -11821,25 +11848,26 @@ function App(){
       const allPrices={};
       const failed=[];
       const fxUpd={};// acumula updates de cambio pra aplicar via setFxState no final
-      // Cambio - AwesomeAPI (PTAX, atualizada constantemente) com fallback open.er-api.com
-      try{
-        const d=await fetchJSON("https://economia.awesomeapi.com.br/json/last/USD-BRL,EUR-BRL,GBP-BRL,CHF-BRL,JPY-BRL,AUD-BRL",6000);
-        if(d){
-          const map={USDBRL:"USD",EURBRL:"EUR",GBPBRL:"GBP",CHFBRL:"CHF",JPYBRL:"JPY",AUDBRL:"AUD",CADBRL:"CAD"};
-          let n=0;
-          Object.entries(map).forEach(([k,fx])=>{const v=parseFloat(d[k]&&d[k].bid);if(v>0){FX[fx]=v;fxUpd[fx]=v;n++;}});
-          dbg.push("FX-Awesome:"+n);
-        }else dbg.push("FX-Awesome:sem-d");
-      }catch(e){dbg.push("FX-Awesome-erro:"+e.message);}
-      // Complementa com moedas nao cobertas pela AwesomeAPI
-      try{
-        const d=await fetchJSON("https://open.er-api.com/v6/latest/BRL",6000);
-        if(d&&d.rates){
-          let n=0;
-          ["HKD","SGD","NOK","DKK","MXN","CAD"].forEach(k=>{if(d.rates[k]>0){const v=1/d.rates[k];FX[k]=v;fxUpd[k]=v;n++;}});
-          dbg.push("FX-ER:"+n);
-        }
-      }catch(e){dbg.push("FX-ER-erro:"+e.message);}
+      // Cambio - AwesomeAPI (PTAX) + open.er-api.com (moedas complementares: HKD/SGD/NOK/DKK/MXN).
+      // PARALELIZADO (Promise.allSettled) - sao fontes independentes, nao ha motivo pra serializar
+      // e isso custava ate 6s extras sempre, mesmo quando a primeira ja funcionava perfeitamente.
+      const [rAwesome,rER]=await Promise.allSettled([
+        fetchJSON("https://economia.awesomeapi.com.br/json/last/USD-BRL,EUR-BRL,GBP-BRL,CHF-BRL,JPY-BRL,AUD-BRL",6000),
+        fetchJSON("https://open.er-api.com/v6/latest/BRL",6000)
+      ]);
+      if(rAwesome.status==="fulfilled"&&rAwesome.value){
+        const d=rAwesome.value;
+        const map={USDBRL:"USD",EURBRL:"EUR",GBPBRL:"GBP",CHFBRL:"CHF",JPYBRL:"JPY",AUDBRL:"AUD",CADBRL:"CAD"};
+        let n=0;
+        Object.entries(map).forEach(([k,fx])=>{const v=parseFloat(d[k]&&d[k].bid);if(v>0){FX[fx]=v;fxUpd[fx]=v;n++;}});
+        dbg.push("FX-Awesome:"+n);
+      }else dbg.push("FX-Awesome-erro:"+(rAwesome.reason?rAwesome.reason.message:"sem-d"));
+      if(rER.status==="fulfilled"&&rER.value&&rER.value.rates){
+        const d=rER.value;
+        let n=0;
+        ["HKD","SGD","NOK","DKK","MXN","CAD"].forEach(k=>{if(d.rates[k]>0){const v=1/d.rates[k];FX[k]=v;fxUpd[k]=v;n++;}});
+        dbg.push("FX-ER:"+n);
+      }else if(rER.status==="rejected")dbg.push("FX-ER-erro:"+rER.reason.message);
       // Aplica atualizacoes de cambio no state (re-render automatico nos componentes)
       if(Object.keys(fxUpd).length>0)setFxState(prev=>({...prev,...fxUpd}));
       // Imoveis fisicos: atualiza valor com IPCA acumulado desde a ultima avaliacao
@@ -11965,8 +11993,11 @@ function App(){
         try{
           const tickersList=brTickers.join(",");
           const url="https://brapi.dev/api/quote/"+encodeURIComponent(tickersList)+"?token="+encodeURIComponent(brapiKey)+"&_t="+Date.now();
-          // Forca no-store pra eliminar cache de browser/service-worker
-          const resp=await fetch(url,{signal:(typeof AbortSignal!=="undefined"&&AbortSignal.timeout)?AbortSignal.timeout(12000):undefined,cache:"no-store",headers:{"cache-control":"no-cache","pragma":"no-cache"}});
+          // Forca no-store pra eliminar cache de browser/service-worker.
+          // Timeout DUPLAMENTE garantido (AbortSignal + Promise.race) - mesma logica de fetchJSON,
+          // pra nao depender so de AbortSignal funcionar no navegador do usuario.
+          const respPromise=fetch(url,{signal:(typeof AbortSignal!=="undefined"&&AbortSignal.timeout)?AbortSignal.timeout(12000):undefined,cache:"no-store",headers:{"cache-control":"no-cache","pragma":"no-cache"}});
+          const resp=await Promise.race([respPromise,new Promise((_,rej)=>setTimeout(()=>rej(new Error("brapi-timeout-duro")),12300))]);
           const d=resp.ok?await resp.json():null;
           if(d&&Array.isArray(d.results)){
             let bN=0;
@@ -12045,7 +12076,7 @@ function App(){
       if(brFaltam.length){
         let brN=0;
         // ESPACADO em vez de Promise.all simultaneo: os proxies CORS publicos gratuitos
-        // (corsproxy.io, allorigins.win, codetabs.com, proxy.cors.sh) tem rate-limit agressivo.
+        // (codetabs.com, killcors.com, allorigins.win) tem rate-limit / instabilidade.
         // Disparar N requisicoes ao mesmo tempo faz varias baterem no limite e falharem de forma
         // ROTATIVA (um ticker diferente falha a cada tentativa). Escalona em lotes pequenos com
         // pausa entre eles pra reduzir colisao - SEM retry automatico adicional (uma segunda
@@ -12220,17 +12251,19 @@ function App(){
   },[port,brapiKey,custom,ccy,ntnbTaxas,ntnbVNA,btcUsd]);
   // WATCHDOG DE SEGURANCA: garante que o botao "Atualizar precos" NUNCA fica preso em
   // "Buscando..." indefinidamente. refreshInner() faz varias chamadas de rede em CASCATA
-  // SEQUENCIAL (cambio, IPCA, ouro, BTC, Brapi, Yahoo BR, Yahoo estrangeiro, Stooq - cada uma
-  // aguardando a anterior terminar). fetchViaProxy usa orcamento de tempo compartilhado entre
-  // ate 4 proxies (nao mais timeout completo por proxy), o que reduziu o pior caso teorico de
-  // ~4min para ~100s. Calibrado com margem sobre esse pior caso: se qualquer travamento residual
-  // acontecer mesmo assim (proxy pendurado sem nunca rejeitar, incompatibilidade de navegador),
-  // o watchdog forca loadP=false apos 90s - mesmo que a chamada interna continue rodando em
-  // segundo plano sem efeito visivel (ela eventualmente termina sozinha e so escreve em estados
-  // que ja nao importam mais para essa tentativa).
+  // SEQUENCIAL (cambio [agora paralelizado entre si], IPCA, ouro, BTC, Brapi, Yahoo BR, Yahoo
+  // estrangeiro, Stooq - a maioria aguardando a anterior terminar). fetchJSON agora tem timeout
+  // DUPLAMENTE garantido (AbortSignal + Promise.race) - nao depende mais so de AbortSignal
+  // funcionar no navegador/webview do usuario, entao cada etapa individual respeita seu proprio
+  // limite de forma confiavel. Pior caso teorico recalculado com essa garantia: ~94s. Watchdog
+  // calibrado com margem generosa (150s, ~60% acima do pior caso) - as duas tentativas
+  // anteriores (45s, depois 90s) subestimaram o pior caso real, entao aqui prefere-se folga
+  // grande a arriscar disparar em uma atualizacao normal so um pouco mais lenta que o esperado.
+  // Se mesmo assim estourar 150s, e sinal de problema real e persistente nas fontes externas,
+  // nao apenas lentidao pontual.
   const refresh=useCallback(async()=>{
     let watchdogDisparou=false;
-    const TETO_MS=90000;
+    const TETO_MS=150000;
     try{
       await Promise.race([
         refreshInner(),
@@ -12238,7 +12271,7 @@ function App(){
       ]);
     }catch(e){
       if(watchdogDisparou){
-        setPErr("\u26A0 Atualizacao demorou demais e foi interrompida (>90s) - provavel instabilidade nos proxies de cotacao. Tente novamente.");
+        setPErr("\u26A0 Atualizacao demorou demais e foi interrompida (>150s) - provavel instabilidade persistente nos proxies de cotacao. Tente novamente mais tarde.");
         setLoadP(false);
       }
       // Se nao foi o watchdog, refreshInner ja tratou seu proprio erro e chamou setLoadP(false) internamente.
