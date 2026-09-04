@@ -12137,22 +12137,37 @@ function App(){
         setLastPU(new Date().toISOString());
         if(n<tickers.length){
           const uniq=[...new Set(failed)].filter(t=>!allPrices[t]);
-          // Distingue: se quase todos foram (>=95%) e falhas sao IPCA/Brapi (secundarias), e OK
+          // Distingue falhas por relevancia: tickers SEM posicao (qty=0, "em estudo") importam pouco -
+          // nao afetam o patrimonio. Tickers COM posicao real que falharam precisam SEMPRE ser avisados,
+          // calculando quanto pesam no patrimonio total (com o preco anterior, ja que o novo nao chegou).
+          const falhasComPos=uniq.filter(t=>tickersComPos.includes(t));
+          let pesoFalhasPct=0;
+          if(falhasComPos.length>0){
+            try{
+              const totalAntesTentativa=Object.entries(port).reduce((s,[t,p])=>s+(pv(t,p,ccy,ntnbTaxas,ntnbVNA,btcUsd)||0),0);
+              const valorFalhas=falhasComPos.reduce((s,t)=>s+(pv(t,port[t],ccy,ntnbTaxas,ntnbVNA,btcUsd)||0),0);
+              if(totalAntesTentativa>0)pesoFalhasPct=(valorFalhas/totalAntesTentativa)*100;
+            }catch(e){}
+          }
           const taxaAcerto=n/tickers.length;
           const erros=dbg.join(" ");
           const apenasSecundarias=erros.includes("IPCA-err")||erros.includes("Brapi-erro");
-          if(taxaAcerto>=0.95&&apenasSecundarias&&uniq.length<=3){
-            // Sucesso pratico: tudo essencial buscado, soh apis auxiliares falharam (ouro/BTC/IPCA)
+          if(falhasComPos.length>0){
+            // SEMPRE avisa quando ha posicao real sem atualizar - independente da taxa geral de acerto.
+            // Preco desses ativos ficou com o valor da ultima atualizacao bem-sucedida (nao o de hoje).
+            setPErr("\u26A0 "+falhasComPos.length+" ativo(s) com posicao NAO atualizaram ("+falhasComPos.join(", ")+") - juntos representam ~"+pesoFalhasPct.toFixed(1)+"% do patrimonio. Preco exibido pode estar desatualizado para eles.");
+          }else if(taxaAcerto>=0.95&&apenasSecundarias&&uniq.length<=3){
+            // Sucesso pratico: tudo essencial (com posicao) buscado, so apis auxiliares falharam (ouro/BTC/IPCA)
             setPErr("OK: "+n+"/"+tickers.length+" ativos atualizados (apenas APIs auxiliares falharam: BCB/Brapi)");
           }else{
-            // Falha marginal ou desconhecida - nao poluir UI com mensagem
+            // Falhas restantes sao so tickers "em estudo" (sem posicao) - nao afeta patrimonio, nao poluir UI
             setPErr("");
           }
         }
       } else {setPErr("Sem cotacoes ["+dbg.join(" ")+"]");}
     }catch(e){setPErr("Erro: "+e.message+" ["+dbg.join(" ")+"]");}
     setLoadP(false);
-  },[port,brapiKey,custom]);
+  },[port,brapiKey,custom,ccy,ntnbTaxas,ntnbVNA,btcUsd]);
 
   // ===== AUTO-REFRESH DE PRECOS =====
   // Atualiza preços automaticamente a cada 15 minutos QUANDO:
