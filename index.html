@@ -11815,25 +11815,30 @@ function App(){
     // tentativa individual usa o tempo que resta do orcamento (minimo 2.5s para nao matar
     // tentativas uteis cedo demais), entao o pior caso real fica proximo de "ms", nao "ms x 4".
     const fetchViaProxy=async(targetUrl,msTotal)=>{
-      // Lista de proxies AUDITADA (set/2026) - corsproxy.io e proxy.cors.sh foram REMOVIDOS:
-      // ambos migraram para modelo pago com chave de API obrigatoria (corsproxy.io exige
-      // "?key=SUA_CHAVE" desde 2026; proxy.cors.sh exige header "x-cors-api-key"). Sem a chave,
-      // as chamadas para eles SEMPRE falham/rejeitam - e como corsproxy.io era o PRIMEIRO da
-      // lista antiga, toda cascata perdia tempo nele antes de sequer tentar um proxy que funciona.
-      // Essa e a causa raiz confirmada do travamento: nao era instabilidade aleatoria, era um
-      // proxy estruturalmente quebrado (sem auth) sendo tentado primeiro sempre.
-      // Substitutos escolhidos (nenhum exige chave/conta, evidencia varia mas nenhum bloqueia
-      // por auth ausente): codetabs, killcors, allorigins (mantido por ultimo - sem SLA, historico
-      // de falhas intermitentes, mas funciona quando funciona) + thingproxy como 4a rede de
-      // seguranca (freeboard.io, sem conta, limite pequeno de payload mas nossos JSONs sao curtos).
+      // Lista de proxies - HISTORICO DE MUDANCAS (set/2026):
+      // 1) Original: corsproxy.io, allorigins, codetabs, proxy.cors.sh (nessa ordem)
+      // 2) Trocado para codetabs/killcors/allorigins/thingproxy apos suspeitar que corsproxy.io
+      //    exigia chave paga - MAS isso piorou drasticamente (57 ativos falharam de vez, contra
+      //    6-8 antes). Hipotese revista: corsproxy.io provavelmente ainda funciona sem chave em
+      //    volume baixo (paywall pode ser só para uso pesado/comercial), e codetabs tem rate-limit
+      //    de 5 req/s que o app pode estourar com varias chamadas em sequencia ao longo do refresh.
+      // 3) Configuracao ATUAL: restaura corsproxy.io e cors.sh como fallback FINAL (nao mais
+      //    primeiro), mantendo os proxies novos como tentativa primeiro. Assim nao perdemos o que
+      //    funcionava antes, so reordenamos. Use o botao "PROXY" (config avancada) para testar
+      //    cada um individualmente no seu navegador e me diga quais passam - AQUI PARAMOS DE
+      //    ESPECULAR E PASSAMOS A USAR DADOS REAIS do seu ambiente.
       const proxies=[
         u=>"https://api.codetabs.com/v1/proxy/?quest="+encodeURIComponent(u),
-        u=>"https://proxy.killcors.com?url="+encodeURIComponent(u),
         u=>"https://api.allorigins.win/raw?url="+encodeURIComponent(u),
-        u=>"https://thingproxy.freeboard.io/fetch/"+u,
+        u=>"https://corsproxy.io/?url="+encodeURIComponent(u),
+        u=>"https://proxy.killcors.com?url="+encodeURIComponent(u),
+        u=>"https://proxy.cors.sh/"+u,
       ];
       const inicio=Date.now();
-      const MIN_POR_TENTATIVA=2500;
+      const MIN_POR_TENTATIVA=1800;// reduzido de 2500 - com 5 proxies na lista, queremos poder
+      // tentar mais opcoes dentro do mesmo orcamento total, aumentando a chance de pelo menos
+      // um funcionar mesmo que os primeiros falhem rapido (rejeicao por falta de chave costuma
+      // ser RAPIDA - HTTP 401/403 quase instantaneo - entao nao rouba muito tempo do orcamento).
       let lastErr;
       for(const mk of proxies){
         const restante=msTotal-(Date.now()-inicio);
@@ -17378,6 +17383,45 @@ h("button",{onClick:async()=>{
   }
   setDbgInfo(msg);
 },style:{background:"none",border:"none",color:"#5B8FD4",fontSize:10,cursor:"pointer",padding:"6px 4px",fontFamily:"monospace",flexShrink:0}},"DBG"),
+h("button",{onClick:async()=>{
+  // Testa CADA proxy individualmente contra um alvo simples e conhecido (BCB - IPCA),
+  // medindo sucesso/falha e tempo real de resposta no navegador do proprio usuario.
+  // Existe pra parar de especular sobre qual proxy funciona - da dados reais e imediatos.
+  const alvo="https://api.bcb.gov.br/dados/serie/bcdata.sgs.433/dados/ultimos/1?formato=json";
+  const listaProxies=[
+    {nome:"codetabs",mk:u=>"https://api.codetabs.com/v1/proxy/?quest="+encodeURIComponent(u)},
+    {nome:"killcors",mk:u=>"https://proxy.killcors.com?url="+encodeURIComponent(u)},
+    {nome:"allorigins",mk:u=>"https://api.allorigins.win/raw?url="+encodeURIComponent(u)},
+    {nome:"thingproxy",mk:u=>"https://thingproxy.freeboard.io/fetch/"+u},
+    {nome:"corsproxy.io(antigo)",mk:u=>"https://corsproxy.io/?url="+encodeURIComponent(u)},
+    {nome:"cors.sh(antigo)",mk:u=>"https://proxy.cors.sh/"+u},
+  ];
+  let msg="TESTE DE PROXIES (alvo: BCB IPCA)\n"+new Date().toLocaleTimeString("pt-BR")+"\n\n";
+  setDbgInfo("Testando "+listaProxies.length+" proxies, aguarde...");
+  for(const px of listaProxies){
+    const t0=Date.now();
+    try{
+      const ctrl=new AbortController();
+      const to=setTimeout(()=>ctrl.abort(),8000);
+      const r=await fetch(px.mk(alvo),{signal:ctrl.signal,cache:"no-store"});
+      clearTimeout(to);
+      const ms=Date.now()-t0;
+      if(r.ok){
+        const txt=await r.text();
+        const pareceJson=txt.trim().startsWith("[")||txt.trim().startsWith("{");
+        msg+="\u2705 "+px.nome.padEnd(22)+" OK   "+ms+"ms  ("+(pareceJson?"JSON valido":"resposta suspeita: "+txt.slice(0,40))+")\n";
+      }else{
+        msg+="\u274C "+px.nome.padEnd(22)+" HTTP "+r.status+"  "+ms+"ms\n";
+      }
+    }catch(e){
+      const ms=Date.now()-t0;
+      msg+="\u274C "+px.nome.padEnd(22)+" ERRO  "+ms+"ms  ("+e.message+")\n";
+    }
+    setDbgInfo(msg+"\n(testando...)");
+  }
+  msg+="\n---\nUse os proxies marcados \u2705 (nessa ordem de velocidade) na lista do app.";
+  setDbgInfo(msg);
+},style:{background:"none",border:"none",color:"#8FBE3F",fontSize:10,cursor:"pointer",padding:"6px 4px",fontFamily:"monospace",flexShrink:0}},"PROXY"),
 h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (sk-ant-...):");if(k&&k.length>20){setApiKeyS(k);if(aesKey)saveApiKey(aesKey,k);alert("Chave salva!");}else if(k!==null){alert("Chave invalida. Cole a chave completa.");}},style:{background:"none",border:"none",color:apiKey?"#C8A96E":"#3A3830",fontSize:10,cursor:"pointer",padding:"6px 0",fontFamily:"monospace",flexShrink:0}},"API"),
 h("button",{onClick:async()=>{
   try{
