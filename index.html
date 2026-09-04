@@ -11757,6 +11757,16 @@ function App(){
   },[marketStatus]);
 
   const refresh=useCallback(async()=>{
+    // AUTO-CORRECAO DEFENSIVA: qualquer ticker com posicao real mas SEM entrada em BCCY fica
+    // invisivel para a busca de preco (isBR(t) exige BCCY[t]==="BRL" explicitamente). Isso pode
+    // acontecer se o ticker entrou no port por um caminho que nao passa por addCustom (ex: import
+    // de backup antigo). Assume BRL como padrao seguro - e o caso de longe mais comum no portfolio -
+    // para nao deixar o ativo permanentemente sem cotacao. Nao sobrescreve entradas ja existentes.
+    Object.keys(port).forEach(t=>{
+      if(hq(t,port[t])&&!VB.includes(t)&&!isImv(t)&&!isFia(t)&&BCCY[t]===undefined){
+        BCCY[t]="BRL";
+      }
+    });
     // Coleta tickers com posicao
     const tickersComPos=Object.keys(port).filter(t=>hq(t,port[t])&&!VB.includes(t)&&!isImv(t)&&!isFia(t));
     // Coleta tickers em estudo (BASE + custom) das classes elegiveis para analise
@@ -17180,9 +17190,22 @@ h("button",{onClick:async()=>{
   if(pos){
     msg+="NO APP (port):\n";
     msg+="  price = "+pos.price+"\n";
+    msg+="  qty = "+pos.qty+"\n";
+    msg+="  classId = "+(pos.classId||"(nao gravado)")+"\n";
     msg+="  varDia = "+(typeof pos.varDia==="number"?pos.varDia.toFixed(4)+"%":"(nao gravado)")+"\n";
     msg+="  varDiaTs = "+(pos.varDiaTs?new Date(pos.varDiaTs).toLocaleString("pt-BR"):"(nao gravado)")+"\n\n";
   }else{msg+="NO APP: ticker nao encontrado no port\n\n";}
+  // 1b) Roteamento: BCCY decide se o ticker vai para Brapi(BR) ou Yahoo(estrangeiro).
+  // Se BCCY[tk] nao for exatamente "BRL", o ticker NUNCA entra na lista brTickers do refresh() -
+  // e so seria buscado se estiver tambem no mapa YH (estrangeiro), senao fica sem fonte nenhuma.
+  const bccyVal=BCCY[tk];
+  const isBRAtual=bccyVal==="BRL"&&!["OURO_FISICO","BTC","SELIC2031"].includes(tk);
+  msg+="ROTEAMENTO:\n";
+  msg+="  BCCY[\""+tk+"\"] = "+(bccyVal===undefined?"(AUSENTE - nunca foi cadastrado!)":JSON.stringify(bccyVal))+"\n";
+  msg+="  isBR(tk) = "+isBRAtual+(isBRAtual?" -> vai para Brapi, fallback Yahoo .SA":" -> NAO entra na lista brTickers!")+"\n";
+  const noMapaYH=typeof YH!=="undefined"&&!!YH[tk];
+  if(!isBRAtual)msg+="  YH[\""+tk+"\"] = "+(noMapaYH?JSON.stringify(YH[tk]):"(tambem ausente - ticker fica SEM FONTE NENHUMA)")+"\n";
+  msg+="\n";
   // 2) Versao do codigo
   msg+="VERSAO CODIGO (esperado: v3): v3-2026-06-02-yahoo-2d-array-closes\n\n";
   // 3) Busca Brapi crua
@@ -17236,6 +17259,24 @@ h("button",{onClick:async()=>{
       }
     }else{msg+="YAHOO: sem resultado\n";}
   }catch(e){msg+="YAHOO erro: "+e.message+"\n";}
+  // Conclusao automatica: sintetiza a causa mais provavel a partir do que foi coletado
+  msg+="\n---\nCONCLUSAO:\n";
+  if(bccyVal===undefined){
+    msg+="BCCY nunca foi populado para este ticker. Isso normalmente acontece se ele foi\n";
+    msg+="adicionado por um caminho que nao passa por 'addCustom' (ex: import direto de\n";
+    msg+="backup/JSON). Solucao: remover e recadastrar o ativo pela tela de Posicoes\n";
+    msg+="usando 'adicionar ativo customizado', ou usar o botao para forcar BCCY manualmente.";
+  }else if(!isBRAtual){
+    msg+="BCCY[tk] nao e \"BRL\" e o ticker nao esta no mapa YH (estrangeiro) - portanto\n";
+    msg+="nunca e buscado em NENHUMA fonte. Corrija a moeda cadastrada para este ativo.";
+  }else{
+    msg+="Roteamento OK (vai para Brapi/Yahoo como BR). Se mesmo assim nao ha preco,\n";
+    msg+="veja BRAPI RAW e YAHOO RAW acima: se ambos vieram vazios/erro, a fonte externa\n";
+    msg+="pode estar sem cobertura para este ticker especifico (comum em FIIs de nicho\n";
+    msg+="no plano gratuito da Brapi) - o Yahoo geralmente cobre, confira se o RAW acima\n";
+    msg+="trouxe dados; se trouxe mas o preco nao aparece no app, pode ser timeout/proxy\n";
+    msg+="CORS falhando nesta tentativa - clique em ATUALIZAR PRECOS de novo.";
+  }
   setDbgInfo(msg);
 },style:{background:"none",border:"none",color:"#5B8FD4",fontSize:10,cursor:"pointer",padding:"6px 4px",fontFamily:"monospace",flexShrink:0}},"DBG"),
 h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (sk-ant-...):");if(k&&k.length>20){setApiKeyS(k);if(aesKey)saveApiKey(aesKey,k);alert("Chave salva!");}else if(k!==null){alert("Chave invalida. Cole a chave completa.");}},style:{background:"none",border:"none",color:apiKey?"#C8A96E":"#3A3830",fontSize:10,cursor:"pointer",padding:"6px 0",fontFamily:"monospace",flexShrink:0}},"API"),
