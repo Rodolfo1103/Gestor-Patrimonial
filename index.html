@@ -11756,7 +11756,7 @@ function App(){
     };
   },[marketStatus]);
 
-  const refresh=useCallback(async()=>{
+  const refreshInner=useCallback(async()=>{
     // AUTO-CORRECAO DEFENSIVA: qualquer ticker com posicao real mas SEM entrada em BCCY fica
     // invisivel para a busca de preco (isBR(t) exige BCCY[t]==="BRL" explicitamente). Isso pode
     // acontecer se o ticker entrou no port por um caminho que nao passa por addCustom (ex: import
@@ -11991,7 +11991,7 @@ function App(){
         const sym=t+".SA";
         // range=2d garante que chartPreviousClose seja o fechamento da sessao anterior, nao 5 dias atras
         const target="https://query1.finance.yahoo.com/v8/finance/chart/"+encodeURIComponent(sym)+"?interval=1d&range=2d";
-        const d=await fetchViaProxy(target,15000);
+        const d=await fetchViaProxy(target,8000);
         const res=d&&d.chart&&d.chart.result&&d.chart.result[0];
         const p=res&&res.meta&&(res.meta.regularMarketPrice||res.meta.previousClose);
         let ok=false;
@@ -12019,6 +12019,16 @@ function App(){
         }
         return ok;
       };
+      // Timeout de SEGURANCA ABSOLUTA por ticker, independente do AbortSignal interno de fetchJSON.
+      // Alguns navegadores/webviews tem suporte inconsistente a AbortSignal.timeout - se isso falhar
+      // silenciosamente, o fetch pode ficar pendurado por minutos e travar o refresh() inteiro
+      // (foi exatamente o que aconteceu: "BUSCANDO..." preso). Promise.race garante que, no MAXIMO,
+      // esperamos 9s por ticker antes de desistir e seguir em frente, nao importa o que aconteca
+      // internamente no fetch.
+      const comTimeoutDuro=(promessa,ms)=>Promise.race([
+        promessa,
+        new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout-duro")),ms))
+      ]);
       const sleep=ms=>new Promise(r=>setTimeout(r,ms));
       let brFaltam=brTickers.filter(t=>!allPrices[t]);
       if(brFaltam.length){
@@ -12026,33 +12036,19 @@ function App(){
         // ESPACADO em vez de Promise.all simultaneo: os proxies CORS publicos gratuitos
         // (corsproxy.io, allorigins.win, codetabs.com, proxy.cors.sh) tem rate-limit agressivo.
         // Disparar N requisicoes ao mesmo tempo faz varias baterem no limite e falharem de forma
-        // ROTATIVA (um ticker diferente falha a cada tentativa) - por isso um retry simples nao
-        // resolvia antes. Escalona em lotes pequenos com pausa entre eles pra reduzir colisao.
+        // ROTATIVA (um ticker diferente falha a cada tentativa). Escalona em lotes pequenos com
+        // pausa entre eles pra reduzir colisao - SEM retry automatico adicional (uma segunda
+        // rodada dobra o tempo maximo de espera e o risco de travamento; prefira clicar de novo
+        // manualmente se precisar).
         const LOTE=3,PAUSA_MS=350;
         for(let i=0;i<brFaltam.length;i+=LOTE){
           const lote=brFaltam.slice(i,i+LOTE);
           await Promise.all(lote.map(async t=>{
-            try{if(await buscarYahooBR(t))brN++;}catch{}
+            try{if(await comTimeoutDuro(buscarYahooBR(t),9000))brN++;}catch{}
           }));
           if(i+LOTE<brFaltam.length)await sleep(PAUSA_MS);
         }
         dbg.push("YH-BR:"+brN+"/"+brFaltam.length);
-        // RETRY AUTOMATICO: quem ainda faltou pode ter sido rate-limit passageiro nos proxies,
-        // nao ausencia real de dados. Espera um pouco mais e tenta de novo, so os que faltaram,
-        // ainda mais espacado (lotes de 2) pra dar folga extra aos proxies.
-        const aindaFaltam=brFaltam.filter(t=>!allPrices[t]);
-        if(aindaFaltam.length){
-          await sleep(1200);
-          let retryN=0;
-          for(let i=0;i<aindaFaltam.length;i+=2){
-            const lote=aindaFaltam.slice(i,i+2);
-            await Promise.all(lote.map(async t=>{
-              try{if(await buscarYahooBR(t))retryN++;}catch{}
-            }));
-            if(i+2<aindaFaltam.length)await sleep(500);
-          }
-          if(retryN>0)dbg.push("YH-BR-retry:"+retryN+"/"+aindaFaltam.length);
-        }
         brFaltam.forEach(t=>{if(!allPrices[t])failed.push(t);});
       }
       // Yahoo Finance - estrangeiros (em paralelo, com cascata de proxies CORS)
@@ -12198,8 +12194,7 @@ function App(){
             // Preco desses ativos ficou com o valor da ultima atualizacao bem-sucedida (nao o de hoje).
             // Indica se ja passou por retry automatico (proxies CORS instaveis podem falhar de forma
             // passageira - se ate apos o retry continua falhando, e mais provavel ser persistente).
-            const jaTeveRetry=erros.includes("YH-BR-retry:");
-            setPErr("\u26A0 "+falhasComPos.length+" ativo(s) com posicao NAO atualizaram"+(jaTeveRetry?" mesmo apos nova tentativa automatica":"")+" ("+falhasComPos.join(", ")+") - juntos representam ~"+pesoFalhasPct.toFixed(1)+"% do patrimonio. Preco exibido pode estar desatualizado para eles."+(jaTeveRetry?"":" Clique em Atualizar Precos novamente em alguns instantes."));
+            setPErr("\u26A0 "+falhasComPos.length+" ativo(s) com posicao NAO atualizaram ("+falhasComPos.join(", ")+") - juntos representam ~"+pesoFalhasPct.toFixed(1)+"% do patrimonio. Preco exibido pode estar desatualizado para eles. Clique em Atualizar Precos novamente em alguns instantes.");
           }else if(taxaAcerto>=0.95&&apenasSecundarias&&uniq.length<=3){
             // Sucesso pratico: tudo essencial (com posicao) buscado, so apis auxiliares falharam (ouro/BTC/IPCA)
             setPErr("OK: "+n+"/"+tickers.length+" ativos atualizados (apenas APIs auxiliares falharam: BCB/Brapi)");
@@ -12212,6 +12207,31 @@ function App(){
     }catch(e){setPErr("Erro: "+e.message+" ["+dbg.join(" ")+"]");}
     setLoadP(false);
   },[port,brapiKey,custom,ccy,ntnbTaxas,ntnbVNA,btcUsd]);
+  // WATCHDOG DE SEGURANCA: garante que o botao "Atualizar precos" NUNCA fica preso em
+  // "Buscando..." indefinidamente. refreshInner() faz varias chamadas de rede em cascata
+  // (cambio, Brapi, Yahoo via proxies CORS publicos); se qualquer uma travar sem resolver
+  // nem rejeitar (proxy que nao responde e nao dispara timeout interno corretamente em
+  // certos navegadores/webviews), o await interno fica pendurado pra sempre e setLoadP(false)
+  // nunca roda. Este wrapper usa Promise.race contra um teto absoluto de 45s: estourou,
+  // forca loadP=false e avisa - mesmo que a chamada interna continue rodando em segundo
+  // plano sem efeito visivel (ela eventualmente termina sozinha e so escreve em estados
+  // que ja nao importam mais para essa tentativa).
+  const refresh=useCallback(async()=>{
+    let watchdogDisparou=false;
+    const TETO_MS=45000;
+    try{
+      await Promise.race([
+        refreshInner(),
+        new Promise((_,rej)=>setTimeout(()=>{watchdogDisparou=true;rej(new Error("watchdog"));},TETO_MS))
+      ]);
+    }catch(e){
+      if(watchdogDisparou){
+        setPErr("\u26A0 Atualizacao demorou demais e foi interrompida (>45s) - provavel instabilidade nos proxies de cotacao. Tente novamente.");
+        setLoadP(false);
+      }
+      // Se nao foi o watchdog, refreshInner ja tratou seu proprio erro e chamou setLoadP(false) internamente.
+    }
+  },[refreshInner]);
 
   // ===== AUTO-REFRESH DE PRECOS =====
   // Atualiza preços automaticamente a cada 15 minutos QUANDO:
