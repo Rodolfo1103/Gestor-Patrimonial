@@ -9678,6 +9678,11 @@ function App(){
   const [lastPU,setLastPU]=useState(null);
   const [loadP,setLoadP]=useState(false);
   const [pErr,setPErr]=useState("");
+  // Log tecnico COMPLETO (array dbg) da ULTIMA tentativa real de refresh() - diferente da
+  // mensagem resumida em pErr. Permite investigar uma falha real sem precisar reproduzir via
+  // DBG manual (que testa 1 ticker isolado, fora do fluxo de lotes/orcamento compartilhado
+  // que so existe durante um refresh() de verdade - podem se comportar diferente).
+  const [ultimoDbgLog,setUltimoDbgLog]=useState("");
   const [editA,setEditA]=useState(null);
   const [eQty,setEQty]=useState("");
   const [ePrice,setEPrice]=useState("");
@@ -12050,65 +12055,49 @@ function App(){
       // o refresh() inteiro logo no inicio, antes de qualquer chamada de rede rodar.
       const sleep=ms=>new Promise(r=>setTimeout(r,ms));
       if(brTickers.length&&brapiKey){
-        REFRESH_ETAPA.nome="Brapi (lotes)";REFRESH_ETAPA.ts=Date.now();
-        // MIGRADO PARA API V2 (set/2026) - a v1 (/api/quote/) parece estar em processo de
-        // descontinuacao/instabilidade; a documentacao atual da brapi.dev so cobre v2
-        // (/api/v2/stocks/quote), com autenticacao via header "Authorization: Bearer TOKEN"
-        // em vez de "?token=" na URL, e o payload dentro de results[].data em vez de direto
-        // em results[]. O symbol continua no nivel superior de cada item em results[].
+        REFRESH_ETAPA.nome="Brapi (1 por chamada)";REFRESH_ETAPA.ts=Date.now();
+        // MIGRADO PARA API V2 (set/2026) - autenticacao via header "Authorization: Bearer TOKEN",
+        // payload dentro de results[].data. O symbol continua no nivel superior de cada item.
         //
-        // LOTES DE 15 TICKERS (set/2026) - causa raiz confirmada por teste real do usuario:
-        // o DBG (1 ticker isolado) retornava HTTP 200 com dados corretos, mas o refresh completo
-        // (todos os ~85 tickers numa unica chamada) falhava sempre. A documentacao oficial da
-        // brapi confirma limite de simbolos por requisicao (ate 20 no plano Pro, provavelmente
-        // menos nos planos inferiores) - uma lista de 70+ tickers numa so chamada estourava esse
-        // limite. Agora divide em lotes de 15 (margem de seguranca abaixo do maximo documentado)
-        // e faz uma chamada por lote, agregando os resultados.
-        const LOTE_BRAPI=15;
-        const lotesBrapi=[];
-        for(let i=0;i<brTickers.length;i+=LOTE_BRAPI)lotesBrapi.push(brTickers.slice(i,i+LOTE_BRAPI));
-        let bN=0,algumSucesso=false,lotesFalhosSeguidos=0;
-        for(const lote of lotesBrapi){
-          // DESISTENCIA ANTECIPADA (set/2026): se os 2 primeiros lotes falharem POR COMPLETO
-          // (direta E proxy, ambos), a Brapi provavelmente esta indisponivel nesta tentativa -
-          // continuar tentando mais lotes so desperdica o orcamento de tempo compartilhado que
-          // as etapas seguintes (Yahoo BR/estrangeiro, que tem cors.sh funcionando) precisam.
-          // Corrige o caso observado: Brapi falhando em todos os 5 lotes consumia ~80s sozinha,
-          // deixando quase nada pro fallback processar os ~57 tickers restantes.
-          if(lotesFalhosSeguidos>=2){
-            dbg.push("Brapi-desistencia-antecipada:"+lotesFalhosSeguidos+" lotes falharam seguidos, pulando "+(lotesBrapi.length-lotesBrapi.indexOf(lote))+" lote(s) restante(s)");
-            break;
-          }
-          const tickersList=lote.join(",");
-          const urlBrapi="https://brapi.dev/api/v2/stocks/quote?symbols="+encodeURIComponent(tickersList)+"&_t="+Date.now();
-          // Tenta chamada DIRETA primeiro (mais rapida quando funciona), com FALLBACK via proxy
-          // CORS se a direta falhar por qualquer motivo.
+        // CAUSA RAIZ REAL CONFIRMADA (07/09/2026) - a FAQ OFICIAL da brapi.dev
+        // (brapi.dev/faq/como-a-api-e-calculada) afirma explicitamente: "O plano gratuito
+        // oferece ate 15 mil requisicoes por mes, COM A CAPACIDADE DE INCLUIR ATE 1 ACAO POR
+        // SOLICITACAO." Nao 20 (isso e so o plano Pro). Nao 15. UM ticker por chamada no plano
+        // gratuito. As tentativas anteriores (lotes de 15, depois "desistencia antecipada")
+        // erravam a causa: nao era timeout nem indisponibilidade da Brapi - era o app pedindo
+        // 15 simbolos por chamada quando o plano so aceita 1, entao a API provavelmente
+        // rejeitava ou processava mal cada lote inteiro (por isso o DBG - que testa 1 ticker
+        // isolado - sempre funcionava, enquanto o refresh() completo com lotes de 15 falhava
+        // quase sempre, mesmo com tickers individuais validos como EGIE3 confirmados via DBG).
+        // Tambem trata HTTP 402 especificamente (codigo oficial da brapi p/ "limite excedido").
+        //
+        // Com 1 ticker/chamada, processa em PARALELO (mini-lotes concorrentes) pra nao demorar
+        // uma eternidade com ~75 tickers - mesmo padrao ja usado no fallback Yahoo.
+        const CONCORRENCIA_BRAPI=5;// chamadas simultaneas por rodada
+        let bN=0,algumSucesso=false,rodadasFalhasSeguidas=0;
+        const buscarBrapi1Ticker=async(tk)=>{
+          const urlBrapi="https://brapi.dev/api/v2/stocks/quote?symbols="+encodeURIComponent(tk)+"&_t="+Date.now();
           let dadosBrapi=null;
           try{
-            const respPromise=fetch(urlBrapi,{signal:(typeof AbortSignal!=="undefined"&&AbortSignal.timeout)?AbortSignal.timeout(8000):undefined,cache:"no-store",headers:{"Authorization":"Bearer "+brapiKey,"cache-control":"no-cache","pragma":"no-cache"}});
-            const resp=await Promise.race([respPromise,new Promise((_,rej)=>setTimeout(()=>rej(new Error("brapi-timeout-duro")),8300))]);
+            const respPromise=fetch(urlBrapi,{signal:(typeof AbortSignal!=="undefined"&&AbortSignal.timeout)?AbortSignal.timeout(6000):undefined,cache:"no-store",headers:{"Authorization":"Bearer "+brapiKey,"cache-control":"no-cache","pragma":"no-cache"}});
+            const resp=await Promise.race([respPromise,new Promise((_,rej)=>setTimeout(()=>rej(new Error("brapi-timeout-duro")),6300))]);
             if(resp.ok){dadosBrapi=await resp.json();}
+            else if(resp.status===402)dbg.push("Brapi-direta-erro:HTTP 402 (limite de requisicoes do plano excedido)");
             else dbg.push("Brapi-direta-erro:HTTP "+resp.status);
           }catch(e){dbg.push("Brapi-direta-erro:"+e.message);}
           if(!dadosBrapi){
             try{
-              // fetchViaProxy nao suporta headers customizados - no fallback via proxy o token
-              // vai na query string (metodo que a propria documentacao da brapi cita como valido
-              // para "ferramentas que nao suportam headers").
               const urlBrapiComToken=urlBrapi+"&token="+encodeURIComponent(brapiKey);
-              dadosBrapi=await fetchViaProxy(urlBrapiComToken,8000);
+              dadosBrapi=await fetchViaProxy(urlBrapiComToken,6000);
             }catch(e){dbg.push("Brapi-proxy-erro:"+e.message);}
           }
-          const bNAntesDesteLote=bN;
           if(dadosBrapi&&Array.isArray(dadosBrapi.results)){
-            algumSucesso=true;
+            let algumPrecoNesteTicker=false;
             dadosBrapi.results.forEach(r=>{
               if(!r||!r.symbol)return;
-              // v2: payload principal fica em r.data (v1 tinha os campos direto em r)
-              const d=r.data||r;// fallback pro formato antigo, caso a API responda em transicao
+              const d=r.data||r;
               const p=d.regularMarketPrice||d.previousClose;
-              if(typeof p==="number"&&p>0){allPrices[r.symbol]=p;bN++;}
-              // Variacao % do pregao - PRIORIDADE: regularMarketChangePercent direto da Brapi
+              if(typeof p==="number"&&p>0){allPrices[r.symbol]=p;bN++;algumPrecoNesteTicker=true;}
               let vd=null;
               if(typeof d.regularMarketChangePercent==="number"&&!isNaN(d.regularMarketChangePercent)){
                 vd=d.regularMarketChangePercent;
@@ -12119,25 +12108,28 @@ function App(){
                   vd=((cur-prev)/prev)*100;
                 }
               }
-              if(vd!==null&&!isNaN(vd)&&Math.abs(vd)<50){
-                allVars[r.symbol]=vd;
-              }
+              if(vd!==null&&!isNaN(vd)&&Math.abs(vd)<50)allVars[r.symbol]=vd;
             });
-          }else if(!dadosBrapi){
-            // Ja registrado em dbg acima (Brapi-direta-erro / Brapi-proxy-erro)
+            if(algumPrecoNesteTicker)algumSucesso=true;
+            return algumPrecoNesteTicker;
           }
-          // LOTE "FALHOU" pra fins de desistencia antecipada se: (a) nao teve resposta nenhuma
-          // (erro de rede/timeout - ja cobria antes), OU (b) teve resposta HTTP 200 mas nao
-          // extraiu NENHUM preco util deste lote (ex: em dia sem pregao, a Brapi pode responder
-          // com sucesso tecnico mas results vazio ou sem regularMarketPrice/previousClose validos).
-          // Sem essa segunda condicao, respostas "vazias mas com HTTP OK" nunca contavam como
-          // falha, entao a desistencia antecipada nunca disparava mesmo quando nenhum preco
-          // real estava sendo obtido - o loop rodava todos os 5 lotes sem necessidade.
-          if(bN>bNAntesDesteLote)lotesFalhosSeguidos=0;else lotesFalhosSeguidos++;
-          // Pequena pausa entre lotes pra nao disparar todos simultaneamente
-          if(lotesBrapi.indexOf(lote)<lotesBrapi.length-1)await sleep(300);
+          return false;
+        };
+        for(let i=0;i<brTickers.length;i+=CONCORRENCIA_BRAPI){
+          // DESISTENCIA ANTECIPADA: se 2 rodadas seguidas (cada uma com ate 5 tickers em
+          // paralelo) nao renderem NENHUM preco, a Brapi provavelmente esta indisponivel -
+          // para de insistir e preserva orcamento pro fallback Yahoo.
+          if(rodadasFalhasSeguidas>=2){
+            dbg.push("Brapi-desistencia-antecipada:parou em "+i+"/"+brTickers.length);
+            break;
+          }
+          const rodada=brTickers.slice(i,i+CONCORRENCIA_BRAPI);
+          const resultados=await Promise.all(rodada.map(tk=>buscarBrapi1Ticker(tk).catch(()=>false)));
+          const algumNestaRodada=resultados.some(r=>r);
+          rodadasFalhasSeguidas=algumNestaRodada?0:rodadasFalhasSeguidas+1;
+          if(i+CONCORRENCIA_BRAPI<brTickers.length)await sleep(250);
         }
-        if(algumSucesso)dbg.push("Brapi:"+bN+"/"+brTickers.length+" ("+lotesBrapi.length+" lote(s))");
+        if(algumSucesso)dbg.push("Brapi:"+bN+"/"+brTickers.length);
         else if(bN===0)dbg.push("Brapi:sem-results");
         // TEMPO da etapa Brapi - diagnostico pra saber se ela esta consumindo o orcamento
         // compartilhado das etapas seguintes (Yahoo BR/estrangeiro/Stooq).
@@ -12385,6 +12377,7 @@ function App(){
         });
         REFRESH_ETAPA.nome="(concluido)";REFRESH_ETAPA.ts=Date.now();
         setLastPU(new Date().toISOString());
+        setUltimoDbgLog(dbg.join("\n"));
         if(n<tickers.length){
           const uniq=[...new Set(failed)].filter(t=>!allPrices[t]);
           // Distingue falhas por relevancia: tickers SEM posicao (qty=0, "em estudo") importam pouco -
@@ -12449,8 +12442,8 @@ function App(){
             setPErr("");
           }
         }
-      } else {setPErr("Sem cotacoes ["+dbg.join(" ")+"]");}
-    }catch(e){setPErr("Erro: "+e.message+" ["+dbg.join(" ")+"]");}
+      } else {setUltimoDbgLog(dbg.join("\n"));setPErr("Sem cotacoes ["+dbg.join(" ")+"]");}
+    }catch(e){setUltimoDbgLog(dbg.join("\n"));setPErr("Erro: "+e.message+" ["+dbg.join(" ")+"]");}
     setLoadP(false);
   },[port,brapiKey,custom,ccy,ntnbTaxas,ntnbVNA,btcUsd]);
   // WATCHDOG DE SEGURANCA: garante que o botao "Atualizar precos" NUNCA fica preso em
@@ -17629,6 +17622,14 @@ h("button",{onClick:async()=>{
   msg+="\n---\nUse os proxies marcados \u2705 (nessa ordem de velocidade) na lista do app.";
   setDbgInfo(msg);
 },style:{background:"none",border:"none",color:"#8FBE3F",fontSize:10,cursor:"pointer",padding:"6px 4px",fontFamily:"monospace",flexShrink:0}},"PROXY"),
+h("button",{onClick:()=>{
+  // Mostra o log TECNICO COMPLETO (array dbg) da ULTIMA tentativa real de refresh() - diferente
+  // do DBG (que testa 1 ticker isolado, fora do fluxo real de lotes/orcamento compartilhado).
+  // Criado pra investigar casos onde um ticker isolado funciona no DBG mas o refresh() completo
+  // ainda falha - a diferenca de comportamento entre os dois fluxos so aparece aqui.
+  if(!ultimoDbgLog){setDbgInfo("Nenhum refresh() foi executado ainda nesta sessao. Clique em ATUALIZAR PRECOS primeiro, depois volte aqui.");return;}
+  setDbgInfo("LOG COMPLETO DA ULTIMA ATUALIZACAO\n"+new Date().toLocaleTimeString("pt-BR")+"\n\n"+ultimoDbgLog);
+},style:{background:"none",border:"none",color:"#E8C44A",fontSize:10,cursor:"pointer",padding:"6px 4px",fontFamily:"monospace",flexShrink:0}},"LOG"),
 h("button",{onClick:()=>{const k=window.prompt("Cole a chave da API Anthropic (sk-ant-...):");if(k&&k.length>20){setApiKeyS(k);if(aesKey)saveApiKey(aesKey,k);alert("Chave salva!");}else if(k!==null){alert("Chave invalida. Cole a chave completa.");}},style:{background:"none",border:"none",color:apiKey?"#C8A96E":"#3A3830",fontSize:10,cursor:"pointer",padding:"6px 0",fontFamily:"monospace",flexShrink:0}},"API"),
 h("button",{onClick:async()=>{
   try{
