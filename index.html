@@ -11993,60 +11993,77 @@ function App(){
       // allVars: variacao % do pregao por ticker (capturada junto com o preco)
       const allVars={};
       if(brTickers.length&&brapiKey){
-        const tickersList=brTickers.join(",");
         // MIGRADO PARA API V2 (set/2026) - a v1 (/api/quote/) parece estar em processo de
         // descontinuacao/instabilidade; a documentacao atual da brapi.dev so cobre v2
         // (/api/v2/stocks/quote), com autenticacao via header "Authorization: Bearer TOKEN"
         // em vez de "?token=" na URL, e o payload dentro de results[].data em vez de direto
         // em results[]. O symbol continua no nivel superior de cada item em results[].
-        const urlBrapi="https://brapi.dev/api/v2/stocks/quote?symbols="+encodeURIComponent(tickersList)+"&_t="+Date.now();
-        // Tenta chamada DIRETA primeiro (mais rapida quando funciona), com FALLBACK via proxy CORS
-        // se a direta falhar por qualquer motivo (rede instavel, proxy CORS do lado do usuario, etc).
-        let dadosBrapi=null,origemBrapi=null;
-        try{
-          const respPromise=fetch(urlBrapi,{signal:(typeof AbortSignal!=="undefined"&&AbortSignal.timeout)?AbortSignal.timeout(8000):undefined,cache:"no-store",headers:{"Authorization":"Bearer "+brapiKey,"cache-control":"no-cache","pragma":"no-cache"}});
-          const resp=await Promise.race([respPromise,new Promise((_,rej)=>setTimeout(()=>rej(new Error("brapi-timeout-duro")),8300))]);
-          if(resp.ok){dadosBrapi=await resp.json();origemBrapi="direta";}
-          else dbg.push("Brapi-direta-erro:HTTP "+resp.status);
-        }catch(e){dbg.push("Brapi-direta-erro:"+e.message);}
-        if(!dadosBrapi){
+        //
+        // LOTES DE 15 TICKERS (set/2026) - causa raiz confirmada por teste real do usuario:
+        // o DBG (1 ticker isolado) retornava HTTP 200 com dados corretos, mas o refresh completo
+        // (todos os ~85 tickers numa unica chamada) falhava sempre. A documentacao oficial da
+        // brapi confirma limite de simbolos por requisicao (ate 20 no plano Pro, provavelmente
+        // menos nos planos inferiores) - uma lista de 70+ tickers numa so chamada estourava esse
+        // limite. Agora divide em lotes de 15 (margem de seguranca abaixo do maximo documentado)
+        // e faz uma chamada por lote, agregando os resultados.
+        const LOTE_BRAPI=15;
+        const lotesBrapi=[];
+        for(let i=0;i<brTickers.length;i+=LOTE_BRAPI)lotesBrapi.push(brTickers.slice(i,i+LOTE_BRAPI));
+        let bN=0,algumSucesso=false;
+        for(const lote of lotesBrapi){
+          const tickersList=lote.join(",");
+          const urlBrapi="https://brapi.dev/api/v2/stocks/quote?symbols="+encodeURIComponent(tickersList)+"&_t="+Date.now();
+          // Tenta chamada DIRETA primeiro (mais rapida quando funciona), com FALLBACK via proxy
+          // CORS se a direta falhar por qualquer motivo.
+          let dadosBrapi=null;
           try{
-            // fetchViaProxy nao suporta headers customizados (os proxies CORS repassam so a URL) -
-            // entao no fallback via proxy o token vai na query string (metodo que a propria
-            // documentacao da brapi cita como valido para "ferramentas que nao suportam headers").
-            const urlBrapiComToken=urlBrapi+"&token="+encodeURIComponent(brapiKey);
-            dadosBrapi=await fetchViaProxy(urlBrapiComToken,8000);
-            origemBrapi="proxy";
-          }catch(e){dbg.push("Brapi-proxy-erro:"+e.message);}
-        }
-        if(dadosBrapi&&Array.isArray(dadosBrapi.results)){
-          let bN=0;
-          dadosBrapi.results.forEach(r=>{
-            if(!r||!r.symbol)return;
-            // v2: payload principal fica em r.data (v1 tinha os campos direto em r)
-            const d=r.data||r;// fallback pro formato antigo, caso a API responda em transicao
-            const p=d.regularMarketPrice||d.previousClose;
-            if(typeof p==="number"&&p>0){allPrices[r.symbol]=p;bN++;}
-            // Variacao % do pregao - PRIORIDADE: regularMarketChangePercent direto da Brapi
-            let vd=null;
-            if(typeof d.regularMarketChangePercent==="number"&&!isNaN(d.regularMarketChangePercent)){
-              vd=d.regularMarketChangePercent;
-            }else{
-              const cur=d.regularMarketPrice;
-              const prev=d.regularMarketPreviousClose;
-              if(typeof cur==="number"&&cur>0&&typeof prev==="number"&&prev>0&&prev!==cur){
-                vd=((cur-prev)/prev)*100;
+            const respPromise=fetch(urlBrapi,{signal:(typeof AbortSignal!=="undefined"&&AbortSignal.timeout)?AbortSignal.timeout(8000):undefined,cache:"no-store",headers:{"Authorization":"Bearer "+brapiKey,"cache-control":"no-cache","pragma":"no-cache"}});
+            const resp=await Promise.race([respPromise,new Promise((_,rej)=>setTimeout(()=>rej(new Error("brapi-timeout-duro")),8300))]);
+            if(resp.ok){dadosBrapi=await resp.json();}
+            else dbg.push("Brapi-direta-erro:HTTP "+resp.status);
+          }catch(e){dbg.push("Brapi-direta-erro:"+e.message);}
+          if(!dadosBrapi){
+            try{
+              // fetchViaProxy nao suporta headers customizados - no fallback via proxy o token
+              // vai na query string (metodo que a propria documentacao da brapi cita como valido
+              // para "ferramentas que nao suportam headers").
+              const urlBrapiComToken=urlBrapi+"&token="+encodeURIComponent(brapiKey);
+              dadosBrapi=await fetchViaProxy(urlBrapiComToken,8000);
+            }catch(e){dbg.push("Brapi-proxy-erro:"+e.message);}
+          }
+          if(dadosBrapi&&Array.isArray(dadosBrapi.results)){
+            algumSucesso=true;
+            dadosBrapi.results.forEach(r=>{
+              if(!r||!r.symbol)return;
+              // v2: payload principal fica em r.data (v1 tinha os campos direto em r)
+              const d=r.data||r;// fallback pro formato antigo, caso a API responda em transicao
+              const p=d.regularMarketPrice||d.previousClose;
+              if(typeof p==="number"&&p>0){allPrices[r.symbol]=p;bN++;}
+              // Variacao % do pregao - PRIORIDADE: regularMarketChangePercent direto da Brapi
+              let vd=null;
+              if(typeof d.regularMarketChangePercent==="number"&&!isNaN(d.regularMarketChangePercent)){
+                vd=d.regularMarketChangePercent;
+              }else{
+                const cur=d.regularMarketPrice;
+                const prev=d.regularMarketPreviousClose;
+                if(typeof cur==="number"&&cur>0&&typeof prev==="number"&&prev>0&&prev!==cur){
+                  vd=((cur-prev)/prev)*100;
+                }
               }
-            }
-            if(vd!==null&&!isNaN(vd)&&Math.abs(vd)<50){
-              allVars[r.symbol]=vd;
-            }
-          });
-          dbg.push("Brapi("+origemBrapi+"):"+bN+"/"+brTickers.length);
-        }else if(!dadosBrapi){
-          // Ja registrado em dbg acima (Brapi-direta-erro / Brapi-proxy-erro)
-        }else dbg.push("Brapi:sem-results");
+              if(vd!==null&&!isNaN(vd)&&Math.abs(vd)<50){
+                allVars[r.symbol]=vd;
+              }
+            });
+          }else if(!dadosBrapi){
+            // Ja registrado em dbg acima (Brapi-direta-erro / Brapi-proxy-erro)
+          }
+          // Pequena pausa entre lotes pra nao disparar todos simultaneamente
+          if(lotesBrapi.indexOf(lote)<lotesBrapi.length-1)await sleep(300);
+        }
+        if(algumSucesso)dbg.push("Brapi:"+bN+"/"+brTickers.length+" ("+lotesBrapi.length+" lote(s))");
+        else if(bN===0)dbg.push("Brapi:sem-results");
       }
+      const sleep=ms=>new Promise(r=>setTimeout(r,ms));
       // Brasil - Yahoo Finance como fallback (apenas tickers que a Brapi nao trouxe)
       // Funcao isolada para 1 ticker - reaproveitada na tentativa inicial E no retry automatico.
       const buscarYahooBR=async(t)=>{
@@ -12091,7 +12108,6 @@ function App(){
         promessa,
         new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout-duro")),ms))
       ]);
-      const sleep=ms=>new Promise(r=>setTimeout(r,ms));
       let brFaltam=brTickers.filter(t=>!allPrices[t]);
       if(brFaltam.length){
         let brN=0;
