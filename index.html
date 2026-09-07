@@ -358,6 +358,13 @@ const FX_INIT={BRL:1,USD:5.01,EUR:5.7,GBP:6.8,CHF:6.1,JPY:0.034,AUD:3.25,CAD:3.7
 // FX global legacy - mantido para compatibilidade com codigo fora do escopo do App (ex: pv())
 // Sera mantido sincronizado pelo App via efeito colateral.
 const FX={...FX_INIT};
+// RASTREADOR DE ETAPA do refresh() - global mutavel (fora do React state, sem re-render).
+// refreshInner atualiza REFRESH_ETAPA.nome a cada fase que inicia. Se o watchdog externo
+// disparar (>150s), ele le esse valor pra reportar EM QUAL ETAPA especifica a execucao estava
+// presa, em vez de um erro generico "demorou demais". Criado em 07/09/2026 apos multiplas
+// tentativas de correcao as cegas (Brapi, proxies, timeout duplo) nao convergirem - sem saber
+// qual etapa exata falha a cada tentativa, cada correcao era uma aposta.
+const REFRESH_ETAPA={nome:"(nao iniciado)",ts:0};
 // Premissas BASE de risco e retorno por classe (escala 0-10)
 // Valores ancorados em cenario Selic = 10% a.a. (normalizada)
 const RR_BASE={fii:{r:3.5,e:7.5},acoes_br:{r:6.5,e:8.5},acoes_eua:{r:5.5,e:8.0},acoes_mundo:{r:5.5,e:7.8},reits:{r:4.5,e:7.2},selic:{r:1.0,e:4.5},rfipca:{r:3.0,e:7.0},ouro:{r:4.0,e:5.5},bitcoin:{r:9.5,e:9.0},infra:{r:2.5,e:7.0},imoveis:{r:2.0,e:6.0},agro:{r:3.0,e:8.0}};
@@ -11851,6 +11858,7 @@ function App(){
       const allPrices={};
       const failed=[];
       const fxUpd={};// acumula updates de cambio pra aplicar via setFxState no final
+      REFRESH_ETAPA.nome="Cambio (FX)";REFRESH_ETAPA.ts=Date.now();
       // Cambio - AwesomeAPI (PTAX) + open.er-api.com (moedas complementares: HKD/SGD/NOK/DKK/MXN).
       // PARALELIZADO (Promise.allSettled) - sao fontes independentes, nao ha motivo pra serializar
       // e isso custava ate 6s extras sempre, mesmo quando a primeira ja funcionava perfeitamente.
@@ -11873,6 +11881,7 @@ function App(){
       }else if(rER.status==="rejected")dbg.push("FX-ER-erro:"+rER.reason.message);
       // Aplica atualizacoes de cambio no state (re-render automatico nos componentes)
       if(Object.keys(fxUpd).length>0)setFxState(prev=>({...prev,...fxUpd}));
+      REFRESH_ETAPA.nome="IPCA (imoveis)";REFRESH_ETAPA.ts=Date.now();
       // Imoveis fisicos: atualiza valor com IPCA acumulado desde a ultima avaliacao
       const imvTickers=Object.keys(port).filter(t=>isImv(t));
       if(imvTickers.length>0){
@@ -11902,6 +11911,7 @@ function App(){
           }
         }catch(e){dbg.push("IPCA-err:"+e.message);}
       }
+      REFRESH_ETAPA.nome="Ouro";REFRESH_ETAPA.ts=Date.now();
       // Ouro: tenta BCB (Ouro BM&F grama, R$/g) primeiro, fallback Coinbase XAU spot
       // Busca sempre (mesmo sem OURO_FISICO na posicao) pra header
       const queremOuro=tickers.includes("OURO_FISICO");
@@ -11939,6 +11949,7 @@ function App(){
         }
         if(queremOuro&&!okOuro)failed.push("OURO_FISICO");
       }
+      REFRESH_ETAPA.nome="BTC";REFRESH_ETAPA.ts=Date.now();
       // Bitcoin via cascata de fontes (CoinGecko -> Coinbase -> Binance)
       // CoinGecko eh fonte principal (variacao 24h disponivel). Coinbase/Binance sao fallbacks.
       // Sempre tenta, mesmo sem posicao em BTC, para exibir cotacao no header.
@@ -11999,6 +12010,7 @@ function App(){
       // o refresh() inteiro logo no inicio, antes de qualquer chamada de rede rodar.
       const sleep=ms=>new Promise(r=>setTimeout(r,ms));
       if(brTickers.length&&brapiKey){
+        REFRESH_ETAPA.nome="Brapi (lotes)";REFRESH_ETAPA.ts=Date.now();
         // MIGRADO PARA API V2 (set/2026) - a v1 (/api/quote/) parece estar em processo de
         // descontinuacao/instabilidade; a documentacao atual da brapi.dev so cobre v2
         // (/api/v2/stocks/quote), com autenticacao via header "Authorization: Bearer TOKEN"
@@ -12069,6 +12081,7 @@ function App(){
         if(algumSucesso)dbg.push("Brapi:"+bN+"/"+brTickers.length+" ("+lotesBrapi.length+" lote(s))");
         else if(bN===0)dbg.push("Brapi:sem-results");
       }
+      REFRESH_ETAPA.nome="Yahoo BR (fallback)";REFRESH_ETAPA.ts=Date.now();
       // Brasil - Yahoo Finance como fallback (apenas tickers que a Brapi nao trouxe)
       // Funcao isolada para 1 ticker - reaproveitada na tentativa inicial E no retry automatico.
       const buscarYahooBR=async(t)=>{
@@ -12142,6 +12155,7 @@ function App(){
       // falhando a cada tentativa - exatamente o padrao observado: NDIA/O/ASML/TSE8058/TLT/AAAU
       // numa rodada, outros tickers em rodadas anteriores).
       if(fgnTickers.length){
+        REFRESH_ETAPA.nome="Yahoo estrangeiro";REFRESH_ETAPA.ts=Date.now();
         let yhN=0;
         const buscarYahooFgn=async(t)=>{
           const sym=YH[t];
@@ -12208,6 +12222,7 @@ function App(){
         SIE:"sie.de",SAP:"sap.de",ASML:"asml.nl",ABBN:"abbn.ch",HLMA:"hlma.uk",KOG:"kog.no",
         GMEXICOB:"gmexicob.mx",
       };
+      REFRESH_ETAPA.nome="Stooq (fallback)";REFRESH_ETAPA.ts=Date.now();
       const stqMissing=fgnTickers.filter(t=>!allPrices[t]&&STQ[t]);
       if(stqMissing.length){
         let sqN=0;
@@ -12278,6 +12293,7 @@ function App(){
           });
           return np;
         });
+        REFRESH_ETAPA.nome="(concluido)";REFRESH_ETAPA.ts=Date.now();
         setLastPU(new Date().toISOString());
         if(n<tickers.length){
           const uniq=[...new Set(failed)].filter(t=>!allPrices[t]);
@@ -12353,6 +12369,7 @@ function App(){
   const refresh=useCallback(async()=>{
     let watchdogDisparou=false;
     const TETO_MS=150000;
+    REFRESH_ETAPA.nome="(iniciando)";REFRESH_ETAPA.ts=Date.now();
     try{
       await Promise.race([
         refreshInner(),
@@ -12360,7 +12377,11 @@ function App(){
       ]);
     }catch(e){
       if(watchdogDisparou){
-        setPErr("\u26A0 Atualizacao demorou demais e foi interrompida (>150s) - provavel instabilidade persistente nos proxies de cotacao. Tente novamente mais tarde.");
+        // Reporta EM QUAL ETAPA especifica a execucao estava presa, e ha quanto tempo, em vez
+        // de um erro generico. Isso e o que faltava pra parar de corrigir as cegas - agora cada
+        // vez que o watchdog disparar, sabemos exatamente onde investigar.
+        const presoHa=REFRESH_ETAPA.ts?Math.round((Date.now()-REFRESH_ETAPA.ts)/1000):"?";
+        setPErr("\u26A0 Atualizacao demorou demais e foi interrompida (>150s) - travou na etapa \""+REFRESH_ETAPA.nome+"\" ha "+presoHa+"s. Tente novamente mais tarde ou use o botao DBG/PROXY para investigar essa etapa especifica.");
         setLoadP(false);
       }
       // Se nao foi o watchdog, refreshInner ja tratou seu proprio erro e chamou setLoadP(false) internamente.
