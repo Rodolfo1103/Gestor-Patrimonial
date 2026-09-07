@@ -11994,25 +11994,28 @@ function App(){
       const allVars={};
       if(brTickers.length&&brapiKey){
         const tickersList=brTickers.join(",");
-        const urlBrapi="https://brapi.dev/api/quote/"+encodeURIComponent(tickersList)+"?token="+encodeURIComponent(brapiKey)+"&_t="+Date.now();
+        // MIGRADO PARA API V2 (set/2026) - a v1 (/api/quote/) parece estar em processo de
+        // descontinuacao/instabilidade; a documentacao atual da brapi.dev so cobre v2
+        // (/api/v2/stocks/quote), com autenticacao via header "Authorization: Bearer TOKEN"
+        // em vez de "?token=" na URL, e o payload dentro de results[].data em vez de direto
+        // em results[]. O symbol continua no nivel superior de cada item em results[].
+        const urlBrapi="https://brapi.dev/api/v2/stocks/quote?symbols="+encodeURIComponent(tickersList)+"&_t="+Date.now();
         // Tenta chamada DIRETA primeiro (mais rapida quando funciona), com FALLBACK via proxy CORS
-        // se a direta falhar. Motivo: usuario confirmou em teste real (04/09/2026) que a chamada
-        // direta retorna "Failed to fetch" de forma consistente - sintoma classico de a Brapi nao
-        // enviar header Access-Control-Allow-Origin para chamadas client-side vindas de dominios
-        // como github.io (API pensada pra ser chamada de um backend, nao direto do navegador).
-        // O token configurado (usuario confirmou que existe e esta correto) fica sem uso nenhum
-        // se a chamada direta sempre falhar - por isso o fallback via proxy e essencial aqui,
-        // nao so "bom ter".
+        // se a direta falhar por qualquer motivo (rede instavel, proxy CORS do lado do usuario, etc).
         let dadosBrapi=null,origemBrapi=null;
         try{
-          const respPromise=fetch(urlBrapi,{signal:(typeof AbortSignal!=="undefined"&&AbortSignal.timeout)?AbortSignal.timeout(8000):undefined,cache:"no-store",headers:{"cache-control":"no-cache","pragma":"no-cache"}});
+          const respPromise=fetch(urlBrapi,{signal:(typeof AbortSignal!=="undefined"&&AbortSignal.timeout)?AbortSignal.timeout(8000):undefined,cache:"no-store",headers:{"Authorization":"Bearer "+brapiKey,"cache-control":"no-cache","pragma":"no-cache"}});
           const resp=await Promise.race([respPromise,new Promise((_,rej)=>setTimeout(()=>rej(new Error("brapi-timeout-duro")),8300))]);
           if(resp.ok){dadosBrapi=await resp.json();origemBrapi="direta";}
           else dbg.push("Brapi-direta-erro:HTTP "+resp.status);
         }catch(e){dbg.push("Brapi-direta-erro:"+e.message);}
         if(!dadosBrapi){
           try{
-            dadosBrapi=await fetchViaProxy(urlBrapi,8000);
+            // fetchViaProxy nao suporta headers customizados (os proxies CORS repassam so a URL) -
+            // entao no fallback via proxy o token vai na query string (metodo que a propria
+            // documentacao da brapi cita como valido para "ferramentas que nao suportam headers").
+            const urlBrapiComToken=urlBrapi+"&token="+encodeURIComponent(brapiKey);
+            dadosBrapi=await fetchViaProxy(urlBrapiComToken,8000);
             origemBrapi="proxy";
           }catch(e){dbg.push("Brapi-proxy-erro:"+e.message);}
         }
@@ -12020,22 +12023,21 @@ function App(){
           let bN=0;
           dadosBrapi.results.forEach(r=>{
             if(!r||!r.symbol)return;
-            const p=r.regularMarketPrice||r.previousClose;
+            // v2: payload principal fica em r.data (v1 tinha os campos direto em r)
+            const d=r.data||r;// fallback pro formato antigo, caso a API responda em transicao
+            const p=d.regularMarketPrice||d.previousClose;
             if(typeof p==="number"&&p>0){allPrices[r.symbol]=p;bN++;}
             // Variacao % do pregao - PRIORIDADE: regularMarketChangePercent direto da Brapi
-            // (calculo manual via regularMarketPreviousClose mostrou-se inconsistente em testes)
             let vd=null;
-            if(typeof r.regularMarketChangePercent==="number"&&!isNaN(r.regularMarketChangePercent)){
-              vd=r.regularMarketChangePercent;
+            if(typeof d.regularMarketChangePercent==="number"&&!isNaN(d.regularMarketChangePercent)){
+              vd=d.regularMarketChangePercent;
             }else{
-              // Fallback: calculo manual
-              const cur=r.regularMarketPrice;
-              const prev=r.regularMarketPreviousClose;
+              const cur=d.regularMarketPrice;
+              const prev=d.regularMarketPreviousClose;
               if(typeof cur==="number"&&cur>0&&typeof prev==="number"&&prev>0&&prev!==cur){
                 vd=((cur-prev)/prev)*100;
               }
             }
-            // Sanity check
             if(vd!==null&&!isNaN(vd)&&Math.abs(vd)<50){
               allVars[r.symbol]=vd;
             }
@@ -12450,11 +12452,12 @@ function App(){
     const isBR=cid==="acoes_br"||cid==="fii"||cid==="infra"||cid==="agro"||cid==="selic";
     if(isBR&&brapiKey){
       try{
-        const url="https://brapi.dev/api/quote/"+encodeURIComponent(symbol)+"?token="+encodeURIComponent(brapiKey);
-        const r=await fetch(url,{signal:(typeof AbortSignal!=="undefined"&&AbortSignal.timeout)?AbortSignal.timeout(8000):undefined});
+        const url="https://brapi.dev/api/v2/stocks/quote?symbols="+encodeURIComponent(symbol);
+        const r=await fetch(url,{signal:(typeof AbortSignal!=="undefined"&&AbortSignal.timeout)?AbortSignal.timeout(8000):undefined,headers:{"Authorization":"Bearer "+brapiKey}});
         if(r.ok){
           const j=await r.json();
-          const q=j&&Array.isArray(j.results)&&j.results[0];
+          const q0=j&&Array.isArray(j.results)&&j.results[0];
+          const q=q0&&(q0.data||q0);// v2: payload em q0.data; fallback pro formato antigo
           if(q&&(q.longName||q.shortName)){
             const nome=(q.longName||q.shortName||"").trim().slice(0,40);
             const preco=q.regularMarketPrice||q.previousClose||null;
@@ -17373,15 +17376,17 @@ h("button",{onClick:async()=>{
   msg+="\n";
   // 2) Versao do codigo
   msg+="VERSAO CODIGO (esperado: v3): v3-2026-06-02-yahoo-2d-array-closes\n\n";
-  // 3) Busca Brapi crua
+  // 3) Busca Brapi crua (API v2)
   if(brapiKey){
     try{
-      const url="https://brapi.dev/api/quote/"+tk+"?token="+encodeURIComponent(brapiKey)+"&_t="+Date.now();
-      const r=await fetch(url,{cache:"no-store"});
+      const url="https://brapi.dev/api/v2/stocks/quote?symbols="+tk+"&_t="+Date.now();
+      const r=await fetch(url,{cache:"no-store",headers:{"Authorization":"Bearer "+brapiKey}});
+      msg+="BRAPI HTTP status: "+r.status+"\n";
       const j=await r.json();
-      if(j&&j.results&&j.results[0]){
-        const q=j.results[0];
-        msg+="BRAPI RAW:\n";
+      const q0=j&&j.results&&j.results[0];
+      const q=q0&&(q0.data||q0);
+      if(q){
+        msg+="BRAPI RAW (v2):\n";
         msg+="  regularMarketPrice = "+q.regularMarketPrice+"\n";
         msg+="  regularMarketPreviousClose = "+q.regularMarketPreviousClose+"\n";
         msg+="  regularMarketChangePercent = "+q.regularMarketChangePercent+"\n";
