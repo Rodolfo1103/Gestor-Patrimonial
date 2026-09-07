@@ -12413,13 +12413,18 @@ function App(){
           const apenasSecundarias=erros.includes("IPCA-err")||erros.includes("Brapi-direta-erro")||erros.includes("Brapi-proxy-erro")||erros.includes("Brapi:sem-results");
           // FERIADO: se B3 e/ou NYSE estao fechadas por feriado (nao so fim de semana/horario),
           // a baixa taxa de sucesso pode ser porque nao ha pregao novo pra buscar hoje - nao
-          // necessariamente falha tecnica de proxy/API. Acrescenta esse contexto na mensagem.
+          // necessariamente falha tecnica de proxy/API. So menciona a bolsa cujo feriado
+          // realmente CORRESPONDE aos ativos que falharam (evita mencionar B3 fechada quando so
+          // ha falhas de ativos estrangeiros, por exemplo - deixa a mensagem mais precisa e
+          // menos alarmante quando o problema e so calendario, nao tecnico).
           const mktBRAgora=marketStatus("PETR4");
           const mktUSAAgora=marketStatus("MSFT");
+          const falhasBR=falhasComPos.filter(t=>BCCY[t]==="BRL"&&!["OURO_FISICO","BTC","SELIC2031"].includes(t));
+          const falhasFgn=falhasComPos.filter(t=>!falhasBR.includes(t));
           const feriadoContexto=[];
-          if(mktBRAgora.label==="feriado")feriadoContexto.push("B3 fechada por feriado hoje");
-          if(mktUSAAgora.label==="feriado")feriadoContexto.push("NYSE/Nasdaq fechadas por feriado hoje");
-          const sufixoFeriado=feriadoContexto.length?" ("+feriadoContexto.join("; ")+" - pode nao haver preco novo pra buscar em boa parte do mercado.)":"";
+          if(mktBRAgora.label==="feriado"&&falhasBR.length>0)feriadoContexto.push("B3 fechada por feriado hoje");
+          if(mktUSAAgora.label==="feriado"&&falhasFgn.length>0)feriadoContexto.push("NYSE/Nasdaq fechadas por feriado hoje");
+          const sufixoFeriado=feriadoContexto.length?" ("+feriadoContexto.join("; ")+" - pode nao haver preco novo pra buscar nesses ativos.)":"";
           if(falhasComPos.length>0){
             // SEMPRE avisa quando ha posicao real sem atualizar - independente da taxa geral de acerto.
             // Preco desses ativos ficou com o valor da ultima atualizacao bem-sucedida (nao o de hoje).
