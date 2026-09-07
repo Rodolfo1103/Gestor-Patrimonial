@@ -12076,10 +12076,26 @@ function App(){
         const CONCORRENCIA_BRAPI=5;// chamadas simultaneas por rodada
         let bN=0,algumSucesso=false,rodadasFalhasSeguidas=0;
         const buscarBrapi1Ticker=async(tk)=>{
-          const urlBrapi="https://brapi.dev/api/v2/stocks/quote?symbols="+encodeURIComponent(tk)+"&_t="+Date.now();
+          // CAUSA RAIZ REAL CONFIRMADA (07/09/2026): "Failed to fetch" acontecia em TODAS as
+          // tentativas, em qualquer navegador (Chrome normal e PWA), mesmo com internet
+          // funcionando normalmente - mas a MESMA URL aberta direto na barra de enderecos
+          // funcionava perfeitamente e devolvia dados validos. A diferenca: fetch() com headers
+          // customizados (Authorization, cache-control, pragma) NAO e uma "simple request" em
+          // termos de CORS - o navegador precisa fazer um preflight OPTIONS antes, perguntando
+          // ao servidor se aceita esses headers desse dominio. Se a brapi.dev nao responde esse
+          // preflight corretamente (nao inclui Access-Control-Allow-Headers cobrindo esses 3
+          // headers), o navegador BLOQUEIA a requisicao inteira antes mesmo dela sair - aparece
+          // como "Failed to fetch" sem detalhe nenhum, pois tecnicamente a chamada HTTP real
+          // nunca chegou a ser enviada. Navegacao direta pela barra de enderecos e sempre GET
+          // simples sem headers extras, entao nunca aciona preflight - por isso sempre funcionava
+          // isolada. Correcao: remove os headers customizados (cache-control/pragma nao fazem
+          // nada util aqui mesmo - o cache:"no-store" do proprio fetch ja cobre) e move a
+          // autenticacao pra query string (metodo alternativo que a propria doc da brapi cita),
+          // eliminando o preflight complexo inteiramente - fica uma "simple request" novamente.
+          const urlBrapi="https://brapi.dev/api/v2/stocks/quote?symbols="+encodeURIComponent(tk)+"&token="+encodeURIComponent(brapiKey)+"&_t="+Date.now();
           let dadosBrapi=null;
           try{
-            const respPromise=fetch(urlBrapi,{signal:(typeof AbortSignal!=="undefined"&&AbortSignal.timeout)?AbortSignal.timeout(6000):undefined,cache:"no-store",headers:{"Authorization":"Bearer "+brapiKey,"cache-control":"no-cache","pragma":"no-cache"}});
+            const respPromise=fetch(urlBrapi,{signal:(typeof AbortSignal!=="undefined"&&AbortSignal.timeout)?AbortSignal.timeout(6000):undefined,cache:"no-store"});
             const resp=await Promise.race([respPromise,new Promise((_,rej)=>setTimeout(()=>rej(new Error("brapi-timeout-duro")),6300))]);
             if(resp.ok){dadosBrapi=await resp.json();}
             else if(resp.status===402)dbg.push("Brapi-direta-erro:HTTP 402 (limite de requisicoes do plano excedido)");
@@ -12087,7 +12103,7 @@ function App(){
           }catch(e){dbg.push("Brapi-direta-erro:"+e.message);}
           if(!dadosBrapi){
             try{
-              const urlBrapiComToken=urlBrapi+"&token="+encodeURIComponent(brapiKey);
+              const urlBrapiComToken=urlBrapi;
               dadosBrapi=await fetchViaProxy(urlBrapiComToken,6000);
             }catch(e){dbg.push("Brapi-proxy-erro:"+e.message);}
           }
@@ -12586,8 +12602,10 @@ function App(){
     const isBR=cid==="acoes_br"||cid==="fii"||cid==="infra"||cid==="agro"||cid==="selic";
     if(isBR&&brapiKey){
       try{
-        const url="https://brapi.dev/api/v2/stocks/quote?symbols="+encodeURIComponent(symbol);
-        const r=await fetch(url,{signal:(typeof AbortSignal!=="undefined"&&AbortSignal.timeout)?AbortSignal.timeout(8000):undefined,headers:{"Authorization":"Bearer "+brapiKey}});
+        // Sem header Authorization - evita preflight CORS complexo (causa raiz confirmada do
+        // "Failed to fetch" generalizado - ver comentario detalhado em buscarBrapi1Ticker).
+        const url="https://brapi.dev/api/v2/stocks/quote?symbols="+encodeURIComponent(symbol)+"&token="+encodeURIComponent(brapiKey);
+        const r=await fetch(url,{signal:(typeof AbortSignal!=="undefined"&&AbortSignal.timeout)?AbortSignal.timeout(8000):undefined});
         if(r.ok){
           const j=await r.json();
           const q0=j&&Array.isArray(j.results)&&j.results[0];
@@ -17510,11 +17528,11 @@ h("button",{onClick:async()=>{
   msg+="\n";
   // 2) Versao do codigo
   msg+="VERSAO CODIGO (esperado: v3): v3-2026-06-02-yahoo-2d-array-closes\n\n";
-  // 3) Busca Brapi crua (API v2)
+  // 3) Busca Brapi crua (API v2) - sem header Authorization, evita preflight CORS complexo
   if(brapiKey){
     try{
-      const url="https://brapi.dev/api/v2/stocks/quote?symbols="+tk+"&_t="+Date.now();
-      const r=await fetch(url,{cache:"no-store",headers:{"Authorization":"Bearer "+brapiKey}});
+      const url="https://brapi.dev/api/v2/stocks/quote?symbols="+tk+"&token="+encodeURIComponent(brapiKey)+"&_t="+Date.now();
+      const r=await fetch(url,{cache:"no-store"});
       msg+="BRAPI HTTP status: "+r.status+"\n";
       const j=await r.json();
       const q0=j&&j.results&&j.results[0];
