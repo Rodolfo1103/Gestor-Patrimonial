@@ -12038,8 +12038,18 @@ function App(){
         const LOTE_BRAPI=15;
         const lotesBrapi=[];
         for(let i=0;i<brTickers.length;i+=LOTE_BRAPI)lotesBrapi.push(brTickers.slice(i,i+LOTE_BRAPI));
-        let bN=0,algumSucesso=false;
+        let bN=0,algumSucesso=false,lotesFalhosSeguidos=0;
         for(const lote of lotesBrapi){
+          // DESISTENCIA ANTECIPADA (set/2026): se os 2 primeiros lotes falharem POR COMPLETO
+          // (direta E proxy, ambos), a Brapi provavelmente esta indisponivel nesta tentativa -
+          // continuar tentando mais lotes so desperdica o orcamento de tempo compartilhado que
+          // as etapas seguintes (Yahoo BR/estrangeiro, que tem cors.sh funcionando) precisam.
+          // Corrige o caso observado: Brapi falhando em todos os 5 lotes consumia ~80s sozinha,
+          // deixando quase nada pro fallback processar os ~57 tickers restantes.
+          if(lotesFalhosSeguidos>=2){
+            dbg.push("Brapi-desistencia-antecipada:"+lotesFalhosSeguidos+" lotes falharam seguidos, pulando "+(lotesBrapi.length-lotesBrapi.indexOf(lote))+" lote(s) restante(s)");
+            break;
+          }
           const tickersList=lote.join(",");
           const urlBrapi="https://brapi.dev/api/v2/stocks/quote?symbols="+encodeURIComponent(tickersList)+"&_t="+Date.now();
           // Tenta chamada DIRETA primeiro (mais rapida quando funciona), com FALLBACK via proxy
@@ -12060,6 +12070,7 @@ function App(){
               dadosBrapi=await fetchViaProxy(urlBrapiComToken,8000);
             }catch(e){dbg.push("Brapi-proxy-erro:"+e.message);}
           }
+          if(dadosBrapi)lotesFalhosSeguidos=0;else lotesFalhosSeguidos++;
           if(dadosBrapi&&Array.isArray(dadosBrapi.results)){
             algumSucesso=true;
             dadosBrapi.results.forEach(r=>{
@@ -12091,6 +12102,9 @@ function App(){
         }
         if(algumSucesso)dbg.push("Brapi:"+bN+"/"+brTickers.length+" ("+lotesBrapi.length+" lote(s))");
         else if(bN===0)dbg.push("Brapi:sem-results");
+        // TEMPO da etapa Brapi - diagnostico pra saber se ela esta consumindo o orcamento
+        // compartilhado das etapas seguintes (Yahoo BR/estrangeiro/Stooq).
+        dbg.push("Brapi-tempo:"+Math.round((Date.now()-REFRESH_ETAPA.ts)/1000)+"s");
       }
       REFRESH_ETAPA.nome="Yahoo BR (fallback)";REFRESH_ETAPA.ts=Date.now();
       // Brasil - Yahoo Finance como fallback (apenas tickers que a Brapi nao trouxe)
