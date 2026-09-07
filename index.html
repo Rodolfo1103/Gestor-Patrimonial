@@ -11657,6 +11657,23 @@ function App(){
   //   - B3 (BR): 10:00-17:00 BRT (UTC-3), seg-sex
   //   - NYSE/NASDAQ (USA): 09:30-16:00 ET (UTC-5 padrao / UTC-4 DST) - simplificamos UTC-4 (DST ativo)
   //   - Crypto/Forex: 24/7
+  // FERIADOS conhecidos que fecham a B3 e/ou NYSE por completo (nao inclui meio-expediente).
+  // Formato "YYYY-MM-DD". Cobre datas fixas nacionais (facil manter) + moveis pre-calculadas
+  // pros proximos anos. Sem isso, marketStatus so olhava dia da semana + horario e marcava
+  // feriados como "aberto" incorretamente (ex: 7/set/2026, Independencia BR + Labor Day EUA
+  // coincidindo na mesma segunda-feira - confirmado pelo usuario e por fontes externas).
+  const FERIADOS_B3=new Set([
+    "2026-01-01","2026-02-16","2026-02-17","2026-04-03","2026-04-21","2026-05-01",
+    "2026-06-04","2026-09-07","2026-10-12","2026-11-02","2026-11-15","2026-11-20","2026-12-25",
+    "2027-01-01","2027-02-08","2027-02-09","2027-03-26","2027-04-21","2027-05-01",
+    "2027-06-27","2027-09-07","2027-10-12","2027-11-02","2027-11-15","2027-12-25",
+  ]);
+  const FERIADOS_NYSE=new Set([
+    "2026-01-01","2026-01-19","2026-02-16","2026-04-03","2026-05-25","2026-06-19",
+    "2026-07-03","2026-09-07","2026-11-26","2026-12-25",
+    "2027-01-01","2027-01-18","2027-02-15","2027-03-26","2027-05-31","2027-06-18",
+    "2027-07-05","2027-09-06","2027-11-25","2027-12-24",
+  ]);
   const marketStatus=useCallback((ticker)=>{
     if(!ticker)return{aberto:false,exchange:"?",label:""};
     // Crypto
@@ -11688,6 +11705,18 @@ function App(){
     const isDST=month>=2&&month<=10;// mar-nov
     const etOffset=isDST?-4:-5;
     const etH=(utcH+etOffset+24)%24;
+    // FERIADO: checa a data local de cada exchange (BRT p/ B3, ET p/ NYSE) contra a lista.
+    // Precisa da data local, nao UTC direto, pra nao errar perto da virada do dia.
+    const dataLocalISO=(offsetH)=>{
+      const d=new Date(now.getTime()+offsetH*3600000);
+      return d.getUTCFullYear()+"-"+String(d.getUTCMonth()+1).padStart(2,"0")+"-"+String(d.getUTCDate()).padStart(2,"0");
+    };
+    if(isBR&&FERIADOS_B3.has(dataLocalISO(-3))){
+      return{aberto:false,exchange:"B3",label:"feriado"};
+    }
+    if(isUSA&&FERIADOS_NYSE.has(dataLocalISO(etOffset))){
+      return{aberto:false,exchange:"NYSE",label:"feriado"};
+    }
     if(isBR){
       // B3: 10:00-17:00 BRT (cuidado: tem leilao pre 09:45 e after 17:25 que ignoramos)
       const minBRT=brtH*60+utcM;
@@ -12070,7 +12099,7 @@ function App(){
               dadosBrapi=await fetchViaProxy(urlBrapiComToken,8000);
             }catch(e){dbg.push("Brapi-proxy-erro:"+e.message);}
           }
-          if(dadosBrapi)lotesFalhosSeguidos=0;else lotesFalhosSeguidos++;
+          const bNAntesDesteLote=bN;
           if(dadosBrapi&&Array.isArray(dadosBrapi.results)){
             algumSucesso=true;
             dadosBrapi.results.forEach(r=>{
@@ -12097,6 +12126,14 @@ function App(){
           }else if(!dadosBrapi){
             // Ja registrado em dbg acima (Brapi-direta-erro / Brapi-proxy-erro)
           }
+          // LOTE "FALHOU" pra fins de desistencia antecipada se: (a) nao teve resposta nenhuma
+          // (erro de rede/timeout - ja cobria antes), OU (b) teve resposta HTTP 200 mas nao
+          // extraiu NENHUM preco util deste lote (ex: em dia sem pregao, a Brapi pode responder
+          // com sucesso tecnico mas results vazio ou sem regularMarketPrice/previousClose validos).
+          // Sem essa segunda condicao, respostas "vazias mas com HTTP OK" nunca contavam como
+          // falha, entao a desistencia antecipada nunca disparava mesmo quando nenhum preco
+          // real estava sendo obtido - o loop rodava todos os 5 lotes sem necessidade.
+          if(bN>bNAntesDesteLote)lotesFalhosSeguidos=0;else lotesFalhosSeguidos++;
           // Pequena pausa entre lotes pra nao disparar todos simultaneamente
           if(lotesBrapi.indexOf(lote)<lotesBrapi.length-1)await sleep(300);
         }
@@ -12365,12 +12402,21 @@ function App(){
           const taxaAcerto=n/tickers.length;
           const erros=dbg.join(" ");
           const apenasSecundarias=erros.includes("IPCA-err")||erros.includes("Brapi-direta-erro")||erros.includes("Brapi-proxy-erro")||erros.includes("Brapi:sem-results");
+          // FERIADO: se B3 e/ou NYSE estao fechadas por feriado (nao so fim de semana/horario),
+          // a baixa taxa de sucesso pode ser porque nao ha pregao novo pra buscar hoje - nao
+          // necessariamente falha tecnica de proxy/API. Acrescenta esse contexto na mensagem.
+          const mktBRAgora=marketStatus("PETR4");
+          const mktUSAAgora=marketStatus("MSFT");
+          const feriadoContexto=[];
+          if(mktBRAgora.label==="feriado")feriadoContexto.push("B3 fechada por feriado hoje");
+          if(mktUSAAgora.label==="feriado")feriadoContexto.push("NYSE/Nasdaq fechadas por feriado hoje");
+          const sufixoFeriado=feriadoContexto.length?" ("+feriadoContexto.join("; ")+" - pode nao haver preco novo pra buscar em boa parte do mercado.)":"";
           if(falhasComPos.length>0){
             // SEMPRE avisa quando ha posicao real sem atualizar - independente da taxa geral de acerto.
             // Preco desses ativos ficou com o valor da ultima atualizacao bem-sucedida (nao o de hoje).
             // Indica se ja passou por retry automatico (proxies CORS instaveis podem falhar de forma
             // passageira - se ate apos o retry continua falhando, e mais provavel ser persistente).
-            setPErr("\u26A0 "+falhasComPos.length+" ativo(s) com posicao NAO atualizaram ("+falhasComPos.join(", ")+") - juntos representam ~"+pesoFalhasPct.toFixed(1)+"% do patrimonio. Preco exibido pode estar desatualizado para eles. Clique em Atualizar Precos novamente em alguns instantes.");
+            setPErr("\u26A0 "+falhasComPos.length+" ativo(s) com posicao NAO atualizaram ("+falhasComPos.join(", ")+") - juntos representam ~"+pesoFalhasPct.toFixed(1)+"% do patrimonio. Preco exibido pode estar desatualizado para eles."+sufixoFeriado+" Clique em Atualizar Precos novamente em alguns instantes.");
           }else if(taxaAcerto>=0.95&&apenasSecundarias&&uniq.length<=3){
             // Sucesso pratico: tudo essencial (com posicao) buscado, so apis auxiliares falharam (ouro/BTC/IPCA).
             // So mostra motivo de falha da Brapi se ela REALMENTE falhou no final (nao apareceu
