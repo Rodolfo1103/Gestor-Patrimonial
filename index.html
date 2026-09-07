@@ -11764,6 +11764,17 @@ function App(){
   },[marketStatus]);
 
   const refreshInner=useCallback(async()=>{
+    // ORCAMENTO GLOBAL COMPARTILHADO (set/2026): as etapas de fallback (Yahoo BR, Yahoo
+    // estrangeiro, Stooq) agora consultam quanto tempo AINDA RESTA ate o watchdog global de
+    // 150s, em vez de terem cada uma um teto fixo independente. Orcamentos fixos somados podiam
+    // ultrapassar 150s mesmo com cada etapa individualmente "protegida" (confirmado por calculo:
+    // 60+45+30s de fallback + ~90s das etapas anteriores passava de 220s no pior caso). Com
+    // orcamento compartilhado, cada etapa usa so o que sobrou, deixando SEMPRE uma margem de
+    // seguranca (RESERVA_FINAL_MS) antes do teto do watchdog externo.
+    const INICIO_REFRESH_MS=Date.now();
+    const TETO_WATCHDOG_MS=150000;
+    const RESERVA_FINAL_MS=15000;// nunca usa os ultimos 15s do orcamento, sobra pro watchdog externo agir
+    const orcamentoRestante=()=>Math.max(0,TETO_WATCHDOG_MS-RESERVA_FINAL_MS-(Date.now()-INICIO_REFRESH_MS));
     // AUTO-CORRECAO DEFENSIVA: qualquer ticker com posicao real mas SEM entrada em BCCY fica
     // invisivel para a busca de preco (isBR(t) exige BCCY[t]==="BRL" explicitamente). Isso pode
     // acontecer se o ticker entrou no port por um caminho que nao passa por addCustom (ex: import
@@ -12136,8 +12147,22 @@ function App(){
         // do lote disputam o MESMO proxy (cors.sh) ao mesmo tempo - lote de 3 simultaneos pode
         // estourar algum rate-limit nao documentado dele. Reduzido de 3 para 2 por lote, com pausa
         // um pouco maior, para aliviar a pressao sobre o unico proxy que responde de verdade.
+        //
+        // ORCAMENTO TOTAL DA ETAPA (set/2026) - BUG CORRIGIDO: o timeout de 9s era so POR
+        // CHAMADA, sem limite pro tempo total da etapa inteira. Com N tickers faltando em lotes
+        // de 2, o pior caso escala como (N/2)*9s - a partir de ~34 tickers ja estourava sozinho
+        // os 150s do watchdog global (confirmado: usuario travou aqui "ha 113s" com o watchdog
+        // disparando logo depois). Agora essa etapa tem um teto proprio de 60s: se estourar,
+        // para de tentar novos tickers e segue pra proxima etapa, deixando os que sobrarem
+        // marcados como falha (em vez de travar o refresh() inteiro tentando processar todos).
+        const ORCAMENTO_ETAPA_MS=orcamentoRestante()*0.6;// YH-BR pega a maior fatia (costuma ter mais tickers)
+        const inicioEtapaYHBR=Date.now();
         const LOTE=2,PAUSA_MS=450;
         for(let i=0;i<brFaltam.length;i+=LOTE){
+          if(Date.now()-inicioEtapaYHBR>ORCAMENTO_ETAPA_MS){
+            dbg.push("YH-BR-orcamento-esgotado:parou em "+i+"/"+brFaltam.length);
+            break;
+          }
           const lote=brFaltam.slice(i,i+LOTE);
           await Promise.all(lote.map(async t=>{
             try{if(await comTimeoutDuro(buscarYahooBR(t),9000))brN++;}catch{}
@@ -12204,7 +12229,15 @@ function App(){
           return ok;
         };
         const LOTE_FGN=3,PAUSA_FGN_MS=400;
+        // ORCAMENTO TOTAL DA ETAPA (mesma correcao aplicada ao Yahoo BR): sem isso, uma lista
+        // longa de tickers estrangeiros faltando pode sozinha consumir o watchdog inteiro.
+        const ORCAMENTO_FGN_MS=orcamentoRestante()*0.6;// re-calcula com base no que sobrou apos a etapa anterior
+        const inicioEtapaFgn=Date.now();
         for(let i=0;i<fgnTickers.length;i+=LOTE_FGN){
+          if(Date.now()-inicioEtapaFgn>ORCAMENTO_FGN_MS){
+            dbg.push("YH-orcamento-esgotado:parou em "+i+"/"+fgnTickers.length);
+            break;
+          }
           const lote=fgnTickers.slice(i,i+LOTE_FGN);
           await Promise.all(lote.map(async t=>{
             try{if(await comTimeoutDuro(buscarYahooFgn(t),6300))yhN++;}catch{}
@@ -12227,8 +12260,14 @@ function App(){
       if(stqMissing.length){
         let sqN=0;
         // Mesmo padrao de escalonamento das outras etapas - evita rajada simultanea contra o
-        // proxy unico confiavel.
+        // proxy unico confiavel. ORCAMENTO TOTAL: mesma correcao das duas etapas anteriores.
+        const ORCAMENTO_STQ_MS=orcamentoRestante();// ultima etapa - usa TUDO que sobrou (ja com a reserva final descontada)
+        const inicioEtapaStq=Date.now();
         for(let i=0;i<stqMissing.length;i+=2){
+          if(Date.now()-inicioEtapaStq>ORCAMENTO_STQ_MS){
+            dbg.push("STQ-orcamento-esgotado:parou em "+i+"/"+stqMissing.length);
+            break;
+          }
           const lote=stqMissing.slice(i,i+2);
           await Promise.all(lote.map(async t=>{
             try{
