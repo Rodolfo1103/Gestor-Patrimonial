@@ -11992,6 +11992,12 @@ function App(){
       // Brasil - PRIMEIRO tenta Brapi.dev (se token configurado): cobertura completa B3 incluindo FIAGROS
       // allVars: variacao % do pregao por ticker (capturada junto com o preco)
       const allVars={};
+      // sleep: declarado aqui (antes de qualquer uso) - usado tanto nos lotes da Brapi logo
+      // abaixo quanto no fallback Yahoo BR mais adiante. BUG CORRIGIDO (07/09/2026): antes esta
+      // declaracao ficava DEPOIS do bloco de lotes da Brapi que ja usava sleep(), causando
+      // "Cannot access 'sleep' before initialization" (temporal dead zone do const) e quebrando
+      // o refresh() inteiro logo no inicio, antes de qualquer chamada de rede rodar.
+      const sleep=ms=>new Promise(r=>setTimeout(r,ms));
       if(brTickers.length&&brapiKey){
         // MIGRADO PARA API V2 (set/2026) - a v1 (/api/quote/) parece estar em processo de
         // descontinuacao/instabilidade; a documentacao atual da brapi.dev so cobre v2
@@ -12063,7 +12069,6 @@ function App(){
         if(algumSucesso)dbg.push("Brapi:"+bN+"/"+brTickers.length+" ("+lotesBrapi.length+" lote(s))");
         else if(bN===0)dbg.push("Brapi:sem-results");
       }
-      const sleep=ms=>new Promise(r=>setTimeout(r,ms));
       // Brasil - Yahoo Finance como fallback (apenas tickers que a Brapi nao trouxe)
       // Funcao isolada para 1 ticker - reaproveitada na tentativa inicial E no retry automatico.
       const buscarYahooBR=async(t)=>{
