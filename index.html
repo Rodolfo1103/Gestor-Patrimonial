@@ -5137,7 +5137,7 @@ function ResilienciaAtualCard({cw,total}){
 // Fallback: calcRetornosMensais(histMensal, hist) - ex-aportes via apValue
 // Cores: verde positivo, vermelho negativo, intensidade proporcional ao modulo
 // ============================================================
-function HeatmapMensal({histMensal,hist,idxMensal,histCutoff}){
+function HeatmapMensal({histMensal,hist,idxMensal,histCutoff,setIdxMensal}){
   const meses3=["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
   // ==== Passo 1: coletar retornos por mes ====
   const retornos={};// {"YYYY-MM": retorno em %}
@@ -5226,6 +5226,44 @@ function HeatmapMensal({histMensal,hist,idxMensal,histCutoff}){
     }
     if(temAlgum)ytdPorAno[y]=(acumulado-1)*100;
   });
+  // ==== Editor de overrides manuais (movido para ca apos remocao do card de Ranking) ====
+  // So edita _portOverride (retorno do portfolio no mes) - e o unico dado que este Heatmap
+  // realmente consome de idxMensal. Nao inclui benchmarks (Ibovespa/IFIX/CDI etc) - eram usados
+  // so pelo card de Ranking, que foi removido a pedido do investidor (nao fazia sentido pra
+  // filosofia buy&hold comparar/rankear meses individuais).
+  const [editandoHM,setEditandoHM]=React.useState(false);
+  const [rascunhoHM,setRascunhoHM]=React.useState({});
+  const mesesFechadosParaEditar=[];
+  anos.forEach(y=>{
+    for(let m=0;m<12;m++){
+      const chave=y+"-"+String(m+1).padStart(2,"0");
+      const futuro=(y>anoAtual)||(y===anoAtual&&m>=mesAtual);// exclui mes corrente (em andamento)
+      if(!futuro)mesesFechadosParaEditar.push(chave);
+    }
+  });
+  const abrirEditorHM=()=>{
+    const r={};
+    mesesFechadosParaEditar.forEach(mes=>{
+      const v=retornos[mes];
+      r[mes]=typeof v==="number"?v.toFixed(2):"";
+    });
+    setRascunhoHM(r);
+    setEditandoHM(true);
+  };
+  const salvarHM=()=>{
+    if(!setIdxMensal){setEditandoHM(false);return;}
+    setIdxMensal(prev=>{
+      const novo={...prev};
+      Object.entries(rascunhoHM).forEach(([mes,strVal])=>{
+        const s=String(strVal||"").trim().replace(",",".");
+        novo[mes]=novo[mes]||{};
+        if(s===""){if(novo[mes]._portOverride!==undefined)delete novo[mes]._portOverride;}
+        else{const n=parseFloat(s);if(!isNaN(n))novo[mes]._portOverride=n;}
+      });
+      return novo;
+    });
+    setEditandoHM(false);
+  };
   // ==== Passo 5: renderizacao ====
   return h("div",{style:{marginBottom:16,padding:"14px 14px 12px",background:"rgba(15,17,21,0.5)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:10}},
     h("div",{style:{display:"flex",alignItems:"baseline",justifyContent:"space-between",marginBottom:11,flexWrap:"wrap",gap:6}},
@@ -5237,8 +5275,23 @@ function HeatmapMensal({histMensal,hist,idxMensal,histCutoff}){
         h("span",{},"legenda:"),
         h("span",{style:{background:"rgba(224,82,82,0.7)",color:"#F0EAD8",padding:"2px 6px",borderRadius:3}},"neg"),
         h("span",{style:{background:"rgba(255,255,255,0.04)",padding:"2px 6px",borderRadius:3,border:"1px dashed rgba(255,255,255,0.15)",color:"#5A5550"}},"-"),
-        h("span",{style:{background:"rgba(76,175,130,0.7)",color:"#F0EAD8",padding:"2px 6px",borderRadius:3}},"pos")
+        h("span",{style:{background:"rgba(76,175,130,0.7)",color:"#F0EAD8",padding:"2px 6px",borderRadius:3}},"pos"),
+        setIdxMensal&&h("button",{onClick:editandoHM?()=>setEditandoHM(false):abrirEditorHM,style:{marginLeft:4,background:editandoHM?"rgba(224,82,82,0.15)":"rgba(91,143,212,0.15)",border:"1px solid "+(editandoHM?"rgba(224,82,82,0.40)":"rgba(91,143,212,0.40)"),borderRadius:4,color:editandoHM?"#E05252":"#5B8FD4",fontSize:8,padding:"3px 8px",cursor:"pointer",fontFamily:"monospace",letterSpacing:1}},editandoHM?"cancelar":"editar")
       )
+    ),
+    editandoHM&&h("div",{style:{marginBottom:12,padding:"10px",background:"rgba(91,143,212,0.05)",border:"1px solid rgba(91,143,212,0.2)",borderRadius:8}},
+      h("div",{style:{fontSize:9,color:"#7A7060",marginBottom:8,fontStyle:"italic"}},"Ajuste manual da variacao patrimonial de cada mes fechado (%). Deixe vazio para usar o calculo automatico."),
+      h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(90px,1fr))",gap:7,marginBottom:10}},
+        ...mesesFechadosParaEditar.map(mes=>{
+          const [ano,mesNum]=mes.split("-");
+          const label=meses3[parseInt(mesNum)-1]+"/"+ano.slice(2);
+          return h("div",{key:mes},
+            h("div",{style:{fontSize:8,color:"#7A7060",fontFamily:"monospace",marginBottom:3}},label),
+            h("input",{type:"text",inputMode:"decimal",placeholder:"auto",value:rascunhoHM[mes]||"",onChange:e=>setRascunhoHM(prev=>({...prev,[mes]:e.target.value})),style:{width:"100%",boxSizing:"border-box",background:"rgba(0,0,0,0.4)",border:"1px solid rgba(91,143,212,0.3)",borderRadius:4,padding:"5px 7px",color:"#F0EAD8",fontSize:11,fontFamily:"monospace",outline:"none"}})
+          );
+        })
+      ),
+      h("button",{onClick:salvarHM,style:{padding:"7px 14px",background:"linear-gradient(135deg,#5B8FD4,#3A6BAF)",border:"none",borderRadius:5,color:"#0D0F14",fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",cursor:"pointer",fontFamily:"monospace"}},"salvar")
     ),
     // Grade responsiva: 1 col ano + 12 meses + YTD = 14 colunas
     h("div",{style:{overflowX:"auto",WebkitOverflowScrolling:"touch"}},
@@ -17862,7 +17915,7 @@ h("button",{onClick:async()=>{
         )
       );
 
-      content=h("div",{},dateHeader,h(BolsasCard,{port,cls}),h(SolidezCard,{total,cw,port,metaMensalIF,setTab,fB,hideVal,dataNascimento,cambialCash,rendaMotoraHist,rendaAuxiliarHist,FX,onIndice:setSolidezIndiceReal}),h(ModelosPortfolioMap,{cw,selicAtual,hideVal}),aporteCard,insightCard,h(AllocChart,{cw,ct,fB,MV,hideVal}),h(RankingMensalCard,{histMensal,hist,idxMensal,setIdxMensal,histCutoff,setHistCutoff}),h(HeatmapMensal,{histMensal,hist,idxMensal,histCutoff}),h(EstabilidadeHistoricoCard,{histMensal,idxMensal,hist,histCutoff}),insightMensalCard,topPos);
+      content=h("div",{},dateHeader,h(BolsasCard,{port,cls}),h(SolidezCard,{total,cw,port,metaMensalIF,setTab,fB,hideVal,dataNascimento,cambialCash,rendaMotoraHist,rendaAuxiliarHist,FX,onIndice:setSolidezIndiceReal}),h(ModelosPortfolioMap,{cw,selicAtual,hideVal}),aporteCard,insightCard,h(AllocChart,{cw,ct,fB,MV,hideVal}),h(HeatmapMensal,{histMensal,hist,idxMensal,histCutoff,setIdxMensal}),h(EstabilidadeHistoricoCard,{histMensal,idxMensal,hist,histCutoff}),insightMensalCard,topPos);
     }
   }  // POSITIONS
   if(tab==="positions"||tab==="correlacao"){
