@@ -12293,6 +12293,19 @@ function App(){
       // numa rodada, outros tickers em rodadas anteriores).
       if(fgnTickers.length){
         REFRESH_ETAPA.nome="Yahoo estrangeiro";REFRESH_ETAPA.ts=Date.now();
+        // PRIORIZACAO POR MERCADO ABERTO (07/09/2026) - causa raiz confirmada: TSE8031/TSE8058
+        // (Tokyo, mercado aberto no horario do teste) nao atualizavam mesmo com a bolsa
+        // funcionando, porque a lista fgnTickers nao tem nenhuma ordem por prioridade - tickers
+        // de mercados FECHADOS (ex: NYSE em feriado) ficavam antes na lista e consumiam o
+        // orcamento de tempo compartilhado da etapa (ORCAMENTO_FGN_MS) antes do loop alcancar os
+        // tickers asiaticos, que teriam sucesso rapido por estarem com pregao aberto de verdade.
+        // Reordena: tickers com mercado aberto AGORA vao primeiro - maximiza a chance de buscar
+        // com sucesso o que realmente tem preco novo disponivel, dentro do orcamento existente.
+        const fgnTickersOrdenados=fgnTickers.slice().sort((a,b)=>{
+          const abertoA=marketStatus(a).aberto?0:1;
+          const abertoB=marketStatus(b).aberto?0:1;
+          return abertoA-abertoB;
+        });
         let yhN=0;
         const buscarYahooFgn=async(t)=>{
           const sym=YH[t];
@@ -12345,16 +12358,16 @@ function App(){
         // longa de tickers estrangeiros faltando pode sozinha consumir o watchdog inteiro.
         const ORCAMENTO_FGN_MS=orcamentoRestante()*0.6;// re-calcula com base no que sobrou apos a etapa anterior
         const inicioEtapaFgn=Date.now();
-        for(let i=0;i<fgnTickers.length;i+=LOTE_FGN){
+        for(let i=0;i<fgnTickersOrdenados.length;i+=LOTE_FGN){
           if(Date.now()-inicioEtapaFgn>ORCAMENTO_FGN_MS){
-            dbg.push("YH-orcamento-esgotado:parou em "+i+"/"+fgnTickers.length);
+            dbg.push("YH-orcamento-esgotado:parou em "+i+"/"+fgnTickersOrdenados.length);
             break;
           }
-          const lote=fgnTickers.slice(i,i+LOTE_FGN);
+          const lote=fgnTickersOrdenados.slice(i,i+LOTE_FGN);
           await Promise.all(lote.map(async t=>{
             try{if(await comTimeoutDuro(buscarYahooFgn(t),6300))yhN++;}catch{}
           }));
-          if(i+LOTE_FGN<fgnTickers.length)await sleep(PAUSA_FGN_MS);
+          if(i+LOTE_FGN<fgnTickersOrdenados.length)await sleep(PAUSA_FGN_MS);
         }
         dbg.push("YH:"+yhN+"/"+fgnTickers.length);
       }
